@@ -7,7 +7,14 @@ import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { UserButton } from "@clerk/nextjs";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { Authenticated, AuthLoading, Unauthenticated, useConvexAuth, useQuery } from "convex/react";
-import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
+import {
+  getToolName,
+  isReasoningUIPart,
+  isTextUIPart,
+  isToolUIPart,
+  type PrepareReconnectToStreamRequest,
+  type UIMessage,
+} from "ai";
 import {
   ArrowLeft,
   Bot,
@@ -22,7 +29,7 @@ import {
 import Link from "next/link";
 import { Syne } from "next/font/google";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   Conversation,
@@ -97,24 +104,58 @@ function ThreadChat({
   disabled: boolean;
 }) {
   const activeRunIdRef = useRef(currentRunId);
+  const resumedRunIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    activeRunIdRef.current = currentRunId;
+    if (currentRunId) {
+      activeRunIdRef.current = currentRunId;
+    }
   }, [currentRunId]);
+
+  const agentApi = useMemo(
+    () => `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`,
+    [projectId, threadId],
+  );
+
+  const getRunStreamApi = useCallback(
+    (runId: string) => `${agentApi}/${encodeURIComponent(runId)}/stream`,
+    [agentApi],
+  );
+
+  const handleChatSendMessage = useCallback((response: Response) => {
+    const workflowRunId = response.headers.get("x-workflow-run-id");
+    if (workflowRunId) {
+      activeRunIdRef.current = workflowRunId;
+      resumedRunIdsRef.current.add(workflowRunId);
+    }
+  }, []);
+
+  const handleChatEnd = useCallback(() => {
+    activeRunIdRef.current = undefined;
+  }, []);
+
+  const prepareReconnectToStreamRequest = useCallback<PrepareReconnectToStreamRequest>(
+    (options) => {
+      const runId = activeRunIdRef.current;
+
+      if (!runId) {
+        throw new Error("No active workflow run ID found");
+      }
+
+      return {
+        ...options,
+        api: getRunStreamApi(runId),
+      };
+    },
+    [getRunStreamApi],
+  );
 
   const transport = useMemo(
     () =>
       new WorkflowChatTransport<UIMessage>({
-        api: `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`,
-        onChatSendMessage: (response) => {
-          const workflowRunId = response.headers.get("x-workflow-run-id");
-          if (workflowRunId) {
-            activeRunIdRef.current = workflowRunId;
-          }
-        },
-        onChatEnd: () => {
-          activeRunIdRef.current = undefined;
-        },
+        api: agentApi,
+        onChatSendMessage: handleChatSendMessage,
+        onChatEnd: handleChatEnd,
         prepareSendMessagesRequest: (options) => ({
           api: options.api,
           body: {
@@ -123,28 +164,25 @@ function ThreadChat({
           headers: options.headers,
           credentials: options.credentials,
         }),
-        prepareReconnectToStreamRequest: (options) => {
-          const runId = activeRunIdRef.current;
-
-          if (!runId) {
-            throw new Error("No active workflow run ID found");
-          }
-
-          return {
-            ...options,
-            api: `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(runId)}/stream`,
-          };
-        },
+        prepareReconnectToStreamRequest,
       }),
-    [projectId, threadId],
+    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest],
   );
 
-  const { messages, sendMessage, status, stop, error, clearError } = useChat<UIMessage>({
+  const { messages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,
     messages: initialMessages,
-    resume: Boolean(currentRunId),
     transport,
   });
+
+  useEffect(() => {
+    if (!currentRunId || status !== "ready" || resumedRunIdsRef.current.has(currentRunId)) {
+      return;
+    }
+
+    resumedRunIdsRef.current.add(currentRunId);
+    void resumeStream();
+  }, [currentRunId, resumeStream, status]);
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;

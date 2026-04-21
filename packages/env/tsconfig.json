@@ -1,0 +1,3 @@
+{
+  "extends": "@autopr/config/tsconfig.base.json"
+}

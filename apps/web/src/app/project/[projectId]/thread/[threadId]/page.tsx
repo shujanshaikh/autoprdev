@@ -230,13 +230,29 @@ function ThreadChat({
                       return (
                         <Tool key={`${message.id}-tool-${index}`} defaultOpen={partState !== "output-available"}>
                           {part.type === "dynamic-tool" ? (
-                            <ToolHeader state={partState} toolName={getToolName(part)} type={part.type} />
+                            <ToolHeader
+                              input={input}
+                              state={partState}
+                              toolName={getToolName(part)}
+                              type={part.type}
+                            />
                           ) : (
-                            <ToolHeader state={partState} type={part.type} />
+                            <ToolHeader input={input} state={partState} type={part.type} />
                           )}
                           <ToolContent>
-                            {input !== undefined ? <ToolInput input={input} /> : null}
-                            <ToolOutput errorText={errorText} output={output} />
+                            {input !== undefined ? (
+                              <ToolInput
+                                input={input}
+                                toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
+                                toolType={part.type}
+                              />
+                            ) : null}
+                            <ToolOutput
+                              errorText={errorText}
+                              output={output}
+                              toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
+                              toolType={part.type}
+                            />
                           </ToolContent>
                         </Tool>
                       );

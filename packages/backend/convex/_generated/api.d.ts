@@ -9,7 +9,13 @@
  */
 
 import type * as healthCheck from "../healthCheck.js";
+import type * as lib_auth from "../lib/auth.js";
+import type * as lib_github from "../lib/github.js";
+import type * as messages from "../messages.js";
 import type * as privateData from "../privateData.js";
+import type * as projectActions from "../projectActions.js";
+import type * as projects from "../projects.js";
+import type * as threads from "../threads.js";
 
 import type {
   ApiFromModules,
@@ -19,7 +25,13 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   healthCheck: typeof healthCheck;
+  "lib/auth": typeof lib_auth;
+  "lib/github": typeof lib_github;
+  messages: typeof messages;
   privateData: typeof privateData;
+  projectActions: typeof projectActions;
+  projects: typeof projects;
+  threads: typeof threads;
 }>;
 
 /**

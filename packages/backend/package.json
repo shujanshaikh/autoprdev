@@ -9,6 +9,7 @@
     "dev:setup": "convex dev --configure --until-success"
   },
   "dependencies": {
+    "@daytona/sdk": "^0.164.0",
     "convex": "catalog:",
     "dotenv": "catalog:",
     "zod": "catalog:"

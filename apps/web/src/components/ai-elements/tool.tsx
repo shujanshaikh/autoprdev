@@ -17,18 +17,52 @@ import {
   XCircleIcon,
 } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
-import { isValidElement } from "react";
+import { isValidElement, useCallback, useEffect, useState } from "react";
 
 import { CodeBlock } from "./code-block";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
-export const Tool = ({ className, ...props }: ToolProps) => (
-  <Collapsible
-    className={cn("group not-prose mb-4 w-full rounded-md border", className)}
-    {...props}
-  />
-);
+export const Tool = ({
+  className,
+  defaultOpen,
+  onOpenChange,
+  open: openProp,
+  ...props
+}: ToolProps) => {
+  const isControlled = openProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
+  const open = openProp ?? internalOpen;
+
+  useEffect(() => {
+    if (!isControlled) {
+      setInternalOpen(defaultOpen ?? false);
+    }
+  }, [defaultOpen, isControlled]);
+
+  const handleOpenChange = useCallback<NonNullable<ToolProps["onOpenChange"]>>(
+    (nextOpen, eventDetails) => {
+      if (!isControlled) {
+        setInternalOpen(nextOpen);
+      }
+
+      onOpenChange?.(nextOpen, eventDetails);
+    },
+    [isControlled, onOpenChange]
+  );
+
+  return (
+    <Collapsible
+      className={cn(
+        "group not-prose mb-4 w-full rounded-md border",
+        className
+      )}
+      onOpenChange={handleOpenChange}
+      open={open}
+      {...props}
+    />
+  );
+};
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 

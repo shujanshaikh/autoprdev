@@ -1,5 +1,18 @@
-import { createUIMessageStreamResponse } from "ai";
+import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
 import { getRun } from "workflow/api";
+
+function finishedStream() {
+  return new ReadableStream<UIMessageChunk>({
+    start(controller) {
+      controller.enqueue({ type: "finish" });
+      controller.close();
+    },
+  });
+}
+
+function isWorkflowRunNotFoundError(error: unknown) {
+  return error instanceof Error && error.name === "WorkflowRunNotFoundError";
+}
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -7,14 +20,27 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const startIndexParam = searchParams.get("startIndex");
   const startIndex = startIndexParam ? Number.parseInt(startIndexParam, 10) : undefined;
 
-  const run = getRun(id);
-  const readable = run.getReadable({ startIndex });
-  const tailIndex = await readable.getTailIndex();
+  try {
+    const run = getRun(id);
+    const readable = run.getReadable({ startIndex });
+    const tailIndex = await readable.getTailIndex();
 
-  return createUIMessageStreamResponse({
-    stream: readable,
-    headers: {
-      "x-workflow-stream-tail-index": String(tailIndex),
-    },
-  });
+    return createUIMessageStreamResponse({
+      stream: readable,
+      headers: {
+        "x-workflow-stream-tail-index": String(tailIndex),
+      },
+    });
+  } catch (error) {
+    if (!isWorkflowRunNotFoundError(error)) {
+      throw error;
+    }
+
+    return createUIMessageStreamResponse({
+      stream: finishedStream(),
+      headers: {
+        "x-workflow-stream-tail-index": "-1",
+      },
+    });
+  }
 }

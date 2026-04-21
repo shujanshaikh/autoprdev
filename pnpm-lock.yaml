@@ -187,7 +187,7 @@ importers:
 
   packages/agent:
     dependencies:
-      '@daytonaio/sdk':
+      '@daytona/sdk':
         specifier: ^0.164.0
         version: 0.164.0(ws@8.18.0)
       ai:
@@ -209,6 +209,9 @@ importers:
 
   packages/backend:
     dependencies:
+      '@daytona/sdk':
+        specifier: ^0.164.0
+        version: 0.164.0(ws@8.18.0)
       convex:
         specifier: 'catalog:'
         version: 1.35.1(@clerk/react@6.4.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
@@ -784,11 +787,11 @@ packages:
   '@daytona/api-client@0.164.0':
     resolution: {integrity: sha512-G1cV6gC0mTOMSkGy4C5FFkxEytNItOzNCWXtnYVGepLqcLsnXuv1+vpIJFiIsfKEjrZKax8bu2sdSA8lQHTyOw==}
 
+  '@daytona/sdk@0.164.0':
+    resolution: {integrity: sha512-EBxKyWjvbMMR7ZpcHp+QvtJHPeCQ7SVO08okEWMLiKeJ0bqSyXgzYW5gbXUyhhogOkcDptD+j89yK1EnTTWjSg==}
+
   '@daytona/toolbox-api-client@0.164.0':
     resolution: {integrity: sha512-7LU6mxPuobkgDIg24MHP7kf36Wm1kSSvorM/8ODGTkbLfUdXk7DSTGBs9Lqoy0cM4/62LJ9kPmjw607pPSTXbQ==}
-
-  '@daytonaio/sdk@0.164.0':
-    resolution: {integrity: sha512-vwvZksGyA3MENiIBpf0/scmRIkMmpEJJZiomr8t1UTMH3ViECvlSwPJcBu6sB7dyfD4vRmbu2JRSSN2b0XOLwA==}
 
   '@dotenvx/dotenvx@1.61.1':
     resolution: {integrity: sha512-2OUX4KDKvQA6oa7oESG8eNcV4K/2C5jgrbxUcT0VoH9Zelg6dT+rDYew4w2GmXRV3db0tUaM4QZG3MyJL3fU5Q==}
@@ -6979,13 +6982,7 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@daytona/toolbox-api-client@0.164.0':
-    dependencies:
-      axios: 1.15.1
-    transitivePeerDependencies:
-      - debug
-
-  '@daytonaio/sdk@0.164.0(ws@8.18.0)':
+  '@daytona/sdk@0.164.0(ws@8.18.0)':
     dependencies:
       '@aws-sdk/client-s3': 3.1033.0
       '@aws-sdk/lib-storage': 3.1033.0(@aws-sdk/client-s3@3.1033.0)
@@ -7015,6 +7012,12 @@ snapshots:
       - debug
       - supports-color
       - ws
+
+  '@daytona/toolbox-api-client@0.164.0':
+    dependencies:
+      axios: 1.15.1
+    transitivePeerDependencies:
+      - debug
 
   '@dotenvx/dotenvx@1.61.1':
     dependencies:

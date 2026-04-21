@@ -35,7 +35,9 @@ Copy environment variables from `packages/backend/.env.local` to `apps/*/.env`.
 ### Clerk Authentication Setup
 
 - Follow the guide: [Convex + Clerk](https://docs.convex.dev/auth/clerk)
-- Set `CLERK_JWT_ISSUER_DOMAIN` in Convex Dashboard
+- Activate the Convex integration in the Clerk Dashboard.
+- Copy the Clerk Frontend API URL and set it as `CLERK_FRONTEND_API_URL` in `packages/backend/.env.local`.
+- If you are not using the Clerk Convex integration, you can instead create a Clerk JWT template named `convex`.
 - Set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/web/.env`
 - Set `CLERK_SECRET_KEY` in `apps/web/.env` for Clerk server middleware
 

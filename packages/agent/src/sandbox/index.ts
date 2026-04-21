@@ -108,7 +108,7 @@ export function createSandboxCacheKey(prefix = "sandbox"): string {
 
 export async function createSandbox(options: SandboxSessionOptions = {}): Promise<DaytonaSandbox> {
   const resolved = resolveSessionOptions(options);
-  const { Daytona } = await import("@daytonaio/sdk");
+  const { Daytona } = await import("@daytona/sdk");
   const daytona = new Daytona({
     apiKey: process.env.DAYTONA_API_KEY,
     apiUrl: process.env.DAYTONA_API_URL,
@@ -142,4 +142,36 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
 
   sandboxContextPromises.set(resolved.cacheKey, createdContext);
   return createdContext;
+}
+
+export interface BootstrapRepositorySandboxOptions {
+  cacheKey: string;
+  repoUrl: string;
+  repoBranch?: string;
+  snapshot?: string;
+}
+
+export interface BootstrappedRepositorySandbox {
+  sandboxId: string;
+  sandboxName?: string;
+  snapshot?: string;
+  workDir: string;
+}
+
+export async function bootstrapRepositorySandbox(
+  options: BootstrapRepositorySandboxOptions,
+): Promise<BootstrappedRepositorySandbox> {
+  const context = await getSandboxContext({
+    cacheKey: options.cacheKey,
+    repoUrl: options.repoUrl,
+    repoBranch: options.repoBranch,
+    snapshot: options.snapshot,
+  });
+
+  return {
+    sandboxId: context.sandbox.id,
+    sandboxName: context.sandbox.name,
+    snapshot: context.sandbox.snapshot,
+    workDir: context.workDir,
+  };
 }

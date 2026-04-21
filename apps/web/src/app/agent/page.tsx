@@ -156,16 +156,16 @@ export default function AgentPage() {
           <header className="relative z-10 mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-border/50 pb-8">
             <div className="max-w-2xl">
               <p className="mb-3 text-[13px] leading-relaxed text-muted-foreground sm:text-sm">
-                Durable workflow stream · reconnects across refreshes. Use this bench to validate the agent transport
-                end-to-end.
+                Durable workflow stream · creates a Daytona sandbox per run and exposes file, search, edit, and bash
+                tools inside it.
               </p>
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                Workflow agent
+                Daytona agent
               </p>
               <h1
                 className={`${display.className} mt-2 text-balance text-[clamp(1.35rem,3.5vw,1.85rem)] font-extrabold uppercase leading-[1.08] tracking-[0.04em]`}
               >
-                Streaming tester
+                Sandbox workbench
               </h1>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -197,19 +197,19 @@ export default function AgentPage() {
                   <ConversationEmptyState className="items-start text-left" icon={<Bot className="size-8 text-teal-600 dark:text-teal-400" />}>
                     <div className="max-w-xl">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                        Test bench
+                        Agent bench
                       </p>
                       <h2
                         className={`${display.className} mt-3 text-xl font-extrabold uppercase leading-snug tracking-[0.03em] sm:text-2xl`}
                       >
-                        Send a prompt and watch the durable stream attach to a workflow run.
+                        Send a prompt and let the agent inspect and modify its Daytona sandbox.
                       </h2>
                     </div>
                     <div className="grid w-full gap-2 sm:grid-cols-3">
                       {[
-                        "Explain what makes this stream resumable.",
-                        "Give me a three-step test plan.",
-                        "Write a tiny release note for this endpoint.",
+                        "List the sandbox workdir and summarize what is available.",
+                        "Create hello.txt, read it back, then explain what changed.",
+                        "Run node --version and tell me what runtime is available.",
                       ].map((suggestion) => (
                         <button
                           key={suggestion}
@@ -326,13 +326,13 @@ export default function AgentPage() {
               }}
             >
               <PromptInputBody>
-                <PromptInputTextarea disabled={!ready} placeholder="Ask the durable agent something..." />
+                <PromptInputTextarea disabled={!ready} placeholder="Ask the sandbox agent to inspect, run, or edit..." />
               </PromptInputBody>
               <PromptInputFooter>
                 <PromptInputTools>
                   <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     <FlaskConical className="size-3 text-teal-600 dark:text-teal-400" aria-hidden="true" />
-                    AI Elements
+                    Daytona tools
                   </span>
                 </PromptInputTools>
                 <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />

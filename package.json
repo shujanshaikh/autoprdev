@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@autopr/config": "workspace:*",
+    "@types/node": "^20",
     "turbo": "^2.8.12",
     "typescript": "catalog:"
   },

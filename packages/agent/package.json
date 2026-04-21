@@ -1,0 +1,24 @@
+{
+  "name": "@autopr/agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sandbox": "./src/sandbox/index.ts",
+    "./tools": "./src/tools/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@daytonaio/sdk": "^0.164.0",
+    "ai": "^6.0.168",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@autopr/config": "workspace:*",
+    "@types/node": "^20",
+    "typescript": "catalog:"
+  }
+}

@@ -5,7 +5,8 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "paths": {
       "@autopr/ui/*": ["./src/*"]
-    }
+    },
+    "types": ["node"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules"]

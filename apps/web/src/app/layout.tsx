@@ -4,7 +4,6 @@ import type { Metadata } from "next";
 import "../index.css";
 import { Geist, Geist_Mono } from "next/font/google";
 
-import Header from "@/components/header";
 import Providers from "@/components/providers";
 
 const geistSans = Geist({
@@ -18,8 +17,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "autopr",
-  description: "autopr",
+  title: "autopr — cloud-native coding agents",
+  description:
+    "Long-running coding agents in isolated sandboxes. Pay only for sandbox time. Bring your own Codex subscription — no API markup.",
 };
 
 export default function RootLayout({
@@ -32,10 +32,7 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ClerkProvider>
           <Providers>
-            <div className="grid grid-rows-[auto_1fr] h-svh">
-              <Header />
-              {children}
-            </div>
+            <div className="flex min-h-svh min-h-0 flex-1 flex-col overflow-x-clip">{children}</div>
           </Providers>
         </ClerkProvider>
       </body>

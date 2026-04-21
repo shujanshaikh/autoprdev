@@ -150,9 +150,9 @@ function ThreadChat({
   }
 
   return (
-    <section className="grid min-h-0 w-full flex-1 grid-rows-[1fr_auto]">
-      <div className="relative min-h-0 overflow-hidden border border-teal-500/15 bg-background shadow-[inset_0_1px_0_0_rgba(45,212,191,0.05)]">
-        <Conversation className="h-full">
+    <section className="grid min-h-0 w-full min-w-0 flex-1 grid-rows-[1fr_auto]">
+      <div className="relative min-h-0 min-w-0 overflow-hidden border border-teal-500/15 bg-background shadow-[inset_0_1px_0_0_rgba(45,212,191,0.05)]">
+        <Conversation className="h-full min-h-0">
           <ConversationContent className="min-h-full gap-5 p-4 sm:p-6">
             {messages.length === 0 ? (
               <ConversationEmptyState className="items-start text-left" icon={<Bot className="size-8 text-teal-600 dark:text-teal-400" />}>
@@ -260,7 +260,7 @@ function ThreadChat({
         </Conversation>
       </div>
 
-      <div className="border-x border-b border-teal-500/15 bg-background p-3 sm:p-4">
+      <div className="shrink-0 border-x border-b border-teal-500/15 bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
         {currentRunId ? (
           <p className="mb-2 truncate font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
             Run {currentRunId}
@@ -307,13 +307,13 @@ export default function ProjectThreadPage() {
     <>
       <Authenticated>
         <TooltipProvider>
-          <div className="relative flex min-h-svh flex-1 flex-col overflow-x-clip text-foreground">
-            <div className="border-b border-teal-500/15 bg-teal-500/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-teal-900/90 dark:text-teal-100/90">
+          <div className="relative flex h-dvh max-h-dvh flex-col overflow-hidden text-foreground">
+            <div className="shrink-0 border-b border-teal-500/15 bg-teal-500/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-teal-900/90 dark:text-teal-100/90">
               Persistent thread · shared project sandbox
             </div>
 
-            <main className="relative mx-auto flex w-full max-w-5xl min-h-0 flex-1 flex-col px-5 pb-10 pt-10 sm:px-8 sm:pb-12 lg:px-12">
-              <header className="relative z-10 mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-border/50 pb-8">
+            <main className="relative mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden px-5 pb-3 pt-8 sm:px-8 sm:pb-4 lg:px-12">
+              <header className="relative z-10 mb-6 shrink-0 flex flex-wrap items-end justify-between gap-4 border-b border-border/50 pb-6 sm:mb-8 sm:pb-8">
                 <div className="min-w-0 max-w-2xl">
                   <Link
                     href={`/project/${projectId}`}

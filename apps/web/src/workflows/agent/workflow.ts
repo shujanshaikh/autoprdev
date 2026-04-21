@@ -4,9 +4,12 @@ import {
   prepareDaytonaSandbox,
   type SandboxSessionOptions,
 } from "@autopr/agent";
+import { api } from "@autopr/backend/convex/_generated/api";
+import type { Id } from "@autopr/backend/convex/_generated/dataModel";
 import { DurableAgent } from "@workflow/ai/agent";
-import type { ModelMessage, UIMessageChunk } from "ai";
-import { getWritable } from "workflow";
+import type { ModelMessage, UIMessage, UIMessageChunk } from "ai";
+import { ConvexHttpClient } from "convex/browser";
+import { getWorkflowMetadata, getWritable } from "workflow";
 
 export interface AgentWorkflowOptions {
   projectId?: string;
@@ -16,6 +19,15 @@ export interface AgentWorkflowOptions {
   repoUrl?: string;
   repoBranch?: string;
   assistantMessageId?: string;
+  convexUrl?: string;
+  convexAuthToken?: string;
+}
+
+interface AssistantPersistenceOptions {
+  convexUrl: string;
+  convexAuthToken: string;
+  threadId: Id<"threads">;
+  assistantMessageId: string;
 }
 
 async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>, messageId: string) {
@@ -33,9 +45,81 @@ async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>
   }
 }
 
+async function patchAssistantMessage({
+  convexUrl,
+  convexAuthToken,
+  threadId,
+  assistantMessageId,
+  parts,
+  metadata,
+}: AssistantPersistenceOptions & {
+  parts: UIMessage["parts"];
+  metadata?: unknown;
+}) {
+  "use step";
+
+  const client = new ConvexHttpClient(convexUrl);
+  client.setAuth(convexAuthToken);
+
+  await client.mutation(api.messages.patchAssistant, {
+    threadId,
+    assistantMessageId,
+    parts,
+    metadata,
+  });
+}
+
+async function markWorkflowRunFinished({
+  convexUrl,
+  convexAuthToken,
+  threadId,
+  runId,
+}: Pick<AssistantPersistenceOptions, "convexUrl" | "convexAuthToken" | "threadId"> & {
+  runId: string;
+}) {
+  "use step";
+
+  const client = new ConvexHttpClient(convexUrl);
+  client.setAuth(convexAuthToken);
+
+  await client.mutation(api.threads.markRunFinished, {
+    threadId,
+    runId,
+  });
+}
+
+function getAssistantPersistenceOptions(options: AgentWorkflowOptions): AssistantPersistenceOptions | null {
+  if (!options.convexUrl || !options.convexAuthToken || !options.threadId || !options.assistantMessageId) {
+    return null;
+  }
+
+  return {
+    convexUrl: options.convexUrl,
+    convexAuthToken: options.convexAuthToken,
+    threadId: options.threadId as Id<"threads">,
+    assistantMessageId: options.assistantMessageId,
+  };
+}
+
+function textToAssistantParts(text: string): UIMessage["parts"] {
+  if (!text) {
+    return [];
+  }
+
+  return [
+    {
+      type: "text",
+      text,
+      state: "done",
+    },
+  ];
+}
+
 export async function agentWorkflow(messages: ModelMessage[], options: AgentWorkflowOptions) {
   "use workflow";
 
+  const persistence = getAssistantPersistenceOptions(options);
+  const { workflowRunId } = getWorkflowMetadata();
   const sandboxOptions: SandboxSessionOptions = {
     cacheKey: options.sandboxCacheKey,
     sandboxId: options.sandboxId,
@@ -77,10 +161,35 @@ export async function agentWorkflow(messages: ModelMessage[], options: AgentWork
     await writeAssistantStartChunk(writable, options.assistantMessageId);
   }
 
-  await agent.stream({
-    messages,
-    writable,
-    sendStart: !options.assistantMessageId,
-    maxSteps: 12,
-  });
+  try {
+    await agent.stream({
+      messages,
+      writable,
+      sendStart: !options.assistantMessageId,
+      maxSteps: 12,
+      onFinish: async ({ text, finishReason, totalUsage }) => {
+        if (!persistence) {
+          return;
+        }
+
+        await patchAssistantMessage({
+          ...persistence,
+          parts: textToAssistantParts(text),
+          metadata: {
+            finishReason,
+            totalUsage,
+          },
+        });
+      },
+    });
+  } finally {
+    if (persistence) {
+      await markWorkflowRunFinished({
+        convexUrl: persistence.convexUrl,
+        convexAuthToken: persistence.convexAuthToken,
+        threadId: persistence.threadId,
+        runId: workflowRunId,
+      });
+    }
+  }
 }

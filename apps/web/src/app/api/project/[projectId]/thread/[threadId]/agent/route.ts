@@ -1,6 +1,6 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { Id } from "@autopr/backend/convex/_generated/dataModel";
-import { convertToModelMessages, createUIMessageStreamResponse, readUIMessageStream, type UIMessage } from "ai";
+import { convertToModelMessages, createUIMessageStreamResponse, type UIMessage } from "ai";
 import { nanoid } from "nanoid";
 import { start } from "workflow/api";
 import { z } from "zod";
@@ -29,52 +29,6 @@ function toUIMessage(row: {
     parts: row.parts,
     metadata: row.metadata,
   };
-}
-
-async function persistAssistantStream({
-  stream,
-  assistantMessageId,
-  threadId,
-  runId,
-  client,
-}: {
-  stream: ReadableStream;
-  assistantMessageId: string;
-  threadId: Id<"threads">;
-  runId: string;
-  client: NonNullable<Awaited<ReturnType<typeof getAuthenticatedConvexClient>>>["client"];
-}) {
-  let finalMessage: UIMessage | undefined;
-
-  try {
-    for await (const message of readUIMessageStream({
-      message: {
-        id: assistantMessageId,
-        role: "assistant",
-        parts: [],
-      },
-      stream: stream as ReadableStream<import("ai").UIMessageChunk>,
-      terminateOnError: false,
-    })) {
-      finalMessage = message;
-    }
-
-    if (finalMessage) {
-      await client.mutation(api.messages.patchAssistant, {
-        threadId,
-        assistantMessageId,
-        parts: finalMessage.parts,
-        metadata: finalMessage.metadata,
-      });
-    }
-  } catch (error) {
-    console.error("Failed to persist assistant stream", error);
-  } finally {
-    await client.mutation(api.threads.markRunFinished, {
-      threadId,
-      runId,
-    });
-  }
 }
 
 export async function POST(
@@ -150,6 +104,8 @@ export async function POST(
       repoUrl: project.cloneUrl,
       repoBranch: project.repoBranch,
       assistantMessageId,
+      convexUrl: convex.url,
+      convexAuthToken: convex.token,
     },
   ]);
 
@@ -158,17 +114,8 @@ export async function POST(
     runId: run.runId,
   });
 
-  const [responseStream, persistenceStream] = run.readable.tee();
-  void persistAssistantStream({
-    stream: persistenceStream,
-    assistantMessageId,
-    threadId,
-    runId: run.runId,
-    client: convex.client,
-  });
-
   return createUIMessageStreamResponse({
-    stream: responseStream,
+    stream: run.readable,
     headers: {
       "x-workflow-run-id": run.runId,
     },

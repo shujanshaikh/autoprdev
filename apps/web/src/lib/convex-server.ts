@@ -74,6 +74,8 @@ export async function getAuthenticatedConvexClient() {
 
   return {
     client,
+    token,
+    url: env.NEXT_PUBLIC_CONVEX_URL,
     userId: authState.userId,
   };
 }

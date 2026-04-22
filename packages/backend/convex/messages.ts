@@ -1,22 +1,27 @@
 import { ConvexError, v } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 
 async function requireOwnedThread(
   ctx: QueryCtx | MutationCtx,
-  threadId: Id<"threads">,
+  threadId: string,
   authorId: string,
 ) {
-  const thread = await ctx.db.get(threadId);
+  const thread = await ctx.db
+    .query("threads")
+    .withIndex("by_thread_id", (q) => q.eq("threadId", threadId))
+    .unique();
 
   if (!thread || thread.authorId !== authorId) {
     throw new ConvexError({ code: "UNAUTHORIZED" });
   }
 
-  const project = await ctx.db.get(thread.projectId);
+  const project = await ctx.db
+    .query("projects")
+    .withIndex("by_project_id", (q) => q.eq("projectId", thread.projectId))
+    .unique();
 
   if (!project || project.authorId !== authorId) {
     throw new ConvexError({ code: "UNAUTHORIZED" });
@@ -27,7 +32,7 @@ async function requireOwnedThread(
 
 export const listByThread = query({
   args: {
-    threadId: v.id("threads"),
+    threadId: v.string(),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -35,12 +40,20 @@ export const listByThread = query({
       return [];
     }
 
-    const thread = await ctx.db.get(args.threadId);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
     if (!thread || thread.authorId !== identity.subject) {
       return [];
     }
 
-    const project = await ctx.db.get(thread.projectId);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", thread.projectId))
+      .unique();
+
     if (!project || project.authorId !== identity.subject) {
       return [];
     }
@@ -55,8 +68,8 @@ export const listByThread = query({
 
 export const createTurn = mutation({
   args: {
-    projectId: v.id("projects"),
-    threadId: v.id("threads"),
+    projectId: v.string(),
+    threadId: v.string(),
     userMessage: v.object({
       messageId: v.string(),
       parts: v.array(v.any()),
@@ -105,7 +118,7 @@ export const createTurn = mutation({
       updatedAt: now,
     });
 
-    await ctx.db.patch(args.threadId, {
+    await ctx.db.patch(thread._id, {
       updatedAt: now,
     });
 
@@ -115,7 +128,7 @@ export const createTurn = mutation({
 
 export const patchAssistant = mutation({
   args: {
-    threadId: v.id("threads"),
+    threadId: v.string(),
     assistantMessageId: v.string(),
     parts: v.array(v.any()),
     metadata: v.optional(v.any()),

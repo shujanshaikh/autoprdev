@@ -2,7 +2,6 @@
 
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
-import type { Id } from "@autopr/backend/convex/_generated/dataModel";
 import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { UserButton } from "@clerk/nextjs";
 import { WorkflowChatTransport } from "@workflow/ai";
@@ -357,8 +356,8 @@ function ThreadChat({
 export default function ProjectThreadPage() {
   const params = useParams<{ projectId: string; threadId: string }>();
   const { isAuthenticated } = useConvexAuth();
-  const projectId = params.projectId as Id<"projects">;
-  const threadId = params.threadId as Id<"threads">;
+  const projectId = params.projectId;
+  const threadId = params.threadId;
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
@@ -429,10 +428,10 @@ export default function ProjectThreadPage() {
                   ) : (
                     threads.slice(0, 8).map((recentThread) => (
                       <Link
-                        key={recentThread._id}
-                        href={`/project/${projectId}/thread/${recentThread._id}`}
+                        key={recentThread.threadId}
+                        href={`/project/${projectId}/thread/${recentThread.threadId}`}
                         className={`group border px-2 py-2 transition ${
-                          recentThread._id === threadId
+                          recentThread.threadId === threadId
                             ? "border-teal-500/20 bg-teal-500/8 text-foreground"
                             : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/35 hover:text-foreground"
                         }`}

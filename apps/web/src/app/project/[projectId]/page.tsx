@@ -1,7 +1,6 @@
 "use client";
 
 import { api } from "@autopr/backend/convex/_generated/api";
-import type { Id } from "@autopr/backend/convex/_generated/dataModel";
 import { UserButton } from "@clerk/nextjs";
 import { Authenticated, AuthLoading, Unauthenticated, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, ArrowRight, Loader2, MessageSquarePlus } from "lucide-react";
@@ -33,7 +32,7 @@ export default function ProjectOverviewPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
-  const projectId = params.projectId as Id<"projects">;
+  const projectId = params.projectId;
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const createThread = useMutation(api.threads.create);
@@ -166,8 +165,8 @@ export default function ProjectOverviewPage() {
                   ) : (
                     threads.map((thread) => (
                       <Link
-                        key={thread._id}
-                        href={`/project/${projectId}/thread/${thread._id}`}
+                        key={thread.threadId}
+                        href={`/project/${projectId}/thread/${thread.threadId}`}
                         className="grid gap-2 p-4 transition hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 sm:grid-cols-[1fr_auto] sm:items-center"
                       >
                         <div>

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 
 export default defineSchema({
   projects: defineTable({
+    projectId: v.string(),
     authorId: v.string(),
     githubUrl: v.string(),
     cloneUrl: v.string(),
@@ -22,10 +23,12 @@ export default defineSchema({
     lastOpenedAt: v.optional(v.number()),
   })
     .index("by_author", ["authorId"])
-    .index("by_author_repo", ["authorId", "repoFullName"]),
+    .index("by_author_repo", ["authorId", "repoFullName"])
+    .index("by_project_id", ["projectId"]),
 
   threads: defineTable({
-    projectId: v.id("projects"),
+    threadId: v.string(),
+    projectId: v.string(),
     authorId: v.string(),
     title: v.string(),
     createdAt: v.number(),
@@ -33,12 +36,13 @@ export default defineSchema({
     currentRunId: v.optional(v.string()),
     isLive: v.optional(v.boolean()),
   })
+    .index("by_thread_id", ["threadId"])
     .index("by_project", ["projectId"])
     .index("by_author_project", ["authorId", "projectId"]),
 
   messages: defineTable({
-    threadId: v.id("threads"),
-    projectId: v.id("projects"),
+    threadId: v.string(),
+    projectId: v.string(),
     authorId: v.string(),
     messageId: v.string(),
     role: v.union(v.literal("system"), v.literal("user"), v.literal("assistant")),

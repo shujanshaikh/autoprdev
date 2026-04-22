@@ -4,7 +4,6 @@ import * as daytonaSdk from "@daytona/sdk";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import { action } from "./_generated/server";
 import { normalizeGithubUrl } from "./lib/github";
 
@@ -17,14 +16,14 @@ const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const REPO_PATH = "repo";
 
 interface EnsureProjectResult {
-  projectId: Id<"projects">;
+  projectId: string;
   reused: boolean;
   sandboxStatus: SandboxStatus;
   error?: string;
 }
 
 interface EnsuredProject {
-  projectId: Id<"projects">;
+  projectId: string;
   created: boolean;
   sandboxStatus: SandboxStatus;
 }
@@ -46,6 +45,7 @@ async function bootstrapRepositorySandbox(options: {
   });
   const sandbox = await daytona.create({
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
+    autoStopInterval : 0,
   });
   const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
   const repoPath = `${sandboxWorkDir}/${REPO_PATH}`;
@@ -69,7 +69,7 @@ export const ensureForGithubRepo = action({
     githubUrl: v.string(),
   },
   returns: v.object({
-    projectId: v.id("projects"),
+    projectId: v.string(),
     reused: v.boolean(),
     sandboxStatus: sandboxStatusValidator,
     error: v.optional(v.string()),

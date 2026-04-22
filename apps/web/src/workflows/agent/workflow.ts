@@ -5,7 +5,6 @@ import {
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
-import type { Id } from "@autopr/backend/convex/_generated/dataModel";
 import { DurableAgent } from "@workflow/ai/agent";
 import type { ModelMessage, UIMessage, UIMessageChunk } from "ai";
 import { ConvexHttpClient } from "convex/browser";
@@ -26,7 +25,7 @@ export interface AgentWorkflowOptions {
 interface AssistantPersistenceOptions {
   convexUrl: string;
   convexAuthToken: string;
-  threadId: Id<"threads">;
+  threadId: string;
   assistantMessageId: string;
 }
 
@@ -96,7 +95,7 @@ function getAssistantPersistenceOptions(options: AgentWorkflowOptions): Assistan
   return {
     convexUrl: options.convexUrl,
     convexAuthToken: options.convexAuthToken,
-    threadId: options.threadId as Id<"threads">,
+    threadId: options.threadId,
     assistantMessageId: options.assistantMessageId,
   };
 }

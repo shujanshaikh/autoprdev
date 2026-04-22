@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
 import { internalMutation, query } from "./_generated/server";
-import { requireUserId } from "./lib/auth";
+import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
 const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready"), v.literal("failed"));
@@ -18,7 +18,7 @@ export const ensureForGithubRepoInternal = internalMutation({
     repoBranch: v.optional(v.string()),
   },
   returns: v.object({
-    projectId: v.id("projects"),
+    projectId: v.string(),
     created: v.boolean(),
     sandboxStatus: sandboxStatusValidator,
   }),
@@ -36,13 +36,15 @@ export const ensureForGithubRepoInternal = internalMutation({
       });
 
       return {
-        projectId: existing._id,
+        projectId: existing.projectId,
         created: false,
         sandboxStatus: existing.sandboxStatus as SandboxStatus,
       };
     }
 
-    const projectId = await ctx.db.insert("projects", {
+    const projectId = randomUuid();
+    await ctx.db.insert("projects", {
+      projectId,
       authorId: args.authorId,
       githubUrl: args.githubUrl,
       cloneUrl: args.cloneUrl,
@@ -50,15 +52,11 @@ export const ensureForGithubRepoInternal = internalMutation({
       repoOwner: args.repoOwner,
       repoName: args.repoName,
       repoBranch: args.repoBranch,
-      sandboxCacheKey: "",
+      sandboxCacheKey: projectId,
       sandboxStatus: "creating",
       createdAt: now,
       updatedAt: now,
       lastOpenedAt: now,
-    });
-
-    await ctx.db.patch(projectId, {
-      sandboxCacheKey: projectId,
     });
 
     return {
@@ -72,7 +70,7 @@ export const ensureForGithubRepoInternal = internalMutation({
 export const markSandboxReadyInternal = internalMutation({
   args: {
     authorId: v.string(),
-    projectId: v.id("projects"),
+    projectId: v.string(),
     sandboxId: v.string(),
     sandboxName: v.optional(v.string()),
     sandboxSnapshot: v.optional(v.string()),
@@ -80,13 +78,16 @@ export const markSandboxReadyInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const project = await ctx.db.get(args.projectId);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
 
     if (!project || project.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    await ctx.db.patch(args.projectId, {
+    await ctx.db.patch(project._id, {
       sandboxId: args.sandboxId,
       sandboxName: args.sandboxName,
       sandboxSnapshot: args.sandboxSnapshot,
@@ -103,18 +104,21 @@ export const markSandboxReadyInternal = internalMutation({
 export const markSandboxFailedInternal = internalMutation({
   args: {
     authorId: v.string(),
-    projectId: v.id("projects"),
+    projectId: v.string(),
     sandboxError: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const project = await ctx.db.get(args.projectId);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
 
     if (!project || project.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    await ctx.db.patch(args.projectId, {
+    await ctx.db.patch(project._id, {
       sandboxStatus: "failed",
       sandboxError: shortError(args.sandboxError),
       updatedAt: Date.now(),
@@ -126,7 +130,7 @@ export const markSandboxFailedInternal = internalMutation({
 
 export const get = query({
   args: {
-    projectId: v.id("projects"),
+    projectId: v.string(),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -134,7 +138,10 @@ export const get = query({
       return null;
     }
 
-    const project = await ctx.db.get(args.projectId);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
 
     if (!project || project.authorId !== identity.subject) {
       return null;

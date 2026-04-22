@@ -1,5 +1,4 @@
 import { api } from "@autopr/backend/convex/_generated/api";
-import type { Id } from "@autopr/backend/convex/_generated/dataModel";
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
 import { getRun } from "workflow/api";
 
@@ -50,8 +49,8 @@ export async function GET(
   }
 
   const { projectId: projectIdParam, threadId: threadIdParam, runId } = await params;
-  const projectId = projectIdParam as Id<"projects">;
-  const threadId = threadIdParam as Id<"threads">;
+  const projectId = projectIdParam;
+  const threadId = threadIdParam;
   const [project, thread] = await Promise.all([
     convex.client.query(api.projects.get, { projectId }),
     convex.client.query(api.threads.get, { threadId }),

@@ -1,28 +1,20 @@
 import { ConvexError, v } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
-
-async function getOwnedProject(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">, authorId: string) {
-  const project = await ctx.db.get(projectId);
-
-  if (!project || project.authorId !== authorId) {
-    throw new ConvexError({ code: "UNAUTHORIZED" });
-  }
-
-  return project;
-}
+import { randomUuid } from "./lib/uuid";
 
 export const create = mutation({
   args: {
-    projectId: v.id("projects"),
+    projectId: v.string(),
     title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
-    const project = await ctx.db.get(args.projectId);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
 
     if (!project || project.authorId !== authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
@@ -33,7 +25,10 @@ export const create = mutation({
     }
 
     const now = Date.now();
-    return await ctx.db.insert("threads", {
+    const threadId = randomUuid();
+
+    await ctx.db.insert("threads", {
+      threadId,
       projectId: args.projectId,
       authorId,
       title: args.title?.trim() || "New thread",
@@ -41,12 +36,14 @@ export const create = mutation({
       updatedAt: now,
       isLive: false,
     });
+
+    return threadId;
   },
 });
 
 export const listByProject = query({
   args: {
-    projectId: v.id("projects"),
+    projectId: v.string(),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -54,7 +51,11 @@ export const listByProject = query({
       return [];
     }
 
-    const project = await ctx.db.get(args.projectId);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
     if (!project || project.authorId !== identity.subject) {
       return [];
     }
@@ -69,7 +70,7 @@ export const listByProject = query({
 
 export const get = query({
   args: {
-    threadId: v.id("threads"),
+    threadId: v.string(),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -77,7 +78,10 @@ export const get = query({
       return null;
     }
 
-    const thread = await ctx.db.get(args.threadId);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
 
     if (!thread || thread.authorId !== identity.subject) {
       return null;
@@ -89,18 +93,21 @@ export const get = query({
 
 export const markRunStarted = mutation({
   args: {
-    threadId: v.id("threads"),
+    threadId: v.string(),
     runId: v.string(),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
-    const thread = await ctx.db.get(args.threadId);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
 
     if (!thread || thread.authorId !== authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    await ctx.db.patch(args.threadId, {
+    await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
       isLive: true,
       updatedAt: Date.now(),
@@ -112,12 +119,15 @@ export const markRunStarted = mutation({
 
 export const markRunFinished = mutation({
   args: {
-    threadId: v.id("threads"),
+    threadId: v.string(),
     runId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
-    const thread = await ctx.db.get(args.threadId);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
 
     if (!thread || thread.authorId !== authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
@@ -127,7 +137,7 @@ export const markRunFinished = mutation({
       return null;
     }
 
-    await ctx.db.patch(args.threadId, {
+    await ctx.db.patch(thread._id, {
       currentRunId: undefined,
       isLive: false,
       updatedAt: Date.now(),

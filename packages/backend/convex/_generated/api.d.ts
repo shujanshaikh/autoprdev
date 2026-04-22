@@ -11,6 +11,7 @@
 import type * as healthCheck from "../healthCheck.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_github from "../lib/github.js";
+import type * as lib_uuid from "../lib/uuid.js";
 import type * as messages from "../messages.js";
 import type * as privateData from "../privateData.js";
 import type * as projectActions from "../projectActions.js";
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   healthCheck: typeof healthCheck;
   "lib/auth": typeof lib_auth;
   "lib/github": typeof lib_github;
+  "lib/uuid": typeof lib_uuid;
   messages: typeof messages;
   privateData: typeof privateData;
   projectActions: typeof projectActions;

@@ -1,5 +1,4 @@
 import { api } from "@autopr/backend/convex/_generated/api";
-import type { Id } from "@autopr/backend/convex/_generated/dataModel";
 import { convertToModelMessages, createUIMessageStreamResponse, type UIMessage } from "ai";
 import { nanoid } from "nanoid";
 import { start } from "workflow/api";
@@ -52,8 +51,8 @@ export async function POST(
   }
 
   const { projectId: projectIdParam, threadId: threadIdParam } = await params;
-  const projectId = projectIdParam as Id<"projects">;
-  const threadId = threadIdParam as Id<"threads">;
+  const projectId = projectIdParam;
+  const threadId = threadIdParam;
   const parsed = agentRequestSchema.safeParse(await req.json().catch(() => null));
 
   if (!parsed.success) {

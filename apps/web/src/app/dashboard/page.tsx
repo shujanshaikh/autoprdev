@@ -167,8 +167,8 @@ export default function Dashboard() {
                 ) : (
                   projects.map((project) => (
                     <Link
-                      key={project._id}
-                      href={`/project/${project._id}`}
+                      key={project.projectId}
+                      href={`/project/${project.projectId}`}
                       className="grid gap-3 p-4 transition hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 sm:grid-cols-[1fr_auto] sm:items-center"
                     >
                       <div className="min-w-0">

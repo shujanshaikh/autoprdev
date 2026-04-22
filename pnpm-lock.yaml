@@ -123,6 +123,9 @@ importers:
       convex:
         specifier: 'catalog:'
         version: 1.35.1(@clerk/react@6.4.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
+      diff:
+        specifier: ^8.0.2
+        version: 8.0.4
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
@@ -196,6 +199,9 @@ importers:
       ai:
         specifier: ^6.0.168
         version: 6.0.168(zod@4.3.6)
+      diff:
+        specifier: ^8.0.2
+        version: 8.0.4
       zod:
         specifier: 'catalog:'
         version: 4.3.6

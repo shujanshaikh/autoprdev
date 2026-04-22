@@ -6,13 +6,13 @@ import {
   CollapsibleTrigger,
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
-import { MultiFileDiff } from "@pierre/diffs/react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
-import { Fragment, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
 
 import { CodeBlock } from "./code-block";
+import { ContentDiff } from "./content-diff";
 import { Shimmer } from "./shimmer";
 
 const PLAIN_TEXT_LANG = "text" as BundledLanguage;
@@ -242,6 +242,7 @@ function isContentDetailsOutput(
 
 type ToolDiffPayload = {
   renderer: "pierre";
+  patch?: string;
   fileName?: string;
   oldContent?: string | null;
   newContent: string;
@@ -253,6 +254,10 @@ function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
   }
 
   if (v.renderer !== "pierre") {
+    return false;
+  }
+
+  if ("patch" in v && typeof v.patch !== "string") {
     return false;
   }
 
@@ -271,34 +276,53 @@ function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
   return true;
 }
 
-function PierreDiffView({ diff }: { diff: ToolDiffPayload }) {
-  const oldFile = useMemo(
-    () => ({
-      name: diff.fileName ?? "before",
-      contents: diff.oldContent ?? "",
-    }),
-    [diff.fileName, diff.oldContent]
-  );
+function getShikiLangFromPath(path: string | undefined): BundledLanguage {
+  if (!path) {
+    return PLAIN_TEXT_LANG;
+  }
 
-  const newFile = useMemo(
-    () => ({
-      name: diff.fileName ?? "after",
-      contents: diff.newContent,
-    }),
-    [diff.fileName, diff.newContent]
-  );
+  const file = path.split(/[\\/]/).pop() ?? path;
+  const extension = file.includes(".") ? file.slice(file.lastIndexOf(".") + 1).toLowerCase() : "";
+
+  if (extension === "ts") return "ts" as BundledLanguage;
+  if (extension === "tsx") return "tsx" as BundledLanguage;
+  if (extension === "js") return "js" as BundledLanguage;
+  if (extension === "jsx") return "jsx" as BundledLanguage;
+  if (extension === "json") return "json" as BundledLanguage;
+  if (extension === "md") return "md" as BundledLanguage;
+  if (extension === "mdx") return "mdx" as BundledLanguage;
+  if (extension === "css") return "css" as BundledLanguage;
+  if (extension === "scss") return "scss" as BundledLanguage;
+  if (extension === "html") return "html" as BundledLanguage;
+  if (extension === "yaml" || extension === "yml") return "yaml" as BundledLanguage;
+  if (extension === "sh" || extension === "bash") return "bash" as BundledLanguage;
+  if (extension === "py") return "python" as BundledLanguage;
+  if (extension === "go") return "go" as BundledLanguage;
+  if (extension === "rs") return "rust" as BundledLanguage;
+  if (extension === "java") return "java" as BundledLanguage;
+  if (extension === "kt") return "kotlin" as BundledLanguage;
+  if (extension === "swift") return "swift" as BundledLanguage;
+  if (extension === "vue") return "vue" as BundledLanguage;
+  if (extension === "svelte") return "svelte" as BundledLanguage;
+  if (extension === "xml") return "xml" as BundledLanguage;
+
+  return PLAIN_TEXT_LANG;
+}
+
+function PierreDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
+  const language = getShikiLangFromPath(pathLine ?? diff.fileName);
+
+  if (typeof diff.patch !== "string" || diff.patch.length === 0) {
+    return (
+      <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
+        <CodeBlock code={diff.newContent} language={language} />
+      </div>
+    );
+  }
 
   return (
-    <div className="overflow-hidden border border-border/50">
-      <MultiFileDiff
-        oldFile={oldFile}
-        newFile={newFile}
-        options={{
-          diffStyle: "split",
-          overflow: "wrap",
-          lineDiffType: "word-alt",
-        }}
-      />
+    <div className="overflow-hidden">
+      <ContentDiff diff={diff.patch} language={language} />
     </div>
   );
 }
@@ -330,7 +354,7 @@ function ContentDetailsBody({
         <p className="text-[10px] leading-snug text-muted-foreground">{meta}</p>
       ) : null}
       {diffPayload ? (
-        <PierreDiffView diff={diffPayload} />
+        <PierreDiffView diff={diffPayload} pathLine={pathLine} />
       ) : (
         <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
           <CodeBlock code={content} language={PLAIN_TEXT_LANG} />

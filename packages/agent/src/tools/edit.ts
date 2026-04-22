@@ -1,4 +1,5 @@
 import { tool } from "ai";
+import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
@@ -111,6 +112,7 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
       diff: {
         renderer: "pierre",
         fileName: remotePath,
+        patch: createTwoFilesPatch(remotePath, remotePath, originalText, nextText, "before", "after"),
         oldContent: originalText,
         newContent: nextText,
       },

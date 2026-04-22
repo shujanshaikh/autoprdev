@@ -25,6 +25,7 @@
     "ai": "^6.0.168",
     "babel-plugin-react-compiler": "^1.0.0",
     "convex": "catalog:",
+    "diff": "^8.0.2",
     "dotenv": "catalog:",
     "lucide-react": "catalog:",
     "motion": "^12.38.0",

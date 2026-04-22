@@ -1,0 +1,135 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.25rem;
+  background: color-mix(in oklab, var(--background) 94%, var(--muted));
+}
+
+.desktop {
+  display: block;
+}
+
+.mobile {
+  display: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: stretch;
+}
+
+.before,
+.after,
+.blockLine {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  align-items: flex-start;
+  padding: 0 0.75rem;
+}
+
+.row:first-child .before,
+.row:first-child .after {
+  padding-top: 0.25rem;
+}
+
+.row:last-child .before,
+.row:last-child .after {
+  padding-bottom: 0.25rem;
+}
+
+.before {
+  border-right: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+}
+
+.removed {
+  background: color-mix(in oklab, #ef4444 14%, var(--background));
+}
+
+.added {
+  background: color-mix(in oklab, #22c55e 14%, var(--background));
+}
+
+.lineNumber {
+  display: inline-flex;
+  width: 3.2ch;
+  min-width: 3.2ch;
+  justify-content: flex-end;
+  padding-right: 0.6ch;
+  user-select: none;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.sign {
+  display: inline-flex;
+  width: 2ch;
+  min-width: 2ch;
+  justify-content: center;
+  user-select: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+}
+
+.code {
+  width: 100%;
+  min-width: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.code :global(pre) {
+  margin: 0 !important;
+  padding: 0 0 0 0.25rem !important;
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  background: transparent !important;
+}
+
+.removed .sign {
+  color: #ef4444;
+}
+
+.added .sign {
+  color: #22c55e;
+}
+
+.code :global(code) {
+  font-size: 11px !important;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+}
+
+.block:first-child .blockLine {
+  padding-top: 0.25rem;
+}
+
+.block:last-child .blockLine {
+  padding-bottom: 0.25rem;
+}
+
+@media (max-width: 768px) {
+  .desktop {
+    display: none;
+  }
+
+  .mobile {
+    display: block;
+  }
+
+  .blockLine {
+    padding: 0 1rem 0 2.2ch;
+  }
+}

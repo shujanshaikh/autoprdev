@@ -6,9 +6,11 @@ import {
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { DurableAgent } from "@workflow/ai/agent";
-import type { ModelMessage, UIMessage, UIMessageChunk } from "ai";
+import type { ModelMessage, UIMessageChunk } from "ai";
 import { ConvexHttpClient } from "convex/browser";
 import { getWorkflowMetadata, getWritable } from "workflow";
+
+import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
 
 export interface AgentWorkflowOptions {
   projectId?: string;
@@ -50,10 +52,8 @@ async function patchAssistantMessage({
   threadId,
   assistantMessageId,
   parts,
-  metadata,
 }: AssistantPersistenceOptions & {
-  parts: UIMessage["parts"];
-  metadata?: unknown;
+  parts: unknown[];
 }) {
   "use step";
 
@@ -64,7 +64,6 @@ async function patchAssistantMessage({
     threadId,
     assistantMessageId,
     parts,
-    metadata,
   });
 }
 
@@ -100,21 +99,7 @@ function getAssistantPersistenceOptions(options: AgentWorkflowOptions): Assistan
   };
 }
 
-function textToAssistantParts(text: string): UIMessage["parts"] {
-  if (!text) {
-    return [];
-  }
-
-  return [
-    {
-      type: "text",
-      text,
-      state: "done",
-    },
-  ];
-}
-
-export async function agentWorkflow(messages: ModelMessage[], options: AgentWorkflowOptions) {
+export async function agentWorkflow(inputMessages: ModelMessage[], options: AgentWorkflowOptions) {
   "use workflow";
 
   const persistence = getAssistantPersistenceOptions(options);
@@ -153,7 +138,6 @@ export async function agentWorkflow(messages: ModelMessage[], options: AgentWork
     tools,
     toolChoice: "auto",
   });
-
   const writable = getWritable<UIMessageChunk>();
 
   if (options.assistantMessageId) {
@@ -162,22 +146,18 @@ export async function agentWorkflow(messages: ModelMessage[], options: AgentWork
 
   try {
     await agent.stream({
-      messages,
+      messages: inputMessages,
       writable,
       sendStart: !options.assistantMessageId,
       maxSteps: 12,
-      onFinish: async ({ text, finishReason, totalUsage }) => {
+      onFinish: async ({ messages }) => {
         if (!persistence) {
           return;
         }
 
         await patchAssistantMessage({
           ...persistence,
-          parts: textToAssistantParts(text),
-          metadata: {
-            finishReason,
-            totalUsage,
-          },
+          parts: responseMessagesToAssistantParts(messages, inputMessages.length),
         });
       },
     });

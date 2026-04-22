@@ -47,6 +47,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, type ToolPart } from "@/components/ai-elements/tool";
+import { toUIMessage } from "@/lib/chat-messages";
 import { ModeToggle } from "@/components/mode-toggle";
 
 const display = Syne({
@@ -73,20 +74,6 @@ function getToolState(part: object): ToolPart["state"] {
   }
 
   return "output-available";
-}
-
-function toUIMessage(row: {
-  messageId: string;
-  role: "system" | "user" | "assistant";
-  parts: UIMessage["parts"];
-  metadata?: unknown;
-}): UIMessage {
-  return {
-    id: row.messageId,
-    role: row.role,
-    parts: row.parts,
-    metadata: row.metadata,
-  };
 }
 
 function ThreadChat({

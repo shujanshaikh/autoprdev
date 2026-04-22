@@ -5,6 +5,7 @@ import { start } from "workflow/api";
 import { z } from "zod";
 
 import { ConvexAuthConfigurationError, getAuthenticatedConvexClient } from "@/lib/convex-server";
+import { toUIMessage } from "@/lib/chat-messages";
 import { agentWorkflow } from "@/workflows/agent/workflow";
 
 const agentRequestSchema = z.object({
@@ -15,20 +16,6 @@ const agentRequestSchema = z.object({
     metadata: z.any().optional(),
   }),
 });
-
-function toUIMessage(row: {
-  messageId: string;
-  role: "system" | "user" | "assistant";
-  parts: UIMessage["parts"];
-  metadata?: unknown;
-}): UIMessage {
-  return {
-    id: row.messageId,
-    role: row.role,
-    parts: row.parts,
-    metadata: row.metadata,
-  };
-}
 
 export async function POST(
   req: Request,

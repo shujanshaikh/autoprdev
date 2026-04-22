@@ -6,10 +6,11 @@ import {
   CollapsibleTrigger,
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
+import { MultiFileDiff } from "@pierre/diffs/react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
-import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
+import { Fragment, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
 
 import { CodeBlock } from "./code-block";
 import { Shimmer } from "./shimmer";
@@ -239,6 +240,69 @@ function isContentDetailsOutput(
   return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
 }
 
+type ToolDiffPayload = {
+  renderer: "pierre";
+  fileName?: string;
+  oldContent?: string | null;
+  newContent: string;
+};
+
+function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
+  if (!isRecord(v)) {
+    return false;
+  }
+
+  if (v.renderer !== "pierre") {
+    return false;
+  }
+
+  if (typeof v.newContent !== "string") {
+    return false;
+  }
+
+  if ("oldContent" in v && v.oldContent !== null && typeof v.oldContent !== "string") {
+    return false;
+  }
+
+  if ("fileName" in v && typeof v.fileName !== "string") {
+    return false;
+  }
+
+  return true;
+}
+
+function PierreDiffView({ diff }: { diff: ToolDiffPayload }) {
+  const oldFile = useMemo(
+    () => ({
+      name: diff.fileName ?? "before",
+      contents: diff.oldContent ?? "",
+    }),
+    [diff.fileName, diff.oldContent]
+  );
+
+  const newFile = useMemo(
+    () => ({
+      name: diff.fileName ?? "after",
+      contents: diff.newContent,
+    }),
+    [diff.fileName, diff.newContent]
+  );
+
+  return (
+    <div className="overflow-hidden border border-border/50">
+      <MultiFileDiff
+        oldFile={oldFile}
+        newFile={newFile}
+        options={{
+          diffStyle: "split",
+          overflow: "wrap",
+          lineDiffType: "word-alt",
+        }}
+      />
+    </div>
+  );
+}
+
 function ContentDetailsBody({
   slug,
   content,
@@ -251,18 +315,27 @@ function ContentDetailsBody({
   const meta = formatDetailsMetaLine(slug, details);
   const pathLine =
     typeof details.path === "string" ? (details.path as string) : undefined;
+  const diffPayload =
+    (slug === "write" || slug === "edit") && isToolDiffPayload(details.diff)
+      ? details.diff
+      : null;
+  const showMeta = !(slug === "edit" && diffPayload);
 
   return (
     <div className="space-y-1.5">
-      {pathLine ? (
+      {showMeta && pathLine ? (
         <p className="break-all text-[10px] leading-snug text-muted-foreground">{pathLine}</p>
       ) : null}
-      {meta && (!pathLine || meta !== pathLine) ? (
+      {showMeta && meta && (!pathLine || meta !== pathLine) ? (
         <p className="text-[10px] leading-snug text-muted-foreground">{meta}</p>
       ) : null}
-      <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
-        <CodeBlock code={content} language={PLAIN_TEXT_LANG} />
-      </div>
+      {diffPayload ? (
+        <PierreDiffView diff={diffPayload} />
+      ) : (
+        <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
+          <CodeBlock code={content} language={PLAIN_TEXT_LANG} />
+        </div>
+      )}
     </div>
   );
 }
@@ -389,6 +462,11 @@ export const ToolInput = ({
   toolName,
   ...props
 }: ToolInputProps) => {
+  const slug = toolSlugFromPart(toolType, toolName);
+  if (slug === "edit") {
+    return null;
+  }
+
   const asRecord = isRecord(input) ? input : null;
   const useKv = asRecord && isShallowDisplayable(asRecord);
 

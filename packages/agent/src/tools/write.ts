@@ -17,6 +17,15 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
 
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = resolveSandboxPath(input.path, context.workDir);
+  let previousContent: string | null = null;
+
+  try {
+    const previousBuffer = Buffer.from(await context.sandbox.fs.downloadFile(remotePath));
+    previousContent = previousBuffer.toString("utf8");
+  } catch {
+    previousContent = null;
+  }
+
   const content = Buffer.from(input.content, "utf8");
 
   await ensureRemoteParentDirectory(remotePath, sandboxOptions);
@@ -27,6 +36,12 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     details: {
       path: remotePath,
       bytesWritten: content.length,
+      diff: {
+        renderer: "pierre",
+        fileName: remotePath,
+        oldContent: previousContent,
+        newContent: input.content,
+      },
     },
   };
 }

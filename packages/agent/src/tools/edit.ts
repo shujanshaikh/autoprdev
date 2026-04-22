@@ -108,6 +108,12 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
       path: remotePath,
       replacements: input.edits.length,
       bytesWritten: nextBuffer.length,
+      diff: {
+        renderer: "pierre",
+        fileName: remotePath,
+        oldContent: originalText,
+        newContent: nextText,
+      },
     },
   };
 }

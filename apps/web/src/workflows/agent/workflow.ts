@@ -136,7 +136,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     model: "minimax/minimax-m2.7",
     instructions,
     tools,
-    toolChoice: "auto",
+    toolChoice: "required",
   });
   const writable = getWritable<UIMessageChunk>();
 

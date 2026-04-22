@@ -12,6 +12,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
 
 import { CodeBlock } from "./code-block";
+import { Shimmer } from "./shimmer";
 
 const PLAIN_TEXT_LANG = "text" as BundledLanguage;
 
@@ -48,7 +49,7 @@ export const Tool = ({
   return (
     <Collapsible
       className={cn(
-        "group not-prose mb-3 w-full border border-teal-500/10 bg-background text-left",
+        "group not-prose mb-0 w-full min-w-0 overflow-hidden text-left font-mono text-[11px] leading-tight text-muted-foreground",
         className
       )}
       onOpenChange={handleOpenChange}
@@ -59,6 +60,10 @@ export const Tool = ({
 };
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
+
+function isToolStreamingState(state: ToolPart["state"]): boolean {
+  return state === "input-streaming" || state === "input-available";
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -83,18 +88,14 @@ function pathBasename(path: string): string {
   return n || "/";
 }
 
-function inputPath(input: unknown): string | undefined {
-  if (!isRecord(input)) {
-    return undefined;
+function displayToolLabel(slug: string): string {
+  if (slug === "find") {
+    return "Glob";
   }
-  const p = input.path;
-  return typeof p === "string" ? p : undefined;
-}
-
-function isContentDetailsOutput(
-  v: unknown
-): v is { content: string; details: Record<string, unknown> } {
-  return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
+  if (!slug) {
+    return "Tool";
+  }
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
 function formatPrimitive(v: unknown): string {
@@ -122,6 +123,68 @@ function isShallowDisplayable(data: Record<string, unknown>): boolean {
     const t = typeof v;
     return t === "string" || t === "number" || t === "boolean";
   });
+}
+
+function formatToolSummaryLine(slug: string, input: unknown): string {
+  if (!isRecord(input)) {
+    return "";
+  }
+  const o = input;
+
+  switch (slug) {
+    case "read": {
+      const p = o.path;
+      return typeof p === "string" ? pathBasename(p) : "";
+    }
+    case "write":
+    case "edit": {
+      const p = o.path;
+      return typeof p === "string" ? pathBasename(p) : "";
+    }
+    case "ls": {
+      const p = o.path;
+      if (typeof p !== "string" || p === "" || p === ".") {
+        return ".";
+      }
+      return pathBasename(p) || p;
+    }
+    case "grep": {
+      const bits: string[] = [];
+      if (typeof o.path === "string") {
+        bits.push(o.path);
+      }
+      if (typeof o.pattern === "string") {
+        bits.push(`pattern=${o.pattern}`);
+      }
+      if (typeof o.glob === "string") {
+        bits.push(`include=${o.glob}`);
+      }
+      return bits.join(" ");
+    }
+    case "find": {
+      const bits: string[] = [];
+      if (typeof o.path === "string") {
+        bits.push(o.path);
+      }
+      if (typeof o.pattern === "string") {
+        bits.push(`pattern=${o.pattern}`);
+      }
+      return bits.join(" ");
+    }
+    case "bash": {
+      const c = o.command;
+      return typeof c === "string" ? c.replace(/\s+/g, " ").trim() : "";
+    }
+    case "sandboxInfo":
+      return "";
+    default:
+      if (isShallowDisplayable(o)) {
+        return shallowEntries(o)
+          .map(([k, v]) => `${k}=${formatPrimitive(v)}`)
+          .join(" ");
+      }
+      return "";
+  }
 }
 
 function formatReadDetailsMeta(d: Record<string, unknown>): string | null {
@@ -170,6 +233,12 @@ function formatDetailsMetaLine(slug: string, details: Record<string, unknown>): 
   return null;
 }
 
+function isContentDetailsOutput(
+  v: unknown
+): v is { content: string; details: Record<string, unknown> } {
+  return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
+}
+
 function ContentDetailsBody({
   slug,
   content,
@@ -184,14 +253,14 @@ function ContentDetailsBody({
     typeof details.path === "string" ? (details.path as string) : undefined;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {pathLine ? (
-        <p className="break-all font-mono text-[10px] leading-snug text-muted-foreground">{pathLine}</p>
+        <p className="break-all text-[10px] leading-snug text-muted-foreground">{pathLine}</p>
       ) : null}
       {meta && (!pathLine || meta !== pathLine) ? (
-        <p className="font-mono text-[10px] leading-snug text-muted-foreground">{meta}</p>
+        <p className="text-[10px] leading-snug text-muted-foreground">{meta}</p>
       ) : null}
-      <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/70 bg-muted/15">
+      <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
         <CodeBlock code={content} language={PLAIN_TEXT_LANG} />
       </div>
     </div>
@@ -209,25 +278,19 @@ const statusLabel: Record<ToolPart["state"], string> = {
 };
 
 function ToolStatusText({ state }: { state: ToolPart["state"] }) {
+  if (state === "output-available" || isToolStreamingState(state)) {
+    return null;
+  }
   const label = statusLabel[state];
-  const muted =
-    state === "output-available" ||
-    state === "approval-responded" ||
-    state === "input-streaming";
   const warn = state === "approval-requested" || state === "output-denied";
   const bad = state === "output-error";
 
   return (
     <span
       className={cn(
-        "shrink-0 font-mono text-[10px] font-medium uppercase tracking-[0.12em]",
-        muted && "text-muted-foreground",
-        warn && "text-amber-700/90 dark:text-amber-200/90",
-        bad && "text-destructive",
-        !muted &&
-          !warn &&
-          !bad &&
-          "text-teal-700 dark:text-teal-400"
+        "shrink-0 text-[10px] text-muted-foreground/80",
+        warn && "text-amber-600 dark:text-amber-400",
+        bad && "text-destructive"
       )}
     >
       {label}
@@ -265,56 +328,37 @@ export const ToolHeader = ({
   const derivedName =
     type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-");
   const fallbackName = title ?? derivedName;
-  const path = inputPath(input);
-
-  let primary: ReactNode = (
-    <>
-      <span className="break-all">{fallbackName}</span>
-    </>
-  );
-
-  if (!title) {
-    if (slug === "read" && path) {
-      primary = (
-        <>
-          <span className="text-muted-foreground">read file </span>
-          <span>{pathBasename(path)}</span>
-        </>
-      );
-    } else if (slug === "ls") {
-      const p = path ?? ".";
-      const label = p === "." || p === "" ? "." : pathBasename(p) || p;
-      primary = (
-        <>
-          <span className="text-muted-foreground">list dir </span>
-          <span>{label}</span>
-        </>
-      );
-    }
-  }
+  const label = title ? fallbackName : displayToolLabel(slug);
+  const summary = formatToolSummaryLine(slug, input);
+  const streaming = isToolStreamingState(state);
+  const lineText = [label, summary].filter(Boolean).join(" ");
+  const status = <ToolStatusText state={state} />;
 
   return (
     <CollapsibleTrigger
       className={cn(
-        "flex w-full items-baseline justify-between gap-4 px-3 py-2.5 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-teal-500/25 focus-visible:ring-offset-0 sm:px-3.5",
+        "flex w-full cursor-pointer items-center gap-2 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         className
       )}
       {...props}
     >
-      <span className="min-w-0 flex-1 font-mono text-[13px] leading-snug text-foreground">
-        {primary}
-        <span className="text-muted-foreground"> · </span>
-        <ToolStatusText state={state} />
+      <span className="min-w-0 flex-1 overflow-hidden text-left">
+        {streaming ? (
+          <Shimmer as="span" className="block max-w-full truncate align-baseline text-[11px]" duration={2} spread={2}>
+            {lineText || label}
+          </Shimmer>
+        ) : (
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="shrink-0 font-medium text-foreground">{label}</span>
+            {summary ? (
+              <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground">{summary}</span>
+            ) : null}
+          </span>
+        )}
       </span>
-      <span
-        className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground"
-        aria-hidden="true"
-      >
-        <span className="group-data-[state=open]:hidden">+</span>
-        <span className="hidden group-data-[state=open]:inline">−</span>
-      </span>
+      {status}
       <span className="sr-only">
-        {fallbackName}, {statusLabel[state]}. Toggle to show or hide arguments and result.
+        {fallbackName}, {statusLabel[state]}. Toggle for arguments and result.
       </span>
     </CollapsibleTrigger>
   );
@@ -325,7 +369,7 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "border-t border-border/60 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in",
+      "mt-0.5 border-t border-border/40 pt-1.5 text-[11px] text-muted-foreground data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in",
       className
     )}
     {...props}
@@ -334,7 +378,6 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
 
 export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolPart["input"];
-  /** Tool UI part `type`, e.g. `tool-read` */
   toolType?: string;
   toolName?: string;
 };
@@ -346,24 +389,22 @@ export const ToolInput = ({
   toolName,
   ...props
 }: ToolInputProps) => {
-  const slug = toolSlugFromPart(toolType, toolName);
   const asRecord = isRecord(input) ? input : null;
   const useKv = asRecord && isShallowDisplayable(asRecord);
 
   return (
-    <div className={cn("space-y-1.5 px-3 pb-3 pt-2 sm:px-3.5", className)} {...props}>
-      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">in</p>
+    <div className={cn("space-y-0.5", className)} {...props}>
       {useKv ? (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 font-mono text-[11px] leading-snug">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11px] leading-snug">
           {shallowEntries(asRecord).map(([k, v]) => (
             <Fragment key={k}>
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className="break-all text-foreground">{formatPrimitive(v)}</dd>
+              <dt className="text-muted-foreground/70">{k}</dt>
+              <dd className="truncate text-foreground/90">{formatPrimitive(v)}</dd>
             </Fragment>
           ))}
         </dl>
       ) : (
-        <div className="border border-border/70 bg-muted/20">
+        <div className="[&_pre]:bg-transparent">
           <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
         </div>
       )}
@@ -395,9 +436,7 @@ export const ToolOutput = ({
   let body: ReactNode;
 
   if (errorText) {
-    body = (
-      <div className="px-2.5 py-2 font-mono text-[12px] leading-relaxed">{errorText}</div>
-    );
+    body = <div className="py-0.5 text-[11px] leading-relaxed text-destructive">{errorText}</div>;
   } else if (isContentDetailsOutput(output)) {
     body = <ContentDetailsBody slug={slug} content={output.content} details={output.details} />;
   } else if (typeof output === "object" && !isValidElement(output)) {
@@ -417,20 +456,8 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("space-y-1.5 px-3 pb-3 pt-1 sm:px-3.5", className)} {...props}>
-      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-        {errorText ? "error" : "out"}
-      </p>
-      <div
-        className={cn(
-          "overflow-x-auto border text-xs [&_table]:w-full",
-          errorText
-            ? "border-destructive/30 bg-destructive/5 text-destructive"
-            : isContentDetailsOutput(output) && !errorText
-              ? "border-transparent bg-transparent"
-              : "border-border/70 bg-muted/20 text-foreground"
-        )}
-      >
+    <div className={cn("mt-1.5 space-y-0.5 border-t border-border/40 pt-1.5", className)} {...props}>
+      <div className={cn("overflow-x-auto text-xs [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/90")}>
         {body}
       </div>
     </div>

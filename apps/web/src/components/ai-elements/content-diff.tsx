@@ -20,6 +20,12 @@ type MobileBlock = {
   lines: string[];
 };
 
+type UnifiedLine = {
+  content: string;
+  type: "added" | "removed" | "unchanged";
+  lineNumber: number | null;
+};
+
 export function ContentDiff({ diff, language }: { diff: string; language: BundledLanguage }) {
   const rows = useMemo<DiffRow[]>(() => {
     const diffRows: DiffRow[] = [];
@@ -159,34 +165,70 @@ export function ContentDiff({ diff, language }: { diff: string; language: Bundle
     return blocks;
   }, [rows]);
 
+  const unifiedLines = useMemo<UnifiedLine[]>(() => {
+    const lines: UnifiedLine[] = [];
+
+    for (const row of rows) {
+      if (row.type === "modified") {
+        lines.push({
+          content: row.left,
+          type: "removed",
+          lineNumber: row.leftLineNumber,
+        });
+        lines.push({
+          content: row.right,
+          type: "added",
+          lineNumber: row.rightLineNumber,
+        });
+        continue;
+      }
+
+      if (row.type === "removed") {
+        lines.push({
+          content: row.left,
+          type: "removed",
+          lineNumber: row.leftLineNumber,
+        });
+        continue;
+      }
+
+      if (row.type === "added") {
+        lines.push({
+          content: row.right,
+          type: "added",
+          lineNumber: row.rightLineNumber,
+        });
+        continue;
+      }
+
+      lines.push({
+        content: row.right,
+        type: "unchanged",
+        lineNumber: row.rightLineNumber,
+      });
+    }
+
+    return lines;
+  }, [rows]);
+
   return (
     <div className={styles.root}>
-      <div className={styles.desktop}>
-        {rows.map((row, rowIndex) => (
-          <div key={`row-${rowIndex}`} className={styles.row}>
-            <div
-              className={`${styles.before} ${
-                row.type === "removed" || row.type === "modified" ? styles.removed : ""
-              }`}
-            >
-              <span className={styles.lineNumber}>{row.leftLineNumber ?? ""}</span>
-              <span className={styles.sign}>{row.type === "removed" || row.type === "modified" ? "-" : ""}</span>
-              <CodeBlock className={styles.code} code={row.left} language={language} />
-            </div>
-            <div
-              className={`${styles.after} ${
-                row.type === "added" || row.type === "modified" ? styles.added : ""
-              }`}
-            >
-              <span className={styles.lineNumber}>{row.rightLineNumber ?? ""}</span>
-              <span className={styles.sign}>{row.type === "added" || row.type === "modified" ? "+" : ""}</span>
-              <CodeBlock className={styles.code} code={row.right} language={language} />
-            </div>
+      <div className={styles.unified}>
+        {unifiedLines.map((line, lineIndex) => (
+          <div
+            key={`line-${lineIndex}`}
+            className={`${styles.unifiedLine} ${
+              line.type === "removed" ? styles.removed : line.type === "added" ? styles.added : ""
+            }`}
+          >
+            <span className={styles.lineNumber}>{line.lineNumber ?? ""}</span>
+            <span className={styles.sign}>{line.type === "removed" ? "-" : line.type === "added" ? "+" : ""}</span>
+            <CodeBlock className={styles.code} code={line.content} language={language} />
           </div>
         ))}
       </div>
 
-      <div className={styles.mobile}>
+      <div className={styles.mobileHidden}>
         {mobileBlocks.map((block, blockIndex) => (
           <div key={`block-${blockIndex}`} className={styles.block}>
             {block.lines.map((line, lineIndex) => (

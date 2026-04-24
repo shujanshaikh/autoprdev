@@ -60,7 +60,7 @@ function AuroraCanvas() {
           vy: (Math.random() - 0.5) * 0.12 - 0.04,
           size: Math.random() * 2 + 0.3,
           opacity: Math.random() * 0.4 + 0.08,
-          hue: 20 + Math.random() * 30,
+          hue: 105 + Math.random() * 50,
         });
       }
     }
@@ -74,17 +74,17 @@ function AuroraCanvas() {
       ctx.clearRect(0, 0, w, h);
       time += 0.003;
 
-      // Subtle aurora glow — using primary hue range (warm red/orange ~27°)
+      // Subtle aurora glow — using primary hue range (lime green ~115°)
       const g1 = ctx.createRadialGradient(w * 0.35, h * 0.25, 0, w * 0.35, h * 0.25, w * 0.45);
-      g1.addColorStop(0, `hsla(${27 + Math.sin(time) * 8}, 55%, 42%, 0.06)`);
-      g1.addColorStop(0.6, `hsla(${30 + Math.sin(time * 1.2) * 6}, 45%, 32%, 0.03)`);
+      g1.addColorStop(0, `hsla(${115 + Math.sin(time) * 10}, 60%, 45%, 0.06)`);
+      g1.addColorStop(0.6, `hsla(${120 + Math.sin(time * 1.2) * 8}, 50%, 35%, 0.03)`);
       g1.addColorStop(1, "transparent");
       ctx.fillStyle = g1;
       ctx.fillRect(0, 0, w, h);
 
       const g2 = ctx.createRadialGradient(w * 0.68, h * 0.18, 0, w * 0.68, h * 0.18, w * 0.38);
-      g2.addColorStop(0, `hsla(${245 + Math.cos(time * 0.8) * 10}, 50%, 38%, 0.05)`);
-      g2.addColorStop(0.5, `hsla(${240 + Math.cos(time) * 5}, 40%, 28%, 0.025)`);
+      g2.addColorStop(0, `hsla(${135 + Math.cos(time * 0.8) * 10}, 55%, 40%, 0.05)`);
+      g2.addColorStop(0.5, `hsla(${145 + Math.cos(time) * 8}, 45%, 30%, 0.025)`);
       g2.addColorStop(1, "transparent");
       ctx.fillStyle = g2;
       ctx.fillRect(0, 0, w, h);

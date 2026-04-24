@@ -2,18 +2,18 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 
 import "../index.css";
-import { Oxanium, Source_Code_Pro } from "next/font/google";
+import { Chakra_Petch, IBM_Plex_Mono } from "next/font/google";
 
 import Providers from "@/components/providers";
 
-const oxanium = Oxanium({
-  variable: "--font-oxanium",
+const chakraPetch = Chakra_Petch({
+  variable: "--font-chakra-petch",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
-const sourceCodePro = Source_Code_Pro({
-  variable: "--font-source-code-pro",
+const ibmPlexMono = IBM_Plex_Mono({
+  variable: "--font-ibm-plex-mono",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
 });
@@ -31,7 +31,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${oxanium.variable} ${sourceCodePro.variable} antialiased`}>
+      <body className={`${chakraPetch.variable} ${ibmPlexMono.variable} antialiased`}>
         <ClerkProvider>
           <Providers>
             <div className="flex min-h-svh min-h-0 flex-1 flex-col overflow-x-clip">{children}</div>

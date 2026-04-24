@@ -1,13 +1,7 @@
 @import "@autopr/ui/globals.css";
 
-/* App shell only: map Tailwind `font-sans` / `font-mono` to Geist from the root layout.
-   Color tokens stay the default from `@autopr/ui` — page-level accents use Tailwind
-   `teal-*` utilities (e.g. `src/app/page.tsx`) so nothing stacks twice. */
-
-@theme inline {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-}
+/* Doom 64 theme fonts (Oxanium + Source Code Pro) are defined in
+   @autopr/ui globals.css — no overrides needed here. */
 
 .minimal-scrollbar,
 .minimal-scrollbar * {

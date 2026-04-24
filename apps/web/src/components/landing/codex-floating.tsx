@@ -5,8 +5,6 @@ import * as React from "react";
 
 import { CodexLogo } from "@/components/icons/codex-logo";
 
-const ACCENT = "rgb(45 212 191)";
-
 export function CodexFloating() {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const panelId = React.useId();
@@ -20,11 +18,10 @@ export function CodexFloating() {
         type="button"
         aria-expanded={mobileOpen}
         aria-controls={panelId}
-        className="relative flex size-14 cursor-pointer items-center justify-center shadow-[0_12px_40px_-8px_rgb(0_0_0/_0.45)] ring-2 ring-teal-400/25 transition hover:ring-teal-400/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        style={{ backgroundColor: ACCENT }}
+        className="relative flex size-14 cursor-pointer items-center justify-center bg-primary shadow-[0_12px_40px_-8px_rgb(0_0_0/_0.45)] ring-2 ring-primary/25 transition hover:ring-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         onClick={() => setMobileOpen((o) => !o)}
       >
-        <CodexLogo className="size-7 text-white" />
+        <CodexLogo className="size-7 text-primary-foreground" />
         <span className="sr-only">Codex subscription support — bring your own Codex, no API bills</span>
       </button>
 

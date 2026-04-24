@@ -45,7 +45,7 @@ async function bootstrapRepositorySandbox(options: {
   });
   const sandbox = await daytona.create({
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
-    autoStopInterval : 0,
+    autoStopInterval : 1 * 60 * 60 * 1000, // 1 hour
   });
   const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
   const repoPath = `${sandboxWorkDir}/${REPO_PATH}`;

@@ -1,19 +1,13 @@
 import Link from "next/link";
-import { Syne } from "next/font/google";
 
 import { CodexFloating } from "@/components/landing/codex-floating";
 import { EmailCta } from "@/components/landing/email-cta";
 import { ModeToggle } from "@/components/mode-toggle";
 
-const display = Syne({
-  subsets: ["latin"],
-  weight: ["700", "800"],
-});
-
 export default function Home() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto">
-      <div className="border-b border-teal-500/15 bg-teal-500/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-teal-900/90 dark:text-teal-100/90">
+      <div className="border-b border-primary/15 bg-primary/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-primary-foreground/90 dark:text-primary-foreground/90">
         Sandbox billing only · Bring your Codex subscription — zero API markup from us
       </div>
 
@@ -25,7 +19,7 @@ export default function Home() {
           <li>
             <a
               href="#"
-              className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Pricing
             </a>
@@ -33,7 +27,7 @@ export default function Home() {
           <li>
             <a
               href="#"
-              className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Docs
             </a>
@@ -41,7 +35,7 @@ export default function Home() {
           <li>
             <Link
               href="/dashboard"
-              className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Sign in
             </Link>
@@ -56,7 +50,7 @@ export default function Home() {
             through our API.
           </p>
           <h1
-            className={`${display.className} text-balance text-[clamp(1.65rem,5vw,2.65rem)] font-extrabold uppercase leading-[1.05] tracking-[0.04em] text-foreground`}
+            className="font-sans text-balance text-[clamp(1.65rem,5vw,2.65rem)] font-extrabold uppercase leading-[1.05] tracking-[0.04em] text-foreground"
           >
             Autopr
             <span className="mx-2 inline-block align-middle text-muted-foreground/35">:</span>

@@ -5,7 +5,6 @@ import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { Authenticated, AuthLoading, Unauthenticated, useAction, useConvexAuth, useQuery } from "convex/react";
 import { ArrowUpRight, Github, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { Syne } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
@@ -13,14 +12,9 @@ import type { FormEvent } from "react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { normalizeGithubUrl } from "@/lib/github-url";
 
-const display = Syne({
-  subsets: ["latin"],
-  weight: ["700", "800"],
-});
-
 function statusClass(status: "creating" | "ready" | "failed") {
   if (status === "ready") {
-    return "border-teal-500/25 bg-teal-500/8 text-teal-700 dark:text-teal-300";
+    return "border-secondary/25 bg-secondary/8 text-secondary-foreground dark:text-secondary";
   }
 
   if (status === "failed") {
@@ -80,7 +74,7 @@ export default function Dashboard() {
     <>
       <Authenticated>
         <div className="relative flex min-h-0 flex-1 flex-col overflow-x-clip text-foreground">
-          <div className="border-b border-teal-500/15 bg-teal-500/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-teal-900/90 dark:text-teal-100/90">
+          <div className="border-b border-primary/15 bg-primary/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-primary-foreground/90 dark:text-primary-foreground/90">
             Public GitHub repos · persistent Daytona project sandboxes
           </div>
 
@@ -91,7 +85,7 @@ export default function Dashboard() {
                   Project console
                 </p>
                 <h1
-                  className={`${display.className} mt-2 text-[clamp(1.45rem,4vw,2.1rem)] font-extrabold uppercase leading-tight tracking-[0.04em]`}
+                  className="mt-2 text-[clamp(1.45rem,4vw,2.1rem)] font-extrabold uppercase leading-tight tracking-[0.04em]"
                 >
                   Create a repo sandbox
                 </h1>
@@ -106,7 +100,7 @@ export default function Dashboard() {
               </div>
             </header>
 
-            <section className="border border-teal-500/15 bg-background shadow-[inset_0_1px_0_0_rgba(45,212,191,0.05)]">
+            <section className="border border-primary/15 bg-background shadow-[inset_0_1px_0_0_rgba(var(--primary),0.05)]">
               <form onSubmit={createProject} className="grid gap-4 p-4 sm:p-5">
                 <label className="grid gap-2">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -117,13 +111,13 @@ export default function Dashboard() {
                       value={githubUrl}
                       onChange={(event) => setGithubUrl(event.target.value)}
                       placeholder="https://github.com/owner/repo"
-                      className="min-h-11 flex-1 border border-border bg-muted/25 px-3 font-mono text-sm outline-none transition focus:border-teal-500/45 focus:ring-2 focus:ring-teal-500/20"
+                      className="min-h-11 flex-1 border border-border bg-muted/25 px-3 font-mono text-sm outline-none transition focus:border-primary/45 focus:ring-2 focus:ring-primary/20"
                       disabled={isCreating}
                     />
                     <button
                       type="submit"
                       disabled={isCreating}
-                      className="inline-flex min-h-11 items-center justify-center gap-2 border border-teal-500/30 bg-teal-500/10 px-4 text-sm font-semibold text-teal-800 transition hover:bg-teal-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:cursor-not-allowed disabled:opacity-50 dark:text-teal-200"
+                      className="inline-flex min-h-11 items-center justify-center gap-2 border border-primary/30 bg-primary/10 px-4 text-sm font-semibold text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isCreating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Github className="size-4" aria-hidden="true" />}
                       Create sandbox
@@ -169,7 +163,7 @@ export default function Dashboard() {
                     <Link
                       key={project.projectId}
                       href={`/project/${project.projectId}`}
-                      className="grid gap-3 p-4 transition hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 sm:grid-cols-[1fr_auto] sm:items-center"
+                      className="grid gap-3 p-4 transition hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:grid-cols-[1fr_auto] sm:items-center"
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -196,12 +190,12 @@ export default function Dashboard() {
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
               Project console
             </p>
-            <h1 className={`${display.className} mt-2 text-2xl font-extrabold uppercase tracking-[0.04em]`}>
+            <h1 className="mt-2 text-2xl font-extrabold uppercase tracking-[0.04em]">
               Sign in
             </h1>
             <p className="mt-3 text-sm text-muted-foreground">Create and reopen repo sandboxes from your account.</p>
             <SignInButton>
-              <button className="mt-5 inline-flex min-h-10 items-center justify-center border border-teal-500/30 bg-teal-500/10 px-4 text-sm font-semibold text-teal-800 dark:text-teal-200">
+              <button className="mt-5 inline-flex min-h-10 items-center justify-center border border-primary/30 bg-primary/10 px-4 text-sm font-semibold text-primary">
                 Continue
               </button>
             </SignInButton>

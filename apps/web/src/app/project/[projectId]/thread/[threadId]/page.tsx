@@ -24,14 +24,15 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
+import type { Route } from "next";
 import {
   Bot,
   ChevronDown,
   Loader2,
   Trash2,
 } from "lucide-react";
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Conversation,
@@ -129,21 +130,68 @@ function ExploreToolGroup({
   );
 }
 
+function ThreadHandoffPreview({ prompt }: { prompt: string }) {
+  return (
+    <div className="space-y-3" aria-live="polite">
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-none border border-foreground bg-muted/35 px-4 py-3 text-sm">
+          {prompt}
+        </div>
+      </div>
+      <div className="flex items-start gap-3">
+        <div className="flex items-center gap-2 px-1 py-2">
+          <div className="flex gap-1">
+            <span className="size-1.5 animate-pulse rounded-full bg-primary/60" />
+            <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:150ms]" />
+            <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:300ms]" />
+          </div>
+          <span className="font-mono text-[11px] text-muted-foreground/60">
+            Starting a new thread...
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentStartingIndicator() {
+  return (
+    <div className="flex items-start gap-3" aria-label="Loading" aria-live="polite">
+      <div className="flex items-center px-1 py-2">
+        <div className="flex gap-1">
+          <span className="size-1.5 animate-pulse rounded-full bg-primary/60" />
+          <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:150ms]" />
+          <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:300ms]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ThreadChat({
   projectId,
   threadId,
   currentRunId,
   initialMessages,
+  initialPrompt,
   disabled,
+  onStartNewThread,
+  pendingNewThreadPrompt,
+  newThreadError,
 }: {
   projectId: string;
   threadId: string;
   currentRunId?: string;
   initialMessages: UIMessage[];
+  initialPrompt?: string;
   disabled: boolean;
+  onStartNewThread: (prompt: string) => Promise<void>;
+  pendingNewThreadPrompt?: string;
+  newThreadError?: string;
 }) {
   const activeRunIdRef = useRef(currentRunId);
   const resumedRunIdsRef = useRef(new Set<string>());
+  const hasAutoSubmittedInitialPromptRef = useRef(false);
 
   useEffect(() => {
     if (currentRunId) {
@@ -225,8 +273,12 @@ function ThreadChat({
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
+  const startingNewThread = Boolean(pendingNewThreadPrompt);
+  const promptStatus = startingNewThread ? "submitted" : status;
+  const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
+  const waitingForStream = status === "submitted";
 
-  async function submitMessage(text: string) {
+  const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
     if (!nextMessage || !ready) {
       return;
@@ -234,14 +286,28 @@ function ThreadChat({
 
     clearError();
     await sendMessage({ text: nextMessage });
-  }
+  }, [clearError, ready, sendMessage]);
+
+  useEffect(() => {
+    if (!initialPrompt || hasAutoSubmittedInitialPromptRef.current || !ready) {
+      return;
+    }
+
+    if (messages.length > 0) {
+      hasAutoSubmittedInitialPromptRef.current = true;
+      return;
+    }
+
+    hasAutoSubmittedInitialPromptRef.current = true;
+    void submitMessage(initialPrompt);
+  }, [initialPrompt, messages.length, ready, submitMessage]);
 
   return (
     <section className="grid min-h-0 w-full min-w-0 flex-1 grid-rows-[1fr_auto]">
       <div className="relative min-h-0 min-w-0 overflow-hidden">
         <Conversation className="minimal-scrollbar h-full min-h-0">
           <ConversationContent className="mx-auto min-h-full w-full max-w-[780px] gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-0">
-            {messages.length === 0 ? (
+            {messages.length === 0 && !showingInitialPromptHandoff ? (
               <ConversationEmptyState className="items-start border border-primary/15 bg-background p-5 text-left shadow-[inset_0_1px_0_0_rgba(var(--primary),0.05)] sm:p-6" icon={<Bot className="size-8 text-primary" />}>
                 <div className="max-w-xl">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
@@ -272,7 +338,6 @@ function ThreadChat({
             ) : null}
 
             {messages.map((message) => {
-              // Pre-process parts to group consecutive explore tools
               const filteredParts = message.parts.filter(Boolean);
               type GroupedItem =
                 | { kind: "single"; part: (typeof filteredParts)[number]; index: number }
@@ -288,7 +353,6 @@ function ThreadChat({
                     part.type === "dynamic-tool" ? getToolName(part) : undefined
                   )
                 ) {
-                  // Try to add to current explore group
                   const last = grouped[grouped.length - 1];
                   if (last && last.kind === "explore-group") {
                     last.tools.push({ part, index: i });
@@ -308,7 +372,6 @@ function ThreadChat({
                     {grouped.map((item) => {
                       if (item.kind === "explore-group") {
                         const { tools } = item;
-                        // Build summary counts
                         const counts: Record<string, number> = {};
                         for (const t of tools) {
                           const slug = toolSlugFromPart(
@@ -337,7 +400,6 @@ function ThreadChat({
                         );
                       }
 
-                      // Single non-explore part
                       const { part, index } = item;
 
                       if (isReasoningUIPart(part)) {
@@ -414,12 +476,24 @@ function ThreadChat({
               );
             })}
 
+            {waitingForStream ? <AgentStartingIndicator /> : null}
+
             {error ? (
               <div role="alert" className="border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-destructive">Error</p>
                 <p className="mt-1 text-destructive">{error.message}</p>
               </div>
             ) : null}
+
+            {newThreadError ? (
+              <div role="alert" className="border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-destructive">Thread</p>
+                <p className="mt-1 text-destructive">{newThreadError}</p>
+              </div>
+            ) : null}
+
+            {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
+            {pendingNewThreadPrompt ? <ThreadHandoffPreview prompt={pendingNewThreadPrompt} /> : null}
           </ConversationContent>
           <ConversationScrollButton className="bottom-4" />
         </Conversation>
@@ -433,17 +507,15 @@ function ThreadChat({
         ) : null}
         <PromptInput
           className="border border-primary/25 bg-background shadow-[0_18px_70px_rgba(0,0,0,0.16),inset_0_1px_0_0_rgba(var(--primary),0.07)]"
-          onSubmit={(message) => {
-            void submitMessage(message.text);
-          }}
+          onSubmit={(message) => onStartNewThread(message.text)}
         >
           <PromptInputBody>
-            <PromptInputTextarea disabled={!ready} placeholder="Ask the repo agent to inspect, run, or edit..." />
+            <PromptInputTextarea disabled={!ready || startingNewThread} placeholder="Start a new thread from this prompt..." />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
             </PromptInputTools>
-            <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
+            <PromptInputSubmit disabled={startingNewThread || (!ready && !busy)} onStop={() => void stop()} status={promptStatus} />
           </PromptInputFooter>
         </PromptInput>
       </div>
@@ -454,14 +526,19 @@ function ThreadChat({
 export default function ProjectThreadPage() {
   const params = useParams<{ projectId: string; threadId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated } = useConvexAuth();
   const projectId = params.projectId;
   const threadId = params.threadId;
+  const initialPrompt = searchParams.get("prompt")?.trim() || undefined;
+  const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
+  const [pendingNewThreadPrompt, setPendingNewThreadPrompt] = useState<string | undefined>();
+  const [newThreadError, setNewThreadError] = useState<string | undefined>();
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -470,6 +547,29 @@ export default function ProjectThreadPage() {
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
+
+  const handleStartNewThread = useCallback(async (promptText: string) => {
+    const prompt = promptText.trim();
+    if (!prompt || disabled || pendingNewThreadPrompt) {
+      return;
+    }
+
+    setPendingNewThreadPrompt(prompt);
+    setNewThreadError(undefined);
+
+    try {
+      const nextThreadId = await createThread({ projectId, title: prompt });
+      const targetUrl = `/project/${projectId}/thread/${nextThreadId}?prompt=${encodeURIComponent(prompt)}` as Route;
+      router.prefetch(targetUrl);
+      startTransition(() => {
+        router.push(targetUrl);
+      });
+    } catch (error) {
+      setPendingNewThreadPrompt(undefined);
+      setNewThreadError(error instanceof Error ? error.message : "Could not create a new thread.");
+      throw error;
+    }
+  }, [createThread, disabled, pendingNewThreadPrompt, projectId, router]);
 
   const handleDeleteThread = useCallback(async () => {
     setIsDeleting(true);
@@ -504,7 +604,7 @@ export default function ProjectThreadPage() {
                 </span>
                 <span className="hidden text-muted-foreground sm:inline">/</span>
                 <h1 className="min-w-0 truncate text-sm font-semibold">
-                  {thread?.title ?? "Loading thread"}
+                  {thread?.title ?? initialPrompt ?? "Loading thread"}
                 </h1>
               </div>
 
@@ -558,13 +658,40 @@ export default function ProjectThreadPage() {
             </header>
 
             <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-              {loading ? (
-                <div className="grid min-h-80 flex-1 place-items-center border border-border text-sm text-muted-foreground">
-                  <Loader2 className="mb-2 size-5 animate-spin" aria-hidden="true" />
-                  Loading thread
-                </div>
-              ) : notFound ? (
+              {notFound ? (
                 <div className="border border-border p-5 text-sm text-muted-foreground">Thread not found.</div>
+              ) : loading ? (
+                <section className="grid min-h-0 w-full min-w-0 flex-1 grid-rows-[1fr_auto]">
+                  <div className="relative min-h-0 min-w-0 overflow-hidden">
+                    <div className="minimal-scrollbar h-full min-h-0 flex flex-col">
+                      <div className="mx-auto min-h-full w-full max-w-[780px] gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-0 flex flex-col">
+                        {initialPrompt ? (
+                          <div className="flex justify-end">
+                            <div className="max-w-[85%] rounded-none border border-foreground bg-muted/35 px-4 py-3 text-sm">
+                              {initialPrompt}
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className="flex items-start gap-3">
+                          <div className="flex items-center gap-2 px-1 py-2">
+                            <div className="flex gap-1">
+                              <span className="size-1.5 animate-pulse rounded-full bg-primary/60" />
+                              <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:150ms]" />
+                              <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:300ms]" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                      <div className="mx-auto w-full max-w-[780px] shrink-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-[max(1rem,env(safe-area-inset-bottom))] lg:px-0">
+                    <div className="pointer-events-none border border-primary/25 bg-background opacity-50 shadow-[0_18px_70px_rgba(0,0,0,0.16),inset_0_1px_0_0_rgba(var(--primary),0.07)]">
+                      <div className="px-4 py-3">
+                        <div className="text-[14px] text-muted-foreground/40">Initializing…</div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
               ) : (
                 <ThreadChat
                   key={threadId}
@@ -572,7 +699,11 @@ export default function ProjectThreadPage() {
                   threadId={threadId}
                   currentRunId={thread?.currentRunId}
                   initialMessages={initialMessages}
+                  initialPrompt={initialPrompt}
                   disabled={disabled}
+                  onStartNewThread={handleStartNewThread}
+                  pendingNewThreadPrompt={pendingNewThreadPrompt}
+                  newThreadError={newThreadError}
                 />
               )}
             </main>

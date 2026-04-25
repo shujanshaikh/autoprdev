@@ -21,9 +21,10 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
+import type { Route } from "next";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthGate, ProjectShell } from "@/components/project-shell";
 
@@ -116,6 +117,8 @@ export default function ProjectOverviewPage() {
   const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigatingPrompt, setNavigatingPrompt] = useState("");
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -129,15 +132,28 @@ export default function ProjectOverviewPage() {
     searchQuery ? t.title.toLowerCase().includes(searchQuery.toLowerCase()) : true,
   );
 
-  const startThread = useCallback(async () => {
+  const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
+    const prompt = (initialPrompt ?? promptValue).trim();
     setIsCreatingThread(true);
     setError(undefined);
     try {
-      const threadId = await createThread({ projectId, title: promptValue.trim() || "New thread" });
-      router.push(`/project/${projectId}/thread/${threadId}`);
+      const threadId = await createThread({ projectId, title: prompt || "New thread" });
+      const promptQuery = prompt ? `?prompt=${encodeURIComponent(prompt)}` : "";
+      const targetUrl = `/project/${projectId}/thread/${threadId}${promptQuery}` as Route;
+
+      // Show optimistic navigating state immediately
+      setNavigatingPrompt(prompt || "New thread");
+      setIsNavigating(true);
+
+      // Use startTransition so React batches the navigation update
+      // and doesn't show the intermediate loading state
+      startTransition(() => {
+        router.push(targetUrl);
+      });
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
+      setIsNavigating(false);
     } finally {
       setIsCreatingThread(false);
     }
@@ -208,7 +224,7 @@ export default function ProjectOverviewPage() {
           repoFullName={project?.repoFullName}
           threads={threads}
         >
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className={`flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-150 ease-out ${isNavigating ? "pointer-events-none" : ""}`}>
             <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
               {project === undefined || threads === undefined ? (
                 <div className="grid flex-1 place-items-center">
@@ -241,7 +257,7 @@ export default function ProjectOverviewPage() {
                       <form onSubmit={handlePromptSubmit}>
                         <div
                           className={`border bg-background transition-shadow ${isFocused
-                            ? "border-primary/40 shadow-[0_0_0_3px_oklch(0.90_0.15_115.6_/_0.08)]"
+                            ? "border-primary/40 shadow-[0_0_0_3px_oklch(0.90_0.15_115.6/0.08)]"
                             : "border-border hover:border-border/80"
                             }`}
                         >
@@ -292,10 +308,10 @@ export default function ProjectOverviewPage() {
                           <button
                             key={action}
                             type="button"
-                            onClick={() => {
-                              setPromptValue(action);
-                              void startThread();
-                            }}
+                             onClick={() => {
+                               setPromptValue(action);
+                               void startThread(action);
+                             }}
                             disabled={project.sandboxStatus !== "ready"}
                             className="border border-border/60 px-3 py-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                           >
@@ -405,6 +421,23 @@ export default function ProjectOverviewPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* Optimistic navigating overlay */}
+                  {isNavigating ? (
+                    <div className="project-navigating-overlay fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-4 project-route-enter">
+                        <Loader2 className="size-5 animate-spin text-primary" aria-hidden="true" />
+                        <div className="text-center">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted-foreground/70">
+                            Starting thread
+                          </p>
+                          <p className="mt-1.5 max-w-[300px] truncate text-sm font-semibold text-foreground">
+                            {navigatingPrompt}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               )}
             </div>

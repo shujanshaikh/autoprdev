@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
-
 import {
   Sidebar,
   SidebarContent,
@@ -28,7 +27,8 @@ import {
   SidebarProvider,
 } from "@autopr/ui/components/sidebar";
 
-/* ─── types ───────────────────────────────────────────────────────── */
+import { RouteTransition } from "@/components/route-transition";
+
 
 export interface ProjectThread {
   threadId: string;
@@ -37,7 +37,6 @@ export interface ProjectThread {
   updatedAt: number;
 }
 
-/* ─── Sidebar ─────────────────────────────────────────────────────── */
 
 export function ProjectSidebar({
   projectId,
@@ -73,7 +72,6 @@ export function ProjectSidebar({
         </SidebarMenu>
       </SidebarHeader>
 
-      {/* Navigation */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
@@ -103,7 +101,6 @@ export function ProjectSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Recents */}
         <SidebarGroup>
           <SidebarGroupLabel>Recents</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -143,7 +140,6 @@ export function ProjectSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      {/* Footer */}
       <SidebarFooter className="border-t border-sidebar-border">
         <div className="flex items-center justify-between">
           <Link
@@ -160,7 +156,6 @@ export function ProjectSidebar({
   );
 }
 
-/* ─── Project Shell ───────────────────────────────────────────────── */
 
 export function ProjectShell({
   projectId,
@@ -176,19 +171,20 @@ export function ProjectShell({
   children: ReactNode;
 }) {
   return (
-    <SidebarProvider className="h-dvh max-h-dvh overflow-hidden">
+    <SidebarProvider className="project-shell h-dvh max-h-dvh overflow-hidden">
       <ProjectSidebar
         projectId={projectId}
         repoFullName={repoFullName}
         threads={threads}
         activeThreadId={activeThreadId}
       />
-      <SidebarInset>{children}</SidebarInset>
+      <SidebarInset>
+        <RouteTransition>{children}</RouteTransition>
+      </SidebarInset>
     </SidebarProvider>
   );
 }
 
-/* ─── Auth gates ──────────────────────────────────────────────────── */
 
 export function AuthGate({ children }: { children: ReactNode }) {
   return (

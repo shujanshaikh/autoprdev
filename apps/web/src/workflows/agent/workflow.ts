@@ -31,6 +31,17 @@ interface AssistantPersistenceOptions {
   assistantMessageId: string;
 }
 
+function isConvexUnauthenticatedError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes('"code":"Unauthenticated"') ||
+    error.message.includes("Could not verify OIDC token claim")
+  );
+}
+
 async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>, messageId: string) {
   "use step";
 
@@ -155,20 +166,32 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
           return;
         }
 
-        await patchAssistantMessage({
-          ...persistence,
-          parts: responseMessagesToAssistantParts(messages, inputMessages.length),
-        });
+        try {
+          await patchAssistantMessage({
+            ...persistence,
+            parts: responseMessagesToAssistantParts(messages, inputMessages.length),
+          });
+        } catch (error) {
+          if (!isConvexUnauthenticatedError(error)) {
+            throw error;
+          }
+        }
       },
     });
   } finally {
     if (persistence) {
-      await markWorkflowRunFinished({
-        convexUrl: persistence.convexUrl,
-        convexAuthToken: persistence.convexAuthToken,
-        threadId: persistence.threadId,
-        runId: workflowRunId,
-      });
+      try {
+        await markWorkflowRunFinished({
+          convexUrl: persistence.convexUrl,
+          convexAuthToken: persistence.convexAuthToken,
+          threadId: persistence.threadId,
+          runId: workflowRunId,
+        });
+      } catch (error) {
+        if (!isConvexUnauthenticatedError(error)) {
+          throw error;
+        }
+      }
     }
   }
 }

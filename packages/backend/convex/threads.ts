@@ -146,3 +146,30 @@ export const markRunFinished = mutation({
     return null;
   },
 });
+
+export const remove = mutation({
+  args: {
+    threadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .collect();
+
+    await Promise.all(messages.map((message) => ctx.db.delete(message._id)));
+    await ctx.db.delete(thread._id);
+
+    return { projectId: thread.projectId };
+  },
+});

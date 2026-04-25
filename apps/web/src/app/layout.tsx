@@ -2,20 +2,20 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 
 import "../index.css";
-import { Chakra_Petch, IBM_Plex_Mono } from "next/font/google";
+import { DM_Sans, DM_Mono } from "next/font/google";
 
 import Providers from "@/components/providers";
 
-const chakraPetch = Chakra_Petch({
-  variable: "--font-chakra-petch",
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
 });
 
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-ibm-plex-mono",
+const dmMono = DM_Mono({
+  variable: "--font-dm-mono",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["300", "400", "500"],
 });
 
 export const metadata: Metadata = {
@@ -31,7 +31,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${chakraPetch.variable} ${ibmPlexMono.variable} antialiased`}>
+        <body className={`${dmSans.variable} ${dmMono.variable} antialiased`}>
         <ClerkProvider>
           <Providers>
             <div className="flex min-h-svh min-h-0 flex-1 flex-col overflow-x-clip">{children}</div>

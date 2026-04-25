@@ -2,10 +2,20 @@
 
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { Button } from "@autopr/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@autopr/ui/components/dialog";
 import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { WorkflowChatTransport } from "@workflow/ai";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   getToolName,
   isReasoningUIPart,
@@ -17,11 +27,10 @@ import {
 import {
   Bot,
   ChevronDown,
-  FlaskConical,
   Loader2,
+  Trash2,
 } from "lucide-react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -433,10 +442,6 @@ function ThreadChat({
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                <FlaskConical className="size-3 text-primary" aria-hidden="true" />
-                Shared project sandbox
-              </span>
             </PromptInputTools>
             <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
           </PromptInputFooter>
@@ -448,18 +453,37 @@ function ThreadChat({
 
 export default function ProjectThreadPage() {
   const params = useParams<{ projectId: string; threadId: string }>();
+  const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
   const projectId = params.projectId;
   const threadId = params.threadId;
+  const removeThread = useMutation(api.threads.remove);
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | undefined>();
 
   const initialMessages = useMemo(() => dbMessages?.map(toUIMessage) ?? [], [dbMessages]);
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
+
+  const handleDeleteThread = useCallback(async () => {
+    setIsDeleting(true);
+    setDeleteError(undefined);
+    try {
+      await removeThread({ threadId });
+      setIsDeleteOpen(false);
+      router.replace(`/project/${projectId}`);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Could not delete this thread.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [projectId, removeThread, router, threadId]);
 
   return (
     <AuthGate>
@@ -485,11 +509,47 @@ export default function ProjectThreadPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                  <DialogTrigger
+                    render={
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={loading || notFound || isDeleting}
+                        className="h-9 border border-destructive/30 bg-destructive/10 px-2.5 font-mono text-[11px]"
+                      />
+                    }
+                  >
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                    Delete
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Delete thread?</DialogTitle>
+                      <DialogDescription>
+                        This permanently deletes <span className="font-semibold text-foreground">{thread?.title ?? "this thread"}</span> and all of its messages.
+                      </DialogDescription>
+                    </DialogHeader>
+                    {deleteError ? (
+                      <p className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {deleteError}
+                      </p>
+                    ) : null}
+                    <DialogFooter>
+                      <Button variant="outline" disabled={isDeleting} onClick={() => setIsDeleteOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button variant="destructive" disabled={isDeleting} onClick={() => void handleDeleteThread()}>
+                        {isDeleting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                        Delete thread
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
                 <div className="inline-flex h-9 items-center gap-2 border border-primary/20 bg-primary/6 px-3 font-mono text-[11px] text-muted-foreground dark:bg-primary/8">
                   <span
-                    className={`size-2 shrink-0 border border-foreground/80 ${
-                      thread?.isLive ? "bg-primary shadow-[0_0_0_3px_rgba(var(--primary),0.25)]" : "bg-background"
-                    }`}
+                    className={`size-2 shrink-0 border border-foreground/80 ${thread?.isLive ? "bg-primary shadow-[0_0_0_3px_rgba(var(--primary),0.25)]" : "bg-background"
+                      }`}
                   />
                   {thread?.isLive ? "Streaming" : project?.sandboxStatus ?? "Loading"}
                 </div>

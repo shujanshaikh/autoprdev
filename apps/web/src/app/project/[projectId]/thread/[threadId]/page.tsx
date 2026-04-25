@@ -16,12 +16,13 @@ import {
 } from "ai";
 import {
   Bot,
+  ChevronDown,
   FlaskConical,
   Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Conversation,
@@ -39,7 +40,7 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, type ToolPart } from "@/components/ai-elements/tool";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, isExploreTool, toolSlugFromPart, type ToolPart } from "@/components/ai-elements/tool";
 import { toUIMessage } from "@/lib/chat-messages";
 import { ModeToggle } from "@/components/mode-toggle";
 import { AuthGate, ProjectShell } from "@/components/project-shell";
@@ -63,6 +64,60 @@ function getToolState(part: object): ToolPart["state"] {
   }
 
   return "output-available";
+}
+
+/* ─── Explore tools grouped under a collapsible "Exploring" header ─── */
+
+function ExploreToolGroup({
+  messageId,
+  tools,
+  summaryParts,
+  anyStreaming,
+}: {
+  messageId: string;
+  tools: { part: any; index: number }[];
+  summaryParts: string[];
+  anyStreaming: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="not-prose w-full min-w-0 font-mono text-[11px] leading-tight text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="group/explore flex w-full cursor-pointer items-center gap-2 py-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground/60 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}
+        />
+        <span className="font-semibold text-foreground">{anyStreaming ? "Exploring" : "Explored"}</span>
+        <span className="text-muted-foreground/70">
+          {summaryParts.join(", ")}
+        </span>
+        {anyStreaming ? (
+          <span className="ml-auto size-1.5 animate-pulse rounded-full bg-primary" />
+        ) : null}
+      </button>
+      {isOpen ? (
+        <div className="ml-5 border-l border-border/40 pl-2.5">
+          {tools.map((t) => {
+            const partState = getToolState(t.part);
+            const input = "input" in t.part ? t.part.input : undefined;
+            return (
+              <ExploreToolRow
+                key={`${messageId}-explore-row-${t.index}`}
+                type={t.part.type}
+                toolName={t.part.type === "dynamic-tool" ? getToolName(t.part) : undefined}
+                input={input}
+                state={partState}
+              />
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ThreadChat({
@@ -207,86 +262,148 @@ function ThreadChat({
               </ConversationEmptyState>
             ) : null}
 
-            {messages.map((message) => (
-              <Message key={message.id} from={message.role}>
-                <MessageContent
-                  className={message.role === "user" ? "rounded-none border border-foreground bg-muted/35" : "w-full max-w-full"}
-                >
-                  {message.parts.filter(Boolean).map((part, index) => {
-                    if (isReasoningUIPart(part)) {
-                      const partState = getPartState(part);
+            {messages.map((message) => {
+              // Pre-process parts to group consecutive explore tools
+              const filteredParts = message.parts.filter(Boolean);
+              type GroupedItem =
+                | { kind: "single"; part: (typeof filteredParts)[number]; index: number }
+                | { kind: "explore-group"; tools: { part: (typeof filteredParts)[number]; index: number }[] };
 
-                      return (
-                        <Reasoning key={`${message.id}-reasoning-${index}`} isStreaming={partState === "streaming"}>
-                          <ReasoningTrigger />
-                          <ReasoningContent>{part.text}</ReasoningContent>
-                        </Reasoning>
-                      );
-                    }
+              const grouped: GroupedItem[] = [];
+              for (let i = 0; i < filteredParts.length; i++) {
+                const part = filteredParts[i];
+                if (
+                  isToolUIPart(part) &&
+                  isExploreTool(
+                    part.type,
+                    part.type === "dynamic-tool" ? getToolName(part) : undefined
+                  )
+                ) {
+                  // Try to add to current explore group
+                  const last = grouped[grouped.length - 1];
+                  if (last && last.kind === "explore-group") {
+                    last.tools.push({ part, index: i });
+                  } else {
+                    grouped.push({ kind: "explore-group", tools: [{ part, index: i }] });
+                  }
+                } else {
+                  grouped.push({ kind: "single", part, index: i });
+                }
+              }
 
-                    if (isTextUIPart(part)) {
-                      const partState = getPartState(part);
+              return (
+                <Message key={message.id} from={message.role}>
+                  <MessageContent
+                    className={message.role === "user" ? "rounded-none border border-foreground bg-muted/35" : "w-full max-w-full"}
+                  >
+                    {grouped.map((item) => {
+                      if (item.kind === "explore-group") {
+                        const { tools } = item;
+                        // Build summary counts
+                        const counts: Record<string, number> = {};
+                        for (const t of tools) {
+                          const slug = toolSlugFromPart(
+                            t.part.type,
+                            t.part.type === "dynamic-tool" ? getToolName(t.part) : undefined
+                          );
+                          const label = slug === "find" ? "glob" : slug;
+                          counts[label] = (counts[label] ?? 0) + 1;
+                        }
+                        const summaryParts = Object.entries(counts).map(
+                          ([name, count]) => `${count} ${count === 1 ? name : name + "s"}`
+                        );
+                        const anyStreaming = tools.some((t) => {
+                          const s = getToolState(t.part);
+                          return s === "input-streaming" || s === "input-available";
+                        });
 
-                      return (
-                        <MessageResponse key={`${message.id}-text-${index}`} isAnimating={partState === "streaming"}>
-                          {part.text}
-                        </MessageResponse>
-                      );
-                    }
+                        return (
+                          <ExploreToolGroup
+                            key={`${message.id}-explore-${tools[0].index}`}
+                            messageId={message.id}
+                            tools={tools}
+                            summaryParts={summaryParts}
+                            anyStreaming={anyStreaming}
+                          />
+                        );
+                      }
 
-                    if (isToolUIPart(part)) {
-                      const partState = getToolState(part);
-                      const input = "input" in part ? part.input : undefined;
-                      const output = "output" in part ? part.output : undefined;
-                      const errorText = "errorText" in part ? part.errorText : undefined;
+                      // Single non-explore part
+                      const { part, index } = item;
 
-                      return (
-                        <Tool key={`${message.id}-tool-${index}`} defaultOpen={partState !== "output-available"}>
-                          {part.type === "dynamic-tool" ? (
-                            <ToolHeader
-                              input={input}
-                              state={partState}
-                              toolName={getToolName(part)}
-                              type={part.type}
-                            />
-                          ) : (
-                            <ToolHeader input={input} state={partState} type={part.type} />
-                          )}
-                          <ToolContent>
-                            {input !== undefined ? (
-                              <ToolInput
+                      if (isReasoningUIPart(part)) {
+                        const partState = getPartState(part);
+                        return (
+                          <Reasoning key={`${message.id}-reasoning-${index}`} isStreaming={partState === "streaming"}>
+                            <ReasoningTrigger />
+                            <ReasoningContent>{part.text}</ReasoningContent>
+                          </Reasoning>
+                        );
+                      }
+
+                      if (isTextUIPart(part)) {
+                        const partState = getPartState(part);
+                        return (
+                          <MessageResponse key={`${message.id}-text-${index}`} isAnimating={partState === "streaming"}>
+                            {part.text}
+                          </MessageResponse>
+                        );
+                      }
+
+                      if (isToolUIPart(part)) {
+                        const partState = getToolState(part);
+                        const input = "input" in part ? part.input : undefined;
+                        const output = "output" in part ? part.output : undefined;
+                        const errorText = "errorText" in part ? part.errorText : undefined;
+
+                        return (
+                          <Tool key={`${message.id}-tool-${index}`} defaultOpen={partState !== "output-available"}>
+                            {part.type === "dynamic-tool" ? (
+                              <ToolHeader
                                 input={input}
+                                state={partState}
+                                toolName={getToolName(part)}
+                                type={part.type}
+                              />
+                            ) : (
+                              <ToolHeader input={input} state={partState} type={part.type} />
+                            )}
+                            <ToolContent>
+                              {input !== undefined ? (
+                                <ToolInput
+                                  input={input}
+                                  toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
+                                  toolType={part.type}
+                                />
+                              ) : null}
+                              <ToolOutput
+                                errorText={errorText}
+                                output={output}
                                 toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
                                 toolType={part.type}
                               />
-                            ) : null}
-                            <ToolOutput
-                              errorText={errorText}
-                              output={output}
-                              toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
-                              toolType={part.type}
-                            />
-                          </ToolContent>
-                        </Tool>
+                            </ToolContent>
+                          </Tool>
+                        );
+                      }
+
+                      if (part.type === "step-start") {
+                        return null;
+                      }
+
+                      return (
+                        <div
+                          key={`${message.id}-part-${index}`}
+                          className="border border-dashed border-border px-3 py-2 font-mono text-xs text-muted-foreground"
+                        >
+                          {part.type}
+                        </div>
                       );
-                    }
-
-                    if (part.type === "step-start") {
-                      return null;
-                    }
-
-                    return (
-                      <div
-                        key={`${message.id}-part-${index}`}
-                        className="border border-dashed border-border px-3 py-2 font-mono text-xs text-muted-foreground"
-                      >
-                        {part.type}
-                      </div>
-                    );
-                  })}
-                </MessageContent>
-              </Message>
-            ))}
+                    })}
+                  </MessageContent>
+                </Message>
+              );
+            })}
 
             {error ? (
               <div role="alert" className="border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">

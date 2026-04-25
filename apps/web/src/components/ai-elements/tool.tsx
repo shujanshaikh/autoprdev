@@ -71,7 +71,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 /** e.g. tool-read → read; dynamic-tool + name → name */
-function toolSlugFromPart(type: string, toolName?: string): string {
+export function toolSlugFromPart(type: string, toolName?: string): string {
   if (type === "dynamic-tool" && toolName) {
     return toolName;
   }
@@ -80,6 +80,15 @@ function toolSlugFromPart(type: string, toolName?: string): string {
     return parts.slice(1).join("-");
   }
   return parts.slice(1).join("-") || type;
+}
+
+/** Primary tools that get full expandable rendering */
+const PRIMARY_TOOL_SLUGS = new Set(["edit", "write", "bash"]);
+
+/** Returns true if the tool is an "explore" tool (read-only, search, etc.) */
+export function isExploreTool(type: string, toolName?: string): boolean {
+  const slug = toolSlugFromPart(type, toolName);
+  return !PRIMARY_TOOL_SLUGS.has(slug);
 }
 
 function pathBasename(path: string): string {
@@ -562,6 +571,41 @@ export const ToolOutput = ({
       <div className={cn("overflow-x-auto text-xs [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/90")}>
         {body}
       </div>
+    </div>
+  );
+};
+
+/* ─── Explore tool: lightweight non-expandable row ──────────────────── */
+
+export type ExploreToolRowProps = {
+  type: string;
+  toolName?: string;
+  input?: unknown;
+  state: ToolPart["state"];
+};
+
+/** A single flat line for an explore tool — not expandable, just shows label + summary. */
+export const ExploreToolRow = ({ type, toolName, input, state }: ExploreToolRowProps) => {
+  const slug = toolSlugFromPart(type, type === "dynamic-tool" ? toolName : undefined);
+  const label = displayToolLabel(slug);
+  const summary = formatToolSummaryLine(slug, input);
+  const streaming = isToolStreamingState(state);
+
+  return (
+    <div className="flex items-center gap-2 py-0.5 font-mono text-[11px] leading-tight text-muted-foreground">
+      {streaming ? (
+        <Shimmer as="span" className="block max-w-full truncate align-baseline" duration={2} spread={2}>
+          {[label, summary].filter(Boolean).join(" ")}
+        </Shimmer>
+      ) : (
+        <span className="flex min-w-0 items-baseline gap-1.5 truncate">
+          <span className="shrink-0 font-medium text-foreground">{label}</span>
+          {summary ? (
+            <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground">{summary}</span>
+          ) : null}
+        </span>
+      )}
+      <ToolStatusText state={state} />
     </div>
   );
 };

@@ -2,8 +2,8 @@
 
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { TooltipProvider } from "@autopr/ui/components/tooltip";
-import { UserButton } from "@clerk/nextjs";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
@@ -15,7 +15,6 @@ import {
   type UIMessage,
 } from "ai";
 import {
-  ArrowLeft,
   Bot,
   FlaskConical,
   Loader2,
@@ -356,13 +355,7 @@ export default function ProjectThreadPage() {
         >
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-border/70 bg-background/95 px-3 backdrop-blur sm:px-4">
-              <Link
-                href={`/project/${projectId}`}
-                className="mr-3 inline-flex items-center gap-2 text-xs text-muted-foreground transition hover:text-foreground lg:hidden"
-              >
-                <ArrowLeft className="size-3.5" aria-hidden="true" />
-                Project
-              </Link>
+              <SidebarTrigger className="mr-2" />
 
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="hidden max-w-[220px] truncate font-mono text-xs text-muted-foreground sm:inline">
@@ -384,9 +377,6 @@ export default function ProjectThreadPage() {
                   {thread?.isLive ? "Streaming" : project?.sandboxStatus ?? "Loading"}
                 </div>
                 <ModeToggle />
-                <div className="lg:hidden">
-                  <UserButton />
-                </div>
               </div>
             </header>
 

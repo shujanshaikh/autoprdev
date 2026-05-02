@@ -71,3 +71,47 @@
     transition-duration: 0ms;
   }
 }
+
+/* ─── Sidebar ─── */
+
+@keyframes sidebar-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Staggered mount for thread items */
+[data-sidebar="menu"] > [data-sidebar="menu-item"] {
+  animation: sidebar-item-in 180ms var(--ease-ui-snappy) both;
+}
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(1) { animation-delay: 0ms; }
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(2) { animation-delay: 20ms; }
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(3) { animation-delay: 40ms; }
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(4) { animation-delay: 60ms; }
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(5) { animation-delay: 80ms; }
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(6) { animation-delay: 100ms; }
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(7) { animation-delay: 120ms; }
+[data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(8) { animation-delay: 140ms; }
+
+/* Thin scrollbar */
+[data-slot="sidebar-content"] {
+  scrollbar-color: color-mix(in oklch, var(--sidebar-foreground) 8%, transparent) transparent;
+  scrollbar-width: thin;
+}
+[data-slot="sidebar-content"]::-webkit-scrollbar {
+  width: 3px;
+}
+[data-slot="sidebar-content"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+[data-slot="sidebar-content"]::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--sidebar-foreground) 8%, transparent);
+}
+[data-slot="sidebar-content"]::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--sidebar-foreground) 16%, transparent);
+}

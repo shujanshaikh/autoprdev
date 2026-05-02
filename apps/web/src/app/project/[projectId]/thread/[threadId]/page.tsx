@@ -76,7 +76,6 @@ function getToolState(part: object): ToolPart["state"] {
   return "output-available";
 }
 
-/* ─── Explore tools grouped under a collapsible "Exploring" header ─── */
 
 function ExploreToolGroup({
   messageId,

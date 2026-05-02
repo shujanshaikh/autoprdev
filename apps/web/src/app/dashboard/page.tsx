@@ -1,9 +1,19 @@
 "use client";
 
 import { api } from "@autopr/backend/convex/_generated/api";
+import { Button } from "@autopr/ui/components/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@autopr/ui/components/dialog";
 import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
-import { Authenticated, AuthLoading, Unauthenticated, useAction, useConvexAuth, useQuery } from "convex/react";
-import { ArrowUpRight, Github, Loader2 } from "lucide-react";
+import { Authenticated, AuthLoading, Unauthenticated, useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { ArrowUpRight, Github, Loader2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -30,9 +40,17 @@ export default function Dashboard() {
   const { isAuthenticated } = useConvexAuth();
   const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
   const ensureProject = useAction(api.projectActions.ensureForGithubRepo);
+  const removeProject = useMutation(api.projects.remove);
   const [githubUrl, setGithubUrl] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
+  const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | undefined>();
+
+  const projectToDelete = useMemo(
+    () => projects?.find((project) => project.projectId === projectIdToDelete),
+    [projectIdToDelete, projects],
+  );
 
   const normalizedPreview = useMemo(() => {
     try {
@@ -67,6 +85,22 @@ export default function Dashboard() {
       setError(requestError instanceof Error ? requestError.message : "Could not create the project sandbox.");
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  async function deleteProject() {
+    if (!projectToDelete) return;
+
+    setIsDeleting(true);
+    setError(undefined);
+
+    try {
+      await removeProject({ projectId: projectToDelete.projectId });
+      setProjectIdToDelete(undefined);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not delete the project.");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -160,12 +194,14 @@ export default function Dashboard() {
                   <div className="p-5 text-sm text-muted-foreground">No projects yet.</div>
                 ) : (
                   projects.map((project) => (
-                    <Link
+                    <div
                       key={project.projectId}
-                      href={`/project/${project.projectId}`}
-                      className="grid gap-3 p-4 transition hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:grid-cols-[1fr_auto] sm:items-center"
+                      className="grid gap-3 p-4 transition hover:bg-muted/35 sm:grid-cols-[1fr_auto] sm:items-center"
                     >
-                      <div className="min-w-0">
+                      <Link
+                        href={`/project/${project.projectId}`}
+                        className="min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                      >
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate font-mono text-sm font-semibold">{project.repoFullName}</p>
                           <span className={`border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] ${statusClass(project.sandboxStatus)}`}>
@@ -173,14 +209,50 @@ export default function Dashboard() {
                           </span>
                         </div>
                         <p className="mt-1 truncate text-xs text-muted-foreground">{project.cloneUrl}</p>
+                      </Link>
+                      <div className="flex items-center gap-2 sm:justify-end">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon-sm"
+                          aria-label={`Delete ${project.repoFullName}`}
+                          onClick={() => setProjectIdToDelete(project.projectId)}
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />
+                        </Button>
+                        <Link
+                          href={`/project/${project.projectId}`}
+                          className="inline-flex size-7 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                          aria-label={`Open ${project.repoFullName}`}
+                        >
+                          <ArrowUpRight className="size-4" aria-hidden="true" />
+                        </Link>
                       </div>
-                      <ArrowUpRight className="size-4 text-muted-foreground" aria-hidden="true" />
-                    </Link>
+                    </div>
                   ))
                 )}
               </div>
             </section>
           </main>
+
+          <Dialog open={Boolean(projectToDelete)} onOpenChange={(open) => !open && setProjectIdToDelete(undefined)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete project?</DialogTitle>
+                <DialogDescription>
+                  This will delete {projectToDelete?.repoFullName ?? "this project"} and all of its threads and
+                  messages. This cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose render={<Button variant="outline" disabled={isDeleting} />}>Cancel</DialogClose>
+                <Button type="button" variant="destructive" disabled={isDeleting} onClick={deleteProject}>
+                  {isDeleting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
+                  Delete project
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </Authenticated>
 

@@ -49,6 +49,7 @@ export interface SandboxSessionOptions {
 
 const DEFAULT_DAYTONA_SNAPSHOT = "daytonaio/sandbox:0.6.0";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
+const SANDBOX_AUTO_STOP_INTERVAL_MS = 30 * 60 * 1000;
 const REPO_PATH = "repo";
 
 const sandboxContextPromises = new Map<string, Promise<SandboxContext>>();
@@ -120,6 +121,7 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
 
   return daytona.create({
     snapshot: resolved.snapshot,
+    autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MS,
   });
 }
 

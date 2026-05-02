@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { requireUserId } from "./lib/auth";
 import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
@@ -164,5 +165,41 @@ export const list = query({
       .withIndex("by_author", (q) => q.eq("authorId", identity.subject))
       .order("desc")
       .collect();
+  },
+});
+
+export const remove = mutation({
+  args: {
+    projectId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const [messages, threads] = await Promise.all([
+      ctx.db
+        .query("messages")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("threads")
+        .withIndex("by_author_project", (q) => q.eq("authorId", authorId).eq("projectId", args.projectId))
+        .collect(),
+    ]);
+
+    await Promise.all([
+      ...messages.map((message) => ctx.db.delete(message._id)),
+      ...threads.map((thread) => ctx.db.delete(thread._id)),
+      ctx.db.delete(project._id),
+    ]);
+
+    return null;
   },
 });

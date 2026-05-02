@@ -13,6 +13,7 @@ type SandboxStatus = "creating" | "ready" | "failed";
 
 const DEFAULT_DAYTONA_SNAPSHOT = "daytonaio/sandbox:0.6.0";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
+const SANDBOX_AUTO_STOP_INTERVAL_MS = 30 * 60 * 1000;
 const REPO_PATH = "repo";
 
 interface EnsureProjectResult {
@@ -45,7 +46,7 @@ async function bootstrapRepositorySandbox(options: {
   });
   const sandbox = await daytona.create({
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
-    autoStopInterval : 1 * 60 * 60 * 1000, // 1 hour
+    autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MS,
   });
   const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
   const repoPath = `${sandboxWorkDir}/${REPO_PATH}`;

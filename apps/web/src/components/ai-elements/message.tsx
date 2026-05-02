@@ -88,7 +88,6 @@ export type UserMessageChromeProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
 };
 
-/** User message frame: mono "You" rail + primary-accent surface (thread + handoff preview). */
 export function UserMessageChrome({
   children,
   className,

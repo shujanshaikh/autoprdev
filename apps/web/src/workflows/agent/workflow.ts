@@ -1,5 +1,7 @@
 import {
+  applyAgenticCache,
   buildSandboxAgentSystemPrompt,
+  createCachedSystemMessage,
   createDaytonaTools,
   prepareDaytonaSandbox,
   type SandboxSessionOptions,
@@ -145,7 +147,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
 
   const agent = new DurableAgent({
     model: "minimax/minimax-m2.7",
-    instructions,
+    instructions: createCachedSystemMessage(instructions),
     tools,
     toolChoice: "required",
   });
@@ -157,7 +159,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
 
   try {
     await agent.stream({
-      messages: inputMessages,
+      messages: applyAgenticCache(inputMessages),
       writable,
       sendStart: !options.assistantMessageId,
       maxSteps: 12,

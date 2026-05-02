@@ -24,7 +24,6 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
-import type { Route } from "next";
 import {
   Bot,
   ChevronDown,
@@ -32,7 +31,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Conversation,
@@ -174,9 +173,6 @@ function ThreadChat({
   initialMessages,
   initialPrompt,
   disabled,
-  onStartNewThread,
-  pendingNewThreadPrompt,
-  newThreadError,
 }: {
   projectId: string;
   threadId: string;
@@ -184,9 +180,6 @@ function ThreadChat({
   initialMessages: UIMessage[];
   initialPrompt?: string;
   disabled: boolean;
-  onStartNewThread: (prompt: string) => Promise<void>;
-  pendingNewThreadPrompt?: string;
-  newThreadError?: string;
 }) {
   const activeRunIdRef = useRef(currentRunId);
   const resumedRunIdsRef = useRef(new Set<string>());
@@ -272,8 +265,6 @@ function ThreadChat({
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
-  const startingNewThread = Boolean(pendingNewThreadPrompt);
-  const promptStatus = startingNewThread ? "submitted" : status;
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const waitingForStream = status === "submitted";
 
@@ -484,15 +475,7 @@ function ThreadChat({
               </div>
             ) : null}
 
-            {newThreadError ? (
-              <div role="alert" className="border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-destructive">Thread</p>
-                <p className="mt-1 text-destructive">{newThreadError}</p>
-              </div>
-            ) : null}
-
             {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
-            {pendingNewThreadPrompt ? <ThreadHandoffPreview prompt={pendingNewThreadPrompt} /> : null}
           </ConversationContent>
           <ConversationScrollButton className="bottom-4" />
         </Conversation>
@@ -506,15 +489,15 @@ function ThreadChat({
         ) : null}
         <PromptInput
           className="border border-primary/25 bg-background shadow-[0_18px_70px_rgba(0,0,0,0.16),inset_0_1px_0_0_rgba(var(--primary),0.07)]"
-          onSubmit={(message) => onStartNewThread(message.text)}
+          onSubmit={(message) => void submitMessage(message.text)}
         >
           <PromptInputBody>
-            <PromptInputTextarea disabled={!ready || startingNewThread} placeholder="Start a new thread from this prompt..." />
+            <PromptInputTextarea disabled={!ready} placeholder="Message this thread..." />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
             </PromptInputTools>
-            <PromptInputSubmit disabled={startingNewThread || (!ready && !busy)} onStop={() => void stop()} status={promptStatus} />
+            <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
           </PromptInputFooter>
         </PromptInput>
       </div>
@@ -530,14 +513,11 @@ export default function ProjectThreadPage() {
   const projectId = params.projectId;
   const threadId = params.threadId;
   const initialPrompt = searchParams.get("prompt")?.trim() || undefined;
-  const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
-  const [pendingNewThreadPrompt, setPendingNewThreadPrompt] = useState<string | undefined>();
-  const [newThreadError, setNewThreadError] = useState<string | undefined>();
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -546,29 +526,6 @@ export default function ProjectThreadPage() {
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
-
-  const handleStartNewThread = useCallback(async (promptText: string) => {
-    const prompt = promptText.trim();
-    if (!prompt || disabled || pendingNewThreadPrompt) {
-      return;
-    }
-
-    setPendingNewThreadPrompt(prompt);
-    setNewThreadError(undefined);
-
-    try {
-      const nextThreadId = await createThread({ projectId, title: prompt });
-      const targetUrl = `/project/${projectId}/thread/${nextThreadId}?prompt=${encodeURIComponent(prompt)}` as Route;
-      router.prefetch(targetUrl);
-      startTransition(() => {
-        router.push(targetUrl);
-      });
-    } catch (error) {
-      setPendingNewThreadPrompt(undefined);
-      setNewThreadError(error instanceof Error ? error.message : "Could not create a new thread.");
-      throw error;
-    }
-  }, [createThread, disabled, pendingNewThreadPrompt, projectId, router]);
 
   const handleDeleteThread = useCallback(async () => {
     setIsDeleting(true);
@@ -700,9 +657,6 @@ export default function ProjectThreadPage() {
                   initialMessages={initialMessages}
                   initialPrompt={initialPrompt}
                   disabled={disabled}
-                  onStartNewThread={handleStartNewThread}
-                  pendingNewThreadPrompt={pendingNewThreadPrompt}
-                  newThreadError={newThreadError}
                 />
               )}
             </main>

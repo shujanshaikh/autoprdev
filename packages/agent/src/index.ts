@@ -1,4 +1,5 @@
 export { buildSandboxAgentSystemPrompt } from "./system-prompt";
+export { applyAgenticCache, createCachedSystemMessage } from "./cache";
 export {
   bootstrapRepositorySandbox,
   createSandboxCacheKey,

@@ -68,6 +68,98 @@ export const ensureForGithubRepoInternal = internalMutation({
   },
 });
 
+export const ensureForGithubSelection = mutation({
+  args: {
+    githubRepositoryId: v.number(),
+    githubUrl: v.string(),
+    cloneUrl: v.string(),
+    repoFullName: v.string(),
+    repoOwner: v.string(),
+    repoName: v.string(),
+    defaultBranch: v.string(),
+    repoBranch: v.string(),
+  },
+  returns: v.object({
+    projectId: v.string(),
+    created: v.boolean(),
+    sandboxStatus: sandboxStatusValidator,
+    sandboxId: v.optional(v.string()),
+    sandboxWorkDir: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const now = Date.now();
+    const repoFullName = `${args.repoOwner}/${args.repoName}`.toLowerCase();
+    const githubUrl = `https://github.com/${args.repoOwner}/${args.repoName}`;
+    const cloneUrl = `${githubUrl}.git`;
+
+    if (
+      args.repoFullName !== repoFullName ||
+      args.githubUrl !== githubUrl ||
+      args.cloneUrl !== cloneUrl ||
+      !args.defaultBranch.trim() ||
+      !args.repoBranch.trim()
+    ) {
+      throw new ConvexError({ code: "INVALID_GITHUB_REPOSITORY" });
+    }
+
+    const existing = await ctx.db
+      .query("projects")
+      .withIndex("by_author_repo", (q) => q.eq("authorId", authorId).eq("repoFullName", args.repoFullName))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        githubProvider: "oauth",
+        githubRepositoryId: args.githubRepositoryId,
+        githubUrl: args.githubUrl,
+        cloneUrl: args.cloneUrl,
+        repoOwner: args.repoOwner,
+        repoName: args.repoName,
+        defaultBranch: args.defaultBranch,
+        lastOpenedAt: now,
+        updatedAt: now,
+      });
+
+      return {
+        projectId: existing.projectId,
+        created: false,
+        sandboxStatus: existing.sandboxStatus as SandboxStatus,
+        sandboxId: existing.sandboxId,
+        sandboxWorkDir: existing.sandboxWorkDir,
+      };
+    }
+
+    const projectId = randomUuid();
+    await ctx.db.insert("projects", {
+      projectId,
+      authorId,
+      githubUrl: args.githubUrl,
+      cloneUrl: args.cloneUrl,
+      repoFullName: args.repoFullName,
+      repoOwner: args.repoOwner,
+      repoName: args.repoName,
+      repoBranch: args.repoBranch,
+      githubProvider: "oauth",
+      githubRepositoryId: args.githubRepositoryId,
+      defaultBranch: args.defaultBranch,
+      currentBranch: args.repoBranch,
+      branchSwitchStatus: "idle",
+      sandboxCacheKey: projectId,
+      sandboxStatus: "creating",
+      createdAt: now,
+      updatedAt: now,
+      lastOpenedAt: now,
+    });
+
+    return {
+      projectId,
+      created: true,
+      sandboxStatus: "creating" as const,
+    };
+  },
+});
+
 export const markSandboxReadyInternal = internalMutation({
   args: {
     authorId: v.string(),
@@ -94,6 +186,7 @@ export const markSandboxReadyInternal = internalMutation({
       sandboxSnapshot: args.sandboxSnapshot,
       sandboxWorkDir: args.sandboxWorkDir,
       sandboxStatus: "ready",
+      branchSwitchStatus: "idle",
       sandboxError: undefined,
       updatedAt: Date.now(),
     });
@@ -116,6 +209,68 @@ export const markSandboxFailedInternal = internalMutation({
       .unique();
 
     if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      sandboxStatus: "failed",
+      sandboxError: shortError(args.sandboxError),
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const markSandboxReady = mutation({
+  args: {
+    projectId: v.string(),
+    sandboxId: v.string(),
+    sandboxName: v.optional(v.string()),
+    sandboxSnapshot: v.optional(v.string()),
+    sandboxWorkDir: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      sandboxId: args.sandboxId,
+      sandboxName: args.sandboxName,
+      sandboxSnapshot: args.sandboxSnapshot,
+      sandboxWorkDir: args.sandboxWorkDir,
+      sandboxStatus: "ready",
+      sandboxError: undefined,
+      branchSwitchStatus: "idle",
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const markSandboxFailed = mutation({
+  args: {
+    projectId: v.string(),
+    sandboxError: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
@@ -165,6 +320,95 @@ export const list = query({
       .withIndex("by_author", (q) => q.eq("authorId", identity.subject))
       .order("desc")
       .collect();
+  },
+});
+
+export const markBranchSwitching = mutation({
+  args: {
+    projectId: v.string(),
+    repoBranch: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      repoBranch: args.repoBranch,
+      currentBranch: args.repoBranch,
+      branchSwitchStatus: "switching",
+      branchSwitchError: undefined,
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const markBranchSwitchReady = mutation({
+  args: {
+    projectId: v.string(),
+    repoBranch: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      repoBranch: args.repoBranch,
+      currentBranch: args.repoBranch,
+      branchSwitchStatus: "idle",
+      branchSwitchError: undefined,
+      branchSwitchedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const markBranchSwitchFailed = mutation({
+  args: {
+    projectId: v.string(),
+    branchSwitchError: v.string(),
+    previousBranch: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      branchSwitchStatus: "failed",
+      branchSwitchError: shortError(args.branchSwitchError),
+      repoBranch: args.previousBranch ?? project.repoBranch,
+      currentBranch: args.previousBranch ?? project.currentBranch,
+      updatedAt: Date.now(),
+    });
+
+    return null;
   },
 });
 

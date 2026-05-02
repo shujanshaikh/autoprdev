@@ -10,6 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@autopr/ui/components/select";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
@@ -35,6 +42,21 @@ function relativeTime(date: number) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+type GithubBranch = {
+  name: string;
+  sha: string;
+  protected: boolean;
+};
+
+async function readJson<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.";
+    throw new Error(error);
+  }
+  return data as T;
 }
 
 
@@ -119,12 +141,17 @@ export default function ProjectOverviewPage() {
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [branches, setBranches] = useState<GithubBranch[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState("");
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const openThreads = threads?.filter((t) => t.isLive) ?? [];
+  const currentBranch = project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch ?? "main";
   const filteredThreads = threads?.filter((t) =>
     searchQuery ? t.title.toLowerCase().includes(searchQuery.toLowerCase()) : true,
   );
@@ -206,6 +233,70 @@ export default function ProjectOverviewPage() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [promptValue]);
 
+  useEffect(() => {
+    if (!project) return;
+    setSelectedBranch(currentBranch);
+  }, [currentBranch, project]);
+
+  useEffect(() => {
+    if (!project || !isAuthenticated) return;
+
+    let active = true;
+    setIsLoadingBranches(true);
+
+    fetch(`/api/github/repositories/${encodeURIComponent(project.repoOwner)}/${encodeURIComponent(project.repoName)}/branches`)
+      .then((response) => readJson<{ branches: GithubBranch[] }>(response))
+      .then((data) => {
+        if (!active) return;
+        setBranches(data.branches);
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setError(requestError instanceof Error ? requestError.message : "Could not load branches.");
+      })
+      .finally(() => {
+        if (active) setIsLoadingBranches(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated, project]);
+
+  const switchBranch = useCallback(async (branch: string) => {
+    if (!project || branch === currentBranch) {
+      setSelectedBranch(branch);
+      return;
+    }
+
+    if (openThreads.length > 0) {
+      const confirmed = window.confirm("Switching branch affects the sandbox used by new and existing threads.");
+      if (!confirmed) {
+        setSelectedBranch(currentBranch);
+        return;
+      }
+    }
+
+    setSelectedBranch(branch);
+    setIsSwitchingBranch(true);
+    setError(undefined);
+
+    try {
+      await readJson<{ status: "ready" }>(
+        await fetch(`/api/project/${projectId}/branch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ branch }),
+        }),
+      );
+    } catch (branchError) {
+      setSelectedBranch(currentBranch);
+      setError(branchError instanceof Error ? branchError.message : "Could not switch branches.");
+    } finally {
+      setIsSwitchingBranch(false);
+    }
+  }, [currentBranch, openThreads.length, project, projectId]);
+
   const quickActions = [
     "Summarize latest changes",
     "Review my latest PR",
@@ -239,9 +330,40 @@ export default function ProjectOverviewPage() {
                         <h1 className="text-lg font-semibold tracking-tight text-foreground">
                           What do you want to work on?
                         </h1>
-                        <div className="mt-2 inline-flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground/70">
-                          <GitBranch className="size-3" aria-hidden="true" />
-                          {project.repoFullName ?? "project"} · {project.repoBranch ?? "main"}
+                        <div className="mt-2 flex flex-wrap items-center justify-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <GitBranch className="size-3 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{project.repoFullName ?? "project"}</span>
+                          </span>
+                          <Select value={selectedBranch} onValueChange={(branch) => branch && void switchBranch(branch)}>
+                            <SelectTrigger
+                              size="sm"
+                              className="max-w-56"
+                              disabled={
+                                project.sandboxStatus !== "ready" ||
+                                project.branchSwitchStatus === "switching" ||
+                                isCreatingThread ||
+                                isNavigating ||
+                                isLoadingBranches ||
+                                isSwitchingBranch
+                              }
+                            >
+                              <SelectValue placeholder={isLoadingBranches ? "Loading branches" : currentBranch} />
+                            </SelectTrigger>
+                            <SelectContent align="center" className="max-h-72">
+                              {branches.map((branch) => (
+                                <SelectItem key={branch.sha} value={branch.name}>
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <GitBranch className="size-3.5" aria-hidden="true" />
+                                    <span className="truncate font-mono">{branch.name}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {isSwitchingBranch || project.branchSwitchStatus === "switching" ? (
+                            <Loader2 className="size-3 animate-spin text-primary" aria-hidden="true" />
+                          ) : null}
                         </div>
                       </div>
 
@@ -332,6 +454,23 @@ export default function ProjectOverviewPage() {
                         >
                           Back to dashboard
                         </Link>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {project.branchSwitchStatus === "switching" ? (
+                    <div className="mx-auto w-full max-w-[600px] px-5 pt-2">
+                      <div className="border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-700 dark:text-amber-300">
+                        <Loader2 className="mr-2 inline size-3.5 animate-spin" aria-hidden="true" />
+                        Switching branch and pulling latest changes...
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {project.branchSwitchStatus === "failed" && project.branchSwitchError ? (
+                    <div className="mx-auto w-full max-w-[600px] px-5 pt-2">
+                      <div className="border border-destructive/25 bg-destructive/5 px-4 py-3 text-[13px] text-destructive">
+                        {project.branchSwitchError}
                       </div>
                     </div>
                   ) : null}

@@ -11,16 +11,39 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
-import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
-import { Authenticated, AuthLoading, Unauthenticated, useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { ArrowUpRight, Github, Loader2, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@autopr/ui/components/select";
+import { SignInButton, UserButton, useReverification, useUser } from "@clerk/nextjs";
+import { Authenticated, AuthLoading, Unauthenticated, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { ArrowUpRight, GitBranch, Github, Loader2, Lock, RefreshCw, Trash2, Unlock } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ModeToggle } from "@/components/mode-toggle";
-import { normalizeGithubUrl } from "@/lib/github-url";
+
+type GithubRepository = {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  private: boolean;
+  htmlUrl: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  updatedAt?: string;
+};
+
+type GithubBranch = {
+  name: string;
+  sha: string;
+  protected: boolean;
+};
 
 function statusClass(status: "creating" | "ready" | "failed") {
   if (status === "ready") {
@@ -34,51 +57,174 @@ function statusClass(status: "creating" | "ready" | "failed") {
   return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
 }
 
+async function readJson<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.";
+    throw new Error(error);
+  }
+  return data as T;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const user = useUser();
+  const createExternalAccount = useReverification((params: { strategy: "oauth_github"; redirectUrl: string }) =>
+    user.user?.createExternalAccount(params),
+  );
   const { isAuthenticated } = useConvexAuth();
   const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
-  const ensureProject = useAction(api.projectActions.ensureForGithubRepo);
   const removeProject = useMutation(api.projects.remove);
-  const [githubUrl, setGithubUrl] = useState("");
+  const [repositories, setRepositories] = useState<GithubRepository[]>([]);
+  const [branches, setBranches] = useState<GithubBranch[]>([]);
+  const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
+  const [selectedBranch, setSelectedBranch] = useState("");
+  const [repoSearch, setRepoSearch] = useState("");
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [isConnectingGithub, setIsConnectingGithub] = useState(false);
+  const [isGithubConnected, setIsGithubConnected] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | undefined>();
+
+  const selectedRepo = useMemo(
+    () => repositories.find((repository) => repository.fullName === selectedRepoFullName),
+    [repositories, selectedRepoFullName],
+  );
+
+  const filteredRepositories = useMemo(() => {
+    const search = repoSearch.trim().toLowerCase();
+    if (!search) return repositories;
+    return repositories.filter((repository) => repository.fullName.toLowerCase().includes(search));
+  }, [repoSearch, repositories]);
 
   const projectToDelete = useMemo(
     () => projects?.find((project) => project.projectId === projectIdToDelete),
     [projectIdToDelete, projects],
   );
 
-  const normalizedPreview = useMemo(() => {
-    try {
-      return githubUrl.trim() ? normalizeGithubUrl(githubUrl) : undefined;
-    } catch {
-      return undefined;
-    }
-  }, [githubUrl]);
-
-  async function createProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const loadRepositories = useCallback(async () => {
+    if (!isAuthenticated) return;
+    setIsLoadingRepos(true);
     setError(undefined);
 
     try {
-      normalizeGithubUrl(githubUrl);
-    } catch (validationError) {
-      setError(validationError instanceof Error ? validationError.message : "Enter a valid GitHub URL.");
+      const data = await readJson<{ repositories: GithubRepository[] }>(await fetch("/api/github/repositories"));
+      setRepositories(data.repositories);
+      setIsGithubConnected(true);
+
+      if (!selectedRepoFullName && data.repositories[0]) {
+        setSelectedRepoFullName(data.repositories[0].fullName);
+      }
+    } catch (requestError) {
+      setRepositories([]);
+      setIsGithubConnected(false);
+      setError(requestError instanceof Error ? requestError.message : "Could not load GitHub repositories.");
+    } finally {
+      setIsLoadingRepos(false);
+    }
+  }, [isAuthenticated, selectedRepoFullName]);
+
+  useEffect(() => {
+    void loadRepositories();
+  }, [loadRepositories]);
+
+  useEffect(() => {
+    if (!selectedRepo) {
+      setBranches([]);
+      setSelectedBranch("");
+      return;
+    }
+
+    let active = true;
+    setIsLoadingBranches(true);
+    setError(undefined);
+
+    fetch(`/api/github/repositories/${encodeURIComponent(selectedRepo.owner)}/${encodeURIComponent(selectedRepo.name)}/branches`)
+      .then((response) => readJson<{ branches: GithubBranch[] }>(response))
+      .then((data) => {
+        if (!active) return;
+        setBranches(data.branches);
+        setSelectedBranch(
+          data.branches.some((branch) => branch.name === selectedRepo.defaultBranch)
+            ? selectedRepo.defaultBranch
+            : data.branches[0]?.name ?? "",
+        );
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setBranches([]);
+        setSelectedBranch("");
+        setError(requestError instanceof Error ? requestError.message : "Could not load branches.");
+      })
+      .finally(() => {
+        if (active) setIsLoadingBranches(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedRepo]);
+
+  async function connectGithub() {
+    setIsConnectingGithub(true);
+    setError(undefined);
+
+    try {
+      if (!user.user) {
+        throw new Error("GitHub account linking is not available in this Clerk session.");
+      }
+
+      const externalAccount = await createExternalAccount({
+        strategy: "oauth_github",
+        redirectUrl: window.location.href,
+      });
+      const redirectUrl = externalAccount?.verification?.externalVerificationRedirectURL?.href;
+
+      if (redirectUrl) {
+        window.location.assign(redirectUrl);
+        return;
+      }
+
+      await user.user.reload();
+      await loadRepositories();
+      setIsConnectingGithub(false);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not connect GitHub.");
+      setIsConnectingGithub(false);
+    }
+  }
+
+  async function createProject() {
+    if (!selectedRepo || !selectedBranch) {
+      setError("Select a GitHub repository and branch.");
       return;
     }
 
     setIsCreating(true);
+    setError(undefined);
 
     try {
-      const data = await ensureProject({ githubUrl });
-
-      if (data.error) {
-        throw new Error(data.error ?? "Could not create the project sandbox.");
-      }
+      const data = await readJson<{ projectId: string; error?: string }>(
+        await fetch("/api/projects/from-github", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repository: {
+              id: selectedRepo.id,
+              fullName: selectedRepo.fullName,
+              owner: selectedRepo.owner,
+              name: selectedRepo.name,
+              htmlUrl: selectedRepo.htmlUrl,
+              cloneUrl: selectedRepo.cloneUrl,
+              defaultBranch: selectedRepo.defaultBranch,
+            },
+            branch: selectedBranch,
+          }),
+        }),
+      );
 
       router.push(`/project/${data.projectId}`);
     } catch (requestError) {
@@ -109,7 +255,7 @@ export default function Dashboard() {
       <Authenticated>
         <div className="relative flex min-h-0 flex-1 flex-col overflow-x-clip text-foreground">
           <div className="border-b border-primary/15 bg-primary/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-primary-foreground/90 dark:text-primary-foreground/90">
-            Public GitHub repos · persistent Daytona project sandboxes
+            Connected GitHub repos - persistent Daytona project sandboxes
           </div>
 
           <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-5 py-10 sm:px-8 lg:px-12">
@@ -118,14 +264,12 @@ export default function Dashboard() {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                   Project console
                 </p>
-                <h1
-                  className="mt-2 text-[clamp(1.45rem,4vw,2.1rem)] font-extrabold uppercase leading-tight tracking-[0.04em]"
-                >
+                <h1 className="mt-2 text-[clamp(1.45rem,4vw,2.1rem)] font-extrabold uppercase leading-tight tracking-[0.04em]">
                   Create a repo sandbox
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                  Welcome {user.user?.firstName ?? user.user?.primaryEmailAddress?.emailAddress ?? "there"}. Paste a
-                  public repository URL and autopr will reuse the same sandbox for every thread under that project.
+                  Welcome {user.user?.firstName ?? user.user?.primaryEmailAddress?.emailAddress ?? "there"}. Connect
+                  GitHub, choose a repository, and autopr will keep that project in a reusable Daytona sandbox.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -135,43 +279,112 @@ export default function Dashboard() {
             </header>
 
             <section className="border border-primary/15 bg-background shadow-[inset_0_1px_0_0_rgba(var(--primary),0.05)]">
-              <form onSubmit={createProject} className="grid gap-4 p-4 sm:p-5">
-                <label className="grid gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                    GitHub repository URL
-                  </span>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      value={githubUrl}
-                      onChange={(event) => setGithubUrl(event.target.value)}
-                      placeholder="https://github.com/owner/repo"
-                      className="min-h-11 flex-1 border border-border bg-muted/25 px-3 font-mono text-sm outline-none transition focus:border-primary/45 focus:ring-2 focus:ring-primary/20"
-                      disabled={isCreating}
-                    />
-                    <button
-                      type="submit"
-                      disabled={isCreating}
-                      className="inline-flex min-h-11 items-center justify-center gap-2 border border-primary/30 bg-primary/10 px-4 text-sm font-semibold text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isCreating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Github className="size-4" aria-hidden="true" />}
-                      Create sandbox
-                    </button>
+              <div className="grid gap-4 p-4 sm:p-5">
+                {!isGithubConnected ? (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                        GitHub connection
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Connect GitHub to load your public and private repositories.
+                      </p>
+                    </div>
+                    <Button type="button" disabled={isConnectingGithub} onClick={connectGithub}>
+                      {isConnectingGithub ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Github className="size-4" aria-hidden="true" />}
+                      Connect GitHub
+                    </Button>
                   </div>
-                </label>
+                ) : (
+                  <>
+                    <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto] lg:items-end">
+                      <label className="grid gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                          GitHub repository
+                        </span>
+                        <div className="grid gap-2">
+                          <input
+                            value={repoSearch}
+                            onChange={(event) => setRepoSearch(event.target.value)}
+                            placeholder="Search repositories"
+                            className="min-h-9 border border-border bg-muted/25 px-3 font-mono text-xs outline-none transition focus:border-primary/45 focus:ring-2 focus:ring-primary/20"
+                            disabled={isLoadingRepos || isCreating}
+                          />
+                          <Select value={selectedRepoFullName} onValueChange={(value) => value && setSelectedRepoFullName(value)}>
+                            <SelectTrigger className="h-11 w-full justify-between" disabled={isLoadingRepos || isCreating}>
+                              <SelectValue placeholder={isLoadingRepos ? "Loading repositories..." : "Select repository"} />
+                            </SelectTrigger>
+                            <SelectContent align="start" className="max-h-80">
+                              {filteredRepositories.map((repository) => (
+                                <SelectItem key={repository.id} value={repository.fullName}>
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    {repository.private ? <Lock className="size-3.5" aria-hidden="true" /> : <Unlock className="size-3.5" aria-hidden="true" />}
+                                    <span className="truncate font-mono">{repository.fullName}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </label>
 
-                {normalizedPreview ? (
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {normalizedPreview.repoFullName}
-                    {normalizedPreview.repoBranch ? ` · ${normalizedPreview.repoBranch}` : null}
-                  </p>
-                ) : null}
+                      <label className="grid gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                          Branch
+                        </span>
+                        <Select value={selectedBranch} onValueChange={(value) => value && setSelectedBranch(value)}>
+                          <SelectTrigger className="h-11 w-full justify-between" disabled={!selectedRepo || isLoadingBranches || isCreating}>
+                            <SelectValue placeholder={isLoadingBranches ? "Loading..." : "Select branch"} />
+                          </SelectTrigger>
+                          <SelectContent align="start" className="max-h-80">
+                            {branches.map((branch) => (
+                              <SelectItem key={branch.sha} value={branch.name}>
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <GitBranch className="size-3.5" aria-hidden="true" />
+                                  <span className="truncate font-mono">{branch.name}</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </label>
+
+                      <button
+                        type="button"
+                        disabled={!selectedRepo || !selectedBranch || isCreating || isLoadingBranches}
+                        onClick={() => void createProject()}
+                        className="inline-flex min-h-11 items-center justify-center gap-2 border border-primary/30 bg-primary/10 px-4 text-sm font-semibold text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isCreating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Github className="size-4" aria-hidden="true" />}
+                        Create sandbox
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
+                      <button
+                        type="button"
+                        onClick={() => void loadRepositories()}
+                        disabled={isLoadingRepos || isCreating}
+                        className="inline-flex items-center gap-1.5 text-primary transition hover:text-primary/80 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`size-3 ${isLoadingRepos ? "animate-spin" : ""}`} aria-hidden="true" />
+                        Refresh repos
+                      </button>
+                      {selectedRepo ? (
+                        <span>
+                          {selectedRepo.private ? "Private" : "Public"} - default {selectedRepo.defaultBranch}
+                        </span>
+                      ) : null}
+                    </div>
+                  </>
+                )}
 
                 {error ? (
                   <div role="alert" className="border border-destructive/35 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                     {error}
                   </div>
                 ) : null}
-              </form>
+              </div>
             </section>
 
             <section className="mt-8">
@@ -206,6 +419,10 @@ export default function Dashboard() {
                           <p className="truncate font-mono text-sm font-semibold">{project.repoFullName}</p>
                           <span className={`border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] ${statusClass(project.sandboxStatus)}`}>
                             {project.sandboxStatus}
+                          </span>
+                          <span className="inline-flex items-center gap-1 border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                            <GitBranch className="size-3" aria-hidden="true" />
+                            {project.currentBranch ?? project.repoBranch ?? project.defaultBranch ?? "main"}
                           </span>
                         </div>
                         <p className="mt-1 truncate text-xs text-muted-foreground">{project.cloneUrl}</p>

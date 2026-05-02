@@ -10,7 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -38,6 +38,12 @@ export interface ProjectThread {
   isLive?: boolean;
   updatedAt: number;
 }
+
+
+const projectShellCache = new Map<string, {
+  repoFullName?: string;
+  threads?: ProjectThread[];
+}>();
 
 
 function relativeTime(ts: number): string {
@@ -240,12 +246,32 @@ export function ProjectShell({
   activeThreadId?: string;
   children: ReactNode;
 }) {
+  const cached = projectShellCache.get(projectId);
+  const [cachedRepoFullName, setCachedRepoFullName] = useState(repoFullName ?? cached?.repoFullName);
+  const [cachedThreads, setCachedThreads] = useState<ProjectThread[] | undefined>(threads ?? cached?.threads);
+
+  useEffect(() => {
+    const next = projectShellCache.get(projectId) ?? {};
+
+    if (repoFullName !== undefined) {
+      next.repoFullName = repoFullName;
+      setCachedRepoFullName(repoFullName);
+    }
+
+    if (threads !== undefined) {
+      next.threads = threads;
+      setCachedThreads(threads);
+    }
+
+    projectShellCache.set(projectId, next);
+  }, [projectId, repoFullName, threads]);
+
   return (
     <SidebarProvider className="project-shell h-dvh max-h-dvh overflow-hidden">
       <ProjectSidebar
         projectId={projectId}
-        repoFullName={repoFullName}
-        threads={threads}
+        repoFullName={repoFullName ?? cachedRepoFullName}
+        threads={threads ?? cachedThreads}
         activeThreadId={activeThreadId}
       />
       <SidebarInset>

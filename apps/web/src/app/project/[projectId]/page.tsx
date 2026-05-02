@@ -26,9 +26,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
-import { AuthGate, ProjectShell } from "@/components/project-shell";
-
-
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
   if (seconds < 60) return "just now";
@@ -217,14 +214,8 @@ export default function ProjectOverviewPage() {
   ];
 
   return (
-    <AuthGate>
-      <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
-        <ProjectShell
-          projectId={projectId}
-          repoFullName={project?.repoFullName}
-          threads={threads}
-        >
-          <div className={`flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-150 ease-out ${isNavigating ? "pointer-events-none" : ""}`}>
+    <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
+      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-150 ease-out ${isNavigating ? "pointer-events-none" : ""}`}>
             <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
               {project === undefined || threads === undefined ? (
                 <div className="grid flex-1 place-items-center">
@@ -442,7 +433,6 @@ export default function ProjectOverviewPage() {
               )}
             </div>
           </div>
-        </ProjectShell>
 
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -462,6 +452,5 @@ export default function ProjectOverviewPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AuthGate>
   );
 }

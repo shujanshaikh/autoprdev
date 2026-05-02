@@ -18,7 +18,7 @@ import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
+import type { ComponentProps, HTMLAttributes, ReactElement, ReactNode } from "react";
 import {
   createContext,
   memo,
@@ -30,20 +30,82 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
+const MessageRoleContext = createContext<UIMessage["role"]>("assistant");
+
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
 };
 
 export const Message = ({ className, from, ...props }: MessageProps) => (
-  <div
-    className={cn(
-      "group flex w-full max-w-[95%] flex-col gap-2",
-      from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
-      className
-    )}
-    {...props}
-  />
+  <MessageRoleContext.Provider value={from}>
+    <div
+      className={cn(
+        "flex w-full max-w-[95%] flex-col gap-2",
+        from === "user" ? "ml-auto justify-end" : "",
+        className
+      )}
+      {...props}
+    />
+  </MessageRoleContext.Provider>
 );
+
+function UserMessageMeta() {
+  return (
+    <div className="flex items-center justify-end gap-2.5 pr-0.5">
+      <div
+        className="h-px min-w-[2rem] flex-1 max-w-[4.5rem] bg-gradient-to-l from-primary/30 to-transparent dark:from-primary/45"
+        aria-hidden="true"
+      />
+      <span className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/90">
+        You
+      </span>
+    </div>
+  );
+}
+
+export type UserMessageSurfaceProps = HTMLAttributes<HTMLDivElement>;
+
+export function UserMessageSurface({
+  children,
+  className,
+  ...props
+}: UserMessageSurfaceProps) {
+  return (
+    <div
+      aria-label="Your message"
+      className={cn(
+        "relative w-full min-w-0 overflow-hidden rounded-sm border border-y border-r border-primary/15 border-l-[3px] border-l-primary/60 bg-background px-4 pb-3.5 pt-3 text-foreground antialiased shadow-[inset_0_1px_0_0_rgba(var(--primary),0.08),0_14px_44px_-18px_rgba(0,0,0,0.14)] selection:bg-primary/15 dark:border-primary/28 dark:border-l-primary dark:bg-primary/[0.08] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_16px_48px_-20px_rgba(0,0,0,0.55)]",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
+
+export type UserMessageChromeProps = HTMLAttributes<HTMLDivElement> & {
+  children: ReactNode;
+};
+
+/** User message frame: mono "You" rail + primary-accent surface (thread + handoff preview). */
+export function UserMessageChrome({
+  children,
+  className,
+  ...props
+}: UserMessageChromeProps) {
+  return (
+    <div
+      className={cn("flex w-full min-w-0 max-w-full flex-col gap-1.5 text-sm", className)}
+      {...props}
+    >
+      <UserMessageMeta />
+      <UserMessageSurface className="flex min-h-0 flex-col gap-2 overflow-hidden leading-relaxed">
+        {children}
+      </UserMessageSurface>
+    </div>
+  );
+}
 
 export type MessageContentProps = HTMLAttributes<HTMLDivElement>;
 
@@ -51,19 +113,29 @@ export const MessageContent = ({
   children,
   className,
   ...props
-}: MessageContentProps) => (
-  <div
-    className={cn(
-      "is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
-      "group-[.is-assistant]:text-foreground",
-      className
-    )}
-    {...props}
-  >
-    {children}
-  </div>
-);
+}: MessageContentProps) => {
+  const from = useContext(MessageRoleContext);
+
+  if (from === "user") {
+    return (
+      <UserMessageChrome className={className} {...props}>
+        {children}
+      </UserMessageChrome>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex w-full min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm text-foreground",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+};
 
 export type MessageActionsProps = ComponentProps<"div">;
 

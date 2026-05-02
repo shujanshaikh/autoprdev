@@ -13,7 +13,6 @@ import {
   DialogTrigger,
 } from "@autopr/ui/components/dialog";
 import { SidebarTrigger } from "@autopr/ui/components/sidebar";
-import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
@@ -39,7 +38,12 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+  UserMessageChrome,
+} from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputBody,
@@ -52,7 +56,7 @@ import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-e
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, isExploreTool, toolSlugFromPart, type ToolPart } from "@/components/ai-elements/tool";
 import { toUIMessage } from "@/lib/chat-messages";
 import { ModeToggle } from "@/components/mode-toggle";
-import { AuthGate, ProjectShell } from "@/components/project-shell";
+import Loader from "@/components/loader";
 
 function getPartState(part: object) {
   return "state" in part ? part.state : undefined;
@@ -131,10 +135,8 @@ function ExploreToolGroup({
 function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
     <div className="space-y-3" aria-live="polite">
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-none border border-foreground bg-muted/35 px-4 py-3 text-sm">
-          {prompt}
-        </div>
+      <div className="flex w-full max-w-[95%] flex-col ml-auto justify-end">
+        <UserMessageChrome>{prompt}</UserMessageChrome>
       </div>
       <div className="flex items-start gap-3">
         <div className="flex items-center gap-2 px-1 py-2">
@@ -356,9 +358,7 @@ function ThreadChat({
 
               return (
                 <Message key={message.id} from={message.role}>
-                  <MessageContent
-                    className={message.role === "user" ? "rounded-none border border-foreground bg-muted/35" : "w-full max-w-full"}
-                  >
+                  <MessageContent>
                     {grouped.map((item) => {
                       if (item.kind === "explore-group") {
                         const { tools } = item;
@@ -516,7 +516,6 @@ export default function ProjectThreadPage() {
   const removeThread = useMutation(api.threads.remove);
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
-  const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -542,15 +541,7 @@ export default function ProjectThreadPage() {
   }, [projectId, removeThread, router, threadId]);
 
   return (
-    <AuthGate>
-      <TooltipProvider>
-        <ProjectShell
-          projectId={projectId}
-          repoFullName={project?.repoFullName}
-          threads={threads}
-          activeThreadId={threadId}
-        >
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-border/70 bg-background/95 px-3 backdrop-blur sm:px-4">
               <SidebarTrigger className="mr-2" />
 
@@ -617,36 +608,8 @@ export default function ProjectThreadPage() {
               {notFound ? (
                 <div className="border border-border p-5 text-sm text-muted-foreground">Thread not found.</div>
               ) : loading ? (
-                <section className="grid min-h-0 w-full min-w-0 flex-1 grid-rows-[1fr_auto]">
-                  <div className="relative min-h-0 min-w-0 overflow-hidden">
-                    <div className="minimal-scrollbar h-full min-h-0 flex flex-col">
-                      <div className="mx-auto min-h-full w-full max-w-[780px] gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-0 flex flex-col">
-                        {initialPrompt ? (
-                          <div className="flex justify-end">
-                            <div className="max-w-[85%] rounded-none border border-foreground bg-muted/35 px-4 py-3 text-sm">
-                              {initialPrompt}
-                            </div>
-                          </div>
-                        ) : null}
-                        <div className="flex items-start gap-3">
-                          <div className="flex items-center gap-2 px-1 py-2">
-                            <div className="flex gap-1">
-                              <span className="size-1.5 animate-pulse rounded-full bg-primary/60" />
-                              <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:150ms]" />
-                              <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:300ms]" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                      <div className="mx-auto w-full max-w-[780px] shrink-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-[max(1rem,env(safe-area-inset-bottom))] lg:px-0">
-                    <div className="pointer-events-none border border-primary/25 bg-background opacity-50 shadow-[0_18px_70px_rgba(0,0,0,0.16),inset_0_1px_0_0_rgba(var(--primary),0.07)]">
-                      <div className="px-4 py-3">
-                        <div className="text-[14px] text-muted-foreground/40">Initializing…</div>
-                      </div>
-                    </div>
-                  </div>
+                <section className="min-h-0 w-full min-w-0 flex-1">
+                  <Loader />
                 </section>
               ) : (
                 <ThreadChat
@@ -661,8 +624,5 @@ export default function ProjectThreadPage() {
               )}
             </main>
           </div>
-        </ProjectShell>
-      </TooltipProvider>
-    </AuthGate>
   );
 }

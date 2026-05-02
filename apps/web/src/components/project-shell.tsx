@@ -101,7 +101,7 @@ export function ProjectSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel>Recents</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -141,13 +141,13 @@ export function ProjectSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between group-data-[collapsible=icon]:justify-center">
           <Link
             href={`/project/${projectId}`}
-            className="inline-flex items-center gap-2 text-xs text-sidebar-foreground/70 transition hover:text-sidebar-foreground"
+            className="inline-flex items-center gap-2 text-xs text-sidebar-foreground/70 transition hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden"
           >
             <ArrowLeft className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="group-data-[collapsible=icon]:hidden">Project</span>
+            <span>Project</span>
           </Link>
           <UserButton />
         </div>

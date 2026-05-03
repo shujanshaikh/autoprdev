@@ -7,6 +7,8 @@ export interface DaytonaSandbox {
   id: string;
   name?: string;
   snapshot?: string;
+  state?: string;
+  start(timeout?: number): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
   git: {
     status(path: string): Promise<unknown>;
@@ -49,7 +51,8 @@ export interface SandboxSessionOptions {
 
 const DEFAULT_DAYTONA_SNAPSHOT = "daytonaio/sandbox:0.6.0";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
-const SANDBOX_AUTO_STOP_INTERVAL_MS = 30 * 60 * 1000;
+const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
+const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const REPO_PATH = "repo";
 
 const sandboxContextPromises = new Map<string, Promise<SandboxContext>>();
@@ -81,6 +84,14 @@ function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSan
 async function resolveSandboxRepoPath(sandbox: DaytonaSandbox): Promise<string> {
   const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
   return `${sandboxWorkDir}/${REPO_PATH}`;
+}
+
+async function ensureSandboxStarted(sandbox: DaytonaSandbox): Promise<DaytonaSandbox> {
+  if (sandbox.state && sandbox.state !== "started") {
+    await sandbox.start(SANDBOX_START_TIMEOUT_SECONDS);
+  }
+
+  return sandbox;
 }
 
 async function ensureRepoCloned(
@@ -116,12 +127,15 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
   });
 
   if (resolved.sandboxId) {
-    return daytona.get(resolved.sandboxId);
+    return ensureSandboxStarted(await daytona.get(resolved.sandboxId));
   }
 
-  return daytona.create({
-    snapshot: resolved.snapshot
-  });
+  return ensureSandboxStarted(
+    await daytona.create({
+      snapshot: resolved.snapshot,
+      autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
+    }),
+  );
 }
 
 export async function getSandboxContext(options: SandboxSessionOptions = {}): Promise<SandboxContext> {
@@ -129,7 +143,14 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
   const existingContext = sandboxContextPromises.get(resolved.cacheKey);
 
   if (existingContext) {
-    return existingContext;
+    const context = await existingContext;
+    const sandbox = await createSandbox({
+      ...resolved,
+      sandboxId: context.sandbox.id,
+    });
+    const refreshedContext = { ...context, sandbox };
+    sandboxContextPromises.set(resolved.cacheKey, Promise.resolve(refreshedContext));
+    return refreshedContext;
   }
 
   const createdContext = createSandbox(resolved).then(async (sandbox) => {

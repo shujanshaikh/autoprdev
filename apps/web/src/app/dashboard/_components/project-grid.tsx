@@ -50,12 +50,10 @@ export function ProjectGrid({ projects, onDelete }: ProjectGridProps) {
 
   return (
     <div className="border border-border bg-card">
-      {/* table header */}
-      <div className="hidden grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,7rem)_auto] gap-4 border-b border-border bg-muted/40 px-4 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:grid">
-        <span>#</span>
-        <span>repository</span>
-        <span>branch</span>
-        <span>status</span>
+      <div className="hidden grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,11rem)_auto] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:grid">
+        <span className="text-left">#</span>
+        <span className="min-w-0 text-left">repository</span>
+        <span className="min-w-0 text-left">branch / status</span>
         <span className="text-right">actions</span>
       </div>
 

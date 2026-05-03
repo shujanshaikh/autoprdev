@@ -37,7 +37,7 @@ export function ProjectRow({
     <div
       className={cn(
         "group relative grid items-center gap-4 px-4 py-2 transition",
-        "grid-cols-[2rem_1fr_auto] sm:grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,7rem)_auto]",
+        "grid-cols-[2rem_1fr_auto] sm:grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,11rem)_auto]",
         "hover:bg-muted/40",
       )}
     >
@@ -49,41 +49,37 @@ export function ProjectRow({
         href={`/project/${projectId}`}
         className="block min-w-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground"
       >
-        <div className="flex items-baseline gap-1.5 font-mono text-xs">
-          <span className="truncate text-muted-foreground">
-            {owner}
-            <span className="opacity-50">/</span>
-          </span>
-          <span className="truncate font-semibold text-foreground transition group-hover:underline group-hover:underline-offset-4">
+        <p className="truncate font-mono text-xs">
+          <span className="text-muted-foreground">{owner}</span>
+          <span className="opacity-50">/</span>
+          <span className="font-semibold text-foreground transition group-hover:underline group-hover:underline-offset-4">
             {name}
           </span>
-        </div>
+        </p>
       </Link>
 
-      {/* branch (sm+) */}
-      <div className="hidden min-w-0 sm:block">
-        <span className="inline-flex max-w-full items-center gap-1.5 truncate font-mono text-[11px] text-muted-foreground">
-          <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-          <span className="truncate">{branch}</span>
-        </span>
-      </div>
-
-      <div className="hidden sm:block">
-        <span
+      <div className="hidden min-w-0 flex-col gap-1.5 sm:flex">
+        <div className="grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)] items-center gap-x-1.5 font-mono text-[11px] leading-none text-muted-foreground">
+          <GitBranch className="size-3 shrink-0 self-center" aria-hidden="true" />
+          <span className="min-w-0 truncate">{branch}</span>
+        </div>
+        <div
           className={cn(
-            "inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em]",
+            "grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)] items-center gap-x-1.5 font-mono text-[10px] uppercase leading-none tracking-[0.2em]",
             styles.label,
           )}
         >
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              styles.dot,
-              sandboxStatus === "creating" && "animate-pulse",
-            )}
-          />
-          {sandboxStatus}
-        </span>
+          <span className="flex size-3 shrink-0 items-center justify-center" aria-hidden>
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                styles.dot,
+                sandboxStatus === "creating" && "animate-pulse",
+              )}
+            />
+          </span>
+          <span className="min-w-0 truncate">{sandboxStatus}</span>
+        </div>
       </div>
 
       <div className="flex items-center justify-end gap-1">

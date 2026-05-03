@@ -15,6 +15,7 @@ import {
 import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { parsePatch } from "diff";
 import {
   getToolName,
   isReasoningUIPart,
@@ -27,6 +28,8 @@ import {
   Bot,
   ChevronDown,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
   Trash2,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -53,10 +56,115 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, isExploreTool, toolSlugFromPart, type ToolPart } from "@/components/ai-elements/tool";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, isExploreTool, isToolDiffPayload, toolSlugFromPart, type ToolDiffPayload, type ToolPart } from "@/components/ai-elements/tool";
 import { toUIMessage } from "@/lib/chat-messages";
 import { ModeToggle } from "@/components/mode-toggle";
 import Loader from "@/components/loader";
+import { ThreadDiffPanel, type ThreadDiffEntry } from "./_components/thread-diff-panel";
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isContentDetailsOutput(
+  v: unknown
+): v is { content: string; details: Record<string, unknown> } {
+  return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
+}
+
+function countPatchLines(patch: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+
+  try {
+    for (const parsedPatch of parsePatch(patch)) {
+      for (const hunk of parsedPatch.hunks) {
+        for (const line of hunk.lines) {
+          if (line.startsWith("+")) {
+            additions += 1;
+          } else if (line.startsWith("-")) {
+            deletions += 1;
+          }
+        }
+      }
+    }
+  } catch {
+    for (const line of patch.split("\n")) {
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        additions += 1;
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        deletions += 1;
+      }
+    }
+  }
+
+  return { additions, deletions };
+}
+
+function diffStatus(diff: ToolDiffPayload): ThreadDiffEntry["status"] {
+  if (diff.oldContent === null || diff.oldContent === "") {
+    return "added";
+  }
+  if (diff.newContent === "") {
+    return "deleted";
+  }
+  return "modified";
+}
+
+function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
+  const entries: ThreadDiffEntry[] = [];
+  const fileTurns = new Map<string, number>();
+
+  for (const message of messages) {
+    for (let index = 0; index < message.parts.length; index += 1) {
+      const part = message.parts[index];
+      if (!part || !isToolUIPart(part)) {
+        continue;
+      }
+
+      const slug = toolSlugFromPart(
+        part.type,
+        part.type === "dynamic-tool" ? getToolName(part) : undefined,
+      );
+      if (slug !== "edit" && slug !== "write") {
+        continue;
+      }
+
+      const output = "output" in part ? part.output : undefined;
+      if (!isContentDetailsOutput(output) || !isToolDiffPayload(output.details.diff)) {
+        continue;
+      }
+
+      const diff = output.details.diff;
+      const patch = typeof diff.patch === "string" ? diff.patch : "";
+      const file =
+        typeof output.details.path === "string"
+          ? output.details.path
+          : diff.fileName ?? "Changed file";
+      const { additions, deletions } = countPatchLines(patch);
+      const turn = (fileTurns.get(file) ?? 0) + 1;
+      fileTurns.set(file, turn);
+
+      entries.push({
+        id: `${message.id}:${index}`,
+        messageId: message.id,
+        partIndex: index,
+        turn,
+        tool: slug,
+        file,
+        patch,
+        additions,
+        deletions,
+        status: diffStatus(diff),
+        oldContent: diff.oldContent,
+        newContent: diff.newContent,
+        diff,
+      });
+    }
+  }
+
+  return entries;
+}
 
 function getPartState(part: object) {
   return "state" in part ? part.state : undefined;
@@ -175,6 +283,9 @@ function ThreadChat({
   initialMessages,
   initialPrompt,
   disabled,
+  diffPanelOpen,
+  onDiffPanelOpenChange,
+  onDiffCountChange,
 }: {
   projectId: string;
   threadId: string;
@@ -182,10 +293,14 @@ function ThreadChat({
   initialMessages: UIMessage[];
   initialPrompt?: string;
   disabled: boolean;
+  diffPanelOpen: boolean;
+  onDiffPanelOpenChange: (open: boolean) => void;
+  onDiffCountChange: (count: number) => void;
 }) {
   const activeRunIdRef = useRef(currentRunId);
   const resumedRunIdsRef = useRef(new Set<string>());
   const hasAutoSubmittedInitialPromptRef = useRef(false);
+  const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
 
   useEffect(() => {
     if (currentRunId) {
@@ -255,6 +370,24 @@ function ThreadChat({
     messages: initialMessages,
     transport,
   });
+  const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
+
+  useEffect(() => {
+    onDiffCountChange(diffEntries.length);
+  }, [diffEntries.length, onDiffCountChange]);
+
+  useEffect(() => {
+    if (diffEntries.length === 0) {
+      setSelectedDiffEntryId(undefined);
+      return;
+    }
+
+    if (selectedDiffEntryId && diffEntries.some((entry) => entry.id === selectedDiffEntryId)) {
+      return;
+    }
+
+    setSelectedDiffEntryId(diffEntries.at(-1)?.id);
+  }, [diffEntries, selectedDiffEntryId]);
 
   useEffect(() => {
     if (!currentRunId || status !== "ready" || resumedRunIdsRef.current.has(currentRunId)) {
@@ -295,10 +428,11 @@ function ThreadChat({
   }, [initialPrompt, messages.length, ready, submitMessage]);
 
   return (
-    <section className="grid min-h-0 w-full min-w-0 flex-1 grid-rows-[1fr_auto]">
-      <div className="relative min-h-0 min-w-0 overflow-hidden">
-        <Conversation className="minimal-scrollbar h-full min-h-0">
-          <ConversationContent className="mx-auto min-h-full w-full max-w-[780px] gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-0">
+    <section className="grid h-full min-h-0 w-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
+        <div className="relative min-h-0 min-w-0 overflow-hidden">
+          <Conversation className="minimal-scrollbar h-full min-h-0">
+            <ConversationContent className="mx-auto min-h-full w-full max-w-[780px] gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-0">
             {messages.length === 0 && !showingInitialPromptHandoff ? (
               <ConversationEmptyState className="items-start border border-primary/15 bg-background p-5 text-left shadow-[inset_0_1px_0_0_rgba(var(--primary),0.05)] sm:p-6" icon={<Bot className="size-8 text-primary" />}>
                 <div className="max-w-xl">
@@ -476,31 +610,40 @@ function ThreadChat({
             ) : null}
 
             {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
-          </ConversationContent>
-          <ConversationScrollButton className="bottom-4" />
-        </Conversation>
-      </div>
+            </ConversationContent>
+            <ConversationScrollButton className="bottom-4" />
+          </Conversation>
+        </div>
 
-      <div className="mx-auto w-full max-w-[780px] shrink-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-[max(1rem,env(safe-area-inset-bottom))] lg:px-0">
-        {currentRunId ? (
-          <p className="mb-2 truncate font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-            Run {currentRunId}
-          </p>
-        ) : null}
-        <PromptInput
-          className="border border-primary/25 bg-background shadow-[0_18px_70px_rgba(0,0,0,0.16),inset_0_1px_0_0_rgba(var(--primary),0.07)]"
-          onSubmit={(message) => void submitMessage(message.text)}
-        >
-          <PromptInputBody>
-            <PromptInputTextarea disabled={!ready} placeholder="Message this thread..." />
-          </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools>
-            </PromptInputTools>
-            <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
-          </PromptInputFooter>
-        </PromptInput>
+        <div className="mx-auto w-full max-w-[780px] shrink-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-[max(1rem,env(safe-area-inset-bottom))] lg:px-0">
+          {currentRunId ? (
+            <p className="mb-2 truncate font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              Run {currentRunId}
+            </p>
+          ) : null}
+          <PromptInput
+            className="border border-primary/25 bg-background shadow-[0_18px_70px_rgba(0,0,0,0.16),inset_0_1px_0_0_rgba(var(--primary),0.07)]"
+            onSubmit={(message) => void submitMessage(message.text)}
+          >
+            <PromptInputBody>
+              <PromptInputTextarea disabled={!ready} placeholder="Message this thread..." />
+            </PromptInputBody>
+            <PromptInputFooter>
+              <PromptInputTools>
+              </PromptInputTools>
+              <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
+            </PromptInputFooter>
+          </PromptInput>
+        </div>
       </div>
+      <ThreadDiffPanel
+        entries={diffEntries}
+        selectedEntryId={selectedDiffEntryId}
+        onSelectEntry={setSelectedDiffEntryId}
+        open={diffPanelOpen}
+        onOpenChange={onDiffPanelOpenChange}
+        isLoading={status === "submitted" || status === "streaming"}
+      />
     </section>
   );
 }
@@ -520,11 +663,18 @@ export default function ProjectThreadPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
+  const [diffPanelOpen, setDiffPanelOpen] = useState(false);
+  const [diffCount, setDiffCount] = useState(0);
 
   const initialMessages = useMemo(() => dbMessages?.map(toUIMessage) ?? [], [dbMessages]);
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
+
+  useEffect(() => {
+    setDiffCount(0);
+    setDiffPanelOpen(false);
+  }, [threadId]);
 
   const handleDeleteThread = useCallback(async () => {
     setIsDeleting(true);
@@ -539,6 +689,13 @@ export default function ProjectThreadPage() {
       setIsDeleting(false);
     }
   }, [projectId, removeThread, router, threadId]);
+
+  const handleDiffCountChange = useCallback((count: number) => {
+    setDiffCount(count);
+    if (count === 0) {
+      setDiffPanelOpen(false);
+    }
+  }, []);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -555,7 +712,29 @@ export default function ProjectThreadPage() {
                 </h1>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant={diffPanelOpen ? "secondary" : "ghost"}
+                  size="icon"
+                  aria-controls="thread-changes-panel"
+                  aria-expanded={diffPanelOpen}
+                  title={diffPanelOpen ? "Hide diff" : "Show diff"}
+                  onClick={() => setDiffPanelOpen((open) => !open)}
+                  className="relative size-8 shrink-0"
+                >
+                  {diffPanelOpen ? (
+                    <PanelRightClose className="size-4" aria-hidden="true" />
+                  ) : (
+                    <PanelRightOpen className="size-4" aria-hidden="true" />
+                  )}
+                  <span className="sr-only">{diffPanelOpen ? "Hide diff" : "Show diff"}</span>
+                  {diffCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center bg-foreground px-1 font-mono text-[9px] font-semibold leading-4 text-background">
+                      {diffCount > 99 ? "99+" : diffCount}
+                    </span>
+                  ) : null}
+                </Button>
                 <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
                   <DialogTrigger
                     render={
@@ -620,6 +799,9 @@ export default function ProjectThreadPage() {
                   initialMessages={initialMessages}
                   initialPrompt={initialPrompt}
                   disabled={disabled}
+                  diffPanelOpen={diffPanelOpen}
+                  onDiffPanelOpenChange={setDiffPanelOpen}
+                  onDiffCountChange={handleDiffCountChange}
                 />
               )}
             </main>

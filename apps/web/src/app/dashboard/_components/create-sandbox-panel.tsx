@@ -79,7 +79,6 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
 
   return (
     <section className="border border-border bg-card text-card-foreground">
-      {/* ── Top rail: title + flow track ─────────────────────────── */}
       <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5">
         <div className="flex items-center gap-4">
           <h2 className="text-sm font-semibold tracking-tight text-foreground">
@@ -110,7 +109,6 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
         ) : null}
       </div>
 
-      {/* ── Body ─────────────────────────────────────────────────── */}
       {!isGithubConnected ? (
         <ConnectStep
           isConnecting={isConnectingGithub}
@@ -160,9 +158,6 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   Flow track
-   ───────────────────────────────────────────────────────────────── */
 
 function FlowTrack({
   githubDone,
@@ -216,9 +211,6 @@ function FlowTrack({
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   Step: connect GitHub
-   ───────────────────────────────────────────────────────────────── */
 
 function ConnectStep({
   isConnecting,
@@ -258,9 +250,6 @@ function ConnectStep({
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   Column primitives
-   ───────────────────────────────────────────────────────────────── */
 
 function ColumnHeader({
   label,
@@ -283,9 +272,6 @@ function ColumnHeader({
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   Column 02 — Repository
-   ───────────────────────────────────────────────────────────────── */
 
 function RepoColumn({
   isLoading,
@@ -526,10 +512,6 @@ function buildPageWindow(page: number, total: number): Array<number | "…"> {
   return window;
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   Column 03 — Branch
-   ───────────────────────────────────────────────────────────────── */
-
 function BranchColumn({
   isLoading,
   isDisabled,
@@ -625,11 +607,7 @@ function BranchColumn({
     </div>
   );
 }
-
-/* ─────────────────────────────────────────────────────────────────
-   Column 04 — Launch
-   ───────────────────────────────────────────────────────────────── */
-
+  
 function LaunchColumn({
   selectedRepo,
   selectedBranch,

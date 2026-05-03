@@ -12,7 +12,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
 
 import { CodeBlock } from "./code-block";
-import { ContentDiff } from "./content-diff";
+import { PierreDiffView } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
 
 const PLAIN_TEXT_LANG = "text" as BundledLanguage;
@@ -249,7 +249,7 @@ function isContentDetailsOutput(
   return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
 }
 
-type ToolDiffPayload = {
+export type ToolDiffPayload = {
   renderer: "pierre";
   patch?: string;
   fileName?: string;
@@ -257,7 +257,7 @@ type ToolDiffPayload = {
   newContent: string;
 };
 
-function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
+export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
   if (!isRecord(v)) {
     return false;
   }
@@ -285,53 +285,25 @@ function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
   return true;
 }
 
-function getShikiLangFromPath(path: string | undefined): BundledLanguage {
-  if (!path) {
-    return PLAIN_TEXT_LANG;
-  }
-
-  const file = path.split(/[\\/]/).pop() ?? path;
-  const extension = file.includes(".") ? file.slice(file.lastIndexOf(".") + 1).toLowerCase() : "";
-
-  if (extension === "ts") return "ts" as BundledLanguage;
-  if (extension === "tsx") return "tsx" as BundledLanguage;
-  if (extension === "js") return "js" as BundledLanguage;
-  if (extension === "jsx") return "jsx" as BundledLanguage;
-  if (extension === "json") return "json" as BundledLanguage;
-  if (extension === "md") return "md" as BundledLanguage;
-  if (extension === "mdx") return "mdx" as BundledLanguage;
-  if (extension === "css") return "css" as BundledLanguage;
-  if (extension === "scss") return "scss" as BundledLanguage;
-  if (extension === "html") return "html" as BundledLanguage;
-  if (extension === "yaml" || extension === "yml") return "yaml" as BundledLanguage;
-  if (extension === "sh" || extension === "bash") return "bash" as BundledLanguage;
-  if (extension === "py") return "python" as BundledLanguage;
-  if (extension === "go") return "go" as BundledLanguage;
-  if (extension === "rs") return "rust" as BundledLanguage;
-  if (extension === "java") return "java" as BundledLanguage;
-  if (extension === "kt") return "kotlin" as BundledLanguage;
-  if (extension === "swift") return "swift" as BundledLanguage;
-  if (extension === "vue") return "vue" as BundledLanguage;
-  if (extension === "svelte") return "svelte" as BundledLanguage;
-  if (extension === "xml") return "xml" as BundledLanguage;
-
-  return PLAIN_TEXT_LANG;
-}
-
-function PierreDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
-  const language = getShikiLangFromPath(pathLine ?? diff.fileName);
-
+export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
   if (typeof diff.patch !== "string" || diff.patch.length === 0) {
     return (
-      <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
-        <CodeBlock code={diff.newContent} language={language} />
-      </div>
+      <PierreDiffView
+        fileName={pathLine ?? diff.fileName}
+        oldContent={diff.oldContent}
+        newContent={diff.newContent}
+      />
     );
   }
 
   return (
     <div className="overflow-hidden">
-      <ContentDiff diff={diff.patch} language={language} />
+      <PierreDiffView
+        patch={diff.patch}
+        fileName={pathLine ?? diff.fileName}
+        oldContent={diff.oldContent}
+        newContent={diff.newContent}
+      />
     </div>
   );
 }
@@ -363,7 +335,7 @@ function ContentDetailsBody({
         <p className="text-[10px] leading-snug text-muted-foreground">{meta}</p>
       ) : null}
       {diffPayload ? (
-        <PierreDiffView diff={diffPayload} pathLine={pathLine} />
+        <ToolDiffView diff={diffPayload} pathLine={pathLine} />
       ) : (
         <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
           <CodeBlock code={content} language={PLAIN_TEXT_LANG} />

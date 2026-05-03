@@ -115,3 +115,67 @@
 [data-slot="sidebar-content"]::-webkit-scrollbar-thumb:hover {
   background: color-mix(in oklch, var(--sidebar-foreground) 16%, transparent);
 }
+
+/* ─── Dashboard ─── */
+
+@keyframes dashboard-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dashboard-shell {
+  animation: dashboard-fade-in 300ms var(--ease-ui-snappy) both;
+}
+
+.dashboard-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--foreground) 16%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+  background-position: 0 0;
+  opacity: 0.35;
+  mask-image: linear-gradient(to bottom, black, transparent 65%);
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 65%);
+  z-index: 0;
+}
+
+.dashboard-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+.animate-card-in {
+  opacity: 0;
+  animation: card-in 220ms var(--ease-ui-snappy) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-shell,
+  .animate-card-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

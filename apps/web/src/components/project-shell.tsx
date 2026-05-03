@@ -10,6 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Sidebar,
@@ -17,15 +18,12 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-  SidebarSeparator,
 } from "@autopr/ui/components/sidebar";
 
 import { RouteTransition } from "@/components/route-transition";
@@ -61,8 +59,8 @@ function relativeTime(ts: number): string {
 function LiveDot({ className }: { className?: string }) {
   return (
     <span className={cn("relative flex size-1.5 shrink-0", className)}>
-      <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-40" />
-      <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500/60 opacity-40" />
+      <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
     </span>
   );
 }
@@ -80,89 +78,93 @@ export function ProjectSidebar({
   activeThreadId?: string;
 }) {
   const displayName = repoFullName ?? "autopr";
+  const [owner, repo] = displayName.includes("/")
+    ? displayName.split("/")
+    : [undefined, displayName];
 
   return (
     <Sidebar collapsible="icon" variant="inset">
-      <SidebarHeader className="px-3 pt-4 pb-2">
+      {/* ── Brand ─────────────────────────────────────────────── */}
+      <SidebarHeader className="border-b border-sidebar-border/60 px-3 py-3">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
               render={<Link href="/dashboard" />}
               tooltip={displayName}
-              className="gap-3 group-data-[collapsible=icon]:justify-center"
+              className="h-10 gap-3 px-2 group-data-[collapsible=icon]:justify-center"
             >
-              <div className="grid size-8 shrink-0 place-items-center bg-sidebar-primary/10 text-[11px] font-bold uppercase tracking-wide text-sidebar-primary">
-                {displayName.charAt(0)}
-              </div>
-              <span className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-sidebar-foreground">
-                {displayName}
+              <span className="inline-block size-1.5 shrink-0 bg-sidebar-foreground" />
+              <span className="min-w-0 flex-1 truncate font-mono text-[12px] leading-none group-data-[collapsible=icon]:hidden">
+                {owner ? (
+                  <>
+                    <span className="text-sidebar-foreground/55">
+                      {owner}
+                      <span className="opacity-50">/</span>
+                    </span>
+                    <span className="font-semibold text-sidebar-foreground">{repo}</span>
+                  </>
+                ) : (
+                  <span className="font-semibold text-sidebar-foreground">{displayName}</span>
+                )}
               </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
 
-      <div className="px-4 pb-2 group-data-[collapsible=icon]:hidden">
+      <div className="px-3 pt-3 pb-2 group-data-[collapsible=icon]:hidden">
         <button
           type="button"
-          className="flex h-9 w-full items-center gap-2.5 bg-sidebar-accent px-3 text-[12px] text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground/60"
+          className="flex h-8 w-full items-center gap-2 border border-sidebar-border bg-sidebar px-2 font-mono text-[11px] text-sidebar-foreground/45 transition hover:border-sidebar-foreground/60 hover:text-sidebar-foreground/70"
         >
-          <Search className="size-4 shrink-0" aria-hidden="true" />
-          <span className="flex-1 text-left">Search</span>
-          <kbd className="ml-auto font-mono text-[10px] tracking-wide text-sidebar-foreground/20">⌘K</kbd>
+          <Search className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="flex-1 text-left">search…</span>
+          <kbd className="ml-auto font-mono text-[10px] tracking-wide text-sidebar-foreground/30">⌘K</kbd>
         </button>
       </div>
 
       <SidebarContent>
-        <SidebarGroup className="px-3 py-1">
+        <SidebarGroup className="px-2 py-1">
           <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link href="/dashboard" />}
-                  tooltip="Dashboard"
-                  className="gap-3 group-data-[collapsible=icon]:justify-center"
-                >
-                  <Home className="size-4 text-sidebar-foreground/50" aria-hidden="true" />
-                  <span className="text-sidebar-foreground/80">Dashboard</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link href={`/project/${projectId}`} />}
-                  tooltip="Threads"
-                  className="gap-3 group-data-[collapsible=icon]:justify-center"
-                >
-                  <MessageSquare className="size-4 text-sidebar-foreground/50" aria-hidden="true" />
-                  <span className="text-sidebar-foreground/80">Threads</span>
-                </SidebarMenuButton>
-                {typeof threads?.length === "number" ? (
-                  <SidebarMenuBadge>{threads.length}</SidebarMenuBadge>
-                ) : null}
-              </SidebarMenuItem>
+            <SidebarMenu className="gap-0">
+              <NavLink href={"/dashboard" as Route} icon={Home} label="Dashboard" />
+              <NavLink
+                href={`/project/${projectId}` as Route}
+                icon={MessageSquare}
+                label="Threads"
+                count={threads?.length}
+              />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator className="my-1" />
-
-        <SidebarGroup className="group-data-[collapsible=icon]:hidden px-3 py-1">
-          <SidebarGroupLabel className="mb-1 flex h-8 items-center justify-between px-2.5">
-            <span>Recents</span>
-          </SidebarGroupLabel>
+        <SidebarGroup className="px-2 pt-3 pb-1 group-data-[collapsible=icon]:hidden">
+          <div className="mb-1.5 flex items-center justify-between px-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-sidebar-foreground/50">
+              recents
+            </span>
+            {threads && threads.length > 0 ? (
+              <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/35">
+                {String(threads.length).padStart(2, "0")}
+              </span>
+            ) : null}
+          </div>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-0">
               {threads === undefined ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="size-4 animate-spin text-sidebar-foreground/20" aria-hidden="true" />
+                <div className="flex items-center justify-center py-6">
+                  <Loader2
+                    className="size-3.5 animate-spin text-sidebar-foreground/30"
+                    aria-hidden="true"
+                  />
                 </div>
               ) : threads.length === 0 ? (
-                <div className="py-8 text-center text-[12px] text-sidebar-foreground/25">
-                  No threads yet
+                <div className="px-2 py-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/30">
+                  no threads
                 </div>
               ) : (
-                threads.slice(0, 8).map((thread) => {
+                threads.slice(0, 12).map((thread) => {
                   const isActive = thread.threadId === activeThreadId;
                   return (
                     <SidebarMenuItem key={thread.threadId}>
@@ -175,23 +177,36 @@ export function ProjectSidebar({
                         }
                         tooltip={thread.title}
                         className={cn(
-                          "h-auto min-h-[48px] flex-col items-start gap-1 py-2.5 pr-3"
+                          "group/thread h-8 gap-2 px-2 font-mono",
+                          "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground",
                         )}
                       >
-                        <div className="flex w-full items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-sidebar-foreground/85">
-                            {thread.title}
-                          </span>
-                          <span className="shrink-0 text-[11px] tabular-nums text-sidebar-foreground/30">
+                        <span
+                          className={cn(
+                            "inline-flex w-2 shrink-0 text-[10px] leading-none text-sidebar-foreground/30",
+                            isActive && "text-sidebar-foreground",
+                          )}
+                          aria-hidden="true"
+                        >
+                          {isActive ? "▸" : ""}
+                        </span>
+                        <span
+                          className={cn(
+                            "min-w-0 flex-1 truncate text-[12px]",
+                            isActive
+                              ? "text-sidebar-foreground"
+                              : "text-sidebar-foreground/75",
+                          )}
+                        >
+                          {thread.title}
+                        </span>
+                        {thread.isLive ? (
+                          <LiveDot className="ml-auto" />
+                        ) : (
+                          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-sidebar-foreground/30">
                             {relativeTime(thread.updatedAt)}
                           </span>
-                        </div>
-                        {thread.isLive ? (
-                          <div className="flex items-center gap-1.5 pl-0.5">
-                            <LiveDot />
-                            <span className="text-[10px] font-medium uppercase tracking-wider text-primary/80">live</span>
-                          </div>
-                        ) : null}
+                        )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );
@@ -202,33 +217,71 @@ export function ProjectSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="mt-auto px-3 py-2">
-        <SidebarMenu>
+      <SidebarFooter className="mt-auto border-t border-sidebar-border/60 p-2">
+        <SidebarMenu className="gap-0">
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link href={`/project/${projectId}`} />}
               tooltip="Settings"
-              className="gap-3 group-data-[collapsible=icon]:justify-center text-sidebar-foreground/50 hover:text-sidebar-foreground/80"
+              className="h-8 gap-2 px-2 font-mono text-[12px] text-sidebar-foreground/60 hover:text-sidebar-foreground"
             >
-              <Settings className="size-4" aria-hidden="true" />
-              <span>Settings</span>
+              <Settings
+                className="size-3.5 text-sidebar-foreground/50"
+                aria-hidden="true"
+              />
+              <span className="group-data-[collapsible=icon]:hidden">settings</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <div className="flex h-10 items-center gap-3 px-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+        <div className="mt-1 flex h-9 items-center gap-2.5 border-t border-sidebar-border/40 px-2 pt-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-t-0 group-data-[collapsible=icon]:px-0">
           <UserButton
             appearance={{
               elements: {
-                avatarBox: "size-7 rounded-full",
+                avatarBox: "size-6 rounded-none",
               },
             }}
           />
-          <span className="min-w-0 truncate text-[13px] font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
-            Account
+          <span className="min-w-0 truncate font-mono text-[11px] text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
+            account
           </span>
         </div>
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+function NavLink({
+  href,
+  icon: Icon,
+  label,
+  count,
+}: {
+  href: Route;
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  label: string;
+  count?: number;
+}) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        render={<Link href={href} />}
+        tooltip={label}
+        className="h-8 gap-2.5 px-2 font-mono group-data-[collapsible=icon]:justify-center"
+      >
+        <Icon
+          className="size-3.5 text-sidebar-foreground/55"
+          aria-hidden={true}
+        />
+        <span className="flex-1 text-left text-[12px] text-sidebar-foreground/85 group-data-[collapsible=icon]:hidden">
+          {label.toLowerCase()}
+        </span>
+        {typeof count === "number" ? (
+          <span className="ml-auto font-mono text-[10px] tabular-nums text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden">
+            {String(count).padStart(2, "0")}
+          </span>
+        ) : null}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 

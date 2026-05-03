@@ -3,6 +3,10 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { SignInButton, useReverification, useUser } from "@clerk/nextjs";
 import {
+  useMutation as useReactMutation,
+  useQuery as useReactQuery,
+} from "@tanstack/react-query";
+import {
   Authenticated,
   AuthLoading,
   Unauthenticated,
@@ -20,6 +24,9 @@ import { DeleteDialog } from "./_components/delete-dialog";
 import { ProjectGrid } from "./_components/project-grid";
 import { readJson, type GithubBranch, type GithubRepository } from "./_components/types";
 
+const EMPTY_REPOSITORIES: GithubRepository[] = [];
+const EMPTY_BRANCHES: GithubBranch[] = [];
+
 export default function Dashboard() {
   const router = useRouter();
   const user = useUser();
@@ -31,19 +38,35 @@ export default function Dashboard() {
   const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
   const removeProject = useMutation(api.projects.remove);
 
-  const [repositories, setRepositories] = useState<GithubRepository[]>([]);
-  const [branches, setBranches] = useState<GithubBranch[]>([]);
   const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
   const [repoSearch, setRepoSearch] = useState("");
-  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isConnectingGithub, setIsConnectingGithub] = useState(false);
-  const [isGithubConnected, setIsGithubConnected] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | undefined>();
+
+  const repositoriesQuery = useReactQuery({
+    queryKey: ["github", "repositories"],
+    enabled: isAuthenticated,
+    retry: false,
+    queryFn: async () =>
+      readJson<{ repositories: GithubRepository[] }>(
+        await fetch("/api/github/repositories"),
+      ),
+  });
+
+  const repositories = repositoriesQuery.data?.repositories ?? EMPTY_REPOSITORIES;
+  const refetchRepositories = repositoriesQuery.refetch;
+  const isLoadingRepos = repositoriesQuery.isPending;
+  const isRefreshingRepos = repositoriesQuery.isFetching && !repositoriesQuery.isPending;
+  const isGithubConnected = !repositoriesQuery.isError || repositories.length > 0;
+  const repoError =
+    repositoriesQuery.error instanceof Error
+      ? repositoriesQuery.error.message
+      : repositoriesQuery.isError
+        ? "Could not load GitHub repositories."
+        : undefined;
 
   const selectedRepo = useMemo(
     () => repositories.find((r) => r.fullName === selectedRepoFullName),
@@ -56,77 +79,110 @@ export default function Dashboard() {
     return repositories.filter((r) => r.fullName.toLowerCase().includes(search));
   }, [repoSearch, repositories]);
 
+  const branchesQuery = useReactQuery({
+    queryKey: ["github", "branches", selectedRepo?.owner, selectedRepo?.name],
+    enabled: isAuthenticated && Boolean(selectedRepo),
+    queryFn: async () => {
+      if (!selectedRepo) {
+        return { branches: EMPTY_BRANCHES };
+      }
+
+      return readJson<{ branches: GithubBranch[] }>(
+        await fetch(
+          `/api/github/repositories/${encodeURIComponent(selectedRepo.owner)}/${encodeURIComponent(selectedRepo.name)}/branches`,
+        ),
+      );
+    },
+  });
+
+  const branches = branchesQuery.data?.branches ?? EMPTY_BRANCHES;
+  const isLoadingBranches = branchesQuery.isPending && Boolean(selectedRepo);
+  const branchesError =
+    branchesQuery.error instanceof Error
+      ? branchesQuery.error.message
+      : branchesQuery.isError
+        ? "Could not load branches."
+        : undefined;
+
+  const createProjectMutation = useReactMutation({
+    mutationFn: async () => {
+      if (!selectedRepo || !selectedBranch) {
+        throw new Error("Select a GitHub repository and branch.");
+      }
+
+      return readJson<{ projectId: string; error?: string }>(
+        await fetch("/api/projects/from-github", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repository: {
+              id: selectedRepo.id,
+              fullName: selectedRepo.fullName,
+              owner: selectedRepo.owner,
+              name: selectedRepo.name,
+              htmlUrl: selectedRepo.htmlUrl,
+              cloneUrl: selectedRepo.cloneUrl,
+              defaultBranch: selectedRepo.defaultBranch,
+            },
+            branch: selectedBranch,
+          }),
+        }),
+      );
+    },
+    onMutate: () => {
+      setError(undefined);
+    },
+    onSuccess: (data) => {
+      router.push(`/project/${data.projectId}`);
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : "Could not create the project sandbox.");
+    },
+  });
+
+  const isCreating = createProjectMutation.isPending;
+
   const projectToDelete = useMemo(
     () => projects?.find((p) => p.projectId === projectIdToDelete),
     [projectIdToDelete, projects],
   );
 
-  const loadRepositories = useCallback(async () => {
-    if (!isAuthenticated) return;
-    setIsLoadingRepos(true);
-    setError(undefined);
-
-    try {
-      const data = await readJson<{ repositories: GithubRepository[] }>(
-        await fetch("/api/github/repositories"),
-      );
-      setRepositories(data.repositories);
-      setIsGithubConnected(true);
-
-      if (!selectedRepoFullName && data.repositories[0]) {
-        setSelectedRepoFullName(data.repositories[0].fullName);
-      }
-    } catch (err) {
-      setRepositories([]);
-      setIsGithubConnected(false);
-      setError(err instanceof Error ? err.message : "Could not load GitHub repositories.");
-    } finally {
-      setIsLoadingRepos(false);
-    }
-  }, [isAuthenticated, selectedRepoFullName]);
-
   useEffect(() => {
-    void loadRepositories();
-  }, [loadRepositories]);
+    if (!repositories.length) {
+      setSelectedRepoFullName("");
+      return;
+    }
+
+    if (
+      !selectedRepoFullName ||
+      !repositories.some((repo) => repo.fullName === selectedRepoFullName)
+    ) {
+      setSelectedRepoFullName(repositories[0].fullName);
+    }
+  }, [repositories, selectedRepoFullName]);
+
+  const refreshRepositories = useCallback(async () => {
+    setError(undefined);
+    await refetchRepositories();
+  }, [refetchRepositories]);
 
   useEffect(() => {
     if (!selectedRepo) {
-      setBranches([]);
       setSelectedBranch("");
       return;
     }
 
-    let active = true;
-    setIsLoadingBranches(true);
-    setError(undefined);
+    if (!branches.length) {
+      setSelectedBranch("");
+      return;
+    }
 
-    fetch(
-      `/api/github/repositories/${encodeURIComponent(selectedRepo.owner)}/${encodeURIComponent(selectedRepo.name)}/branches`,
-    )
-      .then((res) => readJson<{ branches: GithubBranch[] }>(res))
-      .then((data) => {
-        if (!active) return;
-        setBranches(data.branches);
-        setSelectedBranch(
-          data.branches.some((b) => b.name === selectedRepo.defaultBranch)
-            ? selectedRepo.defaultBranch
-            : data.branches[0]?.name ?? "",
-        );
-      })
-      .catch((err) => {
-        if (!active) return;
-        setBranches([]);
-        setSelectedBranch("");
-        setError(err instanceof Error ? err.message : "Could not load branches.");
-      })
-      .finally(() => {
-        if (active) setIsLoadingBranches(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedRepo]);
+    setSelectedBranch(
+      branches.some((branch) => branch.name === selectedRepo.defaultBranch)
+        ? selectedRepo.defaultBranch
+        : branches[0]?.name ?? "",
+    );
+  }, [branches, selectedRepo]);
 
   async function connectGithub() {
     setIsConnectingGithub(true);
@@ -149,7 +205,7 @@ export default function Dashboard() {
       }
 
       await user.user.reload();
-      await loadRepositories();
+      await refreshRepositories();
       setIsConnectingGithub(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not connect GitHub.");
@@ -158,40 +214,7 @@ export default function Dashboard() {
   }
 
   async function createProject() {
-    if (!selectedRepo || !selectedBranch) {
-      setError("Select a GitHub repository and branch.");
-      return;
-    }
-
-    setIsCreating(true);
-    setError(undefined);
-
-    try {
-      const data = await readJson<{ projectId: string; error?: string }>(
-        await fetch("/api/projects/from-github", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            repository: {
-              id: selectedRepo.id,
-              fullName: selectedRepo.fullName,
-              owner: selectedRepo.owner,
-              name: selectedRepo.name,
-              htmlUrl: selectedRepo.htmlUrl,
-              cloneUrl: selectedRepo.cloneUrl,
-              defaultBranch: selectedRepo.defaultBranch,
-            },
-            branch: selectedBranch,
-          }),
-        }),
-      );
-
-      router.push(`/project/${data.projectId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the project sandbox.");
-    } finally {
-      setIsCreating(false);
-    }
+    createProjectMutation.mutate();
   }
 
   async function deleteProject() {
@@ -221,27 +244,28 @@ export default function Dashboard() {
 
             <div className="flex min-h-0 flex-1 flex-col gap-5">
               <div className="flex shrink-0 flex-col">
-            <CreateSandboxPanel
-              isGithubConnected={isGithubConnected}
-              isConnectingGithub={isConnectingGithub}
-              isLoadingRepos={isLoadingRepos}
-              isLoadingBranches={isLoadingBranches}
-              isCreating={isCreating}
-              repositories={repositories}
-              filteredRepositories={filteredRepositories}
-              branches={branches}
-              selectedRepoFullName={selectedRepoFullName}
-              selectedBranch={selectedBranch}
-              repoSearch={repoSearch}
-              selectedRepo={selectedRepo}
-              error={error}
-              onConnectGithub={connectGithub}
-              onRefreshRepos={loadRepositories}
-              onRepoSearchChange={setRepoSearch}
-              onRepoChange={setSelectedRepoFullName}
-              onBranchChange={setSelectedBranch}
-              onCreate={createProject}
-            />
+                <CreateSandboxPanel
+                  isGithubConnected={isGithubConnected}
+                  isConnectingGithub={isConnectingGithub}
+                  isLoadingRepos={isLoadingRepos}
+                  isRefreshingRepos={isRefreshingRepos}
+                  isLoadingBranches={isLoadingBranches}
+                  isCreating={isCreating}
+                  repositories={repositories}
+                  filteredRepositories={filteredRepositories}
+                  branches={branches}
+                  selectedRepoFullName={selectedRepoFullName}
+                  selectedBranch={selectedBranch}
+                  repoSearch={repoSearch}
+                  selectedRepo={selectedRepo}
+                  error={error ?? repoError ?? branchesError}
+                  onConnectGithub={connectGithub}
+                  onRefreshRepos={refreshRepositories}
+                  onRepoSearchChange={setRepoSearch}
+                  onRepoChange={setSelectedRepoFullName}
+                  onBranchChange={setSelectedBranch}
+                  onCreate={createProject}
+                />
               </div>
 
               <section className="flex min-h-0 flex-1 flex-col">

@@ -17,6 +17,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@autopr/ui/components/select";
+import {
+  useMutation as useReactMutation,
+  useQuery as useReactQuery,
+} from "@tanstack/react-query";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
@@ -49,6 +53,8 @@ type GithubBranch = {
   sha: string;
   protected: boolean;
 };
+
+const EMPTY_BRANCHES: GithubBranch[] = [];
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -141,10 +147,7 @@ export default function ProjectOverviewPage() {
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
-  const [branches, setBranches] = useState<GithubBranch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState("");
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
-  const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -155,6 +158,53 @@ export default function ProjectOverviewPage() {
   const filteredThreads = threads?.filter((t) =>
     searchQuery ? t.title.toLowerCase().includes(searchQuery.toLowerCase()) : true,
   );
+
+  const branchesQuery = useReactQuery({
+    queryKey: ["github", "branches", project?.repoOwner, project?.repoName],
+    enabled: isAuthenticated && Boolean(project),
+    queryFn: async () => {
+      if (!project) {
+        return { branches: EMPTY_BRANCHES };
+      }
+
+      return readJson<{ branches: GithubBranch[] }>(
+        await fetch(
+          `/api/github/repositories/${encodeURIComponent(project.repoOwner)}/${encodeURIComponent(project.repoName)}/branches`,
+        ),
+      );
+    },
+  });
+
+  const branches = branchesQuery.data?.branches ?? EMPTY_BRANCHES;
+  const isLoadingBranches = branchesQuery.isPending && Boolean(project);
+  const branchesError =
+    branchesQuery.error instanceof Error
+      ? branchesQuery.error.message
+      : branchesQuery.isError
+        ? "Could not load branches."
+        : undefined;
+
+  const switchBranchMutation = useReactMutation({
+    mutationFn: async (branch: string) =>
+      readJson<{ status: "ready" }>(
+        await fetch(`/api/project/${projectId}/branch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ branch }),
+        }),
+      ),
+    onMutate: () => {
+      setError(undefined);
+    },
+    onError: (branchError) => {
+      setSelectedBranch(currentBranch);
+      setError(branchError instanceof Error ? branchError.message : "Could not switch branches.");
+    },
+  });
+
+  const isSwitchingBranch = switchBranchMutation.isPending;
+  const mutateSwitchBranch = switchBranchMutation.mutate;
+  const displayedError = error ?? branchesError;
 
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
@@ -238,31 +288,6 @@ export default function ProjectOverviewPage() {
     setSelectedBranch(currentBranch);
   }, [currentBranch, project]);
 
-  useEffect(() => {
-    if (!project || !isAuthenticated) return;
-
-    let active = true;
-    setIsLoadingBranches(true);
-
-    fetch(`/api/github/repositories/${encodeURIComponent(project.repoOwner)}/${encodeURIComponent(project.repoName)}/branches`)
-      .then((response) => readJson<{ branches: GithubBranch[] }>(response))
-      .then((data) => {
-        if (!active) return;
-        setBranches(data.branches);
-      })
-      .catch((requestError) => {
-        if (!active) return;
-        setError(requestError instanceof Error ? requestError.message : "Could not load branches.");
-      })
-      .finally(() => {
-        if (active) setIsLoadingBranches(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isAuthenticated, project]);
-
   const switchBranch = useCallback(async (branch: string) => {
     if (!project || branch === currentBranch) {
       setSelectedBranch(branch);
@@ -278,24 +303,8 @@ export default function ProjectOverviewPage() {
     }
 
     setSelectedBranch(branch);
-    setIsSwitchingBranch(true);
-    setError(undefined);
-
-    try {
-      await readJson<{ status: "ready" }>(
-        await fetch(`/api/project/${projectId}/branch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ branch }),
-        }),
-      );
-    } catch (branchError) {
-      setSelectedBranch(currentBranch);
-      setError(branchError instanceof Error ? branchError.message : "Could not switch branches.");
-    } finally {
-      setIsSwitchingBranch(false);
-    }
-  }, [currentBranch, openThreads.length, project, projectId]);
+    mutateSwitchBranch(branch);
+  }, [currentBranch, openThreads.length, project, mutateSwitchBranch]);
 
   const quickActions = [
     "Summarize latest changes",
@@ -475,10 +484,10 @@ export default function ProjectOverviewPage() {
                     </div>
                   ) : null}
 
-                  {error ? (
+                  {displayedError ? (
                     <div className="mx-auto w-full max-w-[600px] px-5 pt-2">
                       <div className="border border-destructive/25 bg-destructive/5 px-3 py-2 text-[13px] text-destructive">
-                        {error}
+                        {displayedError}
                       </div>
                     </div>
                   ) : null}

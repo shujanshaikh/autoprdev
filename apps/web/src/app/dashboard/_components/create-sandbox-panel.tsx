@@ -30,6 +30,7 @@ interface CreateSandboxPanelProps {
   isGithubConnected: boolean;
   isConnectingGithub: boolean;
   isLoadingRepos: boolean;
+  isRefreshingRepos: boolean;
   isLoadingBranches: boolean;
   isCreating: boolean;
   repositories: GithubRepository[];
@@ -53,6 +54,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
     isGithubConnected,
     isConnectingGithub,
     isLoadingRepos,
+    isRefreshingRepos,
     isLoadingBranches,
     isCreating,
     filteredRepositories,
@@ -97,10 +99,13 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
             className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground transition hover:text-foreground disabled:opacity-40"
           >
             <RefreshCw
-              className={cn("size-3", isLoadingRepos && "animate-spin")}
+              className={cn(
+                "size-3",
+                (isLoadingRepos || isRefreshingRepos) && "animate-spin",
+              )}
               aria-hidden="true"
             />
-            refresh
+            {isRefreshingRepos ? "syncing" : "refresh"}
           </button>
         ) : null}
       </div>
@@ -115,6 +120,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
         <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_1fr]">
           <RepoColumn
             isLoading={isLoadingRepos}
+            isRefreshing={isRefreshingRepos}
             isDisabled={isCreating}
             search={repoSearch}
             onSearchChange={onRepoSearchChange}
@@ -283,6 +289,7 @@ function ColumnHeader({
 
 function RepoColumn({
   isLoading,
+  isRefreshing,
   isDisabled,
   search,
   onSearchChange,
@@ -292,6 +299,7 @@ function RepoColumn({
   onSelect,
 }: {
   isLoading: boolean;
+  isRefreshing: boolean;
   isDisabled: boolean;
   search: string;
   onSearchChange: (v: string) => void;
@@ -320,7 +328,13 @@ function RepoColumn({
     <div className="flex h-[22rem] flex-col border-b border-border lg:border-b-0 lg:border-r">
       <ColumnHeader
         label="Repository"
-        hint={isLoading ? "loading" : `${repositories.length}/${allCount}`}
+        hint={
+          isLoading
+            ? "loading"
+            : isRefreshing
+              ? "syncing"
+              : `${repositories.length}/${allCount}`
+        }
       />
       <div className="border-b border-border px-2 py-1.5">
         <div className="flex items-center gap-2 border border-border bg-background px-2 focus-within:border-foreground">
@@ -329,7 +343,7 @@ function RepoColumn({
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="search…"
-            disabled={isDisabled || isLoading}
+            disabled={isDisabled}
             className="h-7 w-full bg-transparent font-mono text-xs outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
           />
         </div>
@@ -343,8 +357,7 @@ function RepoColumn({
       >
         {isLoading ? (
           <ColumnState>
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            <span>loading repositories</span>
+            <RepositorySkeleton />
           </ColumnState>
         ) : repositories.length === 0 ? (
           <ColumnState>
@@ -356,7 +369,7 @@ function RepoColumn({
             </span>
           </ColumnState>
         ) : (
-          <ul className="divide-y divide-border/60">
+          <ul className={cn("divide-y divide-border/60", isRefreshing && "opacity-80")}>
             {pageRepos.map((repo) => {
               const active = repo.fullName === selectedFullName;
               return (
@@ -405,6 +418,12 @@ function RepoColumn({
             })}
           </ul>
         )}
+        {isRefreshing && !isLoading ? (
+          <div className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1.5 border border-border bg-background/95 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground shadow-sm">
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+            syncing
+          </div>
+        ) : null}
       </div>
 
       {!isLoading && repositories.length > REPOS_PER_PAGE ? (
@@ -726,6 +745,19 @@ function ColumnState({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-4 py-8 text-center text-xs text-muted-foreground">
       {children}
+    </div>
+  );
+}
+
+function RepositorySkeleton() {
+  return (
+    <div className="w-full max-w-xs space-y-2" aria-label="Loading repositories">
+      {Array.from({ length: 5 }, (_, index) => (
+        <div key={index} className="flex items-center gap-2.5">
+          <span className="size-3.5 shrink-0 animate-pulse border border-border bg-muted" />
+          <span className="h-3 flex-1 animate-pulse bg-muted" />
+        </div>
+      ))}
     </div>
   );
 }

@@ -120,8 +120,7 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
   }
 
   return daytona.create({
-    snapshot: resolved.snapshot,
-    autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MS,
+    snapshot: resolved.snapshot
   });
 }
 

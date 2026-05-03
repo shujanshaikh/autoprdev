@@ -9,8 +9,9 @@ export function StatusBadge({ status, className }: { status: SandboxStatus; clas
     <span
       className={cn(
         "inline-flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em]",
-        styles.badge,
-        className
+        styles.border,
+        styles.label,
+        className,
       )}
     >
       <span className={cn("size-1.5 rounded-full", styles.dot)} />
@@ -27,7 +28,7 @@ export function StatusDot({ status, className }: { status: SandboxStatus; classN
         <span
           className={cn(
             "absolute inline-flex size-full animate-ping rounded-full opacity-30",
-            styles.dot
+            styles.dot,
           )}
         />
         <span className={cn("relative inline-flex size-2 rounded-full", styles.dot)} />

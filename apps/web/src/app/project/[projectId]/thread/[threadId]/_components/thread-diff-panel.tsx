@@ -152,7 +152,6 @@ export function ThreadDiffPanel({
             Record<"--thread-diff-width", string>
         }
       >
-        {/* atmospheric seam */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-border to-transparent"
@@ -167,7 +166,6 @@ export function ThreadDiffPanel({
           <span className="block h-10 w-px bg-border/60 transition group-hover/resize:h-16 group-hover/resize:bg-primary/60 group-focus-visible/resize:bg-primary" />
         </button>
 
-        {/* Header */}
         <header className="relative flex shrink-0 flex-col gap-2 border-b border-border/55 bg-muted/18 px-4 pb-3 pt-3.5">
           <div className="flex items-center gap-2.5">
             <span className="relative inline-flex size-7 items-center justify-center border border-border/60 bg-muted/30">
@@ -216,7 +214,6 @@ export function ThreadDiffPanel({
           <LoadingList />
         ) : (
           <div className="grid min-h-0 flex-1 grid-rows-[minmax(96px,min(190px,32%))_minmax(0,1fr)] overflow-hidden">
-            {/* file list */}
             <ul
               role="listbox"
               aria-label="Changed files"
@@ -236,7 +233,6 @@ export function ThreadDiffPanel({
               })}
             </ul>
 
-            {/* diff body */}
             <div className="minimal-scrollbar relative min-h-0 overflow-auto overscroll-contain bg-background">
               {selectedEntry ? (
                 <DetailView
@@ -253,8 +249,6 @@ export function ThreadDiffPanel({
     </>
   );
 }
-
-/* ─────────────────────────── pieces ─────────────────────────── */
 
 function DiffStatBar({
   additions,
@@ -451,8 +445,6 @@ function DetailView({ entry, showTurn }: { entry: ThreadDiffEntry; showTurn: boo
     </div>
   );
 }
-
-/* ─────────────────────────── states ─────────────────────────── */
 
 function EmptyState() {
   return (

@@ -7,15 +7,11 @@ import {
   WorkerPoolContextProvider,
   type FileContents,
 } from "@pierre/diffs/react";
-import { type FileDiffOptions, type ThemeTypes } from "@pierre/diffs";
+import { DEFAULT_THEMES, type FileDiffOptions, type ThemeTypes } from "@pierre/diffs";
 import { useTheme } from "next-themes";
 import { useMemo, type ReactNode } from "react";
 
 const MAX_RENDERED_CHANGED_LINES = 500;
-const GITHUB_DIFF_THEME = {
-  dark: "github-dark",
-  light: "github-light",
-} as const;
 
 function changedLineCount(patch?: string): number {
   if (!patch) return 0;
@@ -58,7 +54,7 @@ function PierreDiffProviders({ children }: { children: ReactNode }) {
           "go",
           "rust",
         ],
-        theme: GITHUB_DIFF_THEME,
+        theme: DEFAULT_THEMES,
         preferredHighlighter: "shiki-wasm",
         lineDiffType: "none",
         maxLineDiffLength: 1000,
@@ -85,7 +81,7 @@ export function PierreDiffView({
 
   const diffOptions = useMemo<FileDiffOptions<undefined>>(
     () => ({
-      theme: GITHUB_DIFF_THEME,
+      theme: DEFAULT_THEMES,
       themeType,
       disableLineNumbers: false,
       overflow: "wrap",

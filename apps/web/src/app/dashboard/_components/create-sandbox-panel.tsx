@@ -186,8 +186,8 @@ function FlowTrack({
             <span
               className={cn(
                 "inline-flex size-3.5 items-center justify-center border leading-none",
-                state === "done" && "border-foreground bg-foreground text-background",
-                state === "active" && "border-foreground text-foreground",
+                state === "done" && "border-primary bg-primary text-primary-foreground",
+                state === "active" && "border-primary text-primary",
                 state === "idle" && "border-border text-muted-foreground/60",
               )}
             >
@@ -197,8 +197,8 @@ function FlowTrack({
             </span>
             <span
               className={cn(
-                state === "active" && "text-foreground",
-                state === "done" && "text-foreground/70",
+                state === "active" && "text-primary",
+                state === "done" && "text-muted-foreground",
                 state === "idle" && "text-muted-foreground/60",
               )}
             >
@@ -234,8 +234,8 @@ function ConnectStep({
         onClick={onConnect}
         disabled={isConnecting}
         className={cn(
-          "group inline-flex h-10 items-center gap-2 border border-foreground bg-foreground px-4 text-xs font-semibold uppercase tracking-[0.16em] text-background transition",
-          "hover:bg-background hover:text-foreground",
+          "group inline-flex h-10 items-center gap-2 border border-primary bg-primary px-4 text-xs font-semibold uppercase tracking-[0.16em] text-primary-foreground transition",
+          "hover:bg-primary/90",
           "disabled:cursor-not-allowed disabled:opacity-40",
         )}
       >
@@ -323,7 +323,7 @@ function RepoColumn({
         }
       />
       <div className="border-b border-border px-2 py-1.5">
-        <div className="flex items-center gap-2 border border-border bg-background px-2 focus-within:border-foreground">
+        <div className="flex items-center gap-2 border border-border bg-background px-2 focus-within:border-ring">
           <Search className="size-3.5 text-muted-foreground" aria-hidden="true" />
           <input
             value={search}
@@ -367,14 +367,14 @@ function RepoColumn({
                     className={cn(
                       "group flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition",
                       "hover:bg-muted/50",
-                      active && "bg-foreground text-background hover:bg-foreground",
+                      active && "bg-primary text-primary-foreground hover:bg-primary/90",
                     )}
                   >
                     {repo.private ? (
                       <Lock
                         className={cn(
                           "size-3.5 shrink-0",
-                          active ? "text-background/80" : "text-muted-foreground/70",
+                          active ? "text-primary-foreground/80" : "text-muted-foreground/70",
                         )}
                         aria-hidden="true"
                       />
@@ -382,7 +382,7 @@ function RepoColumn({
                       <Unlock
                         className={cn(
                           "size-3.5 shrink-0",
-                          active ? "text-background/80" : "text-muted-foreground/70",
+                          active ? "text-primary-foreground/80" : "text-muted-foreground/70",
                         )}
                         aria-hidden="true"
                       />
@@ -390,7 +390,7 @@ function RepoColumn({
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">
                       <span
                         className={cn(
-                          active ? "text-background/70" : "text-muted-foreground/70",
+                          active ? "text-primary-foreground/70" : "text-muted-foreground/70",
                         )}
                       >
                         {repo.owner}
@@ -572,13 +572,13 @@ function BranchColumn({
                     className={cn(
                       "flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition",
                       "hover:bg-muted/50",
-                      active && "bg-foreground text-background hover:bg-foreground",
+                      active && "bg-primary text-primary-foreground hover:bg-primary/90",
                     )}
                   >
                     <GitBranch
                       className={cn(
                         "size-3.5 shrink-0",
-                        active ? "text-background/80" : "text-muted-foreground/70",
+                        active ? "text-primary-foreground/80" : "text-muted-foreground/70",
                       )}
                       aria-hidden="true"
                     />
@@ -590,7 +590,7 @@ function BranchColumn({
                         className={cn(
                           "shrink-0 border px-1.5 font-mono text-[9px] uppercase tracking-[0.18em]",
                           active
-                            ? "border-background/40 text-background/80"
+                            ? "border-primary-foreground/40 text-primary-foreground/80"
                             : "border-border/80 text-muted-foreground/70",
                         )}
                       >
@@ -657,7 +657,7 @@ function LaunchColumn({
             className={cn(
               "group inline-flex h-10 w-full items-center justify-center gap-2 border text-xs font-semibold uppercase tracking-[0.16em] transition",
               launchReady
-                ? "border-foreground bg-foreground text-background hover:bg-background hover:text-foreground"
+                ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
                 : "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/60",
             )}
           >

@@ -21,9 +21,9 @@ export type SandboxStatus = "creating" | "ready" | "failed";
 export function statusStyles(status: SandboxStatus) {
   if (status === "ready") {
     return {
-      label: "text-foreground",
-      dot: "bg-foreground",
-      border: "border-l-foreground/40",
+      label: "text-primary",
+      dot: "bg-primary",
+      border: "border-l-primary/40",
     };
   }
   if (status === "failed") {

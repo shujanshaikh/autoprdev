@@ -150,7 +150,7 @@
   inset: 0;
   pointer-events: none;
   background-image: radial-gradient(
-    color-mix(in oklch, var(--foreground) 16%, transparent) 1px,
+    color-mix(in oklch, var(--primary) 14%, transparent) 1px,
     transparent 1px
   );
   background-size: 22px 22px;

@@ -238,7 +238,7 @@ export default function Dashboard() {
   return (
     <>
       <Authenticated>
-        <div className="dashboard-shell relative flex h-svh min-h-0 flex-1 flex-col overflow-hidden text-foreground">
+        <div className="dashboard-shell relative flex h-svh min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
           <main className="mx-auto flex h-full w-full max-w-6xl flex-1 flex-col px-5 pt-5 pb-5 sm:px-8 lg:px-10">
             <DashboardHeader projectCount={projectCount} />
 
@@ -303,7 +303,7 @@ export default function Dashboard() {
           <div className="w-full max-w-md border border-border bg-card">
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3 font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
               <span className="flex items-center gap-2">
-                <span className="size-1.5 bg-foreground" />
+                <span className="size-1.5 bg-primary" />
                 autopr
               </span>
               <span>session · idle</span>
@@ -320,7 +320,7 @@ export default function Dashboard() {
                 four-step flow.
               </p>
               <SignInButton>
-                <button className="mt-7 inline-flex h-11 items-center gap-2.5 border border-foreground bg-foreground px-5 text-sm font-semibold uppercase tracking-[0.18em] text-background transition hover:bg-background hover:text-foreground">
+                <button className="mt-7 inline-flex h-11 items-center gap-2.5 border border-primary bg-primary px-5 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground transition hover:bg-primary/90">
                   Continue
                   <ArrowRight className="size-4" aria-hidden="true" />
                 </button>

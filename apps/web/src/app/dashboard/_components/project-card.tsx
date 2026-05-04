@@ -47,7 +47,7 @@ export function ProjectRow({
 
       <Link
         href={`/project/${projectId}`}
-        className="block min-w-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground"
+        className="block min-w-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <p className="truncate font-mono text-xs">
           <span className="text-muted-foreground">{owner}</span>
@@ -93,7 +93,7 @@ export function ProjectRow({
         </button>
         <Link
           href={`/project/${projectId}`}
-          className="inline-flex h-7 items-center gap-1.5 border border-transparent px-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground transition hover:border-foreground hover:bg-foreground hover:text-background"
+          className="inline-flex h-7 items-center gap-1.5 border border-transparent px-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground transition hover:border-primary hover:bg-primary hover:text-primary-foreground"
         >
           open
           <ArrowUpRight className="size-3" />

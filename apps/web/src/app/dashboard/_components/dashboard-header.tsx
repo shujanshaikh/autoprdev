@@ -18,7 +18,7 @@ export function DashboardHeader({ projectCount }: DashboardHeaderProps) {
   return (
     <header className="mb-5 flex items-center justify-between gap-4 border-b border-border pb-4">
       <div className="flex items-baseline gap-3">
-        <span className="inline-block size-1.5 bg-foreground" />
+        <span className="inline-block size-1.5 bg-primary" />
         <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
           autopr / dashboard
         </span>

@@ -1,10 +1,11 @@
 import { api } from "@autopr/backend/convex/_generated/api";
+import { auth } from "@clerk/nextjs/server";
 import { convertToModelMessages, createUIMessageStreamResponse, type UIMessage } from "ai";
 import { nanoid } from "nanoid";
 import { start } from "workflow/api";
 import { z } from "zod";
 
-import { ConvexAuthConfigurationError, getAuthenticatedConvexClient } from "@/lib/convex-server";
+import { convexMutation, convexQuery } from "@/lib/convex-server";
 import { toUIMessage } from "@/lib/chat-messages";
 import { agentWorkflow } from "@/workflows/agent/workflow";
 
@@ -21,21 +22,6 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ projectId: string; threadId: string }> },
 ) {
-  let convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>;
-
-  try {
-    convex = await getAuthenticatedConvexClient();
-  } catch (error) {
-    if (error instanceof ConvexAuthConfigurationError) {
-      return Response.json({ error: error.message }, { status: 503 });
-    }
-
-    throw error;
-  }
-
-  if (!convex) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { projectId: projectIdParam, threadId: threadIdParam } = await params;
   const projectId = projectIdParam;
@@ -47,8 +33,8 @@ export async function POST(
   }
 
   const [project, thread] = await Promise.all([
-    convex.client.query(api.projects.get, { projectId }),
-    convex.client.query(api.threads.get, { threadId }),
+    convexQuery(api.projects.get, { projectId }),
+    convexQuery(api.threads.get, { threadId }),
   ]);
 
   if (!project || !thread || thread.projectId !== projectId) {
@@ -62,7 +48,7 @@ export async function POST(
   const userMessage = parsed.data.message as UIMessage;
   const assistantMessageId = nanoid();
 
-  await convex.client.mutation(api.messages.createTurn, {
+  await convexMutation(api.messages.createTurn, {
     projectId,
     threadId,
     userMessage: {
@@ -73,13 +59,19 @@ export async function POST(
     assistantMessageId,
   });
 
-  const dbMessages = await convex.client.query(api.messages.listByThread, { threadId });
+  const dbMessages = await convexQuery(api.messages.listByThread, { threadId });
   const uiMessages = dbMessages
     .map(toUIMessage)
     .filter((message) => message.role !== "assistant" || message.parts.length > 0 || message.id === assistantMessageId);
   const modelMessages = await convertToModelMessages(
     uiMessages.filter((message) => message.id !== assistantMessageId || message.parts.length > 0),
   );
+  const clerkToken = await (await auth()).getToken();
+
+  if (!clerkToken) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const run = await start(agentWorkflow, [
     modelMessages,
     {
@@ -90,12 +82,12 @@ export async function POST(
       repoUrl: project.cloneUrl,
       repoBranch: project.repoBranch,
       assistantMessageId,
-      convexUrl: convex.url,
-      convexAuthToken: convex.token,
+      appUrl: new URL(req.url).origin,
+      clerkAuthToken: clerkToken,
     },
   ]);
 
-  await convex.client.mutation(api.threads.markRunStarted, {
+  await convexMutation(api.threads.markRunStarted, {
     threadId,
     runId: run.runId,
   });

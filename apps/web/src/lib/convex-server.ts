@@ -1,9 +1,14 @@
 import { env } from "@autopr/env/web";
 import { auth } from "@clerk/nextjs/server";
-import { ConvexHttpClient } from "convex/browser";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
+import type {
+  FunctionArgs,
+  FunctionReference,
+  FunctionReturnType,
+} from "convex/server";
 
 const missingConvexAuthMessage =
-  "Convex auth is not configured in Clerk. Enable Clerk's Convex integration or create a Clerk JWT template named 'convex'.";
+  "Convex auth is not configured for Clerk. In Clerk, enable the Convex integration or create a JWT template named 'convex'.";
 
 export class ConvexAuthConfigurationError extends Error {
   constructor(message = missingConvexAuthMessage) {
@@ -12,14 +17,11 @@ export class ConvexAuthConfigurationError extends Error {
   }
 }
 
-function hasConvexAudience(sessionClaims: unknown) {
-  if (!sessionClaims || typeof sessionClaims !== "object") {
-    return false;
+export class ConvexUnauthorizedError extends Error {
+  constructor(message = "Unauthorized") {
+    super(message);
+    this.name = "ConvexUnauthorizedError";
   }
-
-  const audience = (sessionClaims as { aud?: unknown }).aud;
-
-  return audience === "convex" || (Array.isArray(audience) && audience.includes("convex"));
 }
 
 function isMissingConvexJwtTemplateError(error: unknown) {
@@ -44,19 +46,15 @@ function isMissingConvexJwtTemplateError(error: unknown) {
   );
 }
 
-export async function getAuthenticatedConvexClient() {
+async function getConvexAuthToken() {
   const authState = await auth();
 
   if (!authState.userId) {
-    return null;
+    throw new ConvexUnauthorizedError();
   }
 
-  let token: string | null;
-
   try {
-    token = hasConvexAudience(authState.sessionClaims)
-      ? await authState.getToken()
-      : await authState.getToken({ template: "convex" });
+    return await authState.getToken({ template: "convex" });
   } catch (error) {
     if (isMissingConvexJwtTemplateError(error)) {
       throw new ConvexAuthConfigurationError();
@@ -64,18 +62,30 @@ export async function getAuthenticatedConvexClient() {
 
     throw error;
   }
+}
+
+export async function convexQuery<Query extends FunctionReference<"query">>(
+  query: Query,
+  args: FunctionArgs<Query>,
+): Promise<FunctionReturnType<Query>> {
+  const token = await getConvexAuthToken();
 
   if (!token) {
-    return null;
+    throw new ConvexUnauthorizedError();
   }
 
-  const client = new ConvexHttpClient(env.NEXT_PUBLIC_CONVEX_URL);
-  client.setAuth(token);
+  return fetchQuery(query, args, { token, url: env.NEXT_PUBLIC_CONVEX_URL });
+}
 
-  return {
-    client,
-    token,
-    url: env.NEXT_PUBLIC_CONVEX_URL,
-    userId: authState.userId,
-  };
+export async function convexMutation<Mutation extends FunctionReference<"mutation">>(
+  mutation: Mutation,
+  args: FunctionArgs<Mutation>,
+): Promise<FunctionReturnType<Mutation>> {
+  const token = await getConvexAuthToken();
+
+  if (!token) {
+    throw new ConvexUnauthorizedError();
+  }
+
+  return fetchMutation(mutation, args, { token, url: env.NEXT_PUBLIC_CONVEX_URL });
 }

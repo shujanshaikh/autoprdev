@@ -2,7 +2,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
 import { getRun } from "workflow/api";
 
-import { ConvexAuthConfigurationError, getAuthenticatedConvexClient } from "@/lib/convex-server";
+import { convexMutation, convexQuery } from "@/lib/convex-server";
 
 function parseStartIndex(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -32,28 +32,13 @@ export async function GET(
     params: Promise<{ projectId: string; threadId: string; runId: string }>;
   },
 ) {
-  let convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>;
-
-  try {
-    convex = await getAuthenticatedConvexClient();
-  } catch (error) {
-    if (error instanceof ConvexAuthConfigurationError) {
-      return Response.json({ error: error.message }, { status: 503 });
-    }
-
-    throw error;
-  }
-
-  if (!convex) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { projectId: projectIdParam, threadId: threadIdParam, runId } = await params;
   const projectId = projectIdParam;
   const threadId = threadIdParam;
   const [project, thread] = await Promise.all([
-    convex.client.query(api.projects.get, { projectId }),
-    convex.client.query(api.threads.get, { threadId }),
+    convexQuery(api.projects.get, { projectId }),
+    convexQuery(api.threads.get, { threadId }),
   ]);
 
   if (!project || !thread || thread.projectId !== projectId) {
@@ -75,7 +60,7 @@ export async function GET(
       throw error;
     }
 
-    await convex.client.mutation(api.threads.markRunFinished, {
+    await convexMutation(api.threads.markRunFinished, {
       threadId,
       runId,
     });

@@ -6,12 +6,9 @@ import {
   prepareDaytonaSandbox,
   type SandboxSessionOptions,
 } from "@autopr/agent";
-import { api } from "@autopr/backend/convex/_generated/api";
 import { DurableAgent } from "@workflow/ai/agent";
 import type { ModelMessage, UIMessageChunk } from "ai";
-import { ConvexHttpClient } from "convex/browser";
 import { getWorkflowMetadata, getWritable } from "workflow";
-
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
 
 export interface AgentWorkflowOptions {
@@ -22,26 +19,38 @@ export interface AgentWorkflowOptions {
   repoUrl?: string;
   repoBranch?: string;
   assistantMessageId?: string;
-  convexUrl?: string;
-  convexAuthToken?: string;
+  appUrl?: string;
+  clerkAuthToken?: string;
 }
 
 interface AssistantPersistenceOptions {
-  convexUrl: string;
-  convexAuthToken: string;
+  appUrl: string;
+  clerkAuthToken: string;
+  projectId: string;
   threadId: string;
   assistantMessageId: string;
 }
 
-function isConvexUnauthenticatedError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
+function isPersistenceUnauthenticatedError(error: unknown) {
+  return error instanceof Error && error.message.includes("Persistence request failed with 401");
+}
 
-  return (
-    error.message.includes('"code":"Unauthenticated"') ||
-    error.message.includes("Could not verify OIDC token claim")
-  );
+async function postPersistenceRequest(
+  { appUrl, clerkAuthToken, projectId, threadId }: Omit<AssistantPersistenceOptions, "assistantMessageId">,
+  body: unknown,
+) {
+  const response = await fetch(new URL(`/api/project/${projectId}/thread/${threadId}/agent/persistence`, appUrl), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${clerkAuthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Persistence request failed with ${response.status}: ${await response.text()}`);
+  }
 }
 
 async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>, messageId: string) {
@@ -60,8 +69,9 @@ async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>
 }
 
 async function patchAssistantMessage({
-  convexUrl,
-  convexAuthToken,
+  appUrl,
+  clerkAuthToken,
+  projectId,
   threadId,
   assistantMessageId,
   parts,
@@ -70,43 +80,35 @@ async function patchAssistantMessage({
 }) {
   "use step";
 
-  const client = new ConvexHttpClient(convexUrl);
-  client.setAuth(convexAuthToken);
-
-  await client.mutation(api.messages.patchAssistant, {
-    threadId,
-    assistantMessageId,
-    parts,
-  });
+  await postPersistenceRequest(
+    { appUrl, clerkAuthToken, projectId, threadId },
+    { action: "patchAssistant", assistantMessageId, parts },
+  );
 }
 
 async function markWorkflowRunFinished({
-  convexUrl,
-  convexAuthToken,
+  appUrl,
+  clerkAuthToken,
+  projectId,
   threadId,
   runId,
-}: Pick<AssistantPersistenceOptions, "convexUrl" | "convexAuthToken" | "threadId"> & {
+}: Pick<AssistantPersistenceOptions, "appUrl" | "clerkAuthToken" | "projectId" | "threadId"> & {
   runId: string;
 }) {
   "use step";
 
-  const client = new ConvexHttpClient(convexUrl);
-  client.setAuth(convexAuthToken);
-
-  await client.mutation(api.threads.markRunFinished, {
-    threadId,
-    runId,
-  });
+  await postPersistenceRequest({ appUrl, clerkAuthToken, projectId, threadId }, { action: "markRunFinished", runId });
 }
 
 function getAssistantPersistenceOptions(options: AgentWorkflowOptions): AssistantPersistenceOptions | null {
-  if (!options.convexUrl || !options.convexAuthToken || !options.threadId || !options.assistantMessageId) {
+  if (!options.appUrl || !options.clerkAuthToken || !options.projectId || !options.threadId || !options.assistantMessageId) {
     return null;
   }
 
   return {
-    convexUrl: options.convexUrl,
-    convexAuthToken: options.convexAuthToken,
+    appUrl: options.appUrl,
+    clerkAuthToken: options.clerkAuthToken,
+    projectId: options.projectId,
     threadId: options.threadId,
     assistantMessageId: options.assistantMessageId,
   };
@@ -174,7 +176,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
             parts: responseMessagesToAssistantParts(messages, inputMessages.length),
           });
         } catch (error) {
-          if (!isConvexUnauthenticatedError(error)) {
+          if (!isPersistenceUnauthenticatedError(error)) {
             throw error;
           }
         }
@@ -184,13 +186,14 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     if (persistence) {
       try {
         await markWorkflowRunFinished({
-          convexUrl: persistence.convexUrl,
-          convexAuthToken: persistence.convexAuthToken,
+          appUrl: persistence.appUrl,
+          clerkAuthToken: persistence.clerkAuthToken,
+          projectId: persistence.projectId,
           threadId: persistence.threadId,
           runId: workflowRunId,
         });
       } catch (error) {
-        if (!isConvexUnauthenticatedError(error)) {
+        if (!isPersistenceUnauthenticatedError(error)) {
           throw error;
         }
       }

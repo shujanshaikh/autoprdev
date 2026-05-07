@@ -3,7 +3,7 @@ import { fetchGithubBranches, getGithubRepository } from "@autopr/backend/convex
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 
-import { ConvexAuthConfigurationError, getAuthenticatedConvexClient } from "@/lib/convex-server";
+import { convexMutation, convexQuery } from "@/lib/convex-server";
 import { createProjectSandbox } from "@/lib/daytona-project-sandbox";
 import {
   authenticatedGithubCloneUrl,
@@ -37,19 +37,6 @@ export async function POST(req: Request) {
     return Response.json({ error: "Select a GitHub repository and branch." }, { status: 400 });
   }
 
-  let convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>;
-  try {
-    convex = await getAuthenticatedConvexClient();
-  } catch (error) {
-    if (error instanceof ConvexAuthConfigurationError) {
-      return Response.json({ error: error.message }, { status: 503 });
-    }
-    throw error;
-  }
-
-  if (!convex) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { repository, branch } = parsed.data;
 
@@ -66,7 +53,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "That branch no longer exists on GitHub." }, { status: 404 });
     }
 
-    const project = await convex.client.mutation(api.projects.ensureForGithubSelection, {
+    const project = await convexMutation(api.projects.ensureForGithubSelection, {
       githubRepositoryId: verifiedRepo.id,
       githubUrl: verifiedRepo.htmlUrl,
       cloneUrl: verifiedRepo.cloneUrl,
@@ -81,10 +68,10 @@ export async function POST(req: Request) {
       const existingBranch = branch;
 
       if (project.sandboxStatus === "ready" && project.sandboxId) {
-        const projectBeforeSwitch = await convex.client.query(api.projects.get, { projectId: project.projectId });
+        const projectBeforeSwitch = await convexQuery(api.projects.get, { projectId: project.projectId });
         const previousBranch = projectBeforeSwitch?.currentBranch ?? projectBeforeSwitch?.repoBranch ?? projectBeforeSwitch?.defaultBranch;
 
-        await convex.client.mutation(api.projects.markBranchSwitching, {
+        await convexMutation(api.projects.markBranchSwitching, {
           projectId: project.projectId,
           repoBranch: existingBranch,
         });
@@ -92,13 +79,13 @@ export async function POST(req: Request) {
         try {
           const { switchProjectSandboxBranch } = await import("@/lib/daytona-project-sandbox");
           await switchProjectSandboxBranch({ sandboxId: project.sandboxId, branch: existingBranch });
-          await convex.client.mutation(api.projects.markBranchSwitchReady, {
+          await convexMutation(api.projects.markBranchSwitchReady, {
             projectId: project.projectId,
             repoBranch: existingBranch,
           });
         } catch (error) {
           const message = safeErrorMessage(error, "Could not switch the existing project branch.");
-          await convex.client.mutation(api.projects.markBranchSwitchFailed, {
+          await convexMutation(api.projects.markBranchSwitchFailed, {
             projectId: project.projectId,
             branchSwitchError: message,
             previousBranch,
@@ -120,7 +107,7 @@ export async function POST(req: Request) {
         branch,
       });
 
-      await convex.client.mutation(api.projects.markSandboxReady, {
+      await convexMutation(api.projects.markSandboxReady, {
         projectId: project.projectId,
         sandboxId: sandbox.sandboxId,
         sandboxName: sandbox.sandboxName,
@@ -135,7 +122,7 @@ export async function POST(req: Request) {
       });
     } catch (error) {
       const message = safeErrorMessage(error, "Could not create or clone the sandbox.");
-      await convex.client.mutation(api.projects.markSandboxFailed, {
+      await convexMutation(api.projects.markSandboxFailed, {
         projectId: project.projectId,
         sandboxError: message,
       });

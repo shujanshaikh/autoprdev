@@ -3,7 +3,7 @@ import { fetchGithubBranches } from "@autopr/backend/convex/lib/github_oauth";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 
-import { ConvexAuthConfigurationError, getAuthenticatedConvexClient } from "@/lib/convex-server";
+import { convexMutation, convexQuery } from "@/lib/convex-server";
 import { SandboxGitConflictError, switchProjectSandboxBranch } from "@/lib/daytona-project-sandbox";
 import { getGithubOAuthToken, GithubConnectionError, safeErrorMessage } from "@/lib/github-oauth-server";
 
@@ -23,23 +23,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ project
     return Response.json({ error: "Select a branch." }, { status: 400 });
   }
 
-  let convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>;
-  try {
-    convex = await getAuthenticatedConvexClient();
-  } catch (error) {
-    if (error instanceof ConvexAuthConfigurationError) {
-      return Response.json({ error: error.message }, { status: 503 });
-    }
-    throw error;
-  }
-
-  if (!convex) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { projectId } = await params;
   const { branch } = parsed.data;
-  const project = await convex.client.query(api.projects.get, { projectId });
+  const project = await convexQuery(api.projects.get, { projectId });
 
   if (!project) {
     return Response.json({ error: "Project not found." }, { status: 404 });
@@ -59,16 +46,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ project
       return Response.json({ error: "That branch no longer exists on GitHub." }, { status: 404 });
     }
 
-    await convex.client.mutation(api.projects.markBranchSwitching, { projectId, repoBranch: branch });
+    await convexMutation(api.projects.markBranchSwitching, { projectId, repoBranch: branch });
 
     try {
       await switchProjectSandboxBranch({ sandboxId: project.sandboxId, branch });
-      await convex.client.mutation(api.projects.markBranchSwitchReady, { projectId, repoBranch: branch });
+      await convexMutation(api.projects.markBranchSwitchReady, { projectId, repoBranch: branch });
 
       return Response.json({ projectId, branch, status: "ready" });
     } catch (error) {
       const message = safeErrorMessage(error, "Could not switch branches.");
-      await convex.client.mutation(api.projects.markBranchSwitchFailed, {
+      await convexMutation(api.projects.markBranchSwitchFailed, {
         projectId,
         branchSwitchError: message,
         previousBranch,

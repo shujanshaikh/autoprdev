@@ -6,8 +6,11 @@ import {
   prepareDaytonaSandbox,
   type SandboxSessionOptions,
 } from "@autopr/agent";
+import { api } from "@autopr/backend/convex/_generated/api";
+import { env } from "@autopr/env/web";
 import { DurableAgent } from "@workflow/ai/agent";
 import type { ModelMessage, UIMessageChunk } from "ai";
+import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
 
@@ -19,38 +22,17 @@ export interface AgentWorkflowOptions {
   repoUrl?: string;
   repoBranch?: string;
   assistantMessageId?: string;
-  appUrl?: string;
-  clerkAuthToken?: string;
+  convexAuthToken?: string;
 }
 
 interface AssistantPersistenceOptions {
-  appUrl: string;
-  clerkAuthToken: string;
-  projectId: string;
+  convexAuthToken: string;
   threadId: string;
   assistantMessageId: string;
 }
 
 function isPersistenceUnauthenticatedError(error: unknown) {
-  return error instanceof Error && error.message.includes("Persistence request failed with 401");
-}
-
-async function postPersistenceRequest(
-  { appUrl, clerkAuthToken, projectId, threadId }: Omit<AssistantPersistenceOptions, "assistantMessageId">,
-  body: unknown,
-) {
-  const response = await fetch(new URL(`/api/project/${projectId}/thread/${threadId}/agent/persistence`, appUrl), {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${clerkAuthToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Persistence request failed with ${response.status}: ${await response.text()}`);
-  }
+  return error instanceof Error && error.message.includes("Unauthorized");
 }
 
 async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>, messageId: string) {
@@ -69,9 +51,7 @@ async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>
 }
 
 async function patchAssistantMessage({
-  appUrl,
-  clerkAuthToken,
-  projectId,
+  convexAuthToken,
   threadId,
   assistantMessageId,
   parts,
@@ -80,35 +60,36 @@ async function patchAssistantMessage({
 }) {
   "use step";
 
-  await postPersistenceRequest(
-    { appUrl, clerkAuthToken, projectId, threadId },
-    { action: "patchAssistant", assistantMessageId, parts },
+  await fetchMutation(
+    api.messages.patchAssistant,
+    { threadId, assistantMessageId, parts },
+    { token: convexAuthToken, url: env.NEXT_PUBLIC_CONVEX_URL },
   );
 }
 
 async function markWorkflowRunFinished({
-  appUrl,
-  clerkAuthToken,
-  projectId,
+  convexAuthToken,
   threadId,
   runId,
-}: Pick<AssistantPersistenceOptions, "appUrl" | "clerkAuthToken" | "projectId" | "threadId"> & {
+}: Pick<AssistantPersistenceOptions, "convexAuthToken" | "threadId"> & {
   runId: string;
 }) {
   "use step";
 
-  await postPersistenceRequest({ appUrl, clerkAuthToken, projectId, threadId }, { action: "markRunFinished", runId });
+  await fetchMutation(
+    api.threads.markRunFinished,
+    { threadId, runId },
+    { token: convexAuthToken, url: env.NEXT_PUBLIC_CONVEX_URL },
+  );
 }
 
 function getAssistantPersistenceOptions(options: AgentWorkflowOptions): AssistantPersistenceOptions | null {
-  if (!options.appUrl || !options.clerkAuthToken || !options.projectId || !options.threadId || !options.assistantMessageId) {
+  if (!options.convexAuthToken || !options.threadId || !options.assistantMessageId) {
     return null;
   }
 
   return {
-    appUrl: options.appUrl,
-    clerkAuthToken: options.clerkAuthToken,
-    projectId: options.projectId,
+    convexAuthToken: options.convexAuthToken,
     threadId: options.threadId,
     assistantMessageId: options.assistantMessageId,
   };
@@ -186,9 +167,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     if (persistence) {
       try {
         await markWorkflowRunFinished({
-          appUrl: persistence.appUrl,
-          clerkAuthToken: persistence.clerkAuthToken,
-          projectId: persistence.projectId,
+          convexAuthToken: persistence.convexAuthToken,
           threadId: persistence.threadId,
           runId: workflowRunId,
         });

@@ -66,9 +66,9 @@ export async function POST(
   const modelMessages = await convertToModelMessages(
     uiMessages.filter((message) => message.id !== assistantMessageId || message.parts.length > 0),
   );
-  const clerkToken = await (await auth()).getToken();
+  const convexAuthToken = await (await auth()).getToken({ template: "convex" });
 
-  if (!clerkToken) {
+  if (!convexAuthToken) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -82,8 +82,7 @@ export async function POST(
       repoUrl: project.cloneUrl,
       repoBranch: project.repoBranch,
       assistantMessageId,
-      appUrl: new URL(req.url).origin,
-      clerkAuthToken: clerkToken,
+      convexAuthToken,
     },
   ]);
 

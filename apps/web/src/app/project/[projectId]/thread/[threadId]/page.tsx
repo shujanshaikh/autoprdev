@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
+import { cn } from "@autopr/ui/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -42,10 +43,8 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import {
-  Message,
   MessageContent,
   MessageResponse,
-  UserMessageChrome,
 } from "@/components/ai-elements/message";
 import {
   PromptInput,
@@ -60,7 +59,8 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, i
 import { toUIMessage } from "@/lib/chat-messages";
 import { ModeToggle } from "@/components/mode-toggle";
 import Loader from "@/components/loader";
-import { ThreadDiffPanel, type ThreadDiffEntry } from "./_components/thread-diff-panel";
+import { ThreadDiffPanel } from "./_components/thread-diff-panel";
+import type { ThreadDiffEntry } from "./components/thread-diff-panel-utils";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -202,25 +202,25 @@ function ExploreToolGroup({
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="not-prose w-full min-w-0 font-mono text-[11px] leading-tight text-muted-foreground">
+    <div className="my-1.5 w-full min-w-0 font-mono text-[11px] leading-tight text-muted-foreground/50">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="group/explore flex w-full cursor-pointer items-center gap-2 py-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="group/explore flex w-full cursor-pointer items-center gap-1.5 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground/60 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}
+          className={`size-3 shrink-0 text-muted-foreground/40 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}
         />
-        <span className="font-semibold text-foreground">{anyStreaming ? "Exploring" : "Explored"}</span>
-        <span className="text-muted-foreground/70">
+        <span className="font-medium text-muted-foreground/70">{anyStreaming ? "Exploring" : "Explored"}</span>
+        <span className="text-muted-foreground/40">
           {summaryParts.join(", ")}
         </span>
         {anyStreaming ? (
-          <span className="ml-auto size-1.5 animate-pulse rounded-full bg-primary" />
+          <span className="ml-auto size-1.5 animate-pulse rounded-full bg-primary/60" />
         ) : null}
       </button>
       {isOpen ? (
-        <div className="ml-5 border-l border-border/40 pl-2.5">
+        <div className="ml-4 border-l border-border/20 pl-2.5">
           {tools.map((t) => {
             const partState = getToolState(t.part);
             const input = "input" in t.part ? t.part.input : undefined;
@@ -242,8 +242,12 @@ function ExploreToolGroup({
 
 function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
-    <div className="flex w-full max-w-[95%] flex-col ml-auto justify-end">
-      <UserMessageChrome>{prompt}</UserMessageChrome>
+    <div className="message-enter-user">
+      <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
+        <div className="rounded-lg bg-muted p-4">
+          <p className="text-[15px] leading-[1.7] text-foreground">{prompt}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -403,18 +407,18 @@ function ThreadChat({
       <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
         <div className="relative min-h-0 min-w-0 overflow-hidden">
           <Conversation className="minimal-scrollbar h-full min-h-0">
-            <ConversationContent className="mx-auto min-h-full w-full max-w-[780px] gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-0">
+            <ConversationContent>
             {messages.length === 0 && !showingInitialPromptHandoff ? (
-              <ConversationEmptyState className="items-start border border-primary/15 bg-background p-5 text-left shadow-[inset_0_1px_0_0_rgba(var(--primary),0.05)] sm:p-6" icon={<Bot className="size-8 text-primary" />}>
+              <ConversationEmptyState className="mx-auto max-w-[680px] items-start px-6 py-10 text-left sm:px-8" icon={<Bot className="size-6 text-muted-foreground" />}>
                 <div className="max-w-xl">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Repository thread
                   </p>
-                  <h2 className="mt-3 text-xl font-extrabold uppercase leading-snug tracking-[0.03em] sm:text-2xl">
+                  <h2 className="mt-2 text-lg font-semibold leading-snug text-foreground sm:text-xl">
                     Ask the agent to inspect, run, edit, or explain this repository.
                   </h2>
                 </div>
-                <div className="grid w-full gap-2 sm:grid-cols-3">
+                <div className="grid w-full gap-2.5 sm:grid-cols-3">
                   {[
                     "Summarize the repository structure and the likely entry points.",
                     "Run the test or typecheck command you find, then report failures.",
@@ -425,7 +429,7 @@ function ThreadChat({
                       type="button"
                       disabled={!ready}
                       onClick={() => void submitMessage(suggestion)}
-                      className="min-h-20 border border-primary/15 bg-primary/4 p-3 text-left text-sm leading-relaxed text-foreground/90 transition hover:border-primary/40 hover:bg-primary/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-primary/6"
+                      className="min-h-[72px] rounded-lg border border-border bg-muted p-3.5 text-left text-sm leading-relaxed text-foreground transition hover:border-border hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {suggestion}
                     </button>
@@ -461,148 +465,160 @@ function ThreadChat({
                 }
               }
 
+              const isUser = message.role === "user";
+
               return (
-                <Message key={message.id} from={message.role}>
-                  <MessageContent>
-                    {grouped.map((item) => {
-                      if (item.kind === "explore-group") {
-                        const { tools } = item;
-                        const counts: Record<string, number> = {};
-                        for (const t of tools) {
-                          const slug = toolSlugFromPart(
-                            t.part.type,
-                            t.part.type === "dynamic-tool" ? getToolName(t.part) : undefined
+                <div
+                  key={message.id}
+                >
+                  <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
+                    <div className={cn(isUser && "rounded-lg bg-muted p-4")}>
+                      <MessageContent>
+                        {grouped.map((item) => {
+                        if (item.kind === "explore-group") {
+                          const { tools } = item;
+                          const counts: Record<string, number> = {};
+                          for (const t of tools) {
+                            const slug = toolSlugFromPart(
+                              t.part.type,
+                              t.part.type === "dynamic-tool" ? getToolName(t.part) : undefined
+                            );
+                            const label = slug === "find" ? "glob" : slug;
+                            counts[label] = (counts[label] ?? 0) + 1;
+                          }
+                          const summaryParts = Object.entries(counts).map(
+                            ([name, count]) => `${count} ${count === 1 ? name : name + "s"}`
                           );
-                          const label = slug === "find" ? "glob" : slug;
-                          counts[label] = (counts[label] ?? 0) + 1;
+                          const anyStreaming = tools.some((t) => {
+                            const s = getToolState(t.part);
+                            return s === "input-streaming" || s === "input-available";
+                          });
+
+                          return (
+                            <ExploreToolGroup
+                              key={`${message.id}-explore-${tools[0].index}`}
+                              messageId={message.id}
+                              tools={tools}
+                              summaryParts={summaryParts}
+                              anyStreaming={anyStreaming}
+                            />
+                          );
                         }
-                        const summaryParts = Object.entries(counts).map(
-                          ([name, count]) => `${count} ${count === 1 ? name : name + "s"}`
-                        );
-                        const anyStreaming = tools.some((t) => {
-                          const s = getToolState(t.part);
-                          return s === "input-streaming" || s === "input-available";
-                        });
 
-                        return (
-                          <ExploreToolGroup
-                            key={`${message.id}-explore-${tools[0].index}`}
-                            messageId={message.id}
-                            tools={tools}
-                            summaryParts={summaryParts}
-                            anyStreaming={anyStreaming}
-                          />
-                        );
-                      }
+                        const { part, index } = item;
 
-                      const { part, index } = item;
+                        if (isReasoningUIPart(part)) {
+                          const partState = getPartState(part);
+                          return (
+                            <Reasoning key={`${message.id}-reasoning-${index}`} isStreaming={partState === "streaming"}>
+                              <ReasoningTrigger />
+                              <ReasoningContent>{part.text}</ReasoningContent>
+                            </Reasoning>
+                          );
+                        }
 
-                      if (isReasoningUIPart(part)) {
-                        const partState = getPartState(part);
-                        return (
-                          <Reasoning key={`${message.id}-reasoning-${index}`} isStreaming={partState === "streaming"}>
-                            <ReasoningTrigger />
-                            <ReasoningContent>{part.text}</ReasoningContent>
-                          </Reasoning>
-                        );
-                      }
+                        if (isTextUIPart(part)) {
+                          const partState = getPartState(part);
+                          return (
+                            <MessageResponse key={`${message.id}-text-${index}`} isAnimating={partState === "streaming"}>
+                              {part.text}
+                            </MessageResponse>
+                          );
+                        }
 
-                      if (isTextUIPart(part)) {
-                        const partState = getPartState(part);
-                        return (
-                          <MessageResponse key={`${message.id}-text-${index}`} isAnimating={partState === "streaming"}>
-                            {part.text}
-                          </MessageResponse>
-                        );
-                      }
+                        if (isToolUIPart(part)) {
+                          const partState = getToolState(part);
+                          const input = "input" in part ? part.input : undefined;
+                          const output = "output" in part ? part.output : undefined;
+                          const errorText = "errorText" in part ? part.errorText : undefined;
 
-                      if (isToolUIPart(part)) {
-                        const partState = getToolState(part);
-                        const input = "input" in part ? part.input : undefined;
-                        const output = "output" in part ? part.output : undefined;
-                        const errorText = "errorText" in part ? part.errorText : undefined;
-
-                        return (
-                          <Tool key={`${message.id}-tool-${index}`} defaultOpen={partState !== "output-available"}>
-                            {part.type === "dynamic-tool" ? (
-                              <ToolHeader
-                                input={input}
-                                state={partState}
-                                toolName={getToolName(part)}
-                                type={part.type}
-                              />
-                            ) : (
-                              <ToolHeader input={input} state={partState} type={part.type} />
-                            )}
-                            <ToolContent>
-                              {input !== undefined ? (
-                                <ToolInput
+                          return (
+                            <Tool key={`${message.id}-tool-${index}`} defaultOpen={partState !== "output-available"}>
+                              {part.type === "dynamic-tool" ? (
+                                <ToolHeader
                                   input={input}
+                                  state={partState}
+                                  toolName={getToolName(part)}
+                                  type={part.type}
+                                />
+                              ) : (
+                                <ToolHeader input={input} state={partState} type={part.type} />
+                              )}
+                              <ToolContent>
+                                {input !== undefined ? (
+                                  <ToolInput
+                                    input={input}
+                                    toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
+                                    toolType={part.type}
+                                  />
+                                ) : null}
+                                <ToolOutput
+                                  errorText={errorText}
+                                  output={output}
                                   toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
                                   toolType={part.type}
                                 />
-                              ) : null}
-                              <ToolOutput
-                                errorText={errorText}
-                                output={output}
-                                toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
-                                toolType={part.type}
-                              />
-                            </ToolContent>
-                          </Tool>
+                              </ToolContent>
+                            </Tool>
+                          );
+                        }
+
+                        if (part.type === "step-start") {
+                          return null;
+                        }
+
+                        return (
+                          <div
+                            key={`${message.id}-part-${index}`}
+                            className="rounded-md border border-dashed border-border/50 px-3 py-2 font-mono text-xs text-muted-foreground"
+                          >
+                            {part.type}
+                          </div>
                         );
-                      }
-
-                      if (part.type === "step-start") {
-                        return null;
-                      }
-
-                      return (
-                        <div
-                          key={`${message.id}-part-${index}`}
-                          className="border border-dashed border-border px-3 py-2 font-mono text-xs text-muted-foreground"
-                        >
-                          {part.type}
-                        </div>
-                      );
-                    })}
-                  </MessageContent>
-                </Message>
+                      })}
+                      </MessageContent>
+                    </div>
+                  </div>
+                </div>
               );
             })}
 
             {error ? (
-              <div role="alert" className="border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-destructive">Error</p>
-                <p className="mt-1 text-destructive">{error.message}</p>
+              <div role="alert">
+                <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
+                  <p className="text-[13px] font-medium text-destructive">{error.message}</p>
+                </div>
               </div>
             ) : null}
 
             {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
             </ConversationContent>
+            <div className="h-8" />
             <ConversationScrollButton className="bottom-4" />
           </Conversation>
         </div>
 
-        <div className="mx-auto w-full max-w-[780px] shrink-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-[max(1rem,env(safe-area-inset-bottom))] lg:px-0">
-          {currentRunId ? (
-            <p className="mb-2 truncate font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-              Run {currentRunId}
-            </p>
-          ) : null}
-          <PromptInput
-            className="border border-primary/25 bg-background shadow-[0_18px_70px_rgba(0,0,0,0.16),inset_0_1px_0_0_rgba(var(--primary),0.07)]"
-            onSubmit={(message) => void submitMessage(message.text)}
-          >
-            <PromptInputBody>
-              <PromptInputTextarea disabled={!ready} placeholder="Message this thread..." />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
-              </PromptInputTools>
-              <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
-            </PromptInputFooter>
-          </PromptInput>
+        <div className="border-t border-border/30 bg-background">
+          <div className="mx-auto w-full max-w-[680px] px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-8 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {currentRunId ? (
+              <p className="mb-2 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                Run {currentRunId}
+              </p>
+            ) : null}
+            <PromptInput
+              className="rounded-lg border border-border bg-muted transition-colors focus-within:border-border focus-within:bg-accent"
+              onSubmit={(message) => void submitMessage(message.text)}
+            >
+              <PromptInputBody>
+                <PromptInputTextarea disabled={!ready} placeholder="Message this thread..." />
+              </PromptInputBody>
+              <PromptInputFooter>
+                <PromptInputTools>
+                </PromptInputTools>
+                <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
+              </PromptInputFooter>
+            </PromptInput>
+          </div>
         </div>
       </div>
       <ThreadDiffPanel

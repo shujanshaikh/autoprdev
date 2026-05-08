@@ -11,7 +11,7 @@ import { ThreadDiffEmptyState, ThreadDiffLoadingList } from "../components/threa
 import { ThreadDiffFileRow } from "../components/thread-diff-panel-file-row";
 import type { ThreadDiffEntry } from "../components/thread-diff-panel-utils";
 
-type ThreadDiffPanelProps = {
+export type ThreadDiffPanelProps = {
   entries: ThreadDiffEntry[];
   selectedEntryId?: string;
   onSelectEntry: (id: string) => void;

@@ -50,7 +50,7 @@ export const Tool = ({
   return (
     <Collapsible
       className={cn(
-        "group not-prose mb-0 w-full min-w-0 overflow-hidden text-left font-mono text-[11px] leading-tight text-muted-foreground",
+        "group w-full min-w-0 overflow-hidden text-left font-mono text-[11px] leading-tight text-muted-foreground/70",
         className
       )}
       onOpenChange={handleOpenChange}
@@ -329,10 +329,10 @@ function ContentDetailsBody({
   return (
     <div className="space-y-1.5">
       {showMeta && pathLine ? (
-        <p className="break-all text-[10px] leading-snug text-muted-foreground">{pathLine}</p>
+        <p className="break-all text-[10px] leading-snug text-muted-foreground/80">{pathLine}</p>
       ) : null}
       {showMeta && meta && (!pathLine || meta !== pathLine) ? (
-        <p className="text-[10px] leading-snug text-muted-foreground">{meta}</p>
+        <p className="text-[10px] leading-snug text-muted-foreground/80">{meta}</p>
       ) : null}
       {diffPayload ? (
         <ToolDiffView diff={diffPayload} pathLine={pathLine} />
@@ -415,7 +415,7 @@ export const ToolHeader = ({
   return (
     <CollapsibleTrigger
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "flex w-full cursor-pointer items-center gap-2 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring",
         className
       )}
       {...props}
@@ -427,9 +427,9 @@ export const ToolHeader = ({
           </Shimmer>
         ) : (
           <span className="flex min-w-0 items-baseline gap-1.5">
-            <span className="shrink-0 font-medium text-foreground">{label}</span>
+            <span className="shrink-0 font-medium text-muted-foreground">{label}</span>
             {summary ? (
-              <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground">{summary}</span>
+              <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground/70">{summary}</span>
             ) : null}
           </span>
         )}
@@ -447,7 +447,7 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "mt-0.5 border-t border-border/40 pt-1.5 text-[11px] text-muted-foreground data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in",
+      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in",
       className
     )}
     {...props}
@@ -539,8 +539,8 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("mt-1.5 space-y-0.5 border-t border-border/40 pt-1.5", className)} {...props}>
-      <div className={cn("overflow-x-auto text-xs [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/90")}>
+    <div className={cn("mt-1.5 space-y-0.5 pt-1", className)} {...props}>
+      <div className={cn("overflow-x-auto text-xs [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/80")}>
         {body}
       </div>
     </div>
@@ -564,16 +564,16 @@ export const ExploreToolRow = ({ type, toolName, input, state }: ExploreToolRowP
   const streaming = isToolStreamingState(state);
 
   return (
-    <div className="flex items-center gap-2 py-0.5 font-mono text-[11px] leading-tight text-muted-foreground">
+    <div className="flex items-center gap-2 py-0.5 font-mono text-[11px] leading-tight text-muted-foreground/60">
       {streaming ? (
         <Shimmer as="span" className="block max-w-full truncate align-baseline" duration={2} spread={2}>
           {[label, summary].filter(Boolean).join(" ")}
         </Shimmer>
       ) : (
         <span className="flex min-w-0 items-baseline gap-1.5 truncate">
-          <span className="shrink-0 font-medium text-foreground">{label}</span>
+          <span className="shrink-0 font-medium text-muted-foreground/80">{label}</span>
           {summary ? (
-            <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground">{summary}</span>
+            <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground/50">{summary}</span>
           ) : null}
         </span>
       )}

@@ -52,6 +52,42 @@
   will-change: opacity, transform;
 }
 
+/* ─── Message entrance ─── */
+
+@keyframes message-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.995);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.message-enter {
+  animation: message-enter 280ms var(--ease-ui-snappy) both;
+  will-change: opacity, transform;
+}
+
+@keyframes message-enter-user {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.message-enter-user {
+  animation: message-enter-user 240ms var(--ease-ui-snappy) both;
+  will-change: opacity, transform;
+}
+
 .project-shell :is(a, button, [role="button"], input, textarea) {
   transition-property: color, background-color, border-color, box-shadow, opacity, transform;
   transition-duration: 140ms;
@@ -178,6 +214,222 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* ─── Streamdown / Markdown Typography ─── */
+/* Document-first minimal design matching reference */
+
+.sd-render {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--foreground);
+}
+
+.sd-render > * + * {
+  margin-top: 1em;
+}
+
+.sd-render > *:first-child {
+  margin-top: 0;
+}
+
+.sd-render > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Headings */
+.sd-render h1,
+.sd-render h2,
+.sd-render h3,
+.sd-render h4,
+.sd-render h5,
+.sd-render h6 {
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--foreground);
+  margin-top: 1.6em;
+  margin-bottom: 0.5em;
+}
+
+.sd-render h1 {
+  font-size: 1.35em;
+}
+
+.sd-render h2 {
+  font-size: 1.2em;
+}
+
+.sd-render h3 {
+  font-size: 1.1em;
+}
+
+.sd-render h4,
+.sd-render h5,
+.sd-render h6 {
+  font-size: 1em;
+}
+
+/* Paragraphs */
+.sd-render p {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+/* Lists */
+.sd-render ul,
+.sd-render ol {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+  padding-left: 1.5em;
+}
+
+.sd-render ul {
+  list-style-type: disc;
+}
+
+.sd-render ol {
+  list-style-type: decimal;
+}
+
+.sd-render li {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+  padding-left: 0.25em;
+}
+
+.sd-render li > p {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.sd-render li > ul,
+.sd-render li > ol {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+
+/* Inline code — dark pill style */
+.sd-render code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  font-weight: 500;
+  background: var(--muted);
+  color: var(--foreground);
+  padding: 0.18em 0.5em;
+  border-radius: 6px;
+  word-break: break-word;
+}
+
+.sd-render pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.82em;
+  color: inherit;
+}
+
+/* Code blocks */
+.sd-render pre {
+  margin-top: 1em;
+  margin-bottom: 1em;
+  padding: 1em 1.25em;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.65;
+}
+
+/* Links */
+.sd-render a {
+  color: oklch(0.55 0.18 250);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 120ms ease;
+}
+
+.sd-render a:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.dark .sd-render a {
+  color: oklch(0.7 0.16 255);
+}
+
+/* Strong / bold */
+.sd-render strong,
+.sd-render b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* Emphasis */
+.sd-render em,
+.sd-render i {
+  font-style: italic;
+}
+
+/* Blockquotes */
+.sd-render blockquote {
+  margin-top: 1em;
+  margin-bottom: 1em;
+  padding-left: 1em;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.sd-render blockquote > *:first-child {
+  margin-top: 0;
+}
+
+.sd-render blockquote > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Horizontal rules */
+.sd-render hr {
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  border: none;
+  border-top: 1px solid var(--border);
+  opacity: 0.5;
+}
+
+/* Tables */
+.sd-render table {
+  width: 100%;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.sd-render th,
+.sd-render td {
+  padding: 0.5em 0.75em;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.sd-render th {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.sd-render tr:last-child td {
+  border-bottom: none;
+}
+
+/* Images */
+.sd-render img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
 }
 
 /* ─── Pierre Diffs — theme integration ─── */

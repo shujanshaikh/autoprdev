@@ -179,3 +179,27 @@
     transform: none;
   }
 }
+
+/* ─── Pierre Diffs — theme integration ─── */
+
+.diff-panel-view diffs-container,
+.pierre-diff-view diffs-container {
+  --diffs-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --diffs-header-font-family: var(--font-sans);
+  --diffs-font-size: 12px;
+  --diffs-line-height: 19px;
+  --diffs-gap-fallback: 4px;
+
+  /* Map pierre's bg to app's background */
+  --diffs-light-bg: oklch(0.994 0 0);
+  --diffs-dark-bg: oklch(0.222 0 0);
+
+  /* Subtle, muted diff colors that sit well on both themes */
+  --diffs-added-light: oklch(0.72 0.17 145);
+  --diffs-added-dark: oklch(0.68 0.17 150);
+  --diffs-deleted-light: oklch(0.62 0.2 25);
+  --diffs-deleted-dark: oklch(0.64 0.18 20);
+  --diffs-modified-light: oklch(0.65 0.15 250);
+  --diffs-modified-dark: oklch(0.7 0.14 255);
+}

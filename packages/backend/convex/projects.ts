@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { randomUuid } from "./lib/uuid";
 
@@ -407,6 +407,64 @@ export const markBranchSwitchFailed = mutation({
       currentBranch: args.previousBranch ?? project.currentBranch,
       updatedAt: Date.now(),
     });
+
+    return null;
+  },
+});
+
+export const getForRemovalInternal = internalQuery({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    return {
+      projectId: project.projectId,
+      sandboxId: project.sandboxId,
+    };
+  },
+});
+
+export const removeInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const [messages, threads] = await Promise.all([
+      ctx.db
+        .query("messages")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("threads")
+        .withIndex("by_author_project", (q) => q.eq("authorId", args.authorId).eq("projectId", args.projectId))
+        .collect(),
+    ]);
+
+    await Promise.all([
+      ...messages.map((message) => ctx.db.delete(message._id)),
+      ...threads.map((thread) => ctx.db.delete(thread._id)),
+      ctx.db.delete(project._id),
+    ]);
 
     return null;
   },

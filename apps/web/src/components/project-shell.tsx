@@ -13,11 +13,11 @@ import {
 import { UserButton } from "@clerk/nextjs";
 import { Authenticated, AuthLoading, Unauthenticated, useMutation } from "convex/react";
 import {
+  GitPullRequest,
   Home,
   Loader2,
   MessageSquare,
   Search,
-  Settings,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
@@ -178,6 +178,11 @@ export function ProjectSidebar({
                 label="Threads"
                 count={threads?.length}
               />
+              <NavLink
+                href={`/project/${projectId}/pulls` as Route}
+                icon={GitPullRequest}
+                label="View pull request"
+              />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -278,31 +283,20 @@ export function ProjectSidebar({
       <SidebarFooter className="mt-auto border-t border-sidebar-border/60 p-2">
         <SidebarMenu className="gap-0">
           <SidebarMenuItem>
-            <SidebarMenuButton
-              render={<Link href={`/project/${projectId}`} />}
-              tooltip="Settings"
-              className="h-8 gap-2 px-2 font-mono text-[12px] text-sidebar-foreground/60 hover:text-sidebar-foreground"
-            >
-              <Settings
-                className="size-3.5 text-sidebar-foreground/50"
-                aria-hidden="true"
+            <div className="flex h-9 items-center gap-2.5 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "size-6 rounded-none",
+                  },
+                }}
               />
-              <span className="group-data-[collapsible=icon]:hidden">settings</span>
-            </SidebarMenuButton>
+              <span className="min-w-0 truncate font-mono text-[11px] text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
+                account
+              </span>
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
-        <div className="mt-1 flex h-9 items-center gap-2.5 border-t border-sidebar-border/40 px-2 pt-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-t-0 group-data-[collapsible=icon]:px-0">
-          <UserButton
-            appearance={{
-              elements: {
-                avatarBox: "size-6 rounded-none",
-              },
-            }}
-          />
-          <span className="min-w-0 truncate font-mono text-[11px] text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
-            account
-          </span>
-        </div>
       </SidebarFooter>
     </Sidebar>
     <Dialog open={Boolean(pendingDeleteThread)} onOpenChange={(open) => !open && setPendingDeleteThread(undefined)}>

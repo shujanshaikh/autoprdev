@@ -11,7 +11,7 @@ import {
   AuthLoading,
   Unauthenticated,
   useConvexAuth,
-  useMutation,
+  useAction,
   useQuery,
 } from "convex/react";
 import { ArrowRight, Loader2 } from "lucide-react";
@@ -36,7 +36,7 @@ export default function Dashboard() {
   );
   const { isAuthenticated } = useConvexAuth();
   const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
-  const removeProject = useMutation(api.projects.remove);
+  const removeProjectWithSandbox = useAction(api.projectActions.removeWithSandbox);
 
   const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
@@ -224,7 +224,7 @@ export default function Dashboard() {
     setError(undefined);
 
     try {
-      await removeProject({ projectId: projectToDelete.projectId });
+      await removeProjectWithSandbox({ projectId: projectToDelete.projectId });
       setProjectIdToDelete(undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete the project.");

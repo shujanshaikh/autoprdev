@@ -152,6 +152,49 @@
   background: color-mix(in oklch, var(--sidebar-foreground) 16%, transparent);
 }
 
+
+@keyframes pull-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pull-row-in {
+  opacity: 0;
+  animation: pull-row-in 280ms var(--ease-ui-snappy) forwards;
+}
+
+.pulls-shell {
+  position: relative;
+}
+
+.pulls-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--foreground) 2.5%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 26px 26px;
+  background-position: center top;
+  opacity: 0.45;
+  mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, black, transparent);
+  -webkit-mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, black, transparent);
+  z-index: 0;
+}
+
+.pulls-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
 /* ─── Dashboard ─── */
 
 @keyframes dashboard-fade-in {

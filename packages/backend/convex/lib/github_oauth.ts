@@ -16,6 +16,20 @@ export interface GithubOAuthBranch {
   protected: boolean;
 }
 
+export interface GithubOAuthPullRequest {
+  id: number;
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  htmlUrl: string;
+  user: string;
+  createdAt: string;
+  updatedAt: string;
+  draft: boolean;
+  headRef: string;
+  baseRef: string;
+}
+
 const GITHUB_API_VERSION = "2022-11-28";
 const MAX_ITEMS = 500;
 
@@ -130,6 +144,39 @@ export async function fetchGithubBranches(token: string, owner: string, repo: st
     name: branch.name,
     sha: branch.commit.sha,
     protected: branch.protected,
+  }));
+}
+
+export async function fetchGithubPullRequests(token: string, owner: string, repo: string): Promise<GithubOAuthPullRequest[]> {
+  const pulls = await paginatedGithubJson<{
+    id: number;
+    number: number;
+    title: string;
+    state: "open" | "closed";
+    html_url: string;
+    user: { login: string } | null;
+    created_at: string;
+    updated_at: string;
+    draft?: boolean;
+    head: { ref: string };
+    base: { ref: string };
+  }>(
+    token,
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=all&per_page=100&sort=updated&direction=desc`,
+  );
+
+  return pulls.map((pull) => ({
+    id: pull.id,
+    number: pull.number,
+    title: pull.title,
+    state: pull.state,
+    htmlUrl: pull.html_url,
+    user: pull.user?.login ?? "unknown",
+    createdAt: pull.created_at,
+    updatedAt: pull.updated_at,
+    draft: Boolean(pull.draft),
+    headRef: pull.head.ref,
+    baseRef: pull.base.ref,
   }));
 }
 

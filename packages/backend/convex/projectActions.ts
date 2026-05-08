@@ -33,6 +33,17 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
+async function deleteDaytonaSandbox(sandboxId: string) {
+  const { Daytona } = daytonaSdk;
+  const daytona = new Daytona({
+    apiKey: process.env.DAYTONA_API_KEY,
+    apiUrl: process.env.DAYTONA_API_URL,
+  });
+  const sandbox = await daytona.get(sandboxId);
+
+  await daytona.delete(sandbox);
+}
+
 async function bootstrapRepositorySandbox(options: {
   cacheKey: string;
   repoUrl: string;
@@ -64,6 +75,36 @@ async function bootstrapRepositorySandbox(options: {
     sandboxWorkDir: repoPath,
   };
 }
+
+export const removeWithSandbox = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project = await ctx.runQuery(internal.projects.getForRemovalInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    if (project.sandboxId) {
+      await deleteDaytonaSandbox(project.sandboxId);
+    }
+
+    await ctx.runMutation(internal.projects.removeInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    return null;
+  },
+});
 
 export const ensureForGithubRepo = action({
   args: {

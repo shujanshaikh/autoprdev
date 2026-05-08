@@ -603,7 +603,6 @@ function ThreadChat({
         </div>
 
         <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-6 sm:px-8">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-border" />
           <div className="mx-auto max-w-[680px]">
             {currentRunId ? (
               <p className="mb-3 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">

@@ -1,17 +1,29 @@
 "use client";
 
+import { api } from "@autopr/backend/convex/_generated/api";
+import { Button } from "@autopr/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@autopr/ui/components/dialog";
 import { UserButton } from "@clerk/nextjs";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { Authenticated, AuthLoading, Unauthenticated, useMutation } from "convex/react";
 import {
   Home,
   Loader2,
   MessageSquare,
   Search,
   Settings,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
-import { useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -21,6 +33,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -77,12 +90,42 @@ export function ProjectSidebar({
   threads: ProjectThread[] | undefined;
   activeThreadId?: string;
 }) {
+  const router = useRouter();
+  const removeThread = useMutation(api.threads.remove);
+  const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
+  const [pendingDeleteThread, setPendingDeleteThread] = useState<ProjectThread | undefined>();
   const displayName = repoFullName ?? "autopr";
   const [owner, repo] = displayName.includes("/")
     ? displayName.split("/")
     : [undefined, displayName];
 
+  function handleDeleteThread(event: MouseEvent<HTMLButtonElement>, thread: ProjectThread) {
+    event.preventDefault();
+    event.stopPropagation();
+    setPendingDeleteThread(thread);
+  }
+
+  async function confirmDeleteThread() {
+    if (!pendingDeleteThread) {
+      return;
+    }
+
+    const thread = pendingDeleteThread;
+    setDeletingThreadId(thread.threadId);
+    try {
+      await removeThread({ threadId: thread.threadId });
+      setPendingDeleteThread(undefined);
+      if (thread.threadId === activeThreadId) {
+        router.replace(`/project/${projectId}`);
+      }
+      router.refresh();
+    } finally {
+      setDeletingThreadId(undefined);
+    }
+  }
+
   return (
+    <>
     <Sidebar collapsible="icon" variant="inset">
       {/* ── Brand ─────────────────────────────────────────────── */}
       <SidebarHeader className="border-b border-sidebar-border/60 px-3 py-3">
@@ -201,13 +244,28 @@ export function ProjectSidebar({
                           {thread.title}
                         </span>
                         {thread.isLive ? (
-                          <LiveDot className="ml-auto" />
+                          <LiveDot className="ml-auto group-hover/thread:opacity-0" />
                         ) : (
-                          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-sidebar-foreground/30">
+                          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-sidebar-foreground/30 group-hover/thread:opacity-0">
                             {relativeTime(thread.updatedAt)}
                           </span>
                         )}
                       </SidebarMenuButton>
+                      <SidebarMenuAction
+                        type="button"
+                        showOnHover
+                        disabled={deletingThreadId === thread.threadId}
+                        aria-label={`Delete thread ${thread.title}`}
+                        title="Delete thread"
+                        onClick={(event) => handleDeleteThread(event, thread)}
+                        className="text-sidebar-foreground/35 hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        {deletingThreadId === thread.threadId ? (
+                          <Loader2 className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Trash2 aria-hidden="true" />
+                        )}
+                      </SidebarMenuAction>
                     </SidebarMenuItem>
                   );
                 })
@@ -247,6 +305,38 @@ export function ProjectSidebar({
         </div>
       </SidebarFooter>
     </Sidebar>
+    <Dialog open={Boolean(pendingDeleteThread)} onOpenChange={(open) => !open && setPendingDeleteThread(undefined)}>
+      <DialogContent className="max-w-[320px] gap-3 p-4" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle className="font-mono text-sm">Delete thread?</DialogTitle>
+          <DialogDescription className="line-clamp-2 font-mono text-[11px]">
+            {pendingDeleteThread?.title}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex-row justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={Boolean(deletingThreadId)}
+            onClick={() => setPendingDeleteThread(undefined)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={Boolean(deletingThreadId)}
+            onClick={confirmDeleteThread}
+          >
+            {deletingThreadId ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

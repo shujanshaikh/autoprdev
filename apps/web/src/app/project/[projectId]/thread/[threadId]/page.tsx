@@ -598,15 +598,16 @@ function ThreadChat({
           </Conversation>
         </div>
 
-        <div className="border-t border-border/30 bg-background">
-          <div className="mx-auto w-full max-w-[680px] px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-8 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-6 sm:px-8">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-border" />
+          <div className="mx-auto max-w-[680px]">
             {currentRunId ? (
-              <p className="mb-2 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="mb-3 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                 Run {currentRunId}
               </p>
             ) : null}
             <PromptInput
-              className="rounded-lg border border-border bg-muted transition-colors focus-within:border-border focus-within:bg-accent"
+              className="rounded-xl border border-border bg-muted shadow-sm transition-all focus-within:border-primary/40 focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/10"
               onSubmit={(message) => void submitMessage(message.text)}
             >
               <PromptInputBody>

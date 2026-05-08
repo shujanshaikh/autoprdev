@@ -4,15 +4,6 @@ import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@autopr/ui/components/dialog";
 import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -29,9 +20,7 @@ import {
   Bot,
   ChevronDown,
   Loader2,
-  PanelRightClose,
-  PanelRightOpen,
-  Trash2,
+  Sidebar,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -57,7 +46,6 @@ import {
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, isExploreTool, isToolDiffPayload, toolSlugFromPart, type ToolDiffPayload, type ToolPart } from "@/components/ai-elements/tool";
 import { toUIMessage } from "@/lib/chat-messages";
-import { ModeToggle } from "@/components/mode-toggle";
 import Loader from "@/components/loader";
 import { ThreadDiffPanel } from "./_components/thread-diff-panel";
 import type { ThreadDiffEntry } from "./components/thread-diff-panel-utils";
@@ -662,9 +650,6 @@ export default function ProjectThreadPage() {
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | undefined>();
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [diffCount, setDiffCount] = useState(0);
 
@@ -679,20 +664,6 @@ export default function ProjectThreadPage() {
     setDiffCount(0);
     setDiffPanelOpen(false);
   }, [threadId]);
-
-  const handleDeleteThread = useCallback(async () => {
-    setIsDeleting(true);
-    setDeleteError(undefined);
-    try {
-      await removeThread({ threadId });
-      setIsDeleteOpen(false);
-      router.replace(`/project/${projectId}`);
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "Could not delete this thread.");
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [projectId, removeThread, router, threadId]);
 
   const handleDiffCountChange = useCallback((count: number) => {
     setDiffCount(count);
@@ -723,67 +694,18 @@ export default function ProjectThreadPage() {
                   size="icon"
                   aria-controls="thread-changes-panel"
                   aria-expanded={diffPanelOpen}
-                  title={diffPanelOpen ? "Hide diff" : "Show diff"}
+                  title={diffPanelOpen ? "Hide sidebar" : "Open sidebar"}
                   onClick={() => setDiffPanelOpen((open) => !open)}
                   className="relative size-8 shrink-0"
                 >
-                  {diffPanelOpen ? (
-                    <PanelRightClose className="size-4" aria-hidden="true" />
-                  ) : (
-                    <PanelRightOpen className="size-4" aria-hidden="true" />
-                  )}
-                  <span className="sr-only">{diffPanelOpen ? "Hide diff" : "Show diff"}</span>
+                  <Sidebar className="size-4" aria-hidden="true" />
+                  <span className="sr-only">{diffPanelOpen ? "Hide sidebar" : "Open sidebar"}</span>
                   {diffCount > 0 ? (
                     <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center bg-foreground px-1 font-mono text-[9px] font-semibold leading-4 text-background">
                       {diffCount > 99 ? "99+" : diffCount}
                     </span>
                   ) : null}
                 </Button>
-                <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-                  <DialogTrigger
-                    render={
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={loading || notFound || isDeleting}
-                        className="h-9 border border-destructive/30 bg-destructive/10 px-2.5 font-mono text-[11px]"
-                      />
-                    }
-                  >
-                    <Trash2 className="size-3.5" aria-hidden="true" />
-                    Delete
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>Delete thread?</DialogTitle>
-                      <DialogDescription>
-                        This permanently deletes <span className="font-semibold text-foreground">{thread?.title ?? "this thread"}</span> and all of its messages.
-                      </DialogDescription>
-                    </DialogHeader>
-                    {deleteError ? (
-                      <p className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                        {deleteError}
-                      </p>
-                    ) : null}
-                    <DialogFooter>
-                      <Button variant="outline" disabled={isDeleting} onClick={() => setIsDeleteOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button variant="destructive" disabled={isDeleting} onClick={() => void handleDeleteThread()}>
-                        {isDeleting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-                        Delete thread
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-                <div className="inline-flex h-9 items-center gap-2 border border-primary/20 bg-primary/6 px-3 font-mono text-[11px] text-muted-foreground dark:bg-primary/8">
-                  <span
-                    className={`size-2 shrink-0 border border-foreground/80 ${thread?.isLive ? "bg-primary shadow-[0_0_0_3px_rgba(var(--primary),0.25)]" : "bg-background"
-                      }`}
-                  />
-                  {thread?.isLive ? "Streaming" : project?.sandboxStatus ?? "Loading"}
-                </div>
-                <ModeToggle />
               </div>
             </header>
 

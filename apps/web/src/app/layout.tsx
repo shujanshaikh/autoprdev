@@ -5,6 +5,7 @@ import "../index.css";
 import { DM_Sans, DM_Mono } from "next/font/google";
 
 import Providers from "@/components/providers";
+import Script from "next/dist/client/script";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -31,6 +32,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {process.env.NODE_ENV === "development" && (
+          <Script
+            src="//unpkg.com/react-grab/dist/index.global.js"
+            crossOrigin="anonymous"
+            strategy="beforeInteractive"
+          />
+        )}
+      </head>
+
         <body className={`${dmSans.variable} ${dmMono.variable} antialiased`}>
         <ClerkProvider>
           <Providers>

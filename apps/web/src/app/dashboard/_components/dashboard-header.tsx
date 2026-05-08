@@ -2,8 +2,6 @@
 
 import { UserButton, useUser } from "@clerk/nextjs";
 
-import { ModeToggle } from "@/components/mode-toggle";
-
 interface DashboardHeaderProps {
   projectCount: number;
 }
@@ -30,7 +28,6 @@ export function DashboardHeader({ projectCount }: DashboardHeaderProps) {
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:inline">
           {String(projectCount).padStart(2, "0")} projects
         </span>
-        <ModeToggle />
         <UserButton />
       </div>
     </header>

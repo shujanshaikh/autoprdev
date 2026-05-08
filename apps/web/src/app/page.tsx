@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { CodexFloating } from "@/components/landing/codex-floating";
 import { EmailCta } from "@/components/landing/email-cta";
-import { ModeToggle } from "@/components/mode-toggle";
 
 export default function Home() {
   return (
@@ -71,7 +70,6 @@ export default function Home() {
             <a href="#" className="hover:text-foreground">
               Privacy
             </a>
-            <ModeToggle />
           </div>
         </footer>
       </main>

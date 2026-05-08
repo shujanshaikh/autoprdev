@@ -2,7 +2,7 @@
 
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
-import { ChevronDown, ChevronRight, FileDiff, X } from "lucide-react";
+import { FileDiff, GitBranch, X } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { DiffStatBar } from "../components/thread-diff-panel-stat-bar";
@@ -22,7 +22,7 @@ export type ThreadDiffPanelProps = {
 
 const MIN_PANEL_WIDTH = 380;
 const MAX_PANEL_WIDTH = 860;
-const DEFAULT_PANEL_WIDTH = 480;
+const DEFAULT_PANEL_WIDTH = 640;
 
 export function ThreadDiffPanel({
   entries,
@@ -32,9 +32,8 @@ export function ThreadDiffPanel({
   onOpenChange,
   isLoading = false,
 }: ThreadDiffPanelProps) {
-  const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? entries.at(-1);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
-  const [isFileListCollapsed, setIsFileListCollapsed] = useState(false);
+  const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
   const fileEntryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const entry of entries) {
@@ -104,7 +103,7 @@ export function ThreadDiffPanel({
         id="thread-changes-panel"
         aria-hidden={!open}
         className={cn(
-          "fixed inset-y-0 right-0 z-40 flex h-full max-h-full w-[min(94vw,560px)] min-w-0 flex-col border-l border-border/50 bg-background transition-transform duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] lg:static lg:z-auto lg:w-[var(--thread-diff-width)] lg:shrink-0",
+          "fixed inset-y-0 right-0 z-40 flex h-full max-h-full w-[min(96vw,720px)] min-w-0 flex-col border-l border-border/50 bg-background transition-transform duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] lg:static lg:z-auto lg:w-[var(--thread-diff-width)] lg:shrink-0",
           open ? "translate-x-0" : "translate-x-full lg:hidden",
         )}
         style={{ "--thread-diff-width": `${panelWidth}px` } as CSSProperties & Record<"--thread-diff-width", string>}
@@ -120,24 +119,38 @@ export function ThreadDiffPanel({
           <span className="block h-12 w-0.5 rounded-full bg-border/50 transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-primary/50 group-focus-visible/resize:bg-primary" />
         </button>
 
-        <header className="relative flex shrink-0 flex-col gap-2 border-b border-border/40 bg-background px-4 pb-3 pt-3.5">
-          <div className="flex items-center gap-2.5">
-            <span className="relative inline-flex size-7 items-center justify-center border border-border/50 bg-muted/20">
-              <FileDiff className="size-3.5 text-foreground/80" aria-hidden="true" />
-              {entries.length > 0 ? <span className="absolute -right-1 -top-1 inline-flex size-3.5 items-center justify-center bg-foreground font-mono text-[8px] font-semibold leading-none text-background">{entries.length > 99 ? "99" : entries.length}</span> : null}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/70">Changes</p>
-              <p className="truncate text-[13px] font-semibold leading-tight tracking-tight">
-                {entries.length === 0 ? (isLoading ? "Computing changes…" : "No changes yet") : `${totals.files} ${totals.files === 1 ? "file" : "files"} changed`}
-              </p>
+        <header className="relative flex shrink-0 flex-col border-b border-border/55 bg-background">
+          <div className="flex h-10 items-center gap-1 border-b border-border/45 px-3">
+            <button type="button" className="inline-flex h-7 items-center gap-1.5 border border-border/60 bg-muted/50 px-2.5 text-xs font-medium text-foreground">
+              <GitBranch className="size-3.5" aria-hidden="true" />
+              Git
+            </button>
+          </div>
+
+          <div className="flex h-10 items-center gap-2 border-b border-border/45 px-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="inline-flex size-6 items-center justify-center border border-border/60 bg-muted/40">
+                <FileDiff className="size-3.5 text-foreground/80" aria-hidden="true" />
+              </span>
+              <p className="truncate text-sm font-medium text-foreground">Thread changes</p>
+              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{totals.files} files</span>
             </div>
+            {entries.length > 0 ? (
+              <div className="flex shrink-0 items-center gap-2 font-mono text-xs tabular-nums">
+                <span className="text-emerald-500">+{totals.additions}</span>
+                <span className="text-red-400">−{totals.deletions}</span>
+              </div>
+            ) : null}
             <Button type="button" variant="ghost" size="icon" className="size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close changes panel">
               <X className="size-3.5" aria-hidden="true" />
             </Button>
           </div>
 
-          {entries.length > 0 ? <DiffStatBar additions={totals.additions} deletions={totals.deletions} /> : null}
+          {entries.length > 0 ? (
+            <div className="flex h-8 items-center px-3">
+              <DiffStatBar additions={totals.additions} deletions={totals.deletions} />
+            </div>
+          ) : null}
         </header>
 
         {showEmpty ? (
@@ -145,27 +158,30 @@ export function ThreadDiffPanel({
         ) : showLoadingList ? (
           <ThreadDiffLoadingList />
         ) : (
-          <div className={cn("grid min-h-0 flex-1 overflow-hidden transition-[grid-template-rows] duration-200", isFileListCollapsed ? "grid-rows-[0fr_minmax(0,1fr)]" : "grid-rows-[minmax(96px,min(200px,30%))_minmax(0,1fr)]")}>
-            <div className="relative min-h-0 overflow-hidden border-b border-border/40">
-              <button
-                type="button"
-                className="absolute right-2 top-1.5 z-10 flex size-5 items-center justify-center text-muted-foreground/60 transition hover:text-foreground"
-                onClick={() => setIsFileListCollapsed((value) => !value)}
-                aria-label={isFileListCollapsed ? "Expand file list" : "Collapse file list"}
-              >
-                {isFileListCollapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
-              </button>
-
-              <ul role="listbox" aria-label="Changed files" className="minimal-scrollbar h-full min-h-0 overflow-y-auto bg-muted/5 px-1.5 py-1.5">
-                {entries.map((entry) => {
-                  const active = entry.id === selectedEntry?.id;
-                  return <ThreadDiffFileRow key={entry.id} entry={entry} active={active} showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1} onSelect={() => onSelectEntry(entry.id)} />;
-                })}
-              </ul>
-            </div>
-
-            <div className="minimal-scrollbar relative min-h-0 overflow-auto overscroll-contain bg-background">
-              {selectedEntry ? <ThreadDiffDetailView entry={selectedEntry} showTurn={(fileEntryCounts.get(selectedEntry.file) ?? 0) > 1} /> : isLoading ? <ThreadDiffLoadingList /> : null}
+          <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-muted/5 p-2">
+            <div role="listbox" aria-label="Changed files" className="flex min-h-0 flex-col gap-1.5">
+              {entries.map((entry) => {
+                const expanded = expandedEntryId === entry.id;
+                return (
+                  <div key={entry.id} className="overflow-hidden rounded-md border border-border/45 bg-background/60">
+                    <ThreadDiffFileRow
+                      entry={entry}
+                      active={expanded}
+                      expanded={expanded}
+                      showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1}
+                      onSelect={() => {
+                        onSelectEntry(entry.id);
+                        setExpandedEntryId((current) => (current === entry.id ? undefined : entry.id));
+                      }}
+                    />
+                    {expanded ? (
+                      <div className="border-t border-border/45 bg-background">
+                        <ThreadDiffDetailView entry={entry} showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1} compact />
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

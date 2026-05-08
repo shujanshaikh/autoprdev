@@ -35,7 +35,7 @@ import {
 import type { Route } from "next";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -142,8 +142,6 @@ export default function ProjectOverviewPage() {
   const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
-  const [isNavigating, setIsNavigating] = useState(false);
-  const [navigatingPrompt, setNavigatingPrompt] = useState("");
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -216,19 +214,10 @@ export default function ProjectOverviewPage() {
       const promptQuery = prompt ? `?prompt=${encodeURIComponent(prompt)}` : "";
       const targetUrl = `/project/${projectId}/thread/${threadId}${promptQuery}` as Route;
 
-      // Show optimistic navigating state immediately
-      setNavigatingPrompt(prompt || "New thread");
-      setIsNavigating(true);
-
-      // Use startTransition so React batches the navigation update
-      // and doesn't show the intermediate loading state
-      startTransition(() => {
-        router.push(targetUrl);
-      });
+      router.prefetch(targetUrl);
+      router.push(targetUrl);
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
-      setIsNavigating(false);
-    } finally {
       setIsCreatingThread(false);
     }
   }, [project, projectId, promptValue, createThread, router]);
@@ -315,7 +304,7 @@ export default function ProjectOverviewPage() {
 
   return (
     <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
-      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-150 ease-out ${isNavigating ? "pointer-events-none" : ""}`}>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
               {project === undefined || threads === undefined ? (
                 <div className="grid flex-1 place-items-center">
@@ -352,7 +341,6 @@ export default function ProjectOverviewPage() {
                                 project.sandboxStatus !== "ready" ||
                                 project.branchSwitchStatus === "switching" ||
                                 isCreatingThread ||
-                                isNavigating ||
                                 isLoadingBranches ||
                                 isSwitchingBranch
                               }
@@ -415,11 +403,7 @@ export default function ProjectOverviewPage() {
                               disabled={project.sandboxStatus !== "ready" || isCreatingThread}
                               className="inline-flex size-7 items-center justify-center bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
                             >
-                              {isCreatingThread ? (
-                                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                              ) : (
-                                <ArrowUp className="size-3.5" aria-hidden="true" />
-                              )}
+                              <ArrowUp className="size-3.5" aria-hidden="true" />
                             </button>
                           </div>
                         </div>
@@ -523,11 +507,7 @@ export default function ProjectOverviewPage() {
                           disabled={project.sandboxStatus !== "ready" || isCreatingThread}
                           className="inline-flex h-8 items-center gap-1.5 border border-primary/20 bg-primary/6 px-2.5 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {isCreatingThread ? (
-                            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                          ) : (
-                            <MessageSquarePlus className="size-3" aria-hidden="true" />
-                          )}
+                          <MessageSquarePlus className="size-3" aria-hidden="true" />
                           New
                         </button>
                       </div>
@@ -560,23 +540,6 @@ export default function ProjectOverviewPage() {
                       )}
                     </div>
                   </div>
-
-                  {/* Optimistic navigating overlay */}
-                  {isNavigating ? (
-                    <div className="project-navigating-overlay fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                      <div className="flex flex-col items-center gap-4 project-route-enter">
-                        <Loader2 className="size-5 animate-spin text-primary" aria-hidden="true" />
-                        <div className="text-center">
-                          <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted-foreground/70">
-                            Starting thread
-                          </p>
-                          <p className="mt-1.5 max-w-[300px] truncate text-sm font-semibold text-foreground">
-                            {navigatingPrompt}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
                 </>
               )}
             </div>

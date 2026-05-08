@@ -242,36 +242,8 @@ function ExploreToolGroup({
 
 function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
-    <div className="space-y-3" aria-live="polite">
-      <div className="flex w-full max-w-[95%] flex-col ml-auto justify-end">
-        <UserMessageChrome>{prompt}</UserMessageChrome>
-      </div>
-      <div className="flex items-start gap-3">
-        <div className="flex items-center gap-2 px-1 py-2">
-          <div className="flex gap-1">
-            <span className="size-1.5 animate-pulse rounded-full bg-primary/60" />
-            <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:150ms]" />
-            <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:300ms]" />
-          </div>
-          <span className="font-mono text-[11px] text-muted-foreground/60">
-            Starting a new thread...
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AgentStartingIndicator() {
-  return (
-    <div className="flex items-start gap-3" aria-label="Loading" aria-live="polite">
-      <div className="flex items-center px-1 py-2">
-        <div className="flex gap-1">
-          <span className="size-1.5 animate-pulse rounded-full bg-primary/60" />
-          <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:150ms]" />
-          <span className="size-1.5 animate-pulse rounded-full bg-primary/60 [animation-delay:300ms]" />
-        </div>
-      </div>
+    <div className="flex w-full max-w-[95%] flex-col ml-auto justify-end">
+      <UserMessageChrome>{prompt}</UserMessageChrome>
     </div>
   );
 }
@@ -401,7 +373,6 @@ function ThreadChat({
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
-  const waitingForStream = status === "submitted";
 
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
@@ -600,8 +571,6 @@ function ThreadChat({
               );
             })}
 
-            {waitingForStream ? <AgentStartingIndicator /> : null}
-
             {error ? (
               <div role="alert" className="border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-destructive">Error</p>
@@ -667,7 +636,9 @@ export default function ProjectThreadPage() {
   const [diffCount, setDiffCount] = useState(0);
 
   const initialMessages = useMemo(() => dbMessages?.map(toUIMessage) ?? [], [dbMessages]);
+  const isPromptHandoff = Boolean(initialPrompt);
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
+  const handoffLoading = isPromptHandoff && (project === undefined || thread === undefined || dbMessages === undefined);
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
 
@@ -786,7 +757,7 @@ export default function ProjectThreadPage() {
             <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
               {notFound ? (
                 <div className="border border-border p-5 text-sm text-muted-foreground">Thread not found.</div>
-              ) : loading ? (
+              ) : loading && !handoffLoading ? (
                 <section className="min-h-0 w-full min-w-0 flex-1">
                   <Loader />
                 </section>
@@ -796,7 +767,7 @@ export default function ProjectThreadPage() {
                   projectId={projectId}
                   threadId={threadId}
                   currentRunId={thread?.currentRunId}
-                  initialMessages={initialMessages}
+                  initialMessages={handoffLoading ? [] : initialMessages}
                   initialPrompt={initialPrompt}
                   disabled={disabled}
                   diffPanelOpen={diffPanelOpen}

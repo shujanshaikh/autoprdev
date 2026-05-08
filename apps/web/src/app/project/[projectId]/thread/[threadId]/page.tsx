@@ -252,6 +252,20 @@ function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   );
 }
 
+function AwaitingAgentIndicator() {
+  return (
+    <div role="status" aria-live="polite" aria-label="Agent is thinking">
+      <div className="mx-auto max-w-[680px] px-6 py-2 sm:px-8">
+        <div className="flex items-center gap-1.5">
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/55 [animation-delay:-0.2s]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/55 [animation-delay:-0.1s]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/55" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ThreadChat({
   projectId,
   threadId,
@@ -377,6 +391,7 @@ function ThreadChat({
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
+  const awaitingAgentResponse = status === "submitted";
 
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
@@ -592,6 +607,7 @@ function ThreadChat({
             ) : null}
 
             {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
+            {awaitingAgentResponse ? <AwaitingAgentIndicator /> : null}
             </ConversationContent>
             <div className="h-8" />
             <ConversationScrollButton className="bottom-4" />

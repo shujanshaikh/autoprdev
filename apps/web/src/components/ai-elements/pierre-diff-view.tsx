@@ -13,6 +13,31 @@ import { useMemo, type ReactNode } from "react";
 
 const MAX_RENDERED_CHANGED_LINES = 500;
 
+const DIFF_WORKER_POOL_OPTIONS = {
+  workerFactory: () =>
+    new Worker(new URL("@pierre/diffs/worker/worker.js", import.meta.url), {
+      type: "module",
+    }),
+  poolSize: 2,
+};
+
+const DIFF_HIGHLIGHTER_OPTIONS = {
+  langs: ["text", "ts", "tsx", "js", "jsx", "json", "md", "css", "html", "bash", "python", "go", "rust"],
+  theme: DEFAULT_THEMES,
+  preferredHighlighter: "shiki-js" as const,
+  lineDiffType: "none" as const,
+  maxLineDiffLength: 1000,
+  tokenizeMaxLineLength: 1000,
+};
+
+export function PierreDiffWorkerPoolProvider({ children }: { children: ReactNode }) {
+  return (
+    <WorkerPoolContextProvider poolOptions={DIFF_WORKER_POOL_OPTIONS} highlighterOptions={DIFF_HIGHLIGHTER_OPTIONS}>
+      {children}
+    </WorkerPoolContextProvider>
+  );
+}
+
 function changedLineCount(patch?: string): number {
   if (!patch) return 0;
   let count = 0;
@@ -21,48 +46,6 @@ function changedLineCount(patch?: string): number {
     if (line.startsWith("-") && !line.startsWith("---")) count += 1;
   }
   return count;
-}
-
-function PierreDiffProviders({ children }: { children: ReactNode }) {
-  const poolOptions = useMemo(
-    () => ({
-      workerFactory: () =>
-        new Worker(new URL("@pierre/diffs/worker/worker.js", import.meta.url), {
-          type: "module",
-        }),
-      poolSize: 2,
-    }),
-    [],
-  );
-
-  return (
-    <WorkerPoolContextProvider
-      poolOptions={poolOptions}
-      highlighterOptions={{
-        langs: [
-          "text",
-          "ts",
-          "tsx",
-          "js",
-          "jsx",
-          "json",
-          "md",
-          "css",
-          "html",
-          "bash",
-          "python",
-          "go",
-          "rust",
-        ],
-        theme: DEFAULT_THEMES,
-        preferredHighlighter: "shiki-wasm",
-        lineDiffType: "none",
-        maxLineDiffLength: 1000,
-      }}
-    >
-      <Virtualizer className="min-h-0">{children}</Virtualizer>
-    </WorkerPoolContextProvider>
-  );
 }
 
 export function PierreDiffView({
@@ -123,7 +106,7 @@ export function PierreDiffView({
   } satisfies FileContents;
 
   return (
-    <PierreDiffProviders>
+    <Virtualizer className="min-h-0">
       <div className="pierre-diff-view min-w-0 overflow-hidden">
         {patch ? (
           <PatchDiff patch={patch} options={diffOptions} />
@@ -131,6 +114,6 @@ export function PierreDiffView({
           <MultiFileDiff oldFile={before} newFile={after} options={diffOptions} />
         )}
       </div>
-    </PierreDiffProviders>
+    </Virtualizer>
   );
 }

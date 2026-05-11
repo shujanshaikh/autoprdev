@@ -44,6 +44,7 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
+import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-diff-view";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, isExploreTool, isToolDiffPayload, toolSlugFromPart, type ToolDiffPayload, type ToolPart } from "@/components/ai-elements/tool";
 import { toUIMessage } from "@/lib/chat-messages";
 import Loader from "@/components/loader";
@@ -722,6 +723,7 @@ export default function ProjectThreadPage() {
             </header>
 
             <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              <PierreDiffWorkerPoolProvider>
               {notFound ? (
                 <div className="border border-border p-5 text-sm text-muted-foreground">Thread not found.</div>
               ) : loading && !handoffLoading ? (
@@ -744,6 +746,7 @@ export default function ProjectThreadPage() {
                   thread={thread}
                 />
               )}
+              </PierreDiffWorkerPoolProvider>
             </main>
           </div>
   );

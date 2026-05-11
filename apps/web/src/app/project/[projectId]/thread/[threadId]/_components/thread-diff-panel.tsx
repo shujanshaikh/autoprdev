@@ -33,6 +33,21 @@ const MIN_PANEL_WIDTH = 380;
 const MAX_PANEL_WIDTH = 860;
 const DEFAULT_PANEL_WIDTH = 640;
 
+function autoprBranchName(value: string) {
+  const withoutPrefix = value.trim().replace(/^autopr[/-]*/i, "");
+  const slug = withoutPrefix
+    .replace(/\\/g, "/")
+    .replace(/\s+/g, "-")
+    .replace(/[^A-Za-z0-9._/-]+/g, "-")
+    .replace(/\.{2,}/g, ".")
+    .replace(/\/+/g, "/")
+    .replace(/^[/.-]+|[/.-]+$/g, "")
+    .replace(/\.lock$/i, "-lock")
+    .slice(0, 96);
+
+  return slug ? `autopr/${slug}` : "";
+}
+
 export function ThreadDiffPanel({
   entries,
   selectedEntryId,
@@ -54,6 +69,7 @@ export function ThreadDiffPanel({
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<"diff" | "pull-request">("diff");
   const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
+  const [branchName, setBranchName] = useState("");
   const [body, setBody] = useState("");
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
   const [localError, setLocalError] = useState<string | undefined>();
@@ -118,7 +134,8 @@ export function ThreadDiffPanel({
   const effectiveBranch = createdPull?.branch ?? pullRequestBranch;
   const effectiveError = localError ?? pullRequestError;
   const creating = effectiveStatus === "creating";
-  const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0;
+  const requestedBranch = autoprBranchName(branchName);
+  const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0 && requestedBranch.length > 0;
 
   const createPullRequest = useCallback(async () => {
     if (!canCreatePullRequest) return;
@@ -132,7 +149,7 @@ export function ThreadDiffPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title.trim() || undefined, body: body.trim() || undefined }),
+          body: JSON.stringify({ title: title.trim() || undefined, body: body.trim() || undefined, branch: requestedBranch }),
         },
       );
       const data = await response.json().catch(() => ({}));
@@ -147,7 +164,7 @@ export function ThreadDiffPanel({
       setLocalStatus("failed");
       setLocalError(error instanceof Error ? error.message : "Could not create pull request.");
     }
-  }, [body, canCreatePullRequest, projectId, threadId, title]);
+  }, [body, canCreatePullRequest, projectId, requestedBranch, threadId, title]);
 
   return (
     <>
@@ -319,7 +336,7 @@ export function ThreadDiffPanel({
                     <div className="flex items-center gap-2 font-mono text-[11px]">
                       <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/80">
                         <GitBranch className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-                        <span className="truncate text-muted-foreground">sandbox</span>
+                        <span className="truncate">{requestedBranch || "autopr/your-branch"}</span>
                       </span>
                       <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/55" aria-hidden="true" />
                       <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/85">
@@ -346,6 +363,23 @@ export function ThreadDiffPanel({
                     ) : null}
 
                     <div className="space-y-3.5">
+                      <label className="block space-y-1.5">
+                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">branch</span>
+                        <div className="flex h-9 border border-border bg-background focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+                          <span className="inline-flex items-center border-r border-border bg-muted/35 px-2.5 font-mono text-[12px] text-muted-foreground">
+                            autopr/
+                          </span>
+                          <input
+                            value={branchName}
+                            onChange={(event) => setBranchName(event.target.value)}
+                            placeholder="my-feature-branch"
+                            className="min-w-0 flex-1 bg-transparent px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/45"
+                          />
+                        </div>
+                        <span className="block truncate font-mono text-[10px] text-muted-foreground/75">
+                          {requestedBranch || "Branch will be created as autopr/<name>."}
+                        </span>
+                      </label>
                       <label className="block space-y-1.5">
                         <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">title</span>
                         <input
@@ -396,6 +430,8 @@ export function ThreadDiffPanel({
                         </>
                       ) : entries.length === 0 ? (
                         <span>no changes to push</span>
+                      ) : requestedBranch.length === 0 ? (
+                        <span>add a branch to continue</span>
                       ) : title.trim().length === 0 ? (
                         <span>add a title to continue</span>
                       ) : (

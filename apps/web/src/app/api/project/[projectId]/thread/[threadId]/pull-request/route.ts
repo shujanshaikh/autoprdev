@@ -15,15 +15,23 @@ import {
 const requestSchema = z.object({
   title: z.string().trim().min(1).max(180).optional(),
   body: z.string().trim().max(5000).optional(),
+  branch: z.string().trim().min(1).max(120),
   draft: z.boolean().optional(),
 });
 
-function branchSlug(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "thread";
+function autoprBranchName(value: string) {
+  const withoutPrefix = value.trim().replace(/^autopr[/-]*/i, "");
+  const slug = withoutPrefix
+    .replace(/\\/g, "/")
+    .replace(/\s+/g, "-")
+    .replace(/[^A-Za-z0-9._/-]+/g, "-")
+    .replace(/\.{2,}/g, ".")
+    .replace(/\/+/g, "/")
+    .replace(/^[/.-]+|[/.-]+$/g, "")
+    .replace(/\.lock$/i, "-lock")
+    .slice(0, 96);
+
+  return slug ? `autopr/${slug}` : undefined;
 }
 
 export async function POST(
@@ -74,8 +82,13 @@ export async function POST(
   }
 
   const title = parsed.data.title || thread.title || "AutoPR changes";
+  const requestedBranch = autoprBranchName(parsed.data.branch);
+  if (!requestedBranch) {
+    return Response.json({ error: "Enter a branch name after autopr/." }, { status: 400 });
+  }
+
   const existingFailedBranch = thread.pullRequestStatus === "failed" ? thread.pullRequestBranch : undefined;
-  const branch = existingFailedBranch || `autopr/${branchSlug(thread.title)}/${threadId.slice(0, 8)}-${Date.now().toString(36)}`;
+  const branch = requestedBranch;
   const body =
     parsed.data.body ||
     [`Created from AutoPR thread \`${threadId}\`.`, "", "This PR contains the changes currently staged in the thread sandbox."].join("\n");
@@ -94,7 +107,7 @@ export async function POST(
           commitMessage: title,
         });
       } catch (error) {
-        if (!(error instanceof SandboxNoChangesError && existingFailedBranch)) {
+        if (!(error instanceof SandboxNoChangesError && existingFailedBranch === branch)) {
           throw error;
         }
       }

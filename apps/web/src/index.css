@@ -153,10 +153,12 @@
 }
 
 
+/* ─── Pulls ledger ──────────────────────────────────────────── */
+
 @keyframes pull-row-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -166,27 +168,32 @@
 
 .pull-row-in {
   opacity: 0;
-  animation: pull-row-in 280ms var(--ease-ui-snappy) forwards;
+  animation: pull-row-in 220ms var(--ease-ui-snappy) forwards;
+  will-change: opacity, transform;
 }
 
 .pulls-shell {
   position: relative;
+  isolation: isolate;
+  animation: dashboard-fade-in 280ms var(--ease-ui-snappy) both;
 }
 
+/* Primary-tinted dotted grain that fades as you scroll down —
+   matches .dashboard-shell but anchored inside the project shell. */
 .pulls-shell::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   background-image: radial-gradient(
-    color-mix(in oklch, var(--foreground) 2.5%, transparent) 1px,
+    color-mix(in oklch, var(--primary) 14%, transparent) 1px,
     transparent 1px
   );
-  background-size: 26px 26px;
-  background-position: center top;
-  opacity: 0.45;
-  mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, black, transparent);
-  -webkit-mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, black, transparent);
+  background-size: 22px 22px;
+  background-position: 0 0;
+  opacity: 0.3;
+  mask-image: linear-gradient(to bottom, black, transparent 60%);
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 60%);
   z-index: 0;
 }
 
@@ -194,6 +201,16 @@
   position: relative;
   z-index: 1;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .pulls-shell,
+  .pull-row-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 
 /* ─── Dashboard ─── */
 

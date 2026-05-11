@@ -2,7 +2,7 @@
 
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
-import { FileDiff, GitBranch, X } from "lucide-react";
+import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Send, X } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { DiffStatBar } from "../components/thread-diff-panel-stat-bar";
@@ -18,6 +18,15 @@ export type ThreadDiffPanelProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isLoading?: boolean;
+  projectId: string;
+  threadId: string;
+  threadTitle?: string;
+  baseBranch?: string;
+  pullRequestStatus?: "idle" | "creating" | "created" | "failed";
+  pullRequestUrl?: string;
+  pullRequestNumber?: number;
+  pullRequestBranch?: string;
+  pullRequestError?: string;
 };
 
 const MIN_PANEL_WIDTH = 380;
@@ -31,9 +40,24 @@ export function ThreadDiffPanel({
   open,
   onOpenChange,
   isLoading = false,
+  projectId,
+  threadId,
+  threadTitle,
+  baseBranch,
+  pullRequestStatus,
+  pullRequestUrl,
+  pullRequestNumber,
+  pullRequestBranch,
+  pullRequestError,
 }: ThreadDiffPanelProps) {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
+  const [activeTab, setActiveTab] = useState<"diff" | "pull-request">("diff");
+  const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
+  const [body, setBody] = useState("");
+  const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
+  const [localError, setLocalError] = useState<string | undefined>();
+  const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
   const fileEntryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const entry of entries) {
@@ -88,6 +112,42 @@ export function ThreadDiffPanel({
 
   const showLoadingList = isLoading && entries.length === 0;
   const showEmpty = !isLoading && entries.length === 0;
+  const effectiveStatus = localStatus ?? pullRequestStatus ?? "idle";
+  const effectiveUrl = createdPull?.url ?? pullRequestUrl;
+  const effectiveNumber = createdPull?.number ?? pullRequestNumber;
+  const effectiveBranch = createdPull?.branch ?? pullRequestBranch;
+  const effectiveError = localError ?? pullRequestError;
+  const creating = effectiveStatus === "creating";
+  const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0;
+
+  const createPullRequest = useCallback(async () => {
+    if (!canCreatePullRequest) return;
+
+    setLocalStatus("creating");
+    setLocalError(undefined);
+
+    try {
+      const response = await fetch(
+        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/pull-request`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: title.trim() || undefined, body: body.trim() || undefined }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Could not create pull request.");
+      }
+
+      setCreatedPull({ url: data.url, number: data.number, branch: data.branch });
+      setLocalStatus("created");
+    } catch (error) {
+      setLocalStatus("failed");
+      setLocalError(error instanceof Error ? error.message : "Could not create pull request.");
+    }
+  }, [body, canCreatePullRequest, projectId, threadId, title]);
 
   return (
     <>
@@ -121,9 +181,30 @@ export function ThreadDiffPanel({
 
         <header className="relative flex shrink-0 flex-col border-b border-border/55 bg-background">
           <div className="flex h-10 items-center gap-1 border-b border-border/45 px-3">
-            <button type="button" className="inline-flex h-7 items-center gap-1.5 border border-border/60 bg-muted/50 px-2.5 text-xs font-medium text-foreground">
+            <button
+              type="button"
+              onClick={() => setActiveTab("diff")}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 border px-2.5 text-xs font-medium transition-colors",
+                activeTab === "diff" ? "border-border/60 bg-muted/50 text-foreground" : "border-transparent text-muted-foreground hover:bg-muted/35 hover:text-foreground",
+              )}
+            >
               <GitBranch className="size-3.5" aria-hidden="true" />
-              Git
+              Diff
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("pull-request")}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 border px-2.5 text-xs font-medium transition-colors",
+                activeTab === "pull-request" ? "border-border/60 bg-muted/50 text-foreground" : "border-transparent text-muted-foreground hover:bg-muted/35 hover:text-foreground",
+              )}
+            >
+              <GitPullRequest className="size-3.5" aria-hidden="true" />
+              Pull request
+              {effectiveStatus === "created" ? (
+                <span className="ml-0.5 size-1.5 bg-primary" aria-hidden="true" />
+              ) : null}
             </button>
           </div>
 
@@ -153,7 +234,254 @@ export function ThreadDiffPanel({
           ) : null}
         </header>
 
-        {showEmpty ? (
+        {activeTab === "pull-request" ? (
+          <div className="minimal-scrollbar pr-panel-in relative min-h-0 flex-1 overflow-auto bg-background">
+            {/* subtle primary-tinted grain, matches .pulls-shell */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-0 opacity-30 [background-image:radial-gradient(color-mix(in_oklch,var(--primary)_12%,transparent)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_55%)] [-webkit-mask-image:linear-gradient(to_bottom,black,transparent_55%)]"
+            />
+
+            <div className="relative z-[1] mx-auto flex w-full max-w-[520px] flex-col gap-5 px-5 py-6">
+              {effectiveStatus === "created" && effectiveUrl ? (
+                <div className="border border-primary/35 bg-card">
+                  {/* header strip */}
+                  <div className="flex items-center gap-2.5 border-b border-primary/25 bg-primary/[0.04] px-4 py-2.5">
+                    <span className="inline-block size-1.5 bg-primary" aria-hidden="true" />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">
+                      pull request · created
+                    </span>
+                    {effectiveNumber ? (
+                      <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+                        #{effectiveNumber}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-4 px-4 py-4">
+                    <div>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                        title
+                      </p>
+                      <p className="mt-1.5 text-[13px] font-medium leading-snug text-foreground">
+                        {title.trim() || "AutoPR changes"}
+                      </p>
+                    </div>
+
+                    {effectiveBranch ? (
+                      <div className="flex items-center gap-2 font-mono text-[11px]">
+                        <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/85">
+                          <GitBranch
+                            className="size-3 shrink-0 text-muted-foreground/60"
+                            aria-hidden="true"
+                          />
+                          <span className="truncate">{effectiveBranch}</span>
+                        </span>
+                        <ArrowRight
+                          className="size-3.5 shrink-0 text-muted-foreground/55"
+                          aria-hidden="true"
+                        />
+                        <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/85">
+                          <GitBranch
+                            className="size-3 shrink-0 text-muted-foreground/60"
+                            aria-hidden="true"
+                          />
+                          <span className="truncate">
+                            {baseBranch ?? "main"}
+                          </span>
+                        </span>
+                      </div>
+                    ) : null}
+
+                    <a
+                      href={effectiveUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(
+                        "group inline-flex h-9 w-full items-center justify-center gap-2 border border-primary bg-primary px-3",
+                        "font-mono text-[11px] uppercase tracking-[0.22em] text-primary-foreground transition",
+                        "hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                      )}
+                    >
+                      open on github
+                      <ExternalLink
+                        className="size-3.5 transition-transform group-hover:-translate-y-px group-hover:translate-x-px"
+                        aria-hidden="true"
+                      />
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="border border-border bg-card">
+                  {/* header strip */}
+                  <div className="flex items-center gap-2.5 border-b border-border px-4 py-2.5">
+                    <span
+                      className="inline-block size-1.5 bg-primary"
+                      aria-hidden="true"
+                    />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                      create pull request
+                    </span>
+                    <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/55">
+                      {entries.length > 0
+                        ? `${String(totals.files).padStart(2, "0")} files`
+                        : "empty"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-5 px-4 py-4">
+                    {/* Description */}
+                    <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                      Push all changes in this thread sandbox to GitHub and open
+                      a PR against{" "}
+                      <span className="font-mono text-foreground/85">
+                        {baseBranch ?? "the base branch"}
+                      </span>
+                      .
+                    </p>
+
+                    {/* Branch flow */}
+                    <div className="flex items-center gap-2 font-mono text-[11px]">
+                      <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/80">
+                        <GitBranch
+                          className="size-3 shrink-0 text-muted-foreground/60"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate text-muted-foreground">
+                          sandbox
+                        </span>
+                      </span>
+                      <ArrowRight
+                        className="size-3.5 shrink-0 text-muted-foreground/55"
+                        aria-hidden="true"
+                      />
+                      <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/85">
+                        <GitBranch
+                          className="size-3 shrink-0 text-muted-foreground/60"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">
+                          {baseBranch ?? "main"}
+                        </span>
+                      </span>
+                    </div>
+
+                    {/* Diff stats line */}
+                    {entries.length > 0 ? (
+                      <dl className="flex items-center gap-6 border-y border-border py-2.5 font-mono text-[10px] uppercase tracking-[0.22em]">
+                        <div className="inline-flex items-center gap-1.5">
+                          <dt className="text-muted-foreground">files</dt>
+                          <dd className="tabular-nums text-foreground">
+                            {String(totals.files).padStart(2, "0")}
+                          </dd>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5">
+                          <dt className="text-muted-foreground">added</dt>
+                          <dd className="tabular-nums text-emerald-600 dark:text-emerald-400">
+                            +{totals.additions}
+                          </dd>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5">
+                          <dt className="text-muted-foreground">removed</dt>
+                          <dd className="tabular-nums text-red-600 dark:text-red-400">
+                            −{totals.deletions}
+                          </dd>
+                        </div>
+                      </dl>
+                    ) : null}
+
+                    {/* Form */}
+                    <div className="space-y-3.5">
+                      <label className="block space-y-1.5">
+                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                          title
+                        </span>
+                        <input
+                          value={title}
+                          onChange={(event) => setTitle(event.target.value)}
+                          placeholder="AutoPR changes"
+                          className={cn(
+                            "h-9 w-full border border-border bg-background px-2.5 text-[13px] text-foreground outline-none transition",
+                            "placeholder:text-muted-foreground/45",
+                            "focus:border-ring focus:ring-1 focus:ring-ring/40",
+                          )}
+                        />
+                      </label>
+                      <label className="block space-y-1.5">
+                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                          description
+                        </span>
+                        <textarea
+                          value={body}
+                          onChange={(event) => setBody(event.target.value)}
+                          placeholder="Optional PR description…"
+                          rows={5}
+                          className={cn(
+                            "w-full resize-none border border-border bg-background px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none transition",
+                            "placeholder:text-muted-foreground/45",
+                            "focus:border-ring focus:ring-1 focus:ring-ring/40",
+                          )}
+                        />
+                      </label>
+                    </div>
+
+                    {effectiveError ? (
+                      <div className="border border-destructive/30 bg-destructive/[0.04] p-3">
+                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-destructive">
+                          ↳ error
+                        </p>
+                        <p className="mt-1 text-[12px] leading-relaxed text-destructive/90">
+                          {effectiveError}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {/* Submit */}
+                    <button
+                      type="button"
+                      onClick={() => void createPullRequest()}
+                      disabled={!canCreatePullRequest}
+                      className={cn(
+                        "group relative inline-flex h-10 w-full items-center justify-center gap-2 border px-4",
+                        "font-mono text-[11px] uppercase leading-none tracking-[0.22em] transition",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                        "disabled:cursor-not-allowed",
+                        canCreatePullRequest
+                          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                          : creating
+                            ? "border-primary/50 bg-primary/10 text-primary"
+                            : "border-border bg-card text-muted-foreground",
+                      )}
+                    >
+                      {creating ? (
+                        <>
+                          <Loader2
+                            className="size-3.5 animate-spin"
+                            aria-hidden="true"
+                          />
+                          creating pull request…
+                        </>
+                      ) : entries.length === 0 ? (
+                        <span>no changes to push</span>
+                      ) : title.trim().length === 0 ? (
+                        <span>add a title to continue</span>
+                      ) : (
+                        <>
+                          <Send className="size-3.5" aria-hidden="true" />
+                          submit pull request
+                          <ArrowRight
+                            className="size-3.5 transition-transform group-hover:translate-x-0.5"
+                            aria-hidden="true"
+                          />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : showEmpty ? (
           <ThreadDiffEmptyState />
         ) : showLoadingList ? (
           <ThreadDiffLoadingList />

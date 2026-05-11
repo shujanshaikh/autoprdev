@@ -264,6 +264,8 @@ function ThreadChat({
   diffPanelOpen,
   onDiffPanelOpenChange,
   onDiffCountChange,
+  project,
+  thread,
 }: {
   projectId: string;
   threadId: string;
@@ -274,6 +276,8 @@ function ThreadChat({
   diffPanelOpen: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
   onDiffCountChange: (count: number) => void;
+  project?: any;
+  thread?: any;
 }) {
   const activeRunIdRef = useRef(currentRunId);
   const resumedRunIdsRef = useRef(new Set<string>());
@@ -632,6 +636,15 @@ function ThreadChat({
         open={diffPanelOpen}
         onOpenChange={onDiffPanelOpenChange}
         isLoading={status === "submitted" || status === "streaming"}
+        projectId={projectId}
+        threadId={threadId}
+        threadTitle={thread?.title}
+        baseBranch={project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch}
+        pullRequestStatus={thread?.pullRequestStatus}
+        pullRequestUrl={thread?.pullRequestUrl}
+        pullRequestNumber={thread?.pullRequestNumber}
+        pullRequestBranch={thread?.pullRequestBranch}
+        pullRequestError={thread?.pullRequestError}
       />
     </section>
   );
@@ -727,6 +740,8 @@ export default function ProjectThreadPage() {
                   diffPanelOpen={diffPanelOpen}
                   onDiffPanelOpenChange={setDiffPanelOpen}
                   onDiffCountChange={handleDiffCountChange}
+                  project={project}
+                  thread={thread}
                 />
               )}
             </main>

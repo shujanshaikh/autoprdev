@@ -4,6 +4,8 @@ import { mutation, query } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { randomUuid } from "./lib/uuid";
 
+const shortError = (message: string) => message.slice(0, 700);
+
 export const create = mutation({
   args: {
     projectId: v.string(),
@@ -140,6 +142,81 @@ export const markRunFinished = mutation({
     await ctx.db.patch(thread._id, {
       currentRunId: undefined,
       isLive: false,
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+async function requireThreadForAuthor(ctx: any, threadId: string) {
+  const authorId = await requireUserId(ctx);
+  const thread = await ctx.db
+    .query("threads")
+    .withIndex("by_thread_id", (q: any) => q.eq("threadId", threadId))
+    .unique();
+
+  if (!thread || thread.authorId !== authorId) {
+    throw new ConvexError({ code: "UNAUTHORIZED" });
+  }
+
+  return thread;
+}
+
+export const markPullRequestCreating = mutation({
+  args: {
+    threadId: v.string(),
+    branch: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+
+    await ctx.db.patch(thread._id, {
+      pullRequestStatus: "creating",
+      pullRequestBranch: args.branch,
+      pullRequestError: undefined,
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const markPullRequestCreated = mutation({
+  args: {
+    threadId: v.string(),
+    branch: v.string(),
+    url: v.string(),
+    number: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+
+    await ctx.db.patch(thread._id, {
+      pullRequestStatus: "created",
+      pullRequestUrl: args.url,
+      pullRequestNumber: args.number,
+      pullRequestBranch: args.branch,
+      pullRequestError: undefined,
+      pullRequestCreatedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const markPullRequestFailed = mutation({
+  args: {
+    threadId: v.string(),
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+
+    await ctx.db.patch(thread._id, {
+      pullRequestStatus: "failed",
+      pullRequestError: shortError(args.error),
       updatedAt: Date.now(),
     });
 

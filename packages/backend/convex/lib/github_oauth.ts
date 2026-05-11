@@ -30,6 +30,15 @@ export interface GithubOAuthPullRequest {
   baseRef: string;
 }
 
+export interface CreatedGithubPullRequest {
+  id: number;
+  number: number;
+  title: string;
+  htmlUrl: string;
+  headRef: string;
+  baseRef: string;
+}
+
 const GITHUB_API_VERSION = "2022-11-28";
 const MAX_ITEMS = 500;
 
@@ -54,8 +63,8 @@ function githubHeaders(token: string) {
   };
 }
 
-async function githubJson<T>(token: string, url: string): Promise<{ data: T; next?: string }> {
-  const response = await fetch(url, { headers: githubHeaders(token) });
+async function githubJson<T>(token: string, url: string, init?: RequestInit): Promise<{ data: T; next?: string }> {
+  const response = await fetch(url, { ...init, headers: { ...githubHeaders(token), ...init?.headers } });
 
   if (!response.ok) {
     const body = await response.json().catch(() => undefined);
@@ -145,6 +154,51 @@ export async function fetchGithubBranches(token: string, owner: string, repo: st
     sha: branch.commit.sha,
     protected: branch.protected,
   }));
+}
+
+export async function createGithubPullRequest(
+  token: string,
+  owner: string,
+  repo: string,
+  options: {
+    title: string;
+    head: string;
+    base: string;
+    body?: string;
+    draft?: boolean;
+  },
+): Promise<CreatedGithubPullRequest> {
+  const response = await githubJson<{
+    id: number;
+    number: number;
+    title: string;
+    html_url: string;
+    head: { ref: string };
+    base: { ref: string };
+  }>(
+    token,
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: options.title,
+        head: options.head,
+        base: options.base,
+        body: options.body,
+        draft: options.draft ?? false,
+      }),
+    },
+  );
+
+  return {
+    id: response.data.id,
+    number: response.data.number,
+    title: response.data.title,
+    htmlUrl: response.data.html_url,
+    headRef: response.data.head.ref,
+    baseRef: response.data.base.ref,
+  };
 }
 
 export async function fetchGithubPullRequests(token: string, owner: string, repo: string): Promise<GithubOAuthPullRequest[]> {

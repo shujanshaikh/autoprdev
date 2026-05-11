@@ -92,3 +92,50 @@ export async function switchProjectSandboxBranch(options: {
     ].join(" && "),
   );
 }
+
+export class SandboxNoChangesError extends Error {
+  constructor(message = "There are no sandbox changes to push.") {
+    super(message);
+    this.name = "SandboxNoChangesError";
+  }
+}
+
+export async function commitAndPushProjectSandboxChanges(options: {
+  sandboxId: string;
+  authenticatedCloneUrl: string;
+  branch: string;
+  baseBranch: string;
+  commitMessage: string;
+}): Promise<{ branch: string; commitSha: string }> {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
+  const quotedBranch = shellEscape(options.branch);
+  const quotedBaseBranch = shellEscape(options.baseBranch);
+  const quotedRemote = shellEscape(options.authenticatedCloneUrl);
+  const quotedCommitMessage = shellEscape(options.commitMessage);
+
+  const status = await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`);
+  if (!commandOutput(status).trim()) {
+    throw new SandboxNoChangesError();
+  }
+
+  await runSandboxCommand(
+    sandbox,
+    [
+      `cd ${quotedRepoPath}`,
+      "git fetch origin --prune",
+      `git checkout -B ${quotedBranch}`,
+      "git add -A",
+      "git -c user.name='AutoPR Agent' -c user.email='autopr-agent@users.noreply.github.com' commit -m " + quotedCommitMessage,
+      `git remote set-url origin ${quotedRemote}`,
+      `git push -u origin ${quotedBranch} --force-with-lease`,
+      "git rev-parse HEAD",
+    ].join(" && "),
+  );
+
+  const sha = await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`);
+
+  await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git checkout ${quotedBaseBranch}`).catch(() => undefined);
+
+  return { branch: options.branch, commitSha: commandOutput(sha).trim() };
+}

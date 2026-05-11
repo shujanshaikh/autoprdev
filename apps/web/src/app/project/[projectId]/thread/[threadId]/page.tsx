@@ -48,7 +48,7 @@ import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-di
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, isExploreTool, isToolDiffPayload, toolSlugFromPart, type ToolDiffPayload, type ToolPart } from "@/components/ai-elements/tool";
 import { toUIMessage } from "@/lib/chat-messages";
 import Loader from "@/components/loader";
-import { ThreadDiffPanel } from "./_components/thread-diff-panel";
+import { ThreadDiffPanel } from "./components/thread-diff-panel";
 import type { ThreadDiffEntry } from "./components/thread-diff-panel-utils";
 
 function isRecord(v: unknown): v is Record<string, unknown> {

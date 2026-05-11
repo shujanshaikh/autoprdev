@@ -288,23 +288,7 @@ export function ThreadDiffPanel({
         {activeTab === "desktop" ? (
           <div className="flex min-h-0 flex-1 flex-col bg-background">
             {/* Toolbar */}
-            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/45 px-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "size-1 rounded-full",
-                    desktopError
-                      ? "bg-destructive"
-                      : desktopWebsocketUrl && !desktopLoading
-                      ? "bg-emerald-500"
-                      : "bg-muted-foreground/40",
-                  )}
-                />
-                <p className="truncate font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  Daytona noVNC
-                </p>
-              </div>
+            <div className="flex h-10 shrink-0 items-center justify-end gap-2 border-b border-border/45 px-3">
               <button
                 type="button"
                 onClick={() => void loadDesktop()}
@@ -329,7 +313,7 @@ export function ThreadDiffPanel({
               </div>
             ) : null}
 
-            {/* Viewport — centered frame with preserved 16:10 ratio */}
+            {/* Viewport — centered frame matching Daytona's 4:3 desktop to avoid side bars */}
             <div
               className="relative flex min-h-0 flex-1 overflow-hidden"
               style={{ containerType: "size" } as CSSProperties}
@@ -338,8 +322,8 @@ export function ThreadDiffPanel({
                 <div
                   className="relative flex w-full flex-col"
                   style={{
-                    width: "min(100%, calc((100cqh - 2rem) * 1.6))",
-                    aspectRatio: "16 / 10",
+                    width: "min(100%, calc((100cqh - 2rem) * 1.333333))",
+                    aspectRatio: "4 / 3",
                     maxHeight: "calc(100cqh - 2rem)",
                   }}
                 >

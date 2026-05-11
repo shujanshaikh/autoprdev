@@ -60,9 +60,9 @@ export async function POST(
   });
 
   const dbMessages = await convexQuery(api.messages.listByThread, { threadId });
-  const uiMessages = dbMessages
+  const uiMessages: UIMessage[] = dbMessages
     .map(toUIMessage)
-    .filter((message) => message.role !== "assistant" || message.parts.length > 0 || message.id === assistantMessageId);
+    .filter((message: UIMessage) => message.role !== "assistant" || message.parts.length > 0 || message.id === assistantMessageId);
   const modelMessages = await convertToModelMessages(
     uiMessages.filter((message) => message.id !== assistantMessageId || message.parts.length > 0),
   );

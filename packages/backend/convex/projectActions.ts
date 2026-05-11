@@ -15,6 +15,10 @@ const DEFAULT_DAYTONA_SNAPSHOT = "daytonaio/sandbox:0.6.0";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const REPO_PATH = "repo";
+const DAYTONA_NOVNC_PORT = 6080;
+const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
+const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
+const DESKTOP_STATUS_POLL_MS = 1_000;
 
 interface EnsureProjectResult {
   projectId: string;
@@ -29,19 +33,92 @@ interface EnsuredProject {
   sandboxStatus: SandboxStatus;
 }
 
+interface DesktopPreviewResult {
+  url: string;
+  websocketUrl: string;
+  port: number;
+  expiresInSeconds: number;
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
-async function deleteDaytonaSandbox(sandboxId: string) {
+function createDaytonaClient() {
   const { Daytona } = daytonaSdk;
-  const daytona = new Daytona({
+  return new Daytona({
     apiKey: process.env.DAYTONA_API_KEY,
     apiUrl: process.env.DAYTONA_API_URL,
   });
+}
+
+async function deleteDaytonaSandbox(sandboxId: string) {
+  const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
 
   await daytona.delete(sandbox);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function desktopWebsocketUrl(value: string): string {
+  const url = new URL(value);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/websockify";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function normalizePreviewUrl(value: string): string {
+  const url = new URL(value);
+  if (url.protocol === "http:") {
+    url.protocol = "https:";
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
+function computerUseStatus(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const status = (value as { status?: unknown }).status;
+  return typeof status === "string" ? status : undefined;
+}
+
+async function waitForDesktopReady(sandbox: { computerUse: { getStatus(): Promise<unknown> } }): Promise<void> {
+  const deadline = Date.now() + DESKTOP_STATUS_TIMEOUT_MS;
+  let lastStatus: string | undefined;
+
+  while (Date.now() < deadline) {
+    lastStatus = computerUseStatus(await sandbox.computerUse.getStatus());
+    if (lastStatus === "active") return;
+    await sleep(DESKTOP_STATUS_POLL_MS);
+  }
+
+  throw new Error(`VNC desktop not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
+}
+
+async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
+  const daytona = createDaytonaClient();
+  const sandbox = await daytona.get(sandboxId);
+
+  if (sandbox.state && sandbox.state !== "started") {
+    await sandbox.start(120);
+  }
+
+  await sandbox.computerUse.start();
+  await waitForDesktopReady(sandbox);
+
+  const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
+  const url = normalizePreviewUrl(preview.url);
+
+  return {
+    url,
+    websocketUrl: desktopWebsocketUrl(url),
+    port: DAYTONA_NOVNC_PORT,
+    expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
+  };
 }
 
 async function bootstrapRepositorySandbox(options: {
@@ -50,11 +127,7 @@ async function bootstrapRepositorySandbox(options: {
   repoBranch?: string;
   snapshot?: string;
 }) {
-  const { Daytona } = daytonaSdk;
-  const daytona = new Daytona({
-    apiKey: process.env.DAYTONA_API_KEY,
-    apiUrl: process.env.DAYTONA_API_URL,
-  });
+  const daytona = createDaytonaClient();
   const sandbox = await daytona.create({
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
     autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
@@ -75,6 +148,39 @@ async function bootstrapRepositorySandbox(options: {
     sandboxWorkDir: repoPath,
   };
 }
+
+export const getDesktopPreview = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.object({
+    url: v.string(),
+    websocketUrl: v.string(),
+    port: v.number(),
+    expiresInSeconds: v.number(),
+  }),
+  handler: async (ctx, args): Promise<DesktopPreviewResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      return await getDaytonaDesktopPreview(project.sandboxId);
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_DESKTOP_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
 
 export const removeWithSandbox = action({
   args: {

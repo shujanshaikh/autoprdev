@@ -1,10 +1,13 @@
 "use client";
 
+import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
-import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Send, X } from "lucide-react";
+import { useAction } from "convex/react";
+import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Monitor, RefreshCw, Send, X } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
+import { DaytonaDesktopView } from "./daytona-desktop-view";
 import { ThreadDiffDetailView } from "./thread-diff-panel-detail-view";
 import { ThreadDiffEmptyState, ThreadDiffLoadingList } from "./thread-diff-panel-states";
 import { ThreadDiffFileRow } from "./thread-diff-panel-file-row";
@@ -66,13 +69,18 @@ export function ThreadDiffPanel({
 }: ThreadDiffPanelProps) {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
-  const [activeTab, setActiveTab] = useState<"diff" | "pull-request">("diff");
+  const [activeTab, setActiveTab] = useState<"diff" | "pull-request" | "desktop">("diff");
   const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
+  const [desktopUrl, setDesktopUrl] = useState<string | undefined>();
+  const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
+  const [desktopLoading, setDesktopLoading] = useState(false);
+  const [desktopError, setDesktopError] = useState<string | undefined>();
   const [branchName, setBranchName] = useState("");
   const [body, setBody] = useState("");
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
+  const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const fileEntryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const entry of entries) {
@@ -135,6 +143,21 @@ export function ThreadDiffPanel({
   const creating = effectiveStatus === "creating";
   const requestedBranch = autoprBranchName(branchName);
   const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0 && requestedBranch.length > 0;
+
+  const loadDesktop = useCallback(async () => {
+    setDesktopLoading(true);
+    setDesktopError(undefined);
+
+    try {
+      const data = await getDesktopPreview({ projectId });
+      setDesktopUrl(data.url);
+      setDesktopWebsocketUrl(data.websocketUrl);
+    } catch (error) {
+      setDesktopError(error instanceof Error ? error.message : "Could not start the Daytona desktop.");
+    } finally {
+      setDesktopLoading(false);
+    }
+  }, [getDesktopPreview, projectId]);
 
   const createPullRequest = useCallback(async () => {
     if (!canCreatePullRequest) return;
@@ -222,6 +245,22 @@ export function ThreadDiffPanel({
                 <span className="ml-0.5 size-1.5 bg-primary" aria-hidden="true" />
               ) : null}
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("desktop");
+                if (!desktopUrl && !desktopLoading) {
+                  void loadDesktop();
+                }
+              }}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 border px-2.5 text-xs font-medium transition-colors",
+                activeTab === "desktop" ? "border-border/60 bg-muted/50 text-foreground" : "border-transparent text-muted-foreground hover:bg-muted/35 hover:text-foreground",
+              )}
+            >
+              <Monitor className="size-3.5" aria-hidden="true" />
+              Desktop
+            </button>
           </div>
 
           <div className="flex h-10 items-center gap-2 border-b border-border/45 px-3">
@@ -246,7 +285,75 @@ export function ThreadDiffPanel({
 
         </header>
 
-        {activeTab === "pull-request" ? (
+        {activeTab === "desktop" ? (
+          <div className="flex min-h-0 flex-1 flex-col bg-background">
+            {/* Toolbar */}
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/45 px-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "size-1 rounded-full",
+                    desktopError
+                      ? "bg-destructive"
+                      : desktopWebsocketUrl && !desktopLoading
+                      ? "bg-emerald-500"
+                      : "bg-muted-foreground/40",
+                  )}
+                />
+                <p className="truncate font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                  Daytona noVNC
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadDesktop()}
+                disabled={desktopLoading}
+                className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+              >
+                {desktopLoading ? (
+                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                ) : (
+                  <RefreshCw className="size-3" aria-hidden="true" />
+                )}
+                reload
+              </button>
+            </div>
+
+            {desktopError ? (
+              <div
+                className="mx-4 mt-4 border border-destructive/40 bg-destructive/[0.04] px-3 py-2 font-mono text-xs text-destructive/90"
+                role="alert"
+              >
+                {desktopError}
+              </div>
+            ) : null}
+
+            {/* Viewport — centered frame with preserved 16:10 ratio */}
+            <div
+              className="relative flex min-h-0 flex-1 overflow-hidden"
+              style={{ containerType: "size" } as CSSProperties}
+            >
+              <div className="absolute inset-0 flex items-center justify-center p-4">
+                <div
+                  className="relative flex w-full flex-col"
+                  style={{
+                    width: "min(100%, calc((100cqh - 2rem) * 1.6))",
+                    aspectRatio: "16 / 10",
+                    maxHeight: "calc(100cqh - 2rem)",
+                  }}
+                >
+                  <div className="relative h-full w-full overflow-hidden border border-border/60 bg-black">
+                    <DaytonaDesktopView
+                      websocketUrl={desktopWebsocketUrl}
+                      loading={desktopLoading}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === "pull-request" ? (
           <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background">
             <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5 px-5 py-6">
               {effectiveStatus === "created" && effectiveUrl ? (

@@ -16,6 +16,7 @@
     "@autopr/ui": "workspace:*",
     "@clerk/nextjs": "^7.0.5",
     "@icons-pack/react-simple-icons": "^13.13.0",
+    "@novnc/novnc": "^1.7.0",
     "@pierre/diffs": "^1.1.16",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@streamdown/cjk": "^1.0.3",

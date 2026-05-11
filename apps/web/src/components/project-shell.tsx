@@ -128,7 +128,7 @@ export function ProjectSidebar({
     <>
     <Sidebar collapsible="icon" variant="inset">
       {/* ── Brand ─────────────────────────────────────────────── */}
-      <SidebarHeader className="border-b border-sidebar-border/60 px-3 py-3">
+      <SidebarHeader className="h-12 justify-center border-b border-sidebar-border/60 px-3 py-1">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

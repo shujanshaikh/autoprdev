@@ -235,7 +235,7 @@ export function ThreadDiffPanel({
         </header>
 
         {activeTab === "pull-request" ? (
-          <div className="minimal-scrollbar pr-panel-in relative min-h-0 flex-1 overflow-auto bg-background">
+          <div className="minimal-scrollbar relative min-h-0 flex-1 overflow-auto bg-background">
             {/* subtle primary-tinted grain, matches .pulls-shell */}
             <div
               aria-hidden="true"

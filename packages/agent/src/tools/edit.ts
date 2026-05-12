@@ -5,18 +5,26 @@ import { z } from "zod";
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { ensureRemoteParentDirectory, resolveSandboxPath } from "../sandbox/execute";
 import { toTextModelOutput } from "./format";
+import { requireArray, requireString } from "./validation";
 
 const editInputSchema = z.object({
-  path: z.string().describe("Path to the file to edit. Relative paths resolve from the sandbox workdir."),
+  path: z
+    .string()
+    .optional()
+    .describe("Required. Path to the file to edit. Relative paths resolve from the sandbox workdir."),
   edits: z
     .array(
       z.object({
-        oldText: z.string().describe("Exact original text to replace. It must match exactly once in the original file."),
-        newText: z.string().describe("Replacement text for that exact match."),
+        oldText: z
+          .string()
+          .optional()
+          .describe("Required. Exact original text to replace. It must match exactly once in the original file."),
+        newText: z.string().optional().describe("Required. Replacement text for that exact match."),
       }),
     )
     .min(1)
-    .describe("One or more exact text replacements. All matches are applied against the original file."),
+    .optional()
+    .describe("Required. One or more exact text replacements. All matches are applied against the original file."),
 });
 
 type EditInput = z.infer<typeof editInputSchema>;
@@ -85,14 +93,19 @@ function applyExactEdits(
 async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessionOptions) {
   "use step";
 
+  const path = requireString(input.path, "path", "edit");
+  const edits = requireArray<{ oldText?: string; newText?: string }>(input.edits, "edits", "edit").map((edit, index) => ({
+    oldText: requireString(edit.oldText, `edits[${index}].oldText`, "edit"),
+    newText: requireString(edit.newText, `edits[${index}].newText`, "edit", { allowEmpty: true }),
+  }));
   const context = await getSandboxContext(sandboxOptions);
-  const remotePath = resolveSandboxPath(input.path, context.workDir);
+  const remotePath = resolveSandboxPath(path, context.workDir);
   const originalBuffer = Buffer.from(await context.sandbox.fs.downloadFile(remotePath));
   const originalText = originalBuffer.toString("utf8");
   const { bom, text: withoutBom } = stripBom(originalText);
   const lineEnding = detectLineEnding(withoutBom);
   const normalizedOriginal = normalizeLineEndings(withoutBom);
-  const normalizedEdits = input.edits.map((edit) => ({
+  const normalizedEdits = edits.map((edit) => ({
     oldText: normalizeLineEndings(edit.oldText),
     newText: normalizeLineEndings(edit.newText),
   }));
@@ -104,10 +117,10 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
   await context.sandbox.fs.uploadFile(nextBuffer, remotePath);
 
   return {
-    content: `Applied ${input.edits.length} exact replacement(s) to ${remotePath}.`,
+    content: `Applied ${edits.length} exact replacement(s) to ${remotePath}.`,
     details: {
       path: remotePath,
-      replacements: input.edits.length,
+      replacements: edits.length,
       bytesWritten: nextBuffer.length,
       diff: {
         renderer: "pierre",

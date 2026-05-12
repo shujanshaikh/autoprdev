@@ -4,12 +4,13 @@ import { z } from "zod";
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand, resolveSandboxPath, shellQuote } from "../sandbox/execute";
 import { clampLimit, MAX_FILE_OUTPUT_CHARS, toTextModelOutput, truncateText } from "./format";
+import { requireString } from "./validation";
 
 const DEFAULT_GREP_LIMIT = 100;
 const MAX_GREP_LIMIT = 500;
 
 const grepInputSchema = z.object({
-  pattern: z.string().describe("Search pattern to look for. Treated as regex unless literal=true."),
+  pattern: z.string().optional().describe("Required. Search pattern to look for. Treated as regex unless literal=true."),
   path: z.string().optional().describe("File or directory to search. Relative paths resolve from the sandbox workdir."),
   glob: z.string().optional().describe("Optional glob filter for files, such as '*.ts'."),
   ignoreCase: z.boolean().optional().describe("Whether the search should ignore case."),
@@ -20,7 +21,7 @@ const grepInputSchema = z.object({
 
 type GrepInput = z.infer<typeof grepInputSchema>;
 
-function buildGrepCommand(input: GrepInput, remotePath: string): string {
+function buildGrepCommand(input: GrepInput & { pattern: string }, remotePath: string): string {
   const limit = clampLimit(input.limit, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
   const context = Math.max(0, input.context ?? 0);
   const rgArgs = [
@@ -80,9 +81,10 @@ function buildGrepCommand(input: GrepInput, remotePath: string): string {
 async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessionOptions) {
   "use step";
 
+  const pattern = requireString(input.pattern, "pattern", "grep");
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = resolveSandboxPath(input.path, context.workDir);
-  const result = await executeSandboxCommand(buildGrepCommand(input, remotePath), {
+  const result = await executeSandboxCommand(buildGrepCommand({ ...input, pattern }, remotePath), {
     cwd: context.workDir,
     sandboxOptions,
   });
@@ -93,12 +95,12 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
   return {
     content:
       `Search root: ${remotePath}\n` +
-      `Pattern: ${input.pattern}\n` +
+      `Pattern: ${pattern}\n` +
       `Exit code: ${result.exitCode ?? "unknown"}\n\n` +
       body.text,
     details: {
       path: remotePath,
-      pattern: input.pattern,
+      pattern,
       exitCode: result.exitCode ?? null,
       truncated: body.truncated,
     },

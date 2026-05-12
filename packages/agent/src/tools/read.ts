@@ -4,12 +4,16 @@ import { z } from "zod";
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { resolveSandboxPath } from "../sandbox/execute";
 import { clampLimit, formatNumberedLines, isProbablyBinary, toTextModelOutput } from "./format";
+import { requireString } from "./validation";
 
 const DEFAULT_READ_LIMIT = 200;
 const MAX_READ_LIMIT = 400;
 
 const readInputSchema = z.object({
-  path: z.string().describe("Path to the file to read. Relative paths resolve from the sandbox workdir."),
+  path: z
+    .string()
+    .optional()
+    .describe("Required. Path to the file to read. Relative paths resolve from the sandbox workdir."),
   offset: z.number().min(1).optional().describe("Line number to start reading from. Uses 1-based indexing."),
   limit: z.number().min(1).optional().describe("Maximum number of lines to return."),
 });
@@ -19,8 +23,9 @@ type ReadInput = z.infer<typeof readInputSchema>;
 async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessionOptions) {
   "use step";
 
+  const path = requireString(input.path, "path", "read");
   const context = await getSandboxContext(sandboxOptions);
-  const remotePath = resolveSandboxPath(input.path, context.workDir);
+  const remotePath = resolveSandboxPath(path, context.workDir);
   const fileBuffer = Buffer.from(await context.sandbox.fs.downloadFile(remotePath));
 
   if (isProbablyBinary(fileBuffer)) {

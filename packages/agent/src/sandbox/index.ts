@@ -13,6 +13,15 @@ export interface DaytonaSandbox {
   git: {
     status(path: string): Promise<unknown>;
     clone(url: string, path: string, branch?: string): Promise<unknown>;
+    add(path: string, files: string[]): Promise<unknown>;
+    commit(
+      path: string,
+      message: string,
+      author: string,
+      email: string,
+      allowEmpty?: boolean,
+    ): Promise<{ sha: string }>;
+    push(path: string, username?: string, password?: string): Promise<unknown>;
   };
   fs: {
     downloadFile(path: string): Promise<Uint8Array>;
@@ -118,7 +127,7 @@ export function createSandboxCacheKey(prefix = "sandbox"): string {
   return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createDaytonaClient() {
+async function createDaytonaClient() {
   return import("@daytona/sdk").then(({ Daytona }) => new Daytona({
     apiKey: process.env.DAYTONA_API_KEY,
     apiUrl: process.env.DAYTONA_API_URL,
@@ -137,8 +146,16 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
     await daytona.create({
       snapshot: resolved.snapshot,
       autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
+      name : "daytona-large",
     }),
   );
+}
+
+export async function deleteSandbox(sandboxId: string): Promise<void> {
+  const daytona = await createDaytonaClient();
+  const sandbox = await daytona.get(sandboxId);
+
+  await daytona.delete(sandbox);
 }
 
 

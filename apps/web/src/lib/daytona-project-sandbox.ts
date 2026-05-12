@@ -1,4 +1,4 @@
-import { createSandbox, type DaytonaSandbox } from "@autopr/agent/sandbox";
+import { createSandbox, deleteSandbox, type DaytonaSandbox } from "@autopr/agent/sandbox";
 
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const REPO_PATH = "repo";
@@ -74,6 +74,10 @@ export async function createProjectSandbox(options: {
   };
 }
 
+export async function deleteProjectSandbox(sandboxId: string): Promise<void> {
+  await deleteSandbox(sandboxId);
+}
+
 export async function switchProjectSandboxBranch(options: {
   sandboxId: string;
   branch: string;
@@ -102,7 +106,10 @@ export class SandboxNoChangesError extends Error {
 
 export async function commitAndPushProjectSandboxChanges(options: {
   sandboxId: string;
-  authenticatedCloneUrl: string;
+  githubToken: string;
+  githubUsername: string;
+  authorName: string;
+  authorEmail: string;
   branch: string;
   baseBranch: string;
   commitMessage: string;
@@ -111,8 +118,6 @@ export async function commitAndPushProjectSandboxChanges(options: {
   const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
   const quotedBranch = shellEscape(options.branch);
   const quotedBaseBranch = shellEscape(options.baseBranch);
-  const quotedRemote = shellEscape(options.authenticatedCloneUrl);
-  const quotedCommitMessage = shellEscape(options.commitMessage);
 
   const status = await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`);
   if (!commandOutput(status).trim()) {
@@ -125,17 +130,20 @@ export async function commitAndPushProjectSandboxChanges(options: {
       `cd ${quotedRepoPath}`,
       "git fetch origin --prune",
       `git checkout -B ${quotedBranch}`,
-      "git add -A",
-      "git -c user.name='AutoPR Agent' -c user.email='autopr-agent@users.noreply.github.com' commit -m " + quotedCommitMessage,
-      `git remote set-url origin ${quotedRemote}`,
-      `git push -u origin ${quotedBranch} --force-with-lease`,
-      "git rev-parse HEAD",
+      "git config push.autoSetupRemote true",
     ].join(" && "),
   );
 
-  const sha = await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`);
+  await sandbox.git.add(REPO_PATH, ["."]);
+  const commit = await sandbox.git.commit(
+    REPO_PATH,
+    options.commitMessage,
+    options.authorName,
+    options.authorEmail,
+  );
+  await sandbox.git.push(REPO_PATH, options.githubUsername, options.githubToken);
 
   await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git checkout ${quotedBaseBranch}`).catch(() => undefined);
 
-  return { branch: options.branch, commitSha: commandOutput(sha).trim() };
+  return { branch: options.branch, commitSha: commit.sha };
 }

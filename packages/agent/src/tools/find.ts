@@ -4,12 +4,13 @@ import { z } from "zod";
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { resolveSandboxPath } from "../sandbox/execute";
 import { clampLimit, MAX_FILE_OUTPUT_CHARS, toTextModelOutput, truncateText } from "./format";
+import { requireString } from "./validation";
 
 const DEFAULT_FIND_LIMIT = 200;
 const MAX_FIND_LIMIT = 1000;
 
 const findInputSchema = z.object({
-  pattern: z.string().describe("Glob pattern to search for, such as '*.ts' or '**/*.json'."),
+  pattern: z.string().optional().describe("Required. Glob pattern to search for, such as '*.ts' or '**/*.json'."),
   path: z.string().optional().describe("Directory to search inside. Relative paths resolve from the sandbox workdir."),
   limit: z.number().min(1).optional().describe("Maximum number of matches to return."),
 });
@@ -35,10 +36,11 @@ function relativeUnderRoot(root: string, file: string): string {
 async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessionOptions) {
   "use step";
 
+  const pattern = requireString(input.pattern, "pattern", "find");
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = resolveSandboxPath(input.path, context.workDir);
   const limit = clampLimit(input.limit, DEFAULT_FIND_LIMIT, MAX_FIND_LIMIT);
-  const result = await context.sandbox.fs.searchFiles(remotePath, input.pattern);
+  const result = await context.sandbox.fs.searchFiles(remotePath, pattern);
   const relativeMatches = [...result.files]
     .map((entry) => relativeUnderRoot(remotePath, entry))
     .filter((entry) => entry.length > 0)
@@ -47,10 +49,10 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
 
   if (relativeMatches.length === 0) {
     return {
-      content: `No files matched ${input.pattern} in ${remotePath}.`,
+      content: `No files matched ${pattern} in ${remotePath}.`,
       details: {
         path: remotePath,
-        pattern: input.pattern,
+        pattern,
         matches: 0,
         truncated: false,
       },
@@ -62,12 +64,12 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
   return {
     content:
       `Search root: ${remotePath}\n` +
-      `Pattern: ${input.pattern}\n` +
+      `Pattern: ${pattern}\n` +
       `Matches shown: ${relativeMatches.length}\n\n` +
       body.text,
     details: {
       path: remotePath,
-      pattern: input.pattern,
+      pattern,
       matches: relativeMatches.length,
       truncated: body.truncated,
     },

@@ -5,10 +5,14 @@ import { z } from "zod";
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { ensureRemoteParentDirectory, resolveSandboxPath } from "../sandbox/execute";
 import { toTextModelOutput } from "./format";
+import { requireString } from "./validation";
 
 const writeInputSchema = z.object({
-  path: z.string().describe("Path to the file to write. Relative paths resolve from the sandbox workdir."),
-  content: z.string().describe("Full file contents to write."),
+  path: z
+    .string()
+    .optional()
+    .describe("Required. Path to the file to write. Relative paths resolve from the sandbox workdir."),
+  content: z.string().optional().describe("Required. Full file contents to write."),
 });
 
 type WriteInput = z.infer<typeof writeInputSchema>;
@@ -16,8 +20,10 @@ type WriteInput = z.infer<typeof writeInputSchema>;
 async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSessionOptions) {
   "use step";
 
+  const path = requireString(input.path, "path", "write");
+  const fileContent = requireString(input.content, "content", "write", { allowEmpty: true });
   const context = await getSandboxContext(sandboxOptions);
-  const remotePath = resolveSandboxPath(input.path, context.workDir);
+  const remotePath = resolveSandboxPath(path, context.workDir);
   let previousContent: string | null = null;
 
   try {
@@ -27,7 +33,7 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     previousContent = null;
   }
 
-  const content = Buffer.from(input.content, "utf8");
+  const content = Buffer.from(fileContent, "utf8");
 
   await ensureRemoteParentDirectory(remotePath, sandboxOptions);
   await context.sandbox.fs.uploadFile(content, remotePath);
@@ -40,9 +46,9 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
       diff: {
         renderer: "pierre",
         fileName: remotePath,
-        patch: createTwoFilesPatch(remotePath, remotePath, previousContent ?? "", input.content, "before", "after"),
+        patch: createTwoFilesPatch(remotePath, remotePath, previousContent ?? "", fileContent, "before", "after"),
         oldContent: previousContent,
-        newContent: input.content,
+        newContent: fileContent,
       },
     },
   };

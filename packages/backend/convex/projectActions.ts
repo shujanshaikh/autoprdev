@@ -44,6 +44,12 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
+function isSandboxNotFoundError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+
+  return message.includes("not found") || message.includes("404");
+}
+
 function createDaytonaClient() {
   const { Daytona } = daytonaSdk;
   return new Daytona({
@@ -200,7 +206,16 @@ export const removeWithSandbox = action({
     });
 
     if (project.sandboxId) {
-      await deleteDaytonaSandbox(project.sandboxId);
+      try {
+        await deleteDaytonaSandbox(project.sandboxId);
+      } catch (error) {
+        if (!isSandboxNotFoundError(error)) {
+          throw new ConvexError({
+            code: "DAYTONA_SANDBOX_DELETE_FAILED",
+            message: errorMessage(error),
+          });
+        }
+      }
     }
 
     await ctx.runMutation(internal.projects.removeInternal, {

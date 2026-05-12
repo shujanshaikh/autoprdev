@@ -4,9 +4,10 @@ import { z } from "zod";
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand, prependEnvExports, resolveSandboxPath } from "../sandbox/execute";
 import { combineCommandOutput, MAX_COMMAND_OUTPUT_CHARS, toTextModelOutput, truncateText } from "./format";
+import { requireString } from "./validation";
 
 const bashInputSchema = z.object({
-  command: z.string().describe("Shell command to execute inside the Daytona sandbox."),
+  command: z.string().optional().describe("Required. Shell command to execute inside the Daytona sandbox."),
   cwd: z.string().optional().describe("Working directory in the sandbox. Relative paths resolve from the sandbox workdir."),
   timeout: z.number().min(1).optional().describe("Timeout in seconds."),
   env: z.record(z.string(), z.string()).optional().describe("Extra environment variables to set for the command."),
@@ -21,8 +22,9 @@ type BashInput = z.infer<typeof bashInputSchema>;
 async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessionOptions) {
   "use step";
 
+  const command = requireString(input.command, "command", "bash");
   const context = await getSandboxContext(sandboxOptions);
-  const result = await executeSandboxCommand(input.command, {
+  const result = await executeSandboxCommand(command, {
     cwd: resolveSandboxPath(input.cwd, context.workDir),
     timeout: input.timeout,
     env: input.env,
@@ -39,7 +41,7 @@ async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessi
 
   return {
     content:
-      `Command: ${prependEnvExports(input.command, input.env)}\n` +
+      `Command: ${prependEnvExports(command, input.env)}\n` +
       `Working directory: ${result.cwd}\n` +
       `Background: ${isBackground ? "yes" : "no"}\n` +
       `Session ID: ${result.sessionId}\n` +
@@ -47,7 +49,7 @@ async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessi
       `Exit code: ${isBackground ? "pending" : result.exitCode ?? "unknown"}\n\n` +
       `${truncatedOutput.text || (isBackground ? "Command started in background." : "(no output)")}`,
     details: {
-      command: input.command,
+      command,
       cwd: result.cwd,
       sessionId: result.sessionId,
       cmdId: result.cmdId,

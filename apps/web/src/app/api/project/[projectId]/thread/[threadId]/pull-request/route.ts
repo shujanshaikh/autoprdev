@@ -6,8 +6,8 @@ import { z } from "zod";
 import { convexMutation, convexQuery } from "@/lib/convex-server";
 import { commitAndPushProjectSandboxChanges, SandboxNoChangesError } from "@/lib/daytona-project-sandbox";
 import {
-  authenticatedGithubCloneUrl,
   getGithubOAuthToken,
+  getGithubUserIdentity,
   GithubConnectionError,
   safeErrorMessage,
 } from "@/lib/github-oauth-server";
@@ -95,13 +95,17 @@ export async function POST(
 
   try {
     const token = await getGithubOAuthToken(authState.userId);
+    const gitIdentity = await getGithubUserIdentity(authState.userId, token);
     await convexMutation(api.threads.markPullRequestCreating, { threadId, branch });
 
     try {
       try {
         await commitAndPushProjectSandboxChanges({
           sandboxId: project.sandboxId,
-          authenticatedCloneUrl: authenticatedGithubCloneUrl(token, project.repoOwner, project.repoName),
+          githubToken: token,
+          githubUsername: gitIdentity.username,
+          authorName: gitIdentity.name,
+          authorEmail: gitIdentity.email,
           branch,
           baseBranch,
           commitMessage: title,

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 /**
  * RouteTransition wraps children and animates between route changes.
@@ -10,28 +10,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
  */
 export function RouteTransition({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const prevPathnameRef = useRef(pathname);
-  const [phase, setPhase] = useState<"idle" | "entering">("idle");
-
-  useEffect(() => {
-    if (prevPathnameRef.current !== pathname) {
-      prevPathnameRef.current = pathname;
-      setPhase("entering");
-
-      // Remove the entering class after animation completes
-      const timer = setTimeout(() => {
-        setPhase("idle");
-      }, 200);
-
-      return () => clearTimeout(timer);
-    }
-  }, [pathname]);
 
   return (
     <div
-      className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
-        phase === "entering" ? "project-route-enter" : ""
-      }`}
+      key={pathname}
+      className="project-route-enter flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       {children}
     </div>

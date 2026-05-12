@@ -109,8 +109,7 @@ export function ThreadDiffPanel({
       const target = event.currentTarget;
 
       target.setPointerCapture(pointerId);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
+      document.body.style.cssText += "; cursor: col-resize; user-select: none;";
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const nextWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
@@ -119,8 +118,7 @@ export function ThreadDiffPanel({
 
       const stopResize = () => {
         target.releasePointerCapture(pointerId);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
+        document.body.style.cssText += "; cursor: ; user-select: ;";
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", stopResize);
         window.removeEventListener("pointercancel", stopResize);
@@ -327,7 +325,7 @@ export function ThreadDiffPanel({
                     maxHeight: "calc(100cqh - 2rem)",
                   }}
                 >
-                  <div className="relative h-full w-full overflow-hidden border border-border/60 bg-black">
+                  <div className="relative h-full w-full overflow-hidden border border-border/60 bg-zinc-950">
                     <DaytonaDesktopView
                       websocketUrl={desktopWebsocketUrl}
                       loading={desktopLoading}
@@ -356,7 +354,7 @@ export function ThreadDiffPanel({
                     ) : null}
                   </div>
 
-                  <div className="space-y-4 px-4 py-4">
+                  <div className="space-y-4 p-4">
                     <dl className="space-y-2.5 font-mono text-xs">
                       <div className="flex items-baseline justify-between gap-2 border-b border-dashed border-border/60 pb-1.5">
                         <dt className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">title</dt>
@@ -413,7 +411,7 @@ export function ThreadDiffPanel({
                     </span>
                   </div>
 
-                  <div className="space-y-5 px-4 py-4">
+                  <div className="space-y-5 p-4">
                     <p className="text-[12.5px] leading-relaxed text-muted-foreground">
                       Push all changes in this thread sandbox to GitHub and open a PR against{" "}
                       <span className="font-mono text-foreground/85">{baseBranch ?? "the base branch"}</span>.

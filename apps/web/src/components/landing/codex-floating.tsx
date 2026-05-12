@@ -22,7 +22,7 @@ export function CodexFloating() {
         onClick={() => setMobileOpen((o) => !o)}
       >
         <CodexLogo className="size-7 text-primary-foreground" />
-        <span className="sr-only">Codex subscription support — bring your own Codex, no API bills</span>
+        <span className="sr-only">Codex subscription support: bring your own Codex, no API bills</span>
       </button>
 
       <div
@@ -42,7 +42,7 @@ export function CodexFloating() {
         </p>
         <p className="mt-2 text-sm font-semibold text-foreground">Bring your own Codex</p>
         <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
-          No API bills from Autopr — we never tax your token usage.
+          No API bills from Autopr: we never tax your token usage.
         </p>
       </div>
     </div>

@@ -3,10 +3,9 @@
 export function EmailCta() {
   return (
     <form
+      action="/"
       className="mx-auto mt-10 flex max-w-lg flex-col gap-3 sm:flex-row sm:items-stretch"
-      onSubmit={(e) => {
-        e.preventDefault();
-      }}
+      method="get"
     >
       <label htmlFor="email-cta" className="sr-only">
         Work email

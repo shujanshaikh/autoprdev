@@ -134,7 +134,7 @@ function ThreadRow({
 
 export default function ProjectOverviewPage() {
   const params = useParams<{ projectId: string }>();
-  const router = useRouter();
+  const { prefetch, push } = useRouter();
   const { isAuthenticated } = useConvexAuth();
   const projectId = params.projectId;
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
@@ -214,13 +214,13 @@ export default function ProjectOverviewPage() {
       const promptQuery = prompt ? `?prompt=${encodeURIComponent(prompt)}` : "";
       const targetUrl = `/project/${projectId}/thread/${threadId}${promptQuery}` as Route;
 
-      router.prefetch(targetUrl);
-      router.push(targetUrl);
+      prefetch(targetUrl);
+      push(targetUrl);
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
       setIsCreatingThread(false);
     }
-  }, [project, projectId, promptValue, createThread, router]);
+  }, [project, projectId, promptValue, createThread, prefetch, push]);
 
   const handlePromptSubmit = useCallback(
     (event: React.FormEvent) => {
@@ -268,8 +268,7 @@ export default function ProjectOverviewPage() {
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    el.style.cssText += `; height: auto; height: ${Math.min(el.scrollHeight, 160)}px;`;
   }, [promptValue]);
 
   useEffect(() => {
@@ -455,7 +454,7 @@ export default function ProjectOverviewPage() {
                     <div className="mx-auto w-full max-w-[600px] px-5 pt-2">
                       <div className="border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-700 dark:text-amber-300">
                         <Loader2 className="mr-2 inline size-3.5 animate-spin" aria-hidden="true" />
-                        Switching branch and pulling latest changes...
+                        Switching branch and pulling latest changes…
                       </div>
                     </div>
                   ) : null}

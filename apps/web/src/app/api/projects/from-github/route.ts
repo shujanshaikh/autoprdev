@@ -42,13 +42,15 @@ export async function POST(req: Request) {
 
   try {
     const token = await getGithubOAuthToken(authState.userId);
-    const verifiedRepo = await getGithubRepository(token, repository.owner, repository.name);
+    const [verifiedRepo, branches] = await Promise.all([
+      getGithubRepository(token, repository.owner, repository.name),
+      fetchGithubBranches(token, repository.owner, repository.name),
+    ]);
 
     if (verifiedRepo.id !== repository.id) {
       return Response.json({ error: "GitHub repository mismatch. Refresh and try again." }, { status: 400 });
     }
 
-    const branches = await fetchGithubBranches(token, repository.owner, repository.name);
     if (!branches.some((entry) => entry.name === branch)) {
       return Response.json({ error: "That branch no longer exists on GitHub." }, { status: 404 });
     }
@@ -71,13 +73,15 @@ export async function POST(req: Request) {
         const projectBeforeSwitch = await convexQuery(api.projects.get, { projectId: project.projectId });
         const previousBranch = projectBeforeSwitch?.currentBranch ?? projectBeforeSwitch?.repoBranch ?? projectBeforeSwitch?.defaultBranch;
 
-        await convexMutation(api.projects.markBranchSwitching, {
-          projectId: project.projectId,
-          repoBranch: existingBranch,
-        });
+        const [{ switchProjectSandboxBranch }] = await Promise.all([
+          import("@/lib/daytona-project-sandbox"),
+          convexMutation(api.projects.markBranchSwitching, {
+            projectId: project.projectId,
+            repoBranch: existingBranch,
+          }),
+        ]);
 
         try {
-          const { switchProjectSandboxBranch } = await import("@/lib/daytona-project-sandbox");
           await switchProjectSandboxBranch({ sandboxId: project.sandboxId, branch: existingBranch });
           await convexMutation(api.projects.markBranchSwitchReady, {
             projectId: project.projectId,

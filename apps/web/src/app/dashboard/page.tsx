@@ -28,7 +28,7 @@ const EMPTY_REPOSITORIES: GithubRepository[] = [];
 const EMPTY_BRANCHES: GithubBranch[] = [];
 
 export default function Dashboard() {
-  const router = useRouter();
+  const { push } = useRouter();
   const user = useUser();
   const createExternalAccount = useReverification(
     (params: { strategy: "oauth_github"; redirectUrl: string }) =>
@@ -133,7 +133,7 @@ export default function Dashboard() {
       setError(undefined);
     },
     onSuccess: (data) => {
-      router.push(`/project/${data.projectId}`);
+      push(`/project/${data.projectId}`);
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : "Could not create the project sandbox.");

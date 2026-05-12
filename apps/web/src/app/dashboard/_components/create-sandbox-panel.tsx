@@ -450,13 +450,13 @@ function RepoPagination({
                 e.preventDefault();
                 if (page > 1) onChange(page - 1);
               }}
-              href="#"
+              href={page > 1 ? `?page=${page - 1}` : "?page=1"}
             />
           </PaginationItem>
 
-          {pages.map((p, i) =>
+          {pages.map((p, position) =>
             p === "…" ? (
-              <PaginationItem key={`gap-${i}`}>
+              <PaginationItem key={position < pages.length / 2 ? "gap-start" : "gap-end"}>
                 <span className="inline-flex h-7 items-center px-1 font-mono text-[10px] text-muted-foreground/60">
                   …
                 </span>
@@ -464,7 +464,7 @@ function RepoPagination({
             ) : (
               <PaginationItem key={p}>
                 <PaginationLink
-                  href="#"
+                  href={`?page=${p}`}
                   isActive={p === page}
                   size="sm"
                   className="h-7 min-w-7 font-mono text-[11px]"
@@ -491,7 +491,7 @@ function RepoPagination({
                 e.preventDefault();
                 if (page < totalPages) onChange(page + 1);
               }}
-              href="#"
+              href={page < totalPages ? `?page=${page + 1}` : `?page=${totalPages}`}
             />
           </PaginationItem>
         </PaginationContent>
@@ -730,8 +730,8 @@ function ColumnState({ children }: { children: React.ReactNode }) {
 function RepositorySkeleton() {
   return (
     <div className="w-full max-w-xs space-y-2" aria-label="Loading repositories">
-      {Array.from({ length: 5 }, (_, index) => (
-        <div key={index} className="flex items-center gap-2.5">
+      {Array.from({ length: 5 }, (_, index) => `repo-skeleton-${index}`).map((skeletonId) => (
+        <div key={skeletonId} className="flex items-center gap-2.5">
           <span className="size-3.5 shrink-0 animate-pulse border border-border bg-muted" />
           <span className="h-3 flex-1 animate-pulse bg-muted" />
         </div>

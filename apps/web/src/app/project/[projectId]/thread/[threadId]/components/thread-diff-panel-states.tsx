@@ -47,7 +47,7 @@ export function ThreadDiffLoadingDiff() {
           <span className="block h-2.5 w-4/5 animate-pulse rounded-sm bg-muted" />
         </div>
       </div>
-      <div className="space-y-1.5 px-3 py-3">
+      <div className="space-y-1.5 p-3">
         {Array.from({ length: 9 }).map((_, i) => (
           <span key={i} className="block h-2.5 animate-pulse rounded-sm bg-muted/70" style={{ width: `${[92, 78, 60, 84, 45, 70, 88, 52, 66][i]}%`, animationDelay: `${i * 70}ms` }} />
         ))}
@@ -66,7 +66,7 @@ export function ThreadDiffLoadingDiff() {
 export function ThreadDiffLoadingList() {
   return (
     <div className="grid min-h-0 flex-1 grid-rows-[minmax(120px,min(240px,38%))_minmax(0,1fr)] overflow-hidden">
-      <div className="minimal-scrollbar min-h-0 overflow-hidden border-b border-border/40 px-2 py-2">
+      <div className="minimal-scrollbar min-h-0 overflow-hidden border-b border-border/40 p-2">
         <ul className="space-y-px">
           {Array.from({ length: 4 }).map((_, i) => <ThreadDiffSkeletonRow key={i} delay={i * 80} />)}
         </ul>

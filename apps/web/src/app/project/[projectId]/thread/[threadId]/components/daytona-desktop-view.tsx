@@ -2,7 +2,7 @@
 
 import { cn } from "@autopr/ui/lib/utils";
 import { Loader2, Monitor } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
 
 type DaytonaDesktopViewProps = {
   websocketUrl?: string;
@@ -29,8 +29,13 @@ type RfbConstructor = new (
 export function DaytonaDesktopView({ websocketUrl, loading = false, className }: DaytonaDesktopViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RfbInstance | null>(null);
-  const [state, setState] = useState<"idle" | "connecting" | "connected" | "disconnected" | "error">("idle");
-  const [error, setError] = useState<string | undefined>();
+  const [connection, updateConnection] = useReducer(
+    (
+      _state: { state: "idle" | "connecting" | "connected" | "disconnected" | "error"; error?: string },
+      next: { state: "idle" | "connecting" | "connected" | "disconnected" | "error"; error?: string },
+    ) => next,
+    { state: "idle" },
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -39,8 +44,26 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
     }
 
     let disposed = false;
-    setState("connecting");
-    setError(undefined);
+    const handleConnect: EventListener = () => {
+      updateConnection({ state: "connected" });
+      requestAnimationFrame(() => rfbRef.current?.focus());
+    };
+    const handleDisconnect: EventListener = (event) => {
+      const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
+      if (disposed) return;
+      updateConnection(
+        detail?.clean === false
+          ? { state: "error", error: "The VNC connection closed unexpectedly." }
+          : { state: "disconnected" },
+      );
+    };
+    const handleSecurityFailure: EventListener = () => {
+      updateConnection({ state: "error", error: "The VNC server rejected the connection." });
+    };
+    const handleCredentialsRequired: EventListener = () => {
+      updateConnection({ state: "error", error: "This VNC desktop requires credentials." });
+    };
+    updateConnection({ state: "connecting" });
     container.replaceChildren();
 
     void import("@novnc/novnc")
@@ -53,27 +76,6 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
         rfb.resizeSession = true;
         rfb.background = "#000000";
 
-        const handleConnect: EventListener = () => {
-          setState("connected");
-          requestAnimationFrame(() => rfb.focus());
-        };
-        const handleDisconnect: EventListener = (event) => {
-          const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
-          if (disposed) return;
-          setState(detail?.clean === false ? "error" : "disconnected");
-          if (detail?.clean === false) {
-            setError("The VNC connection closed unexpectedly.");
-          }
-        };
-        const handleSecurityFailure: EventListener = () => {
-          setState("error");
-          setError("The VNC server rejected the connection.");
-        };
-        const handleCredentialsRequired: EventListener = () => {
-          setState("error");
-          setError("This VNC desktop requires credentials.");
-        };
-
         rfb.addEventListener("connect", handleConnect);
         rfb.addEventListener("disconnect", handleDisconnect);
         rfb.addEventListener("securityfailure", handleSecurityFailure);
@@ -82,25 +84,34 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
       })
       .catch((err) => {
         if (disposed) return;
-        setState("error");
-        setError(err instanceof Error ? err.message : "Could not load the VNC client.");
+        updateConnection({
+          state: "error",
+          error: err instanceof Error ? err.message : "Could not load the VNC client.",
+        });
       });
 
     return () => {
       disposed = true;
       const rfb = rfbRef.current;
+      rfb?.removeEventListener("connect", handleConnect);
+      rfb?.removeEventListener("disconnect", handleDisconnect);
+      rfb?.removeEventListener("securityfailure", handleSecurityFailure);
+      rfb?.removeEventListener("credentialsrequired", handleCredentialsRequired);
       rfbRef.current = null;
       rfb?.disconnect();
       container.replaceChildren();
     };
   }, [websocketUrl]);
 
+  const { state, error } = connection;
   const showOverlay = loading || !websocketUrl || state === "connecting" || state === "error";
 
   return (
-    <div className={cn("relative h-full w-full overflow-hidden bg-black", className)}>
+    <div className={cn("relative h-full w-full overflow-hidden bg-zinc-950", className)}>
       <div
         ref={containerRef}
+        role="application"
+        aria-label="Remote desktop"
         className="h-full w-full [&_canvas]:outline-none"
         onMouseDown={() => rfbRef.current?.focus()}
       />

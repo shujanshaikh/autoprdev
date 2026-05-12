@@ -124,7 +124,7 @@ export async function commitAndPushProjectSandboxChanges(options: {
     throw new SandboxNoChangesError();
   }
 
-  await runSandboxCommand(
+  const commit = await runSandboxCommand(
     sandbox,
     [
       `cd ${quotedRepoPath}`,
@@ -132,16 +132,20 @@ export async function commitAndPushProjectSandboxChanges(options: {
       `git checkout -B ${quotedBranch}`,
       "git config push.autoSetupRemote true",
     ].join(" && "),
-  );
-
-  await sandbox.git.add(REPO_PATH, ["."]);
-  const commit = await sandbox.git.commit(
-    REPO_PATH,
-    options.commitMessage,
-    options.authorName,
-    options.authorEmail,
-  );
-  await sandbox.git.push(REPO_PATH, options.githubUsername, options.githubToken);
+  )
+    .then(() => sandbox.git.add(REPO_PATH, ["."]))
+    .then(() =>
+      sandbox.git.commit(
+        REPO_PATH,
+        options.commitMessage,
+        options.authorName,
+        options.authorEmail,
+      ),
+    )
+    .then(async (createdCommit) => {
+      await sandbox.git.push(REPO_PATH, options.githubUsername, options.githubToken);
+      return createdCommit;
+    });
 
   await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git checkout ${quotedBaseBranch}`).catch(() => undefined);
 

@@ -85,12 +85,31 @@ export const createTurn = mutation({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const existingAssistant = await ctx.db
+    const threadMessages = await ctx.db
       .query("messages")
-      .withIndex("by_message_id", (q) => q.eq("messageId", args.assistantMessageId))
-      .first();
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .order("asc")
+      .collect();
 
-    if (existingAssistant && existingAssistant.threadId === args.threadId) {
+    const existingUser = threadMessages.find(
+      (message) => message.role === "user" && message.messageId === args.userMessage.messageId,
+    );
+
+    if (existingUser) {
+      const existingAssistant = threadMessages.find(
+        (message) => message.role === "assistant" && message.createdAt >= existingUser.createdAt,
+      );
+
+      if (existingAssistant) {
+        return existingAssistant.messageId;
+      }
+    }
+
+    const existingAssistant = threadMessages.find(
+      (message) => message.role === "assistant" && message.messageId === args.assistantMessageId,
+    );
+
+    if (existingAssistant) {
       return existingAssistant.messageId;
     }
 

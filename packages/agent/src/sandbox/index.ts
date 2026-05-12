@@ -146,7 +146,6 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
     await daytona.create({
       snapshot: resolved.snapshot,
       autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
-      name : "daytona-large",
     }),
   );
 }

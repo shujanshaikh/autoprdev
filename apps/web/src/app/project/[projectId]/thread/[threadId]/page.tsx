@@ -22,8 +22,9 @@ import {
   Loader2,
   Sidebar,
 } from "lucide-react";
+import type { Route } from "next";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Conversation,
@@ -184,7 +185,7 @@ function ExploreToolGroup({
   anyStreaming,
 }: {
   messageId: string;
-  tools: { part: any; index: number }[];
+  tools: { part: any; stableKey: string }[];
   summaryParts: string[];
   anyStreaming: boolean;
 }) {
@@ -215,7 +216,7 @@ function ExploreToolGroup({
             const input = "input" in t.part ? t.part.input : undefined;
             return (
               <ExploreToolRow
-                key={`${messageId}-explore-row-${t.index}`}
+                key={`${messageId}-explore-row-${t.stableKey}`}
                 type={t.part.type}
                 toolName={t.part.type === "dynamic-tool" ? getToolName(t.part) : undefined}
                 input={input}
@@ -246,9 +247,9 @@ function AwaitingAgentIndicator() {
     <div role="status" aria-live="polite" aria-label="Agent is thinking">
       <div className="mx-auto max-w-[680px] px-6 py-2 sm:px-8">
         <div className="flex items-center gap-1.5">
-          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/55 [animation-delay:-0.2s]" />
-          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/55 [animation-delay:-0.1s]" />
-          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/55" />
+          <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.2s]" />
+          <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.1s]" />
+          <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite]" />
         </div>
       </div>
     </div>
@@ -265,6 +266,7 @@ function ThreadChat({
   diffPanelOpen,
   onDiffPanelOpenChange,
   onDiffCountChange,
+  onInitialPromptConsumed,
   project,
   thread,
 }: {
@@ -277,6 +279,7 @@ function ThreadChat({
   diffPanelOpen: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
   onDiffCountChange: (count: number) => void;
+  onInitialPromptConsumed?: () => void;
   project?: any;
   thread?: any;
 }) {
@@ -291,10 +294,7 @@ function ThreadChat({
     }
   }, [currentRunId]);
 
-  const agentApi = useMemo(
-    () => `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`,
-    [projectId, threadId],
-  );
+  const agentApi = `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`;
 
   const getRunStreamApi = useCallback(
     (runId: string) => `${agentApi}/${encodeURIComponent(runId)}/stream`,
@@ -353,6 +353,8 @@ function ThreadChat({
     messages: initialMessages,
     transport,
   });
+  const lastMessage = messages.at(-1);
+  const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
   const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
 
   useEffect(() => {
@@ -378,13 +380,35 @@ function ThreadChat({
     }
 
     resumedRunIdsRef.current.add(currentRunId);
+
+    // AI SDK streams append to the current assistant message when resuming.
+    // If the last assistant message already has persisted parts, replaying the
+    // workflow stream from index 0 would duplicate that content in the UI.
+    if (hasPersistedLastAssistantMessage) {
+      activeRunIdRef.current = undefined;
+      return;
+    }
+
     void resumeStream();
-  }, [currentRunId, resumeStream, status]);
+  }, [currentRunId, hasPersistedLastAssistantMessage, resumeStream, status]);
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
+  const keyedMessages = useMemo(() => {
+    const keyCounts = new Map<string, number>();
+
+    return messages.map((message) => {
+      const count = keyCounts.get(message.id) ?? 0;
+      keyCounts.set(message.id, count + 1);
+
+      return {
+        message,
+        messageKey: count === 0 ? message.id : `${message.id}-${count}`,
+      };
+    });
+  }, [messages]);
 
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
@@ -406,9 +430,17 @@ function ThreadChat({
       return;
     }
 
+    const handoffKey = `thread-prompt-handoff:${threadId}:${initialPrompt}`;
+    if (sessionStorage.getItem(handoffKey) === "submitted") {
+      hasAutoSubmittedInitialPromptRef.current = true;
+      return;
+    }
+
     hasAutoSubmittedInitialPromptRef.current = true;
+    sessionStorage.setItem(handoffKey, "submitted");
+    onInitialPromptConsumed?.();
     void submitMessage(initialPrompt);
-  }, [initialPrompt, messages.length, ready, submitMessage]);
+  }, [initialPrompt, messages.length, onInitialPromptConsumed, ready, submitMessage, threadId]);
 
   return (
     <section className="grid h-full min-h-0 w-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -446,15 +478,25 @@ function ThreadChat({
               </ConversationEmptyState>
             ) : null}
 
-            {messages.map((message) => {
+            {keyedMessages.map(({ message, messageKey }) => {
               const filteredParts = message.parts.filter(Boolean);
               type GroupedItem =
-                | { kind: "single"; part: (typeof filteredParts)[number]; index: number }
-                | { kind: "explore-group"; tools: { part: (typeof filteredParts)[number]; index: number }[] };
+                | { kind: "single"; part: (typeof filteredParts)[number]; stableKey: string }
+                | { kind: "explore-group"; tools: { part: (typeof filteredParts)[number]; stableKey: string }[] };
 
               const grouped: GroupedItem[] = [];
-              for (let i = 0; i < filteredParts.length; i++) {
-                const part = filteredParts[i];
+              const partKeyCounts = new Map<string, number>();
+              for (const part of filteredParts) {
+                const keyBase = isToolUIPart(part)
+                  ? `${part.type}-${part.type === "dynamic-tool" ? getToolName(part) : "tool"}-${"toolCallId" in part ? part.toolCallId : "pending"}`
+                  : isTextUIPart(part)
+                    ? `text-${part.text.slice(0, 32)}`
+                    : isReasoningUIPart(part)
+                      ? `reasoning-${part.text.slice(0, 32)}`
+                      : part.type;
+                const keyCount = partKeyCounts.get(keyBase) ?? 0;
+                partKeyCounts.set(keyBase, keyCount + 1);
+                const stableKey = `${keyBase}-${keyCount}`;
                 if (
                   isToolUIPart(part) &&
                   isExploreTool(
@@ -464,21 +506,19 @@ function ThreadChat({
                 ) {
                   const last = grouped[grouped.length - 1];
                   if (last && last.kind === "explore-group") {
-                    last.tools.push({ part, index: i });
+                    last.tools.push({ part, stableKey });
                   } else {
-                    grouped.push({ kind: "explore-group", tools: [{ part, index: i }] });
+                    grouped.push({ kind: "explore-group", tools: [{ part, stableKey }] });
                   }
                 } else {
-                  grouped.push({ kind: "single", part, index: i });
+                  grouped.push({ kind: "single", part, stableKey });
                 }
               }
 
               const isUser = message.role === "user";
 
               return (
-                <div
-                  key={message.id}
-                >
+                <div key={messageKey}>
                   <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
                     <div className={cn(isUser && "rounded-lg bg-muted p-4")}>
                       <MessageContent>
@@ -504,7 +544,7 @@ function ThreadChat({
 
                           return (
                             <ExploreToolGroup
-                              key={`${message.id}-explore-${tools[0].index}`}
+                              key={`${message.id}-explore-${tools[0].stableKey}`}
                               messageId={message.id}
                               tools={tools}
                               summaryParts={summaryParts}
@@ -513,12 +553,12 @@ function ThreadChat({
                           );
                         }
 
-                        const { part, index } = item;
+                        const { part, stableKey } = item;
 
                         if (isReasoningUIPart(part)) {
                           const partState = getPartState(part);
                           return (
-                            <Reasoning key={`${message.id}-reasoning-${index}`} isStreaming={partState === "streaming"}>
+                            <Reasoning key={`${message.id}-reasoning-${stableKey}`} isStreaming={partState === "streaming"}>
                               <ReasoningTrigger />
                               <ReasoningContent>{part.text}</ReasoningContent>
                             </Reasoning>
@@ -528,7 +568,7 @@ function ThreadChat({
                         if (isTextUIPart(part)) {
                           const partState = getPartState(part);
                           return (
-                            <MessageResponse key={`${message.id}-text-${index}`} isAnimating={partState === "streaming"}>
+                            <MessageResponse key={`${message.id}-text-${stableKey}`} isAnimating={partState === "streaming"}>
                               {part.text}
                             </MessageResponse>
                           );
@@ -541,7 +581,7 @@ function ThreadChat({
                           const errorText = "errorText" in part ? part.errorText : undefined;
 
                           return (
-                            <Tool key={`${message.id}-tool-${index}`} defaultOpen={partState !== "output-available"}>
+                            <Tool key={`${message.id}-tool-${stableKey}`} defaultOpen={partState !== "output-available"}>
                               {part.type === "dynamic-tool" ? (
                                 <ToolHeader
                                   input={input}
@@ -577,7 +617,7 @@ function ThreadChat({
 
                         return (
                           <div
-                            key={`${message.id}-part-${index}`}
+                            key={`${message.id}-part-${stableKey}`}
                             className="rounded-md border border-dashed border-border/50 px-3 py-2 font-mono text-xs text-muted-foreground"
                           >
                             {part.type}
@@ -658,7 +698,7 @@ function ThreadChat({
   );
 }
 
-export default function ProjectThreadPage() {
+function ProjectThreadPageContent() {
   const params = useParams<{ projectId: string; threadId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -674,9 +714,8 @@ export default function ProjectThreadPage() {
   const [diffCount, setDiffCount] = useState(0);
 
   const initialMessages = useMemo(() => dbMessages?.map(toUIMessage) ?? [], [dbMessages]);
-  const isPromptHandoff = Boolean(initialPrompt);
+  const shouldAutoSubmitInitialPrompt = Boolean(initialPrompt && dbMessages && dbMessages.length === 0);
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
-  const handoffLoading = isPromptHandoff && (project === undefined || thread === undefined || dbMessages === undefined);
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
 
@@ -691,6 +730,13 @@ export default function ProjectThreadPage() {
       setDiffPanelOpen(false);
     }
   }, []);
+
+  const handleInitialPromptConsumed = useCallback(() => {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete("prompt");
+    const nextQuery = nextSearchParams.toString();
+    router.replace(`${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}` as Route, { scroll: false });
+  }, [router, searchParams]);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -733,7 +779,7 @@ export default function ProjectThreadPage() {
               <PierreDiffWorkerPoolProvider>
               {notFound ? (
                 <div className="border border-border p-5 text-sm text-muted-foreground">Thread not found.</div>
-              ) : loading && !handoffLoading ? (
+              ) : loading ? (
                 <section className="min-h-0 w-full min-w-0 flex-1">
                   <Loader />
                 </section>
@@ -743,12 +789,13 @@ export default function ProjectThreadPage() {
                   projectId={projectId}
                   threadId={threadId}
                   currentRunId={thread?.currentRunId}
-                  initialMessages={handoffLoading ? [] : initialMessages}
-                  initialPrompt={initialPrompt}
+                  initialMessages={initialMessages}
+                  initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
                   disabled={disabled}
                   diffPanelOpen={diffPanelOpen}
                   onDiffPanelOpenChange={setDiffPanelOpen}
                   onDiffCountChange={handleDiffCountChange}
+                  onInitialPromptConsumed={handleInitialPromptConsumed}
                   project={project}
                   thread={thread}
                 />
@@ -756,5 +803,13 @@ export default function ProjectThreadPage() {
               </PierreDiffWorkerPoolProvider>
             </main>
           </div>
+  );
+}
+
+export default function ProjectThreadPage() {
+  return (
+    <Suspense fallback={<Loader />}>
+      <ProjectThreadPageContent />
+    </Suspense>
   );
 }

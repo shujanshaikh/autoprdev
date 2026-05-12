@@ -32,44 +32,48 @@ export async function GET(
     params: Promise<{ projectId: string; threadId: string; runId: string }>;
   },
 ) {
+  const startIndex = parseStartIndex(request);
+  if (startIndex !== undefined && Number.isNaN(startIndex)) {
+    return Response.json({ error: "Invalid startIndex." }, { status: 400 });
+  }
 
   const { projectId: projectIdParam, threadId: threadIdParam, runId } = await params;
   const projectId = projectIdParam;
   const threadId = threadIdParam;
-  const [project, thread] = await Promise.all([
+  return Promise.all([
     convexQuery(api.projects.get, { projectId }),
     convexQuery(api.threads.get, { threadId }),
-  ]);
-
-  if (!project || !thread || thread.projectId !== projectId) {
-    return Response.json({ error: "Project or thread not found." }, { status: 404 });
-  }
-
-  try {
-    const readable = getRun(runId).getReadable({ startIndex: parseStartIndex(request) });
-    const tailIndex = await readable.getTailIndex();
-
-    return createUIMessageStreamResponse({
-      stream: readable,
-      headers: {
-        "x-workflow-stream-tail-index": String(tailIndex),
-      },
-    });
-  } catch (error) {
-    if (!isWorkflowRunNotFoundError(error)) {
-      throw error;
+  ]).then(async ([project, thread]) => {
+    if (!project || !thread || thread.projectId !== projectId) {
+      return Response.json({ error: "Project or thread not found." }, { status: 404 });
     }
 
-    await convexMutation(api.threads.markRunFinished, {
-      threadId,
-      runId,
-    });
+    try {
+      const readable = getRun(runId).getReadable({ startIndex });
+      const tailIndex = await readable.getTailIndex();
 
-    return createUIMessageStreamResponse({
-      stream: finishedStream(),
-      headers: {
-        "x-workflow-stream-tail-index": "-1",
-      },
-    });
-  }
+      return createUIMessageStreamResponse({
+        stream: readable,
+        headers: {
+          "x-workflow-stream-tail-index": String(tailIndex),
+        },
+      });
+    } catch (error) {
+      if (!isWorkflowRunNotFoundError(error)) {
+        throw error;
+      }
+
+      await convexMutation(api.threads.markRunFinished, {
+        threadId,
+        runId,
+      });
+
+      return createUIMessageStreamResponse({
+        stream: finishedStream(),
+        headers: {
+          "x-workflow-stream-tail-index": "-1",
+        },
+      });
+    }
+  });
 }

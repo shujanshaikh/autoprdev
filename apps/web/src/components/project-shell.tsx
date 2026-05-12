@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@autopr/ui/components/dialog";
 import { UserButton } from "@clerk/nextjs";
-import { Authenticated, AuthLoading, Unauthenticated, useMutation } from "convex/react";
+import { Authenticated, Unauthenticated, useMutation } from "convex/react";
 import {
   GitPullRequest,
   Home,
@@ -90,7 +90,7 @@ export function ProjectSidebar({
   threads: ProjectThread[] | undefined;
   activeThreadId?: string;
 }) {
-  const router = useRouter();
+  const { refresh, replace } = useRouter();
   const removeThread = useMutation(api.threads.remove);
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<ProjectThread | undefined>();
@@ -116,9 +116,9 @@ export function ProjectSidebar({
       await removeThread({ threadId: thread.threadId });
       setPendingDeleteThread(undefined);
       if (thread.threadId === activeThreadId) {
-        router.replace(`/project/${projectId}`);
+        replace(`/project/${projectId}`);
       }
-      router.refresh();
+      refresh();
     } finally {
       setDeletingThreadId(undefined);
     }
@@ -432,12 +432,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </main>
       </Unauthenticated>
 
-      <AuthLoading>
-        <div className="grid min-h-svh place-items-center text-sm text-muted-foreground">
-          <Loader2 className="mb-2 size-5 animate-spin" aria-hidden="true" />
-          Loading
-        </div>
-      </AuthLoading>
     </>
   );
 }

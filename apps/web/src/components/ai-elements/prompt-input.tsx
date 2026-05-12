@@ -66,8 +66,8 @@ import type {
 import {
   Children,
   createContext,
+  use,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -211,7 +211,7 @@ const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(
 );
 
 export const usePromptInputController = () => {
-  const ctx = useContext(PromptInputController);
+  const ctx = use(PromptInputController);
   if (!ctx) {
     throw new Error(
       "Wrap your component inside <PromptInputProvider> to use usePromptInputController()."
@@ -222,10 +222,10 @@ export const usePromptInputController = () => {
 
 // Optional variants (do NOT throw). Useful for dual-mode components.
 const useOptionalPromptInputController = () =>
-  useContext(PromptInputController);
+  use(PromptInputController);
 
 export const useProviderAttachments = () => {
-  const ctx = useContext(ProviderAttachmentsContext);
+  const ctx = use(ProviderAttachmentsContext);
   if (!ctx) {
     throw new Error(
       "Wrap your component inside <PromptInputProvider> to use useProviderAttachments()."
@@ -235,7 +235,7 @@ export const useProviderAttachments = () => {
 };
 
 const useOptionalProviderAttachments = () =>
-  useContext(ProviderAttachmentsContext);
+  use(ProviderAttachmentsContext);
 
 export type PromptInputProviderProps = PropsWithChildren<{
   initialInput?: string;
@@ -374,7 +374,7 @@ const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
 export const usePromptInputAttachments = () => {
   // Prefer local context (inside PromptInput) as it has validation, fall back to provider
   const provider = useOptionalProviderAttachments();
-  const local = useContext(LocalAttachmentsContext);
+  const local = use(LocalAttachmentsContext);
   const context = local ?? provider;
   if (!context) {
     throw new Error(
@@ -399,7 +399,7 @@ export const LocalReferencedSourcesContext =
   createContext<ReferencedSourcesContext | null>(null);
 
 export const usePromptInputReferencedSources = () => {
-  const ctx = useContext(LocalReferencedSourcesContext);
+  const ctx = use(LocalReferencedSourcesContext);
   if (!ctx) {
     throw new Error(
       "usePromptInputReferencedSources must be used within a LocalReferencedSourcesContext.Provider"
@@ -560,8 +560,10 @@ export const PromptInput = ({
 
       const patterns = accept
         .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+        .flatMap((s) => {
+          const trimmed = s.trim();
+          return trimmed ? [trimmed] : [];
+        });
 
       return patterns.some((pattern) => {
         if (pattern.endsWith("/*")) {
@@ -800,7 +802,7 @@ export const PromptInput = ({
     [usingProvider]
   );
 
-  const handleChange: ChangeEventHandler<HTMLInputElement> = useCallback(
+  const updateSelectedFiles: ChangeEventHandler<HTMLInputElement> = useCallback(
     (event) => {
       if (event.currentTarget.files) {
         add(event.currentTarget.files);
@@ -910,7 +912,7 @@ export const PromptInput = ({
         aria-label="Upload files"
         className="hidden"
         multiple={multiple}
-        onChange={handleChange}
+        onChange={updateSelectedFiles}
         ref={inputRef}
         title="Upload files"
         type="file"
@@ -1231,7 +1233,7 @@ export const PromptInputSubmit = ({
     Icon = <XIcon className="size-4" />;
   }
 
-  const handleClick = useCallback<NonNullable<PromptInputSubmitProps["onClick"]>>(
+  const submitOrStopGeneration = useCallback<NonNullable<PromptInputSubmitProps["onClick"]>>(
     (e) => {
       if (isGenerating && onStop) {
         e.preventDefault();
@@ -1247,7 +1249,7 @@ export const PromptInputSubmit = ({
     <InputGroupButton
       aria-label={isGenerating ? "Stop" : "Submit"}
       className={cn("rounded-full", className)}
-      onClick={handleClick}
+      onClick={submitOrStopGeneration}
       size={size}
       type={isGenerating && onStop ? "button" : "submit"}
       variant={variant}

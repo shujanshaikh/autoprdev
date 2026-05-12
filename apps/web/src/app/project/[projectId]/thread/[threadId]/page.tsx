@@ -607,24 +607,31 @@ function ThreadChat({
           </Conversation>
         </div>
 
-        <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-6 sm:px-8">
+        <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
           <div className="mx-auto max-w-[680px]">
-            {currentRunId ? (
-              <p className="mb-3 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Run {currentRunId}
-              </p>
-            ) : null}
             <PromptInput
-              className="rounded-xl border border-border bg-muted shadow-sm transition-all focus-within:border-primary/40 focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/10"
+              className={cn(
+                // Sharp, flat, matches dashboard panels (border-border + bg-card)
+                "border border-border bg-card shadow-none transition-colors",
+                "focus-within:border-primary/60",
+              )}
               onSubmit={(message) => void submitMessage(message.text)}
             >
               <PromptInputBody>
-                <PromptInputTextarea disabled={!ready} placeholder="Message this thread..." />
+                <PromptInputTextarea
+                  disabled={!ready}
+                  placeholder="Message this thread…"
+                  className="max-h-40 min-h-14 resize-none px-3.5 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/55"
+                />
               </PromptInputBody>
-              <PromptInputFooter>
-                <PromptInputTools>
-                </PromptInputTools>
-                <PromptInputSubmit disabled={!ready && !busy} onStop={() => void stop()} status={status} />
+              <PromptInputFooter className="bg-transparent px-2 py-1.5">
+                <PromptInputTools />
+                <PromptInputSubmit
+                  className="size-7 rounded-none"
+                  disabled={!ready && !busy}
+                  onStop={() => void stop()}
+                  status={status}
+                />
               </PromptInputFooter>
             </PromptInput>
           </div>

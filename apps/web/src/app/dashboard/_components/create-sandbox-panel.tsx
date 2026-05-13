@@ -148,7 +148,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
       {error ? (
         <div
           role="alert"
-          className="border-t border-destructive/40 bg-destructive/[0.06] px-5 py-3 font-mono text-xs text-destructive sm:px-7"
+          className="border-t border-destructive/40 px-5 py-3 font-mono text-xs text-destructive sm:px-7"
         >
           <span className="mr-2 uppercase tracking-[0.2em]">err</span>
           <span className="text-destructive/90">{error}</span>
@@ -607,7 +607,7 @@ function BranchColumn({
     </div>
   );
 }
-  
+
 function LaunchColumn({
   selectedRepo,
   selectedBranch,

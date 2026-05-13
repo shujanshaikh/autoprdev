@@ -19,11 +19,12 @@ import {
   MessageSquare,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -37,6 +38,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  useSidebar,
 } from "@autopr/ui/components/sidebar";
 
 import { RouteTransition } from "@/components/route-transition";
@@ -91,13 +93,50 @@ export function ProjectSidebar({
   activeThreadId?: string;
 }) {
   const { refresh, replace } = useRouter();
+  const { setOpen } = useSidebar();
   const removeThread = useMutation(api.threads.remove);
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<ProjectThread | undefined>();
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const displayName = repoFullName ?? "autopr";
   const [owner, repo] = displayName.includes("/")
     ? displayName.split("/")
     : [undefined, displayName];
+
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const visibleThreads = useMemo(() => {
+    if (threads === undefined) {
+      return undefined;
+    }
+
+    if (!normalizedSearchQuery) {
+      return threads.slice(0, 12);
+    }
+
+    return threads
+      .filter((thread) => {
+        const haystack = `${thread.title} ${thread.threadId}`.toLowerCase();
+        return haystack.includes(normalizedSearchQuery);
+      })
+      .slice(0, 12);
+  }, [normalizedSearchQuery, threads]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setOpen(true);
+        requestAnimationFrame(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [setOpen]);
 
   function handleDeleteThread(event: MouseEvent<HTMLButtonElement>, thread: ProjectThread) {
     event.preventDefault();
@@ -157,14 +196,44 @@ export function ProjectSidebar({
       </SidebarHeader>
 
       <div className="px-3 pt-3 pb-2 group-data-[collapsible=icon]:hidden">
-        <button
-          type="button"
-          className="flex h-8 w-full items-center gap-2 border border-sidebar-border bg-sidebar px-2 font-mono text-[11px] text-sidebar-foreground/45 transition hover:border-sidebar-foreground/60 hover:text-sidebar-foreground/70"
-        >
-          <Search className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="flex-1 text-left">search…</span>
-          <kbd className="ml-auto font-mono text-[10px] tracking-wide text-sidebar-foreground/30">⌘K</kbd>
-        </button>
+        <div className="relative flex h-8 w-full items-center border border-sidebar-border bg-sidebar transition focus-within:border-sidebar-foreground/60">
+          <Search
+            className="pointer-events-none absolute left-2 size-3.5 text-sidebar-foreground/45"
+            aria-hidden="true"
+          />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearchQuery("");
+                event.currentTarget.blur();
+              }
+            }}
+            placeholder="search…"
+            aria-label="Search threads"
+            className="h-full min-w-0 flex-1 bg-transparent pr-11 pl-8 font-mono text-[11px] text-sidebar-foreground outline-none placeholder:text-sidebar-foreground/45"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                searchInputRef.current?.focus();
+              }}
+              aria-label="Clear search"
+              className="absolute right-2 inline-flex size-4 items-center justify-center text-sidebar-foreground/35 transition hover:text-sidebar-foreground/70"
+            >
+              <X className="size-3" aria-hidden="true" />
+            </button>
+          ) : (
+            <kbd className="pointer-events-none absolute right-2 font-mono text-[10px] tracking-wide text-sidebar-foreground/30">
+              ⌘K
+            </kbd>
+          )}
+        </div>
       </div>
 
       <SidebarContent>
@@ -194,7 +263,7 @@ export function ProjectSidebar({
             </span>
             {threads && threads.length > 0 ? (
               <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/35">
-                {String(threads.length).padStart(2, "0")}
+                {String(normalizedSearchQuery ? visibleThreads?.length ?? 0 : threads.length).padStart(2, "0")}
               </span>
             ) : null}
           </div>
@@ -211,8 +280,12 @@ export function ProjectSidebar({
                 <div className="px-2 py-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/30">
                   no threads
                 </div>
+              ) : visibleThreads?.length === 0 ? (
+                <div className="px-2 py-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/30">
+                  no matches
+                </div>
               ) : (
-                threads.slice(0, 12).map((thread) => {
+                visibleThreads?.map((thread) => {
                   const isActive = thread.threadId === activeThreadId;
                   return (
                     <SidebarMenuItem key={thread.threadId}>

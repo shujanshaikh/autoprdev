@@ -5,6 +5,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { SidebarTrigger } from "@autopr/ui/components/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { parsePatch } from "diff";
@@ -20,7 +21,6 @@ import {
   Bot,
   ChevronDown,
   Loader2,
-  Sidebar,
 } from "lucide-react";
 import type { Route } from "next";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -754,24 +754,78 @@ function ProjectThreadPageContent() {
               </div>
 
               <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant={diffPanelOpen ? "secondary" : "ghost"}
-                  size="icon"
-                  aria-controls="thread-changes-panel"
-                  aria-expanded={diffPanelOpen}
-                  title={diffPanelOpen ? "Hide sidebar" : "Open sidebar"}
-                  onClick={() => setDiffPanelOpen((open) => !open)}
-                  className="relative size-8 shrink-0"
-                >
-                  <Sidebar className="size-4" aria-hidden="true" />
-                  <span className="sr-only">{diffPanelOpen ? "Hide sidebar" : "Open sidebar"}</span>
-                  {diffCount > 0 ? (
-                    <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center bg-foreground px-1 font-mono text-[9px] font-semibold leading-4 text-background">
-                      {diffCount > 99 ? "99+" : diffCount}
-                    </span>
-                  ) : null}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-controls="thread-changes-panel"
+                        aria-expanded={diffPanelOpen}
+                        aria-label={diffPanelOpen ? "Hide changes" : "Show changes"}
+                        data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
+                        onClick={() => setDiffPanelOpen((open) => !open)}
+                        className={cn(
+                          "group/changes-trigger relative size-7 rounded-[6px] text-muted-foreground/85",
+                          "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
+                          "hover:bg-foreground/[0.06] hover:text-foreground",
+                          "active:scale-[0.92] active:bg-foreground/[0.10]",
+                          "focus-visible:bg-foreground/[0.06] focus-visible:ring-[1.5px] focus-visible:ring-sidebar-primary/40 focus-visible:ring-offset-0",
+                          "dark:hover:bg-foreground/[0.08] dark:active:bg-foreground/[0.12]",
+                          "data-[diff-panel-state=open]:bg-foreground/[0.07] data-[diff-panel-state=open]:text-foreground",
+                          "dark:data-[diff-panel-state=open]:bg-foreground/[0.10]",
+                        )}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="size-[16px]"
+                          aria-hidden="true"
+                        >
+                          {/* Right-section fill — fades in when the changes panel is open (sidebar.right.fill) */}
+                          <path
+                            d="M15 5 L18.5 5 A2.5 2.5 0 0 1 21 7.5 L21 16.5 A2.5 2.5 0 0 1 18.5 19 L15 19 Z"
+                            fill="currentColor"
+                            stroke="none"
+                            className="opacity-0 transition-opacity duration-300 ease-out group-data-[diff-panel-state=open]/changes-trigger:opacity-[0.22]"
+                          />
+                          {/* Outer panel */}
+                          <rect x="3" y="5" width="18" height="14" rx="2.5" />
+                          {/* Divider */}
+                          <line x1="15" y1="5" x2="15" y2="19" />
+                        </svg>
+                        {diffCount > 0 ? (
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "pointer-events-none absolute -right-1 -top-1 inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-1",
+                              "bg-sidebar-primary font-mono text-[9px] font-semibold leading-none text-sidebar-primary-foreground",
+                              "shadow-[0_0_0_1.5px_var(--background)]",
+                            )}
+                          >
+                            {diffCount > 99 ? "99+" : diffCount}
+                          </span>
+                        ) : null}
+                        <span className="sr-only">
+                          {diffPanelOpen ? "Hide changes" : "Show changes"}
+                        </span>
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    {diffPanelOpen
+                      ? "Hide Changes"
+                      : diffCount > 0
+                        ? `Show Changes (${diffCount > 99 ? "99+" : diffCount})`
+                        : "Show Changes"}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </header>
 

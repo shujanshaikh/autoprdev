@@ -23,7 +23,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@autopr/ui/components/tooltip"
-import { PanelLeftIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -259,24 +258,72 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, state, isMobile, openMobile } = useSidebar()
+  const isOpen = isMobile ? openMobile : state === "expanded"
 
   return (
-    <Button
-      data-sidebar="trigger"
-      data-slot="sidebar-trigger"
-      variant="ghost"
-      size="icon-sm"
-      className={cn("text-muted-foreground/70 hover:text-foreground", className)}
-      onClick={(event) => {
-        onClick?.(event)
-        toggleSidebar()
-      }}
-      {...props}
-    >
-      <PanelLeftIcon />
-      <span className="sr-only">Toggle Sidebar</span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            data-sidebar="trigger"
+            data-slot="sidebar-trigger"
+            data-sidebar-state={isOpen ? "expanded" : "collapsed"}
+            variant="ghost"
+            size="icon-sm"
+            aria-label={isOpen ? "Hide sidebar" : "Show sidebar"}
+            className={cn(
+              "group/sidebar-trigger relative size-7 rounded-[6px] text-muted-foreground/85",
+              "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
+              "hover:bg-foreground/[0.06] hover:text-foreground",
+              "active:scale-[0.92] active:bg-foreground/[0.10]",
+              "focus-visible:bg-foreground/[0.06] focus-visible:ring-[1.5px] focus-visible:ring-sidebar-primary/40 focus-visible:ring-offset-0",
+              "dark:hover:bg-foreground/[0.08] dark:active:bg-foreground/[0.12]",
+              className
+            )}
+            onClick={(event) => {
+              onClick?.(event)
+              toggleSidebar()
+            }}
+            {...props}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="size-[16px]"
+              aria-hidden
+            >
+              {/* Filled sidebar section — fades in when the sidebar is expanded (mirrors SF Symbols sidebar.left.fill) */}
+              <path
+                d="M9 5 L5.5 5 A2.5 2.5 0 0 0 3 7.5 L3 16.5 A2.5 2.5 0 0 0 5.5 19 L9 19 Z"
+                fill="currentColor"
+                stroke="none"
+                className="opacity-0 transition-opacity duration-300 ease-out group-data-[sidebar-state=expanded]/sidebar-trigger:opacity-[0.22]"
+              />
+              {/* Outer panel */}
+              <rect x="3" y="5" width="18" height="14" rx="2.5" />
+              {/* Divider */}
+              <line x1="9" y1="5" x2="9" y2="19" />
+            </svg>
+            <span className="sr-only">Toggle Sidebar</span>
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom" sideOffset={8}>
+        <span>{isOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
+        <kbd
+          data-slot="kbd"
+          className="ml-1 inline-flex h-4 items-center rounded-[3px] bg-background/15 px-1 font-mono text-[10px] font-medium text-background/80"
+        >
+          ⌘B
+        </kbd>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

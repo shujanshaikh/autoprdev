@@ -6,7 +6,7 @@ import { start } from "workflow/api";
 import { z } from "zod";
 
 import { convexMutation, convexQuery } from "@/lib/convex-server";
-import { toUIMessage } from "@/lib/chat-messages";
+import { sanitizeMessageForModelConversion, toUIMessage } from "@/lib/chat-messages";
 import { agentWorkflow } from "@/workflows/agent/workflow";
 
 const agentRequestSchema = z.object({
@@ -71,7 +71,9 @@ export async function POST(
         : [];
     });
     const modelMessages = await convertToModelMessages(
-      uiMessages.filter((message) => message.id !== assistantMessageId || message.parts.length > 0),
+      uiMessages
+        .map(sanitizeMessageForModelConversion)
+        .filter((message) => message.id !== assistantMessageId || message.parts.length > 0),
     );
 
     const run = await start(agentWorkflow, [

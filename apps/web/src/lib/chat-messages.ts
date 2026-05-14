@@ -16,6 +16,57 @@ export function toUIMessage(row: StoredMessageRow): UIMessage {
   };
 }
 
+function isCompleteToolPart(part: UIMessage["parts"][number]) {
+  return (
+    part.type === "dynamic-tool" &&
+    "state" in part &&
+    (part.state === "output-available" || part.state === "output-error")
+  );
+}
+
+function normalizeStoppedAssistantPart(part: UIMessage["parts"][number]): UIMessage["parts"][number] | null {
+  if (part.type === "dynamic-tool") {
+    return isCompleteToolPart(part) ? part : null;
+  }
+
+  if ((part.type === "text" || part.type === "reasoning") && "state" in part && part.state === "streaming") {
+    return {
+      ...part,
+      state: "done",
+    };
+  }
+
+  return part;
+}
+
+function trimDanglingStepStarts(parts: UIMessage["parts"]) {
+  const trimmed = [...parts];
+
+  while (trimmed.at(-1)?.type === "step-start") {
+    trimmed.pop();
+  }
+
+  return trimmed;
+}
+
+export function sanitizeStoppedAssistantParts(parts: UIMessage["parts"]): UIMessage["parts"] {
+  return trimDanglingStepStarts(parts.flatMap((part) => {
+    const normalizedPart = normalizeStoppedAssistantPart(part);
+    return normalizedPart ? [normalizedPart] : [];
+  }));
+}
+
+export function sanitizeMessageForModelConversion(message: UIMessage): UIMessage {
+  if (message.role !== "assistant") {
+    return message;
+  }
+
+  return {
+    ...message,
+    parts: sanitizeStoppedAssistantParts(message.parts),
+  };
+}
+
 function getFilePartUrl(data: unknown) {
   if (typeof data === "string") {
     return data;

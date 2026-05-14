@@ -56,6 +56,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function isExpectedStreamAbort(error: unknown) {
+  return (
+    error instanceof DOMException && error.name === "AbortError"
+  ) || (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.message.includes("BodyStreamBuffer was aborted"))
+  );
+}
+
 function isContentDetailsOutput(
   v: unknown
 ): v is { content: string; details: Record<string, unknown> } {
@@ -317,6 +326,7 @@ function ThreadChat({
   const activeRunIdRef = useRef(currentRunId);
   const resumedRunIdsRef = useRef(new Set<string>());
   const hasAutoSubmittedInitialPromptRef = useRef(false);
+  const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [runtimeStatus, setRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>(
     project?.sandboxRuntimeStatus,
@@ -359,6 +369,11 @@ function ThreadChat({
 
   const getRunStreamApi = useCallback(
     (runId: string) => `${agentApi}/${encodeURIComponent(runId)}/stream`,
+    [agentApi],
+  );
+
+  const getRunApi = useCallback(
+    (runId: string) => `${agentApi}/${encodeURIComponent(runId)}`,
     [agentApi],
   );
 
@@ -413,6 +428,11 @@ function ThreadChat({
     id: threadId,
     messages: initialMessages,
     transport,
+    onError: (chatError) => {
+      if (!isExpectedStreamAbort(chatError)) {
+        throw chatError;
+      }
+    },
   });
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
@@ -455,6 +475,57 @@ function ThreadChat({
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
+  const stopGeneration = useCallback(() => {
+    const runId = activeRunIdRef.current;
+    const assistantMessage = messages.findLast((message) => message.role === "assistant");
+
+    try {
+      stop();
+    } catch (stopError) {
+      if (!isExpectedStreamAbort(stopError)) {
+        throw stopError;
+      }
+    }
+
+    clearError();
+
+    if (!runId) {
+      return;
+    }
+
+    activeRunIdRef.current = undefined;
+
+    const stopPromise = fetch(getRunApi(runId), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        assistantMessage: assistantMessage
+          ? {
+              id: assistantMessage.id,
+              parts: assistantMessage.parts,
+              metadata: assistantMessage.metadata,
+            }
+          : undefined,
+      }),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to cancel workflow run: ${response.status}`);
+        }
+      })
+      .catch((cancelError) => {
+        console.error("Failed to cancel workflow run", cancelError);
+      })
+      .finally(() => {
+        if (pendingStopRef.current === stopPromise) {
+          pendingStopRef.current = null;
+        }
+      });
+
+    pendingStopRef.current = stopPromise;
+  }, [clearError, getRunApi, messages, stop]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
   const keyedMessages = useMemo(() => {
@@ -473,13 +544,21 @@ function ThreadChat({
 
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
-    if (!nextMessage || !ready) {
+    if (!nextMessage || disabled) {
+      return;
+    }
+
+    if (pendingStopRef.current) {
+      await pendingStopRef.current;
+    }
+
+    if (status !== "ready") {
       return;
     }
 
     clearError();
     await sendMessage({ text: nextMessage });
-  }, [clearError, ready, sendMessage]);
+  }, [clearError, disabled, sendMessage, status]);
 
   useEffect(() => {
     if (!initialPrompt || hasAutoSubmittedInitialPromptRef.current || !ready) {
@@ -730,7 +809,7 @@ function ThreadChat({
                 <PromptInputSubmit
                   className="size-7 rounded-none"
                   disabled={!ready && !busy}
-                  onStop={() => void stop()}
+                  onStop={stopGeneration}
                   status={status}
                 />
               </PromptInputFooter>

@@ -1,5 +1,3 @@
-"use client";
-
 import { cn } from "@autopr/ui/lib/utils";
 import type { MotionProps } from "motion/react";
 import { domAnimation, LazyMotion, m } from "motion/react";

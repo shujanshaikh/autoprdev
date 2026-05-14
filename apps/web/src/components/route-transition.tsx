@@ -1,15 +1,8 @@
-"use client";
-
-import { usePathname } from "next/navigation";
+import { useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
-/**
- * RouteTransition wraps children and animates between route changes.
- * Uses a crossfade approach: when the pathname changes, the old content
- * fades out while the new content fades in, preventing layout jumps.
- */
 export function RouteTransition({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+  const pathname = useLocation({ select: (location) => location.pathname });
 
   return (
     <div

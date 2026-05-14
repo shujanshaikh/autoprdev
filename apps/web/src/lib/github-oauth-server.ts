@@ -1,4 +1,6 @@
-import { clerkClient } from "@clerk/nextjs/server";
+import "@tanstack/react-start/server-only";
+
+import { clerkClient } from "@clerk/tanstack-react-start/server";
 
 export class GithubConnectionError extends Error {
   constructor(message = "Connect GitHub to continue.") {

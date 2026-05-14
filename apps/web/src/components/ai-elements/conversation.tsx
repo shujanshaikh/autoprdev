@@ -1,5 +1,3 @@
-"use client";
-
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import type { UIMessage } from "ai";

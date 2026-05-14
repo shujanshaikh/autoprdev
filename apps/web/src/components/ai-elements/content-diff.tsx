@@ -1,5 +1,3 @@
-"use client";
-
 import { parsePatch } from "diff";
 import type { BundledLanguage } from "shiki";
 import { useMemo } from "react";

@@ -15,7 +15,6 @@
     "dev:setup": "turbo -F @autopr/backend dev:setup"
   },
   "dependencies": {
-    "@autopr/env": "workspace:*",
     "dotenv": "catalog:",
     "zod": "catalog:"
   },

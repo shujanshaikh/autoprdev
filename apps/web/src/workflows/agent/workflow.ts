@@ -7,9 +7,8 @@ import {
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { env } from "@autopr/env/web";
-import { DurableAgent } from "@workflow/ai/agent";
-import type { ModelMessage, UIMessageChunk } from "ai";
+import { DurableAgent, type StreamTextTransform } from "@workflow/ai/agent";
+import { smoothStream, type ModelMessage, type UIMessageChunk } from "ai";
 import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
@@ -29,6 +28,14 @@ interface AssistantPersistenceOptions {
   convexAuthToken: string;
   threadId: string;
   assistantMessageId: string;
+}
+
+function getConvexUrl() {
+  const url = process.env.VITE_CONVEX_URL;
+  if (!url) {
+    throw new Error("Missing VITE_CONVEX_URL in your web environment");
+  }
+  return url;
 }
 
 function isPersistenceUnauthenticatedError(error: unknown) {
@@ -63,7 +70,7 @@ async function patchAssistantMessage({
   await fetchMutation(
     api.messages.patchAssistant,
     { threadId, assistantMessageId, parts },
-    { token: convexAuthToken, url: env.NEXT_PUBLIC_CONVEX_URL },
+    { token: convexAuthToken, url: getConvexUrl() },
   );
 }
 
@@ -79,7 +86,7 @@ async function markWorkflowRunFinished({
   await fetchMutation(
     api.threads.markRunFinished,
     { threadId, runId },
-    { token: convexAuthToken, url: env.NEXT_PUBLIC_CONVEX_URL },
+    { token: convexAuthToken, url: getConvexUrl() },
   );
 }
 

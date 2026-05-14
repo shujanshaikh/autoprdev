@@ -1,5 +1,6 @@
-import { env } from "@autopr/env/web";
-import { auth } from "@clerk/nextjs/server";
+import "@tanstack/react-start/server-only";
+
+import { auth } from "@clerk/tanstack-react-start/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type {
   FunctionArgs,
@@ -22,6 +23,14 @@ export class ConvexUnauthorizedError extends Error {
     super(message);
     this.name = "ConvexUnauthorizedError";
   }
+}
+
+function getConvexUrl() {
+  const url = process.env.VITE_CONVEX_URL;
+  if (!url) {
+    throw new ConvexAuthConfigurationError("Missing VITE_CONVEX_URL in your web environment");
+  }
+  return url;
 }
 
 function isMissingConvexJwtTemplateError(error: unknown) {
@@ -74,7 +83,7 @@ export async function convexQuery<Query extends FunctionReference<"query">>(
     throw new ConvexUnauthorizedError();
   }
 
-  return fetchQuery(query, args, { token, url: env.NEXT_PUBLIC_CONVEX_URL });
+  return fetchQuery(query, args, { token, url: getConvexUrl() });
 }
 
 export async function convexMutation<Mutation extends FunctionReference<"mutation">>(
@@ -87,5 +96,5 @@ export async function convexMutation<Mutation extends FunctionReference<"mutatio
     throw new ConvexUnauthorizedError();
   }
 
-  return fetchMutation(mutation, args, { token, url: env.NEXT_PUBLIC_CONVEX_URL });
+  return fetchMutation(mutation, args, { token, url: getConvexUrl() });
 }

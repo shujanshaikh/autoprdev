@@ -1,5 +1,3 @@
-"use client";
-
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import {
@@ -10,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton } from "@clerk/tanstack-react-start";
 import { Authenticated, Unauthenticated, useMutation } from "convex/react";
 import {
   GitPullRequest,
@@ -21,9 +19,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import Link from "next/link";
-import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   Sidebar,
@@ -92,7 +88,8 @@ export function ProjectSidebar({
   threads: ProjectThread[] | undefined;
   activeThreadId?: string;
 }) {
-  const { refresh, replace } = useRouter();
+  const router = useRouter();
+  const navigate = useNavigate();
   const { setOpen } = useSidebar();
   const removeThread = useMutation(api.threads.remove);
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
@@ -155,9 +152,9 @@ export function ProjectSidebar({
       await removeThread({ threadId: thread.threadId });
       setPendingDeleteThread(undefined);
       if (thread.threadId === activeThreadId) {
-        replace(`/project/${projectId}`);
+        navigate({ to: "/project/$projectId", params: { projectId } });
       }
-      refresh();
+      router.invalidate();
     } finally {
       setDeletingThreadId(undefined);
     }
@@ -172,7 +169,7 @@ export function ProjectSidebar({
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
-              render={<Link href="/dashboard" />}
+              render={<Link to="/dashboard" />}
               tooltip={displayName}
               className="h-10 gap-3 px-2 group-data-[collapsible=icon]:justify-center"
             >
@@ -240,15 +237,15 @@ export function ProjectSidebar({
         <SidebarGroup className="px-2 py-1">
           <SidebarGroupContent>
             <SidebarMenu className="gap-0">
-              <NavLink href={"/dashboard" as Route} icon={Home} label="Dashboard" />
+              <NavLink to={"/dashboard"} icon={Home} label="Dashboard" />
               <NavLink
-                href={`/project/${projectId}` as Route}
+                to={`/project/${projectId}`}
                 icon={MessageSquare}
                 label="Threads"
                 count={threads?.length}
               />
               <NavLink
-                href={`/project/${projectId}/pulls` as Route}
+                to={`/project/${projectId}/pulls`}
                 icon={GitPullRequest}
                 label="View pull request"
               />
@@ -293,7 +290,7 @@ export function ProjectSidebar({
                         isActive={isActive}
                         render={
                           <Link
-                            href={`/project/${projectId}/thread/${thread.threadId}`}
+                            to={`/project/${projectId}/thread/${thread.threadId}`}
                           />
                         }
                         tooltip={thread.title}
@@ -408,12 +405,12 @@ export function ProjectSidebar({
 }
 
 function NavLink({
-  href,
+  to,
   icon: Icon,
   label,
   count,
 }: {
-  href: Route;
+  to: string;
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   label: string;
   count?: number;
@@ -421,7 +418,7 @@ function NavLink({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        render={<Link href={href} />}
+        render={<Link to={to} />}
         tooltip={label}
         className="h-8 gap-2.5 px-2 font-mono group-data-[collapsible=icon]:justify-center"
       >
@@ -499,7 +496,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
       <Unauthenticated>
         <main className="grid min-h-svh place-items-center px-5">
-          <Link href="/dashboard" className="px-4 py-2 text-sm text-foreground/70 hover:text-foreground transition-colors">
+          <Link to="/dashboard" className="px-4 py-2 text-sm text-foreground/70 hover:text-foreground transition-colors">
             Sign in from dashboard
           </Link>
         </main>

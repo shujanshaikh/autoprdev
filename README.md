@@ -1,11 +1,11 @@
 # autopr
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines Next.js, Convex, and more.
+This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines TanStack Start, Convex, and more.
 
 ## Features
 
 - **TypeScript** - For type safety and improved developer experience
-- **Next.js** - Full-stack React framework
+- **TanStack Start** - Full-stack React framework
 - **TailwindCSS** - Utility-first CSS for rapid UI development
 - **Shared UI package** - shadcn/ui primitives live in `packages/ui`
 - **Convex** - Reactive backend-as-a-service platform
@@ -38,7 +38,7 @@ Copy environment variables from `packages/backend/.env.local` to `apps/*/.env`.
 - Activate the Convex integration in the Clerk Dashboard.
 - Copy the Clerk Frontend API URL and set it as `CLERK_FRONTEND_API_URL` in `packages/backend/.env.local`.
 - If you are not using the Clerk Convex integration, you can instead create a Clerk JWT template named `convex`.
-- Set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/web/.env`
+- Set `VITE_CLERK_PUBLISHABLE_KEY` in `apps/web/.env`
 - Set `CLERK_SECRET_KEY` in `apps/web/.env` for Clerk server middleware
 
 Then, run the development server:
@@ -81,7 +81,7 @@ If you want to add app-specific blocks instead of shared primitives, run the sha
 ```
 autopr/
 ├── apps/
-│   ├── web/         # Frontend application (Next.js)
+│   ├── web/         # Frontend application (TanStack Start)
 ├── packages/
 │   ├── ui/          # Shared shadcn/ui components and styles
 │   ├── backend/     # Convex backend functions and schema

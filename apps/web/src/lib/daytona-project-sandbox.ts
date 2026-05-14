@@ -1,3 +1,5 @@
+import "@tanstack/react-start/server-only";
+
 import { createSandbox, deleteSandbox, type DaytonaSandbox } from "@autopr/agent/sandbox";
 
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";

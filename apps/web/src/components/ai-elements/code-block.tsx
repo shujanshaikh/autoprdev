@@ -1,5 +1,3 @@
-"use client";
-
 import { Button } from "@autopr/ui/components/button";
 import {
   Select,

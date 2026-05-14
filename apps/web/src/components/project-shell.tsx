@@ -239,13 +239,15 @@ export function ProjectSidebar({
             <SidebarMenu className="gap-0">
               <NavLink to={"/dashboard"} icon={Home} label="Dashboard" />
               <NavLink
-                to={`/project/${projectId}`}
+                to="/project/$projectId"
+                params={{ projectId }}
                 icon={MessageSquare}
                 label="Threads"
                 count={threads?.length}
               />
               <NavLink
-                to={`/project/${projectId}/pulls`}
+                to="/project/$projectId/pulls"
+                params={{ projectId }}
                 icon={GitPullRequest}
                 label="View pull request"
               />
@@ -290,7 +292,8 @@ export function ProjectSidebar({
                         isActive={isActive}
                         render={
                           <Link
-                            to={`/project/${projectId}/thread/${thread.threadId}`}
+                            to="/project/$projectId/thread/$threadId"
+                            params={{ projectId, threadId: thread.threadId }}
                           />
                         }
                         tooltip={thread.title}
@@ -406,11 +409,13 @@ export function ProjectSidebar({
 
 function NavLink({
   to,
+  params,
   icon: Icon,
   label,
   count,
 }: {
-  to: string;
+  to: "/dashboard" | "/project/$projectId" | "/project/$projectId/pulls";
+  params?: { projectId: string };
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   label: string;
   count?: number;
@@ -418,7 +423,7 @@ function NavLink({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        render={<Link to={to} />}
+        render={<Link to={to} params={params} />}
         tooltip={label}
         className="h-8 gap-2.5 px-2 font-mono group-data-[collapsible=icon]:justify-center"
       >

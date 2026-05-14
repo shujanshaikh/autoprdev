@@ -24,7 +24,6 @@ export function ProjectRow({
   index,
   projectId,
   repoFullName,
-  cloneUrl,
   sandboxStatus,
   sandboxRuntimeStatus,
   currentBranch,
@@ -72,7 +71,8 @@ export function ProjectRow({
       </span>
 
       <Link
-        to={`/project/${projectId}`}
+        to="/project/$projectId"
+        params={{ projectId }}
         className="block min-w-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <p className="truncate font-mono text-xs">
@@ -123,7 +123,8 @@ export function ProjectRow({
           <Trash2 className="size-3.5" />
         </button>
         <Link
-          to={`/project/${projectId}`}
+          to="/project/$projectId"
+          params={{ projectId }}
           className="inline-flex h-7 items-center gap-1.5 border border-transparent px-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground transition hover:border-primary hover:bg-primary hover:text-primary-foreground"
         >
           open

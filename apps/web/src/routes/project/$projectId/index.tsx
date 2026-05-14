@@ -83,7 +83,8 @@ function ThreadRow({
   return (
     <div className="group flex items-center transition-colors hover:bg-muted/40">
       <Link
-        to={`/project/${projectId}/thread/${thread.threadId}`}
+        to="/project/$projectId/thread/$threadId"
+        params={{ projectId, threadId: thread.threadId }}
         className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3.5"
       >
         <MessageSquare

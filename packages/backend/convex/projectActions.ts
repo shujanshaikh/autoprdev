@@ -13,11 +13,13 @@ type SandboxStatus = "creating" | "ready" | "failed";
 
 // Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
 // This is the custom Daytona snapshot shown in the dashboard.
-const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
+const DEFAULT_DAYTONA_SNAPSHOT = "autopr-custom";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const REPO_PATH = "repo";
 const DAYTONA_NOVNC_PORT = 6080;
+const DAYTONA_WEB_TERMINAL_PORT = 22222;
+const DEFAULT_TERMINAL_CWD = "/home/daytona/repo";
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
@@ -40,6 +42,18 @@ interface DesktopPreviewResult {
   websocketUrl: string;
   port: number;
   expiresInSeconds: number;
+}
+
+interface TerminalPreviewResult {
+  url: string;
+  port: number;
+  expiresInSeconds: number;
+}
+
+interface PtyTerminalResult {
+  sessionId: string;
+  websocketUrl: string;
+  cwd: string;
 }
 
 type SandboxRuntimeStatus = "started" | "stopped" | "unknown";
@@ -135,13 +149,19 @@ async function waitForDesktopReady(sandbox: { computerUse: { getStatus(): Promis
   throw new Error(`VNC desktop not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
 }
 
-async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
+async function ensureSandboxStarted(sandboxId: string) {
   const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
 
   if (sandbox.state && sandbox.state !== "started") {
     await sandbox.start(120);
   }
+
+  return sandbox;
+}
+
+async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
+  const sandbox = await ensureSandboxStarted(sandboxId);
 
   await sandbox.computerUse.start();
   await waitForDesktopReady(sandbox);
@@ -154,6 +174,54 @@ async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPrevi
     websocketUrl: desktopWebsocketUrl(url),
     port: DAYTONA_NOVNC_PORT,
     expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
+  };
+}
+
+async function getDaytonaTerminalPreview(sandboxId: string): Promise<TerminalPreviewResult> {
+  const sandbox = await ensureSandboxStarted(sandboxId);
+  const preview = await sandbox.getSignedPreviewUrl(DAYTONA_WEB_TERMINAL_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
+
+  return {
+    url: normalizePreviewUrl(preview.url),
+    port: DAYTONA_WEB_TERMINAL_PORT,
+    expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
+  };
+}
+
+function ptyWebsocketUrl(toolboxProxyUrl: string, sandboxId: string, sessionId: string, token: string): string {
+  const baseUrl = toolboxProxyUrl.endsWith("/") ? toolboxProxyUrl.slice(0, -1) : toolboxProxyUrl;
+  const url = new URL(`${baseUrl}/${sandboxId}/process/pty/${encodeURIComponent(sessionId)}/connect`);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("DAYTONA_SANDBOX_AUTH_KEY", token);
+  return url.toString();
+}
+
+async function createDaytonaPtyTerminal(sandboxId: string, cols: number, rows: number): Promise<PtyTerminalResult> {
+  const sandbox = await ensureSandboxStarted(sandboxId);
+  const sessionId = `autopr-terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const handle = await sandbox.process.createPty({
+    id: sessionId,
+    cwd: DEFAULT_TERMINAL_CWD,
+    envs: {
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+      CLICOLOR: "1",
+      FORCE_COLOR: "1",
+    },
+    cols,
+    rows,
+    onData: () => undefined,
+  });
+  await handle.disconnect().catch(() => undefined);
+
+  const preview = await sandbox.getPreviewLink(1);
+
+  return {
+    sessionId,
+    websocketUrl: ptyWebsocketUrl(sandbox.toolboxProxyUrl, sandbox.id, sessionId, preview.token),
+    cwd: DEFAULT_TERMINAL_CWD,
   };
 }
 
@@ -257,6 +325,117 @@ export const getDesktopPreview = action({
     } catch (error) {
       throw new ConvexError({
         code: "DAYTONA_DESKTOP_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const getPtyTerminal = action({
+  args: {
+    projectId: v.string(),
+    cols: v.optional(v.number()),
+    rows: v.optional(v.number()),
+  },
+  returns: v.object({
+    sessionId: v.string(),
+    websocketUrl: v.string(),
+    cwd: v.string(),
+  }),
+  handler: async (ctx, args): Promise<PtyTerminalResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      const terminal = await createDaytonaPtyTerminal(project.sandboxId, args.cols ?? 100, args.rows ?? 30);
+      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        sandboxRuntimeStatus: "started",
+      });
+      return terminal;
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_PTY_TERMINAL_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const resizePtyTerminal = action({
+  args: {
+    projectId: v.string(),
+    sessionId: v.string(),
+    cols: v.number(),
+    rows: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      const sandbox = await ensureSandboxStarted(project.sandboxId);
+      await sandbox.process.resizePtySession(args.sessionId, args.cols, args.rows);
+      return null;
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_PTY_RESIZE_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const getTerminalPreview = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.object({
+    url: v.string(),
+    port: v.number(),
+    expiresInSeconds: v.number(),
+  }),
+  handler: async (ctx, args): Promise<TerminalPreviewResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      const preview = await getDaytonaTerminalPreview(project.sandboxId);
+      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        sandboxRuntimeStatus: "started",
+      });
+      return preview;
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_TERMINAL_FAILED",
         message: errorMessage(error),
       });
     }

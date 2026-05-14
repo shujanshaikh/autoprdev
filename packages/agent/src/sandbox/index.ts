@@ -60,7 +60,7 @@ export interface SandboxSessionOptions {
 
 // Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
 // This is the custom Daytona snapshot shown in the dashboard.
-const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
+const DEFAULT_DAYTONA_SNAPSHOT = "autopr-custom";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;

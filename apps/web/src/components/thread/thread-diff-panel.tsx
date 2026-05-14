@@ -2,10 +2,11 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Monitor, Power, RefreshCw, Send, X } from "lucide-react";
+import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Monitor, Power, RefreshCw, Send, Terminal, X } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
+import { DaytonaTerminalView } from "./daytona-terminal-view";
 import { ThreadDiffDetailView } from "./thread-diff-panel-detail-view";
 import { ThreadDiffEmptyState, ThreadDiffLoadingList } from "./thread-diff-panel-states";
 import { ThreadDiffFileRow } from "./thread-diff-panel-file-row";
@@ -67,7 +68,7 @@ export function ThreadDiffPanel({
 }: ThreadDiffPanelProps) {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
-  const [activeTab, setActiveTab] = useState<"diff" | "pull-request" | "desktop">("diff");
+  const [activeTab, setActiveTab] = useState<"diff" | "pull-request" | "desktop" | "terminal">("diff");
   const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
   const [desktopUrl, setDesktopUrl] = useState<string | undefined>();
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
@@ -76,6 +77,8 @@ export function ThreadDiffPanel({
   const [desktopRuntimeStatus, setDesktopRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
   const [desktopRawState, setDesktopRawState] = useState<string | undefined>();
   const [desktopError, setDesktopError] = useState<string | undefined>();
+  const [hasOpenedDesktop, setHasOpenedDesktop] = useState(false);
+  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false);
   const [branchName, setBranchName] = useState("");
   const [body, setBody] = useState("");
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
@@ -268,6 +271,7 @@ export function ThreadDiffPanel({
               type="button"
               onClick={() => {
                 setActiveTab("desktop");
+                setHasOpenedDesktop(true);
                 if (!desktopRuntimeStatus && !desktopStatusLoading) {
                   void refreshDesktopStatus();
                 }
@@ -279,6 +283,20 @@ export function ThreadDiffPanel({
             >
               <Monitor className="size-3.5" aria-hidden="true" />
               Desktop
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("terminal");
+                setHasOpenedTerminal(true);
+              }}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 border px-2.5 text-xs font-medium transition-colors",
+                activeTab === "terminal" ? "border-border/60 bg-muted/50 text-foreground" : "border-transparent text-muted-foreground hover:bg-muted/35 hover:text-foreground",
+              )}
+            >
+              <Terminal className="size-3.5" aria-hidden="true" />
+              Terminal
             </button>
           </div>
 
@@ -304,8 +322,9 @@ export function ThreadDiffPanel({
 
         </header>
 
-        {activeTab === "desktop" ? (
-          <div className="flex min-h-0 flex-1 flex-col bg-background">
+        <div className={cn("min-h-0 flex-1 flex-col bg-background", activeTab === "desktop" ? "flex" : "hidden")}>
+          {hasOpenedDesktop ? (
+          <>
             {/* Toolbar */}
             <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/45 px-3">
               <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -423,8 +442,15 @@ export function ThreadDiffPanel({
                 </div>
               </div>
             )}
-          </div>
-        ) : activeTab === "pull-request" ? (
+          </>
+          ) : null}
+        </div>
+
+        <div className={cn("min-h-0 flex-1 bg-background p-2", activeTab === "terminal" ? "block" : "hidden")}>
+          {hasOpenedTerminal ? <DaytonaTerminalView projectId={projectId} /> : null}
+        </div>
+
+        {activeTab === "pull-request" ? (
           <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background">
             <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5 px-5 py-6">
               {effectiveStatus === "created" && effectiveUrl ? (
@@ -620,7 +646,8 @@ export function ThreadDiffPanel({
               )}
             </div>
           </div>
-        ) : showEmpty ? (
+        ) : activeTab === "diff" ? (
+          showEmpty ? (
           <ThreadDiffEmptyState />
         ) : showLoadingList ? (
           <ThreadDiffLoadingList />
@@ -651,7 +678,8 @@ export function ThreadDiffPanel({
               })}
             </div>
           </div>
-        )}
+          )
+        ) : null}
       </aside>
     </>
     );

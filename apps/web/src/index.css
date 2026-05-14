@@ -492,6 +492,129 @@
   margin-bottom: 0.5em;
 }
 
+/* ─── Soft variant — used for reasoning / "thinking" content ─── */
+/* Renders the same markdown structure but at a lower visual weight:
+   muted color, tighter scale, lighter headings/strong, subdued code chips. */
+
+.sd-render-soft {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted-foreground);
+}
+
+.sd-render-soft h1,
+.sd-render-soft h2,
+.sd-render-soft h3,
+.sd-render-soft h4,
+.sd-render-soft h5,
+.sd-render-soft h6 {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  margin-top: 1.2em;
+  margin-bottom: 0.35em;
+}
+
+.sd-render-soft h1 {
+  font-size: 1.05em;
+}
+
+.sd-render-soft h2,
+.sd-render-soft h3,
+.sd-render-soft h4,
+.sd-render-soft h5,
+.sd-render-soft h6 {
+  font-size: 1em;
+}
+
+.sd-render-soft p {
+  margin-top: 0.55em;
+  margin-bottom: 0.55em;
+}
+
+.sd-render-soft strong,
+.sd-render-soft b {
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.sd-render-soft em,
+.sd-render-soft i {
+  color: var(--muted-foreground);
+}
+
+.sd-render-soft code {
+  background: color-mix(in oklch, var(--muted) 65%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.85em;
+  font-weight: 400;
+  padding: 0.12em 0.4em;
+  border-radius: 4px;
+}
+
+.sd-render-soft pre {
+  background: color-mix(in oklch, var(--muted) 55%, transparent);
+  border-color: color-mix(in oklch, var(--border) 70%, transparent);
+  font-size: 0.82em;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  padding: 0.85em 1em;
+  border-radius: 8px;
+}
+
+.sd-render-soft pre code {
+  color: inherit;
+  font-weight: 400;
+}
+
+.sd-render-soft a {
+  color: var(--muted-foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
+  text-underline-offset: 2px;
+  font-weight: 400;
+}
+
+.dark .sd-render-soft a {
+  color: var(--muted-foreground);
+}
+
+.sd-render-soft a:hover {
+  text-decoration-color: var(--muted-foreground);
+  opacity: 1;
+}
+
+.sd-render-soft blockquote {
+  border-left-color: color-mix(in oklch, var(--border) 70%, transparent);
+  color: var(--muted-foreground);
+  opacity: 0.85;
+}
+
+.sd-render-soft ul,
+.sd-render-soft ol {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  padding-left: 1.25em;
+}
+
+.sd-render-soft li {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+
+.sd-render-soft th,
+.sd-render-soft td {
+  border-bottom-color: color-mix(in oklch, var(--border) 70%, transparent);
+}
+
+.sd-render-soft th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.sd-render-soft hr {
+  opacity: 0.4;
+}
+
 /* ─── Pierre Diffs — theme integration ─── */
 
 .diff-panel-view diffs-container,

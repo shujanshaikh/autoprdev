@@ -234,7 +234,7 @@ function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
     <div className="message-enter-user">
       <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
-        <div className="rounded-lg bg-muted p-4">
+        <div className="rounded-none border border-border bg-card p-4 shadow-sm">
           <p className="text-[15px] leading-[1.7] text-foreground">{prompt}</p>
         </div>
       </div>
@@ -520,7 +520,7 @@ function ThreadChat({
               return (
                 <div key={messageKey}>
                   <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
-                    <div className={cn(isUser && "rounded-lg bg-muted p-4")}>
+                    <div className={cn(isUser && "rounded-none border border-border bg-card p-4 shadow-sm")}>
                       <MessageContent>
                         {grouped.map((item) => {
                         if (item.kind === "explore-group") {
@@ -744,10 +744,6 @@ function ProjectThreadPageContent() {
               <SidebarTrigger className="mr-2" />
 
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="hidden max-w-[220px] truncate font-mono text-xs text-muted-foreground sm:inline">
-                  {project?.repoFullName ?? "Repository"}
-                </span>
-                <span className="hidden text-muted-foreground sm:inline">/</span>
                 <h1 className="min-w-0 truncate text-sm font-semibold">
                   {thread?.title ?? initialPrompt ?? "Loading thread"}
                 </h1>

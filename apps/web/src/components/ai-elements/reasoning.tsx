@@ -11,7 +11,6 @@ import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
-import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import {
   createContext,
@@ -156,12 +155,21 @@ export type ReasoningTriggerProps = ComponentProps<
 
 const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
   if (isStreaming || duration === 0) {
-    return <Shimmer duration={1}>Thinking…</Shimmer>;
+    return (
+      <Shimmer as="span" duration={1.4}>
+        Thinking
+      </Shimmer>
+    );
   }
   if (duration === undefined) {
-    return <p>Thought for a few seconds</p>;
+    return <span>Thought for a moment</span>;
   }
-  return <p>Thought for {duration} seconds</p>;
+  return (
+    <span>
+      Thought for <span className="tabular-nums">{duration}</span>
+      <span className="opacity-60">s</span>
+    </span>
+  );
 };
 
 export const ReasoningTrigger = memo(
@@ -175,22 +183,39 @@ export const ReasoningTrigger = memo(
 
     return (
       <CollapsibleTrigger
+        data-streaming={isStreaming || undefined}
         className={cn(
-          "flex w-full items-center gap-2 text-[13px] text-muted-foreground/70 transition-colors hover:text-muted-foreground",
-          className
+          "group/reasoning-trigger inline-flex items-center gap-1.5 py-0.5",
+          "text-[12px] font-medium tracking-tight leading-none text-muted-foreground/70",
+          "transition-colors duration-200 ease-out",
+          "hover:text-foreground/85",
+          "focus-visible:text-foreground/85 focus-visible:outline-none",
+          "data-[streaming]:text-foreground/85",
+          className,
         )}
         {...props}
       >
         {children ?? (
           <>
-            <BrainIcon className="size-3.5" />
-            {getThinkingMessage(isStreaming, duration)}
-            <ChevronDownIcon
+            <span>{getThinkingMessage(isStreaming, duration)}</span>
+
+            {/* Chevron — soft, rotates on open */}
+            <svg
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
               className={cn(
-                "size-3.5 transition-transform",
-                isOpen ? "rotate-180" : "rotate-0"
+                "size-3 shrink-0 opacity-45 transition-[transform,opacity] duration-300 ease-out",
+                "group-hover/reasoning-trigger:opacity-90",
+                isOpen ? "rotate-180" : "rotate-0",
               )}
-            />
+            >
+              <path d="M3 4.75 L6 7.75 L9 4.75" />
+            </svg>
           </>
         )}
       </CollapsibleTrigger>
@@ -210,13 +235,17 @@ export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
     <CollapsibleContent
       className={cn(
-        "mt-3 text-[13px] leading-relaxed text-muted-foreground/80",
+        "mt-2 overflow-hidden",
         "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
         className
       )}
       {...props}
     >
-      <Streamdown className="sd-render" plugins={streamdownPlugins}>{children}</Streamdown>
+      <div className="border-l border-border/50 pl-3">
+        <Streamdown className="sd-render sd-render-soft" plugins={streamdownPlugins}>
+          {children}
+        </Streamdown>
+      </div>
     </CollapsibleContent>
   )
 );

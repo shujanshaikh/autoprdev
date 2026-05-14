@@ -4,7 +4,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Monitor, RefreshCw, Send, X } from "lucide-react";
+import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Monitor, Power, RefreshCw, Send, X } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
@@ -74,6 +74,9 @@ export function ThreadDiffPanel({
   const [desktopUrl, setDesktopUrl] = useState<string | undefined>();
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
   const [desktopLoading, setDesktopLoading] = useState(false);
+  const [desktopStatusLoading, setDesktopStatusLoading] = useState(false);
+  const [desktopRuntimeStatus, setDesktopRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
+  const [desktopRawState, setDesktopRawState] = useState<string | undefined>();
   const [desktopError, setDesktopError] = useState<string | undefined>();
   const [branchName, setBranchName] = useState("");
   const [body, setBody] = useState("");
@@ -81,6 +84,7 @@ export function ThreadDiffPanel({
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
+  const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const fileEntryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const entry of entries) {
@@ -142,6 +146,22 @@ export function ThreadDiffPanel({
   const requestedBranch = autoprBranchName(branchName);
   const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0 && requestedBranch.length > 0;
 
+  const refreshDesktopStatus = useCallback(async () => {
+    setDesktopStatusLoading(true);
+    setDesktopError(undefined);
+
+    try {
+      const status = await getSandboxRuntimeStatus({ projectId });
+      setDesktopRuntimeStatus(status.status);
+      setDesktopRawState(status.rawState);
+    } catch (error) {
+      setDesktopRuntimeStatus("unknown");
+      setDesktopError(error instanceof Error ? error.message : "Could not read the VM state.");
+    } finally {
+      setDesktopStatusLoading(false);
+    }
+  }, [getSandboxRuntimeStatus, projectId]);
+
   const loadDesktop = useCallback(async () => {
     setDesktopLoading(true);
     setDesktopError(undefined);
@@ -150,12 +170,15 @@ export function ThreadDiffPanel({
       const data = await getDesktopPreview({ projectId });
       setDesktopUrl(data.url);
       setDesktopWebsocketUrl(data.websocketUrl);
+      setDesktopRuntimeStatus("started");
+      setDesktopRawState("started");
     } catch (error) {
       setDesktopError(error instanceof Error ? error.message : "Could not start the Daytona desktop.");
+      void refreshDesktopStatus();
     } finally {
       setDesktopLoading(false);
     }
-  }, [getDesktopPreview, projectId]);
+  }, [getDesktopPreview, projectId, refreshDesktopStatus]);
 
   const createPullRequest = useCallback(async () => {
     if (!canCreatePullRequest) return;
@@ -247,8 +270,8 @@ export function ThreadDiffPanel({
               type="button"
               onClick={() => {
                 setActiveTab("desktop");
-                if (!desktopUrl && !desktopLoading) {
-                  void loadDesktop();
+                if (!desktopRuntimeStatus && !desktopStatusLoading) {
+                  void refreshDesktopStatus();
                 }
               }}
               className={cn(
@@ -286,19 +309,30 @@ export function ThreadDiffPanel({
         {activeTab === "desktop" ? (
           <div className="flex min-h-0 flex-1 flex-col bg-background">
             {/* Toolbar */}
-            <div className="flex h-10 shrink-0 items-center justify-end gap-2 border-b border-border/45 px-3">
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/45 px-3">
+              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                <span className="relative inline-flex size-4 items-center justify-center bg-amber-900/70">
+                  <span
+                    className={cn(
+                      "absolute -bottom-1 h-0.5 w-5 rounded-full",
+                      desktopRuntimeStatus === "started" ? "bg-emerald-500" : desktopRuntimeStatus === "stopped" ? "bg-zinc-500" : "bg-amber-500",
+                    )}
+                  />
+                </span>
+                vm {desktopRuntimeStatus ?? "checking"}
+              </div>
               <button
                 type="button"
-                onClick={() => void loadDesktop()}
-                disabled={desktopLoading}
+                onClick={() => void refreshDesktopStatus()}
+                disabled={desktopStatusLoading || desktopLoading}
                 className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
               >
-                {desktopLoading ? (
+                {desktopStatusLoading ? (
                   <Loader2 className="size-3 animate-spin" aria-hidden="true" />
                 ) : (
                   <RefreshCw className="size-3" aria-hidden="true" />
                 )}
-                reload
+                status
               </button>
             </div>
 
@@ -311,29 +345,86 @@ export function ThreadDiffPanel({
               </div>
             ) : null}
 
-            {/* Viewport — centered frame matching Daytona's 4:3 desktop to avoid side bars */}
-            <div
-              className="relative flex min-h-0 flex-1 overflow-hidden"
-              style={{ containerType: "size" } as CSSProperties}
-            >
-              <div className="absolute inset-0 flex items-center justify-center p-4">
-                <div
-                  className="relative flex w-full flex-col"
-                  style={{
-                    width: "min(100%, calc((100cqh - 2rem) * 1.333333))",
-                    aspectRatio: "4 / 3",
-                    maxHeight: "calc(100cqh - 2rem)",
-                  }}
-                >
-                  <div className="relative h-full w-full overflow-hidden border border-border/60 bg-zinc-950">
-                    <DaytonaDesktopView
-                      websocketUrl={desktopWebsocketUrl}
-                      loading={desktopLoading}
-                    />
+            {!desktopWebsocketUrl ? (
+              <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+                <div className="w-full max-w-sm border border-border bg-card">
+                  <div className="border-b border-border px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="relative inline-flex size-9 items-center justify-center bg-amber-900/75 text-amber-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]">
+                        <Power className="size-4" aria-hidden="true" />
+                        <span
+                          className={cn(
+                            "absolute -bottom-1.5 h-1 w-11 rounded-full",
+                            desktopRuntimeStatus === "started" ? "bg-emerald-500" : desktopRuntimeStatus === "stopped" ? "bg-zinc-500" : "bg-amber-500",
+                          )}
+                        />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">sandbox vm</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {desktopStatusLoading ? "Checking state…" : desktopRuntimeStatus === "stopped" ? "The VM is stopped" : desktopRuntimeStatus === "started" ? "The VM is awake" : "State unknown"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-4 p-4">
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {desktopRuntimeStatus === "stopped"
+                        ? "Awake the VM before opening the remote desktop. This starts the existing Daytona sandbox; it does not create a new one."
+                        : desktopRuntimeStatus === "started"
+                          ? "The sandbox is already running. Open the desktop when you are ready."
+                          : "Check the sandbox power state before starting the desktop session."}
+                    </p>
+                    {desktopRawState ? (
+                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">daytona: {desktopRawState}</p>
+                    ) : null}
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void refreshDesktopStatus()}
+                        disabled={desktopStatusLoading || desktopLoading}
+                        className="inline-flex h-8 items-center gap-1.5 border border-border px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {desktopStatusLoading ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3" aria-hidden="true" />}
+                        check status
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void loadDesktop()}
+                        disabled={desktopLoading || desktopStatusLoading}
+                        className="inline-flex h-8 items-center gap-1.5 bg-primary px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {desktopLoading ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Power className="size-3" aria-hidden="true" />}
+                        {desktopRuntimeStatus === "stopped" ? "Awake the VM" : "Open desktop"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div
+                className="relative flex min-h-0 flex-1 overflow-hidden"
+                style={{ containerType: "size" } as CSSProperties}
+              >
+                <div className="absolute inset-0 flex items-center justify-center p-4">
+                  <div
+                    className="relative flex w-full flex-col"
+                    style={{
+                      width: "min(100%, calc((100cqh - 2rem) * 1.333333))",
+                      aspectRatio: "4 / 3",
+                      maxHeight: "calc(100cqh - 2rem)",
+                    }}
+                  >
+                    <div className="relative h-full w-full overflow-hidden border border-border/60 bg-zinc-950">
+                      <DaytonaDesktopView
+                        websocketUrl={desktopWebsocketUrl}
+                        loading={desktopLoading}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : activeTab === "pull-request" ? (
           <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background">

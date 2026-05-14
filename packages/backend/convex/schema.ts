@@ -24,6 +24,8 @@ export default defineSchema({
     sandboxSnapshot: v.optional(v.string()),
     sandboxWorkDir: v.optional(v.string()),
     sandboxStatus: v.union(v.literal("creating"), v.literal("ready"), v.literal("failed")),
+    sandboxRuntimeStatus: v.optional(v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown"))),
+    sandboxRuntimeCheckedAt: v.optional(v.number()),
     sandboxError: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

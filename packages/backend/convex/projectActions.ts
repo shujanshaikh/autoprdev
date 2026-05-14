@@ -11,7 +11,9 @@ const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready")
 
 type SandboxStatus = "creating" | "ready" | "failed";
 
-const DEFAULT_DAYTONA_SNAPSHOT = "daytonaio/sandbox:0.6.0";
+// Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
+// This is the custom Daytona snapshot shown in the dashboard.
+const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const REPO_PATH = "repo";
@@ -38,6 +40,14 @@ interface DesktopPreviewResult {
   websocketUrl: string;
   port: number;
   expiresInSeconds: number;
+}
+
+type SandboxRuntimeStatus = "started" | "stopped" | "unknown";
+
+interface SandboxRuntimeStatusResult {
+  status: SandboxRuntimeStatus;
+  rawState?: string;
+  checkedAt: number;
 }
 
 function errorMessage(error: unknown) {
@@ -92,6 +102,26 @@ function computerUseStatus(value: unknown): string | undefined {
   return typeof status === "string" ? status : undefined;
 }
 
+function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
+  if (typeof state !== "string") return "unknown";
+  const normalized = state.toLowerCase();
+  if (normalized === "started" || normalized === "running") return "started";
+  if (normalized === "stopped" || normalized === "stopping" || normalized === "archived") return "stopped";
+  return "unknown";
+}
+
+async function getDaytonaSandboxRuntimeStatus(sandboxId: string): Promise<SandboxRuntimeStatusResult> {
+  const daytona = createDaytonaClient();
+  const sandbox = await daytona.get(sandboxId);
+  const rawState = typeof sandbox.state === "string" ? sandbox.state : undefined;
+
+  return {
+    status: normalizeSandboxRuntimeStatus(rawState),
+    rawState,
+    checkedAt: Date.now(),
+  };
+}
+
 async function waitForDesktopReady(sandbox: { computerUse: { getStatus(): Promise<unknown> } }): Promise<void> {
   const deadline = Date.now() + DESKTOP_STATUS_TIMEOUT_MS;
   let lastStatus: string | undefined;
@@ -137,6 +167,7 @@ async function bootstrapRepositorySandbox(options: {
   const sandbox = await daytona.create({
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
     autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
+
   });
   const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
   const repoPath = `${sandboxWorkDir}/${REPO_PATH}`;
@@ -154,6 +185,44 @@ async function bootstrapRepositorySandbox(options: {
     sandboxWorkDir: repoPath,
   };
 }
+
+export const getSandboxRuntimeStatus = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.object({
+    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown")),
+    rawState: v.optional(v.string()),
+    checkedAt: v.number(),
+  }),
+  handler: async (ctx, args): Promise<SandboxRuntimeStatusResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      const status = await getDaytonaSandboxRuntimeStatus(project.sandboxId);
+      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        sandboxRuntimeStatus: status.status,
+      });
+      return status;
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_SANDBOX_STATUS_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
 
 export const getDesktopPreview = action({
   args: {
@@ -178,7 +247,13 @@ export const getDesktopPreview = action({
     });
 
     try {
-      return await getDaytonaDesktopPreview(project.sandboxId);
+      const preview = await getDaytonaDesktopPreview(project.sandboxId);
+      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        sandboxRuntimeStatus: "started",
+      });
+      return preview;
     } catch (error) {
       throw new ConvexError({
         code: "DAYTONA_DESKTOP_FAILED",

@@ -7,7 +7,7 @@ import { cn } from "@autopr/ui/lib/utils";
 import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { WorkflowChatTransport } from "@workflow/ai";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { parsePatch } from "diff";
 import {
   getToolName,
@@ -256,6 +256,37 @@ function AwaitingAgentIndicator() {
   );
 }
 
+function SandboxStatusBar({
+  sandboxStatus,
+  runtimeStatus,
+  checking = false,
+}: {
+  sandboxStatus?: "creating" | "ready" | "failed";
+  runtimeStatus?: "started" | "stopped" | "unknown";
+  checking?: boolean;
+}) {
+  const vmLabel = sandboxStatus === "ready" ? runtimeStatus ?? "unknown" : sandboxStatus ?? "unknown";
+  const barClass =
+    sandboxStatus === "failed"
+      ? "bg-destructive"
+      : sandboxStatus === "creating" || checking
+        ? "bg-amber-500"
+        : runtimeStatus === "started"
+          ? "bg-emerald-500"
+          : runtimeStatus === "stopped"
+            ? "bg-zinc-500"
+            : "bg-muted-foreground/60";
+
+  return (
+    <div className="-mt-px flex h-6 items-center justify-end border border-t-0 border-border bg-card/70 px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+      <span className="mr-2 relative inline-flex h-2 w-5 shrink-0 items-end rounded-full bg-muted">
+        <span className={cn("h-0.5 w-full rounded-full", barClass, checking && "animate-pulse")} aria-hidden="true" />
+      </span>
+      <span className="shrink-0 tabular-nums">vm {checking ? "checking" : vmLabel}</span>
+    </div>
+  );
+}
+
 function ThreadChat({
   projectId,
   threadId,
@@ -287,12 +318,42 @@ function ThreadChat({
   const resumedRunIdsRef = useRef(new Set<string>());
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
+  const [runtimeStatus, setRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>(
+    project?.sandboxRuntimeStatus,
+  );
+  const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
+  const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
   useEffect(() => {
     if (currentRunId) {
       activeRunIdRef.current = currentRunId;
     }
   }, [currentRunId]);
+
+  useEffect(() => {
+    setRuntimeStatus(project?.sandboxRuntimeStatus);
+  }, [project?.sandboxRuntimeStatus]);
+
+  useEffect(() => {
+    if (project?.sandboxStatus !== "ready") return;
+    let cancelled = false;
+    setRuntimeStatusLoading(true);
+
+    void getSandboxRuntimeStatus({ projectId })
+      .then((result) => {
+        if (!cancelled) setRuntimeStatus(result.status);
+      })
+      .catch(() => {
+        if (!cancelled) setRuntimeStatus("unknown");
+      })
+      .finally(() => {
+        if (!cancelled) setRuntimeStatusLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getSandboxRuntimeStatus, project?.sandboxStatus, projectId]);
 
   const agentApi = `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`;
 
@@ -674,6 +735,11 @@ function ThreadChat({
                 />
               </PromptInputFooter>
             </PromptInput>
+            <SandboxStatusBar
+              sandboxStatus={project?.sandboxStatus}
+              runtimeStatus={runtimeStatus}
+              checking={runtimeStatusLoading}
+            />
           </div>
         </div>
       </div>

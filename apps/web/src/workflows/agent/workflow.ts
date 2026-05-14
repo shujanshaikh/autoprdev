@@ -145,7 +145,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       messages: applyAgenticCache(inputMessages),
       writable,
       sendStart: !options.assistantMessageId,
-      maxSteps: 12,
+      maxSteps: 100,
       onFinish: async ({ messages }) => {
         if (!persistence) {
           return;

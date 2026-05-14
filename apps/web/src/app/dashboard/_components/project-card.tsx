@@ -1,10 +1,13 @@
 "use client";
 
+import { api } from "@autopr/backend/convex/_generated/api";
 import { cn } from "@autopr/ui/lib/utils";
+import { useAction } from "convex/react";
 import { ArrowUpRight, GitBranch, Trash2 } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
-import { statusStyles, type SandboxStatus } from "./types";
+import { statusStyles, type SandboxRuntimeStatus, type SandboxStatus } from "./types";
 
 interface ProjectRowProps {
   index: number;
@@ -12,6 +15,7 @@ interface ProjectRowProps {
   repoFullName: string;
   cloneUrl: string;
   sandboxStatus: SandboxStatus;
+  sandboxRuntimeStatus?: SandboxRuntimeStatus | null;
   currentBranch?: string | null;
   repoBranch?: string | null;
   defaultBranch?: string | null;
@@ -24,6 +28,7 @@ export function ProjectRow({
   repoFullName,
   cloneUrl,
   sandboxStatus,
+  sandboxRuntimeStatus,
   currentBranch,
   repoBranch,
   defaultBranch,
@@ -31,7 +36,30 @@ export function ProjectRow({
 }: ProjectRowProps) {
   const branch = currentBranch ?? repoBranch ?? defaultBranch ?? "main";
   const styles = statusStyles(sandboxStatus);
+  const [runtimeStatus, setRuntimeStatus] = useState<SandboxRuntimeStatus | undefined>(sandboxRuntimeStatus ?? undefined);
+  const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const [owner, name] = repoFullName.split("/");
+
+  useEffect(() => {
+    setRuntimeStatus(sandboxRuntimeStatus ?? undefined);
+  }, [sandboxRuntimeStatus]);
+
+  useEffect(() => {
+    if (sandboxStatus !== "ready") return;
+    let cancelled = false;
+
+    void getSandboxRuntimeStatus({ projectId })
+      .then((result) => {
+        if (!cancelled) setRuntimeStatus(result.status);
+      })
+      .catch(() => {
+        if (!cancelled) setRuntimeStatus("unknown");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getSandboxRuntimeStatus, projectId, sandboxStatus]);
 
   return (
     <div
@@ -70,15 +98,20 @@ export function ProjectRow({
           )}
         >
           <span className="flex size-3 shrink-0 items-center justify-center" aria-hidden>
-            <span
-              className={cn(
-                "size-1.5 rounded-full",
-                styles.dot,
-                sandboxStatus === "creating" && "animate-pulse",
-              )}
-            />
+            <span className="relative flex size-2.5 items-center justify-center bg-amber-900/65 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]">
+              <span
+                className={cn(
+                  "absolute -bottom-1 h-0.5 w-3 rounded-full",
+                  runtimeStatus === "started" ? "bg-emerald-500" : runtimeStatus === "stopped" ? "bg-zinc-500" : styles.dot,
+                  sandboxStatus === "creating" && "animate-pulse",
+                )}
+              />
+            </span>
           </span>
-          <span className="min-w-0 truncate">{sandboxStatus}</span>
+          <span className="min-w-0 truncate">
+            {sandboxStatus}
+            {sandboxStatus === "ready" && runtimeStatus ? ` / vm ${runtimeStatus}` : ""}
+          </span>
         </div>
       </div>
 

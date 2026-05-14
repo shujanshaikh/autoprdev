@@ -3,13 +3,14 @@
 import { Loader2 } from "lucide-react";
 
 import { ProjectRow } from "./project-card";
-import type { SandboxStatus } from "./types";
+import type { SandboxRuntimeStatus, SandboxStatus } from "./types";
 
 interface Project {
   projectId: string;
   repoFullName: string;
   cloneUrl: string;
   sandboxStatus: SandboxStatus;
+  sandboxRuntimeStatus?: SandboxRuntimeStatus | null;
   currentBranch?: string | null;
   repoBranch?: string | null;
   defaultBranch?: string | null;
@@ -70,6 +71,7 @@ export function ProjectGrid({ projects, onDelete }: ProjectGridProps) {
               repoFullName={project.repoFullName}
               cloneUrl={project.cloneUrl}
               sandboxStatus={project.sandboxStatus}
+              sandboxRuntimeStatus={project.sandboxRuntimeStatus}
               currentBranch={project.currentBranch}
               repoBranch={project.repoBranch}
               defaultBranch={project.defaultBranch}

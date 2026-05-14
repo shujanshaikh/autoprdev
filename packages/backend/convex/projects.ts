@@ -6,6 +6,7 @@ import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
 const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready"), v.literal("failed"));
+const sandboxRuntimeStatusValidator = v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown"));
 type SandboxStatus = "creating" | "ready" | "failed";
 
 export const ensureForGithubRepoInternal = internalMutation({
@@ -186,6 +187,8 @@ export const markSandboxReadyInternal = internalMutation({
       sandboxSnapshot: args.sandboxSnapshot,
       sandboxWorkDir: args.sandboxWorkDir,
       sandboxStatus: "ready",
+      sandboxRuntimeStatus: "started",
+      sandboxRuntimeCheckedAt: Date.now(),
       branchSwitchStatus: "idle",
       sandboxError: undefined,
       updatedAt: Date.now(),
@@ -248,6 +251,8 @@ export const markSandboxReady = mutation({
       sandboxSnapshot: args.sandboxSnapshot,
       sandboxWorkDir: args.sandboxWorkDir,
       sandboxStatus: "ready",
+      sandboxRuntimeStatus: "started",
+      sandboxRuntimeCheckedAt: Date.now(),
       sandboxError: undefined,
       branchSwitchStatus: "idle",
       updatedAt: Date.now(),
@@ -405,6 +410,33 @@ export const markBranchSwitchFailed = mutation({
       branchSwitchError: shortError(args.branchSwitchError),
       repoBranch: args.previousBranch ?? project.repoBranch,
       currentBranch: args.previousBranch ?? project.currentBranch,
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const updateSandboxRuntimeStatusInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    sandboxRuntimeStatus: sandboxRuntimeStatusValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      sandboxRuntimeStatus: args.sandboxRuntimeStatus,
+      sandboxRuntimeCheckedAt: Date.now(),
       updatedAt: Date.now(),
     });
 

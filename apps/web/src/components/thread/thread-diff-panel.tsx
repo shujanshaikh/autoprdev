@@ -2,7 +2,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Monitor, Power, RefreshCw, Send, Terminal, X } from "lucide-react";
+import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Maximize2, Minimize2, Monitor, Power, RefreshCw, Send, Terminal, X } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
@@ -77,6 +77,7 @@ export function ThreadDiffPanel({
   const [desktopRuntimeStatus, setDesktopRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
   const [desktopRawState, setDesktopRawState] = useState<string | undefined>();
   const [desktopError, setDesktopError] = useState<string | undefined>();
+  const [desktopFullscreen, setDesktopFullscreen] = useState(false);
   const [hasOpenedDesktop, setHasOpenedDesktop] = useState(false);
   const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false);
   const [branchName, setBranchName] = useState("");
@@ -298,26 +299,31 @@ export function ThreadDiffPanel({
               <Terminal className="size-3.5" aria-hidden="true" />
               Terminal
             </button>
-          </div>
-
-          <div className="flex h-10 items-center gap-2 border-b border-border/45 px-3">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="inline-flex size-6 items-center justify-center border border-border/60 bg-muted/40">
-                <FileDiff className="size-3.5 text-foreground/80" aria-hidden="true" />
-              </span>
-              <p className="truncate text-sm font-medium text-foreground">Thread changes</p>
-              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{totals.files} files</span>
-            </div>
-            {entries.length > 0 ? (
-              <div className="flex shrink-0 items-center gap-2 font-mono text-xs tabular-nums">
-                <span className="text-emerald-500">+{totals.additions}</span>
-                <span className="text-red-400">−{totals.deletions}</span>
-              </div>
-            ) : null}
-            <Button type="button" variant="ghost" size="icon" className="size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close changes panel">
+            <Button type="button" variant="ghost" size="icon" className="ml-auto size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close panel">
               <X className="size-3.5" aria-hidden="true" />
             </Button>
           </div>
+
+          {activeTab === "diff" ? (
+            <div className="flex h-10 items-center gap-2 border-b border-border/45 px-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="inline-flex size-6 items-center justify-center border border-border/60 bg-muted/40">
+                  <FileDiff className="size-3.5 text-foreground/80" aria-hidden="true" />
+                </span>
+                <p className="truncate text-sm font-medium text-foreground">Thread changes</p>
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{totals.files} files</span>
+              </div>
+              {entries.length > 0 ? (
+                <div className="flex shrink-0 items-center gap-2 font-mono text-xs tabular-nums">
+                  <span className="text-emerald-500">+{totals.additions}</span>
+                  <span className="text-red-400">−{totals.deletions}</span>
+                </div>
+              ) : null}
+              <Button type="button" variant="ghost" size="icon" className="size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close changes panel">
+                <X className="size-3.5" aria-hidden="true" />
+              </Button>
+            </div>
+          ) : null}
 
 
         </header>
@@ -338,19 +344,31 @@ export function ThreadDiffPanel({
                 </span>
                 vm {desktopRuntimeStatus ?? "checking"}
               </div>
-              <button
-                type="button"
-                onClick={() => void refreshDesktopStatus()}
-                disabled={desktopStatusLoading || desktopLoading}
-                className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
-              >
-                {desktopStatusLoading ? (
-                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                ) : (
-                  <RefreshCw className="size-3" aria-hidden="true" />
-                )}
-                status
-              </button>
+              <div className="flex items-center gap-2">
+                {desktopWebsocketUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setDesktopFullscreen((value) => !value)}
+                    className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    {desktopFullscreen ? <Minimize2 className="size-3" aria-hidden="true" /> : <Maximize2 className="size-3" aria-hidden="true" />}
+                    {desktopFullscreen ? "exit" : "fullscreen"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void refreshDesktopStatus()}
+                  disabled={desktopStatusLoading || desktopLoading}
+                  className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                >
+                  {desktopStatusLoading ? (
+                    <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <RefreshCw className="size-3" aria-hidden="true" />
+                  )}
+                  status
+                </button>
+              </div>
             </div>
 
             {desktopError ? (
@@ -420,25 +438,33 @@ export function ThreadDiffPanel({
               </div>
             ) : (
               <div
-                className="relative flex min-h-0 flex-1 overflow-hidden"
-                style={{ containerType: "size" } as CSSProperties}
+                className={cn(
+                  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950",
+                  desktopFullscreen && "fixed inset-0 z-[100]", 
+                )}
               >
-                <div className="absolute inset-0 flex items-center justify-center p-4">
-                  <div
-                    className="relative flex w-full flex-col"
-                    style={{
-                      width: "min(100%, calc((100cqh - 2rem) * 1.333333))",
-                      aspectRatio: "4 / 3",
-                      maxHeight: "calc(100cqh - 2rem)",
-                    }}
-                  >
-                    <div className="relative h-full w-full overflow-hidden border border-border/60 bg-zinc-950">
-                      <DaytonaDesktopView
-                        websocketUrl={desktopWebsocketUrl}
-                        loading={desktopLoading}
-                      />
+                {desktopFullscreen ? (
+                  <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/10 bg-black/85 px-3">
+                    <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/65">
+                      <Monitor className="size-3.5" aria-hidden="true" />
+                      desktop preview
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setDesktopFullscreen(false)}
+                      className="inline-flex h-7 items-center gap-1.5 border border-white/15 bg-white/5 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-white/75 hover:bg-white/10 hover:text-white"
+                    >
+                      <Minimize2 className="size-3" aria-hidden="true" />
+                      exit fullscreen
+                    </button>
                   </div>
+                ) : null}
+                <div className="relative min-h-0 flex-1">
+                  <DaytonaDesktopView
+                    websocketUrl={desktopWebsocketUrl}
+                    loading={desktopLoading}
+                    className="absolute inset-0"
+                  />
                 </div>
               </div>
             )}
@@ -446,7 +472,7 @@ export function ThreadDiffPanel({
           ) : null}
         </div>
 
-        <div className={cn("min-h-0 flex-1 bg-background p-2", activeTab === "terminal" ? "block" : "hidden")}>
+        <div className={cn("min-h-0 flex-1 bg-[#111113]", activeTab === "terminal" ? "block" : "hidden")}>
           {hasOpenedTerminal ? <DaytonaTerminalView projectId={projectId} /> : null}
         </div>
 

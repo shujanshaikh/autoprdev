@@ -161,10 +161,10 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   }, [connect]);
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden bg-card">
+    <div className="relative h-full min-h-0 overflow-hidden bg-[#111113]">
       <div
         ref={containerRef}
-        className="h-full w-full p-2 [&_.xterm-helper-textarea]:opacity-0 [&_.xterm-helper-textarea]:focus-visible:outline-none [&_.xterm-screen]:bg-[#111113] [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar]:w-1.5 [&_.xterm-viewport]:bg-[#111113] [&_.xterm]:h-full"
+        className="h-full w-full bg-[#111113] [&_.xterm-helper-textarea]:opacity-0 [&_.xterm-helper-textarea]:focus-visible:outline-none [&_.xterm-screen]:bg-[#111113] [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar]:w-1.5 [&_.xterm-viewport]:bg-[#111113] [&_.xterm]:h-full [&_.xterm]:bg-[#111113]"
       />
       {loading ? (
         <div className="pointer-events-none absolute right-2 top-2 flex items-center border border-border/40 bg-card/90 px-1.5 py-1 font-mono text-[10px] text-muted-foreground">

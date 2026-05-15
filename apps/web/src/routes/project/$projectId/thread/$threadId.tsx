@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
@@ -19,7 +18,6 @@ import {
 import {
   Bot,
   ChevronDown,
-  Loader2,
 } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,6 +46,7 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ExploreToolRow, i
 import { toUIMessage } from "@/lib/chat-messages";
 import Loader from "@/components/loader";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
+import { ThreadTabs } from "#/components/thread/thread-tabs";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -61,6 +60,17 @@ function isExpectedStreamAbort(error: unknown) {
     error instanceof Error &&
     (error.name === "AbortError" || error.message.includes("BodyStreamBuffer was aborted"))
   );
+}
+
+function findLastBy<T>(items: readonly T[], predicate: (item: T) => boolean): T | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item !== undefined && predicate(item)) {
+      return item;
+    }
+  }
+
+  return undefined;
 }
 
 function isContentDetailsOutput(
@@ -476,7 +486,7 @@ function ThreadChat({
   const ready = status === "ready" && !disabled;
   const stopGeneration = useCallback(() => {
     const runId = activeRunIdRef.current;
-    const assistantMessage = messages.findLast((message) => message.role === "assistant");
+    const assistantMessage = findLastBy(messages, (message) => message.role === "assistant");
 
     try {
       stop();
@@ -842,24 +852,67 @@ function ThreadChat({
   );
 }
 
+function getThreadTabsStorageKey(projectId: string) {
+  return `autopr:project:${projectId}:thread-tabs`;
+}
+
+function readStoredThreadTabs(projectId: string, fallbackThreadId: string) {
+  if (typeof window === "undefined") {
+    return [fallbackThreadId];
+  }
+
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(getThreadTabsStorageKey(projectId)) ?? "[]");
+    if (Array.isArray(parsed)) {
+      const tabs = parsed.filter((value): value is string => typeof value === "string" && value.length > 0);
+      return tabs.includes(fallbackThreadId) ? tabs : [...tabs, fallbackThreadId];
+    }
+  } catch {
+    // Ignore invalid stored tab state.
+  }
+
+  return [fallbackThreadId];
+}
+
+function writeStoredThreadTabs(projectId: string, tabs: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(getThreadTabsStorageKey(projectId), JSON.stringify(tabs));
+}
+
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { prompt?: string };
   const { isAuthenticated } = useConvexAuth();
   const initialPrompt = search.prompt?.trim() || undefined;
-  const removeThread = useMutation(api.threads.remove);
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
+  const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [diffCount, setDiffCount] = useState(0);
+  const [openThreadTabs, setOpenThreadTabs] = useState<string[]>(() => readStoredThreadTabs(projectId, threadId));
 
   const initialMessages = useMemo(() => dbMessages?.map(toUIMessage) ?? [], [dbMessages]);
   const shouldAutoSubmitInitialPrompt = Boolean(initialPrompt && dbMessages && dbMessages.length === 0);
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
+  const threadLookup = useMemo(() => new Map((threads ?? []).map((t) => [t.threadId, t])), [threads]);
+  const visibleThreadTabs = useMemo(
+    () => openThreadTabs.map((id) => threadLookup.get(id) ?? (id === threadId ? thread : undefined) ?? { threadId: id }),
+    [openThreadTabs, threadLookup, thread, threadId],
+  );
+  useEffect(() => {
+    setOpenThreadTabs((tabs) => tabs.includes(threadId) ? tabs : [...tabs, threadId]);
+  }, [threadId]);
+
+  useEffect(() => {
+    writeStoredThreadTabs(projectId, openThreadTabs);
+  }, [openThreadTabs, projectId]);
 
   useEffect(() => {
     setDiffCount(0);
@@ -877,91 +930,114 @@ function ProjectThreadPageContent() {
     navigate({ to: ".", search: (prev) => ({ ...prev, prompt: undefined }), replace: true, resetScroll: false });
   }, [navigate]);
 
+  const handleSelectThreadTab = useCallback((nextThreadId: string) => {
+    setOpenThreadTabs((tabs) => {
+      const nextTabs = tabs.includes(nextThreadId) ? tabs : [...tabs, nextThreadId];
+      writeStoredThreadTabs(projectId, nextTabs);
+      return nextTabs;
+    });
+    navigate({
+      to: "/project/$projectId/thread/$threadId",
+      params: { projectId, threadId: nextThreadId },
+      resetScroll: false,
+    });
+  }, [navigate, projectId]);
+
+  const handleCloseThreadTab = useCallback((closedThreadId: string) => {
+    setOpenThreadTabs((tabs) => {
+      if (tabs.length === 1) {
+        return tabs;
+      }
+
+      const closedIndex = tabs.indexOf(closedThreadId);
+      const nextTabs = tabs.filter((id) => id !== closedThreadId);
+      if (closedThreadId === threadId) {
+        const fallbackThreadId = nextTabs[Math.max(0, closedIndex - 1)] ?? nextTabs[0];
+        if (fallbackThreadId) {
+          navigate({
+            to: "/project/$projectId/thread/$threadId",
+            params: { projectId, threadId: fallbackThreadId },
+            resetScroll: false,
+          });
+        }
+      }
+      writeStoredThreadTabs(projectId, nextTabs);
+      return nextTabs;
+    });
+  }, [navigate, projectId, threadId]);
+
+
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-border/70 bg-background/95 px-3 backdrop-blur sm:px-4">
-              <SidebarTrigger className="mr-2" />
-
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <h1 className="min-w-0 truncate text-sm font-semibold">
-                  {thread?.title ?? initialPrompt ?? "Loading thread"}
-                </h1>
+            <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
+              <div className="flex shrink-0 items-center border-r border-border px-2">
+                <SidebarTrigger />
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-controls="thread-changes-panel"
-                        aria-expanded={diffPanelOpen}
-                        aria-label={diffPanelOpen ? "Hide changes" : "Show changes"}
-                        data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
-                        onClick={() => setDiffPanelOpen((open) => !open)}
+
+              <ThreadTabs
+                tabs={visibleThreadTabs}
+                activeThreadId={threadId}
+                resolveFallbackTitle={(tab) =>
+                  tab.threadId === threadId ? initialPrompt : undefined
+                }
+                onSelectTab={handleSelectThreadTab}
+                onCloseTab={handleCloseThreadTab}
+                canCloseTab={() => visibleThreadTabs.length > 1}
+                onNewTab={() =>
+                  navigate({ to: "/project/$projectId", params: { projectId } })
+                }
+                newTabLabel="Open project threads"
+              />
+
+              {/* Changes toggle — mono label + count, primary fill when open */}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-controls="thread-changes-panel"
+                      aria-expanded={diffPanelOpen}
+                      aria-label={diffPanelOpen ? "Hide changes" : "Show changes"}
+                      data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
+                      onClick={() => setDiffPanelOpen((open) => !open)}
+                      className={cn(
+                        "group/changes-trigger relative flex h-full shrink-0 items-center gap-2 border-l border-border px-3.5 font-mono text-[10px] uppercase tracking-[0.22em]",
+                        diffPanelOpen
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      )}
+                    >
+                      <span
+                        aria-hidden="true"
                         className={cn(
-                          "group/changes-trigger relative size-7 rounded-[6px] text-muted-foreground/85",
-                          "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
-                          "hover:bg-foreground/[0.06] hover:text-foreground",
-                          "active:scale-[0.92] active:bg-foreground/[0.10]",
-                          "focus-visible:bg-foreground/[0.06] focus-visible:ring-[1.5px] focus-visible:ring-sidebar-primary/40 focus-visible:ring-offset-0",
-                          "dark:hover:bg-foreground/[0.08] dark:active:bg-foreground/[0.12]",
-                          "data-[diff-panel-state=open]:bg-foreground/[0.07] data-[diff-panel-state=open]:text-foreground",
-                          "dark:data-[diff-panel-state=open]:bg-foreground/[0.10]",
+                          "size-1.5 shrink-0",
+                          diffPanelOpen ? "bg-primary-foreground" : "bg-current",
+                        )}
+                      />
+                      <span>changes</span>
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          !diffPanelOpen && diffCount === 0 && "text-muted-foreground/40",
                         )}
                       >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="size-[16px]"
-                          aria-hidden="true"
-                        >
-                          {/* Right-section fill — fades in when the changes panel is open (sidebar.right.fill) */}
-                          <path
-                            d="M15 5 L18.5 5 A2.5 2.5 0 0 1 21 7.5 L21 16.5 A2.5 2.5 0 0 1 18.5 19 L15 19 Z"
-                            fill="currentColor"
-                            stroke="none"
-                            className="opacity-0 transition-opacity duration-300 ease-out group-data-[diff-panel-state=open]/changes-trigger:opacity-[0.22]"
-                          />
-                          {/* Outer panel */}
-                          <rect x="3" y="5" width="18" height="14" rx="2.5" />
-                          {/* Divider */}
-                          <line x1="15" y1="5" x2="15" y2="19" />
-                        </svg>
-                        {diffCount > 0 ? (
-                          <span
-                            aria-hidden="true"
-                            className={cn(
-                              "pointer-events-none absolute -right-1 -top-1 inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-1",
-                              "bg-sidebar-primary font-mono text-[9px] font-semibold leading-none text-sidebar-primary-foreground",
-                              "shadow-[0_0_0_1.5px_var(--background)]",
-                            )}
-                          >
-                            {diffCount > 99 ? "99+" : diffCount}
-                          </span>
-                        ) : null}
-                        <span className="sr-only">
-                          {diffPanelOpen ? "Hide changes" : "Show changes"}
-                        </span>
-                      </Button>
-                    }
-                  />
-                  <TooltipContent side="bottom" sideOffset={8}>
-                    {diffPanelOpen
-                      ? "Hide Changes"
-                      : diffCount > 0
-                        ? `Show Changes (${diffCount > 99 ? "99+" : diffCount})`
-                        : "Show Changes"}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
+                        {diffCount > 99 ? "99+" : String(diffCount).padStart(2, "0")}
+                      </span>
+                      <span className="sr-only">
+                        {diffPanelOpen ? "Hide changes" : "Show changes"}
+                      </span>
+                    </button>
+                  }
+                />
+                <TooltipContent side="bottom" sideOffset={8}>
+                  {diffPanelOpen
+                    ? "Hide Changes"
+                    : diffCount > 0
+                      ? `Show Changes (${diffCount > 99 ? "99+" : diffCount})`
+                      : "Show Changes"}
+                </TooltipContent>
+              </Tooltip>
             </header>
 
             <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

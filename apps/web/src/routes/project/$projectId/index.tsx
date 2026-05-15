@@ -33,7 +33,9 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { ThreadTabs } from "#/components/thread/thread-tabs";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -53,6 +55,35 @@ type GithubBranch = {
 };
 
 const EMPTY_BRANCHES: GithubBranch[] = [];
+
+function getThreadTabsStorageKey(projectId: string) {
+  return `autopr:project:${projectId}:thread-tabs`;
+}
+
+function readStoredThreadTabs(projectId: string) {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(getThreadTabsStorageKey(projectId)) ?? "[]");
+    if (Array.isArray(parsed)) {
+      return parsed.filter((value): value is string => typeof value === "string" && value.length > 0);
+    }
+  } catch {
+    // Ignore invalid stored tab state.
+  }
+
+  return [];
+}
+
+function writeStoredThreadTabs(projectId: string, tabs: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(getThreadTabsStorageKey(projectId), JSON.stringify(tabs));
+}
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -148,8 +179,16 @@ function ProjectOverviewPage() {
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [openThreadTabs, setOpenThreadTabs] = useState<string[]>(() => readStoredThreadTabs(projectId));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const threadLookup = useMemo(() => new Map((threads ?? []).map((t) => [t.threadId, t])), [threads]);
+  const visibleThreadTabs = useMemo(
+    () => openThreadTabs
+      .map((id) => threadLookup.get(id))
+      .filter((tab): tab is NonNullable<typeof tab> => tab !== undefined && tab !== null),
+    [openThreadTabs, threadLookup],
+  );
   const openThreads = threads?.filter((t) => t.isLive) ?? [];
   const currentBranch = project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch ?? "main";
   const filteredThreads = threads?.filter((t) =>
@@ -253,6 +292,18 @@ function ProjectOverviewPage() {
   const isConfirmingDelete = Boolean(pendingDeleteThread);
   const isDeletingPendingThread = Boolean(pendingDeleteThread && deletingThreadId === pendingDeleteThread.threadId);
 
+  const handleSelectThreadTab = useCallback((nextThreadId: string) => {
+    navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId: nextThreadId } });
+  }, [navigate, projectId]);
+
+  const handleCloseThreadTab = useCallback((closedThreadId: string) => {
+    setOpenThreadTabs((tabs) => {
+      const nextTabs = tabs.filter((id) => id !== closedThreadId);
+      writeStoredThreadTabs(projectId, nextTabs);
+      return nextTabs;
+    });
+  }, [projectId]);
+
   const closeDeleteDialog = useCallback(() => {
     if (isDeletingPendingThread) {
       return;
@@ -260,6 +311,10 @@ function ProjectOverviewPage() {
 
     setPendingDeleteThread(undefined);
   }, [isDeletingPendingThread]);
+
+  useEffect(() => {
+    writeStoredThreadTabs(projectId, openThreadTabs);
+  }, [openThreadTabs, projectId]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -300,6 +355,17 @@ function ProjectOverviewPage() {
   return (
     <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {visibleThreadTabs.length > 0 ? (
+              <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
+                <ThreadTabs
+                  tabs={visibleThreadTabs}
+                  onSelectTab={handleSelectThreadTab}
+                  onCloseTab={handleCloseThreadTab}
+                  newTabActive
+                  newTabLabel="Project threads"
+                />
+              </header>
+            ) : null}
             <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
               {project === undefined || threads === undefined ? (
                 <div className="grid flex-1 place-items-center">

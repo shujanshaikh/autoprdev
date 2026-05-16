@@ -287,6 +287,36 @@ async function runWithStartedSandboxRetry<T>(
   throw lastError instanceof Error ? lastError : new Error("Sandbox filesystem did not become ready.");
 }
 
+async function runWithAlreadyStartedSandboxRetry<T>(
+  sandboxId: string,
+  operation: (sandbox: DaytonaSandbox) => Promise<T>,
+): Promise<{ status: "started"; result: T } | { status: Exclude<SandboxRuntimeStatus, "started"> }> {
+  const daytona = createDaytonaClient();
+  const deadline = Date.now() + DAYTONA_FS_READY_TIMEOUT_MS;
+  let lastError: unknown;
+
+  while (Date.now() <= deadline) {
+    const sandbox = await daytona.get(sandboxId);
+    const status = normalizeSandboxRuntimeStatus(sandbox.state);
+
+    if (status !== "started") {
+      return { status };
+    }
+
+    try {
+      return { status, result: await operation(sandbox) };
+    } catch (error) {
+      if (!isSandboxNetworkNotReadyError(error)) {
+        throw error;
+      }
+      lastError = error;
+      await sleep(DAYTONA_FS_READY_POLL_MS);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Sandbox filesystem did not become ready.");
+}
+
 async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
   const sandbox = await ensureSandboxStarted(sandboxId);
 
@@ -402,7 +432,7 @@ export const listSandboxFiles = action({
     );
 
     try {
-      const paths = await runWithStartedSandboxRetry(project.sandboxId, async (sandbox) => {
+      const filesResult = await runWithAlreadyStartedSandboxRetry(project.sandboxId, async (sandbox) => {
         const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
         const absoluteRepoPath = project.sandboxWorkDir ?? `${sandboxWorkDir}/${REPO_PATH}`;
         const fsRepoPath = absoluteRepoPath.startsWith(`${sandboxWorkDir}/`)
@@ -415,10 +445,14 @@ export const listSandboxFiles = action({
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
-        sandboxRuntimeStatus: "started",
+        sandboxRuntimeStatus: filesResult.status,
       });
 
-      return toFileSuggestions([...new Set(paths)]);
+      if (filesResult.status !== "started") {
+        return [];
+      }
+
+      return toFileSuggestions([...new Set(filesResult.result)]);
     } catch (error) {
       throw new ConvexError({
         code: "DAYTONA_LIST_FILES_FAILED",

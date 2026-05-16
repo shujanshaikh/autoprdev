@@ -52,13 +52,11 @@ function NotFound() {
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-  const showReactGrab = import.meta.env.DEV && import.meta.env.VITE_SHOW_DEBUG_OVERLAYS === 'true'
-
   useEffect(() => {
-    if (showReactGrab) {
+    if (import.meta.env.DEV) {
       void import('react-grab')
     }
-  }, [showReactGrab])
+  }, [])
 
   return (
     <html lang="en" suppressHydrationWarning>

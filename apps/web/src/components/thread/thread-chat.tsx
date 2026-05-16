@@ -180,25 +180,18 @@ function ThreadChatTextarea({
   const [filesLoading, setFilesLoading] = useState(false);
   const listSandboxFiles = useAction(api.projectActions.listSandboxFiles);
 
+  const filesRequestProjectRef = useRef<string | null>(null);
+  const filesMountedRef = useRef(true);
+
+  useEffect(() => () => {
+    filesMountedRef.current = false;
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
-    setFilesLoading(true);
-
-    void listSandboxFiles({ projectId })
-      .then((result) => {
-        if (!cancelled) setFiles(result);
-      })
-      .catch(() => {
-        if (!cancelled) setFiles([]);
-      })
-      .finally(() => {
-        if (!cancelled) setFilesLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [listSandboxFiles, projectId]);
+    filesRequestProjectRef.current = null;
+    setFiles(null);
+    setFilesLoading(false);
+  }, [projectId]);
 
   const insertFileMention = useCallback((value: string, mentionStart: number, cursorPos: number) => {
     const beforeMention = textInput.value.slice(0, mentionStart);
@@ -221,6 +214,28 @@ function ThreadChatTextarea({
     files,
     onSelect: insertFileMention,
   });
+
+  const hasFileMention = fileSuggestions.mentionInfo !== null;
+
+  useEffect(() => {
+    if (!hasFileMention || filesRequestProjectRef.current === projectId) {
+      return;
+    }
+
+    filesRequestProjectRef.current = projectId;
+    setFilesLoading(true);
+
+    void listSandboxFiles({ projectId })
+      .then((result) => {
+        if (filesMountedRef.current && filesRequestProjectRef.current === projectId) setFiles(result);
+      })
+      .catch(() => {
+        if (filesMountedRef.current && filesRequestProjectRef.current === projectId) setFiles([]);
+      })
+      .finally(() => {
+        if (filesMountedRef.current && filesRequestProjectRef.current === projectId) setFilesLoading(false);
+      });
+  }, [hasFileMention, listSandboxFiles, projectId]);
 
   const updateCursorPosition = useCallback((element: HTMLTextAreaElement) => {
     setCursorPosition(element.selectionStart);

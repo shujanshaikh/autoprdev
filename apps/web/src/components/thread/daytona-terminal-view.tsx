@@ -5,13 +5,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
+const TERMINAL_BACKGROUND = "#1B1B1B";
+
 const TERMINAL_THEME = {
-  background: "#111113",
-  foreground: "#d7d7d8",
-  cursor: "#d7d7d8",
-  cursorAccent: "#111113",
+  background: TERMINAL_BACKGROUND,
+  foreground: "#fafafa",
+  cursor: "#caabff",
+  cursorAccent: TERMINAL_BACKGROUND,
   selectionBackground: "#34343a",
-  black: "#111113",
+  black: "#171717",
   brightBlack: "#737373",
   red: "#ef4444",
   brightRed: "#f87171",
@@ -161,10 +163,10 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   }, [connect]);
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden bg-[#111113]">
+    <div className="autopr-terminal relative flex h-full min-h-0 flex-1 overflow-hidden bg-[#1B1B1B]">
       <div
         ref={containerRef}
-        className="h-full w-full bg-[#111113] [&_.xterm-helper-textarea]:opacity-0 [&_.xterm-helper-textarea]:focus-visible:outline-none [&_.xterm-screen]:bg-[#111113] [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar]:w-1.5 [&_.xterm-viewport]:bg-[#111113] [&_.xterm]:h-full [&_.xterm]:bg-[#111113]"
+        className="min-h-0 flex-1 bg-[#1B1B1B] [&_.xterm-helper-textarea]:opacity-0 [&_.xterm-helper-textarea]:focus-visible:outline-none [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar]:w-1.5"
       />
       {loading ? (
         <div className="pointer-events-none absolute right-2 top-2 flex items-center border border-border/40 bg-card/90 px-1.5 py-1 font-mono text-[10px] text-muted-foreground">

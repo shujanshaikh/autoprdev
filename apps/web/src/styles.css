@@ -35,6 +35,29 @@
   --ease-ui-smooth: cubic-bezier(0.2, 0, 0, 1);
 }
 
+.autopr-terminal {
+  --autopr-terminal-bg: #1b1b1b;
+}
+
+.autopr-terminal,
+.autopr-terminal .xterm,
+.autopr-terminal .xterm-viewport,
+.autopr-terminal .xterm-screen,
+.autopr-terminal .xterm-scroll-area,
+.autopr-terminal .xterm-rows {
+  background: var(--autopr-terminal-bg) !important;
+  background-color: var(--autopr-terminal-bg) !important;
+}
+
+.autopr-terminal .xterm {
+  height: 100% !important;
+  padding-bottom: 0 !important;
+}
+
+.autopr-terminal .xterm-screen canvas {
+  background-color: var(--autopr-terminal-bg) !important;
+}
+
 @keyframes project-route-enter {
   0% {
     opacity: 0.82;

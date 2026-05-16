@@ -23,6 +23,9 @@ const DEFAULT_TERMINAL_CWD = "/home/daytona/repo";
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
+const SANDBOX_START_TIMEOUT_SECONDS = 120;
+const DAYTONA_FS_READY_TIMEOUT_MS = 30_000;
+const DAYTONA_FS_READY_POLL_MS = 2_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
 const MAX_FILE_SUGGESTION_FILES = 10_000;
 
@@ -80,6 +83,16 @@ function isSandboxNotFoundError(error: unknown) {
   const message = errorMessage(error).toLowerCase();
 
   return message.includes("not found") || message.includes("404");
+}
+
+function isSandboxNetworkNotReadyError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+
+  return (
+    message.includes("failed to resolve container ip") ||
+    message.includes("no ip address found") ||
+    message.includes("is the sandbox started")
+  );
 }
 
 function createDaytonaClient() {
@@ -244,10 +257,34 @@ async function ensureSandboxStarted(sandboxId: string) {
   const sandbox = await daytona.get(sandboxId);
 
   if (sandbox.state && sandbox.state !== "started") {
-    await sandbox.start(120);
+    await sandbox.start(SANDBOX_START_TIMEOUT_SECONDS);
   }
 
   return sandbox;
+}
+
+async function runWithStartedSandboxRetry<T>(
+  sandboxId: string,
+  operation: (sandbox: DaytonaSandbox) => Promise<T>,
+): Promise<T> {
+  const deadline = Date.now() + DAYTONA_FS_READY_TIMEOUT_MS;
+  let lastError: unknown;
+
+  while (Date.now() <= deadline) {
+    const sandbox = await ensureSandboxStarted(sandboxId);
+
+    try {
+      return await operation(sandbox);
+    } catch (error) {
+      if (!isSandboxNetworkNotReadyError(error)) {
+        throw error;
+      }
+      lastError = error;
+      await sleep(DAYTONA_FS_READY_POLL_MS);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Sandbox filesystem did not become ready.");
 }
 
 async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
@@ -365,14 +402,21 @@ export const listSandboxFiles = action({
     );
 
     try {
-      const daytona = createDaytonaClient();
-      const sandbox = await daytona.get(project.sandboxId);
-      const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
-      const absoluteRepoPath = project.sandboxWorkDir ?? `${sandboxWorkDir}/${REPO_PATH}`;
-      const fsRepoPath = absoluteRepoPath.startsWith(`${sandboxWorkDir}/`)
-        ? absoluteRepoPath.slice(sandboxWorkDir.length + 1)
-        : REPO_PATH;
-      const paths = await listRepoFilesFromDaytonaFs(sandbox, fsRepoPath);
+      const paths = await runWithStartedSandboxRetry(project.sandboxId, async (sandbox) => {
+        const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
+        const absoluteRepoPath = project.sandboxWorkDir ?? `${sandboxWorkDir}/${REPO_PATH}`;
+        const fsRepoPath = absoluteRepoPath.startsWith(`${sandboxWorkDir}/`)
+          ? absoluteRepoPath.slice(sandboxWorkDir.length + 1)
+          : REPO_PATH;
+
+        return listRepoFilesFromDaytonaFs(sandbox, fsRepoPath);
+      });
+
+      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        sandboxRuntimeStatus: "started",
+      });
 
       return toFileSuggestions([...new Set(paths)]);
     } catch (error) {

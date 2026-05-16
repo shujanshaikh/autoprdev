@@ -52,11 +52,13 @@ function NotFound() {
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const showReactGrab = import.meta.env.DEV && import.meta.env.VITE_SHOW_DEBUG_OVERLAYS === 'true'
+
   useEffect(() => {
-    if (import.meta.env.DEV) {
+    if (showReactGrab) {
       void import('react-grab')
     }
-  }, [])
+  }, [showReactGrab])
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -65,17 +67,19 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <Providers>{children}</Providers>
-        <TanStackDevtools
-          config={{
-            position: 'bottom-right',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+        {import.meta.env.DEV ? (
+          <TanStackDevtools
+            config={{
+              position: 'bottom-right',
+            }}
+            plugins={[
+              {
+                name: 'Tanstack Router',
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+        ) : null}
         <Scripts />
       </body>
     </html>

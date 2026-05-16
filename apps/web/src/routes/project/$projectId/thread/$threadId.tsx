@@ -121,7 +121,6 @@ function ProjectThreadPageContent() {
                 newTabLabel="Open project threads"
               />
 
-              {/* Changes toggle — mono label + count, primary fill when open */}
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -133,28 +132,38 @@ function ProjectThreadPageContent() {
                       data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
                       onClick={() => setDiffPanelOpen((open) => !open)}
                       className={cn(
-                        "group/changes-trigger relative flex h-full shrink-0 items-center gap-2 border-l border-border px-3.5 font-mono text-[10px] uppercase tracking-[0.22em]",
-                        diffPanelOpen
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                        "group/changes-trigger relative flex h-full w-11 shrink-0 items-center justify-center border-l border-border text-muted-foreground/85",
+                        "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
+                        "hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.10]",
+                        "focus-visible:bg-foreground/[0.06] focus-visible:ring-[1.5px] focus-visible:ring-sidebar-primary/40 focus-visible:ring-offset-0",
+                        diffPanelOpen && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
                       )}
                     >
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "size-1.5 shrink-0",
-                          diffPanelOpen ? "bg-primary-foreground" : "bg-current",
-                        )}
-                      />
-                      <span>changes</span>
-                      <span
-                        className={cn(
-                          "tabular-nums",
-                          !diffPanelOpen && diffCount === 0 && "text-muted-foreground/40",
-                        )}
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="size-[16px]"
+                        aria-hidden
                       >
-                        {diffCount > 99 ? "99+" : String(diffCount).padStart(2, "0")}
-                      </span>
+                        <path
+                          d="M9 5 L5.5 5 A2.5 2.5 0 0 0 3 7.5 L3 16.5 A2.5 2.5 0 0 0 5.5 19 L9 19 Z"
+                          fill="currentColor"
+                          stroke="none"
+                          className="opacity-0 transition-opacity duration-300 ease-out group-data-[diff-panel-state=open]/changes-trigger:opacity-[0.22]"
+                        />
+                        <rect x="3" y="5" width="18" height="14" rx="2.5" />
+                        <line x1="9" y1="5" x2="9" y2="19" />
+                      </svg>
+                      {diffCount > 0 ? (
+                        <span className="absolute right-1.5 top-1.5 min-w-3.5 rounded-full bg-primary px-1 text-center font-mono text-[8px] leading-3 text-primary-foreground ring-1 ring-background group-data-[diff-panel-state=open]/changes-trigger:bg-primary-foreground group-data-[diff-panel-state=open]/changes-trigger:text-primary">
+                          {diffCount > 99 ? "99+" : diffCount}
+                        </span>
+                      ) : null}
                       <span className="sr-only">
                         {diffPanelOpen ? "Hide changes" : "Show changes"}
                       </span>

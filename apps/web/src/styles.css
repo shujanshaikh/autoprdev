@@ -458,30 +458,9 @@
   opacity: 0.5;
 }
 
-/* Tables */
-.sd-render table {
-  width: 100%;
-  margin-top: 1em;
-  margin-bottom: 1em;
-  border-collapse: collapse;
-  font-size: 0.9em;
-}
-
-.sd-render th,
-.sd-render td {
-  padding: 0.5em 0.75em;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-
-.sd-render th {
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.sd-render tr:last-child td {
-  border-bottom: none;
-}
+/* Tables — see ai-elements/markdown-components.tsx for Tailwind styling.
+   Streamdown renders <table> via a custom MarkdownTable that we override
+   with `components` on <Streamdown />, so all table styling lives there. */
 
 /* Images */
 .sd-render img {

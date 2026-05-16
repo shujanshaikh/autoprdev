@@ -28,6 +28,8 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
+import { markdownComponents } from "./markdown-components";
+
 const MessageRoleContext = createContext<UIMessage["role"]>("assistant");
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -330,6 +332,7 @@ export const MessageResponse = memo(
         "sd-render size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      components={markdownComponents}
       plugins={streamdownPlugins}
       {...props}
     />

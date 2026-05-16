@@ -11,8 +11,7 @@ const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready")
 
 type SandboxStatus = "creating" | "ready" | "failed";
 
-// Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
-// This is the custom Daytona snapshot shown in the dashboard.
+
 const DEFAULT_DAYTONA_SNAPSHOT = "autopr-custom";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
@@ -23,6 +22,7 @@ const DEFAULT_TERMINAL_CWD = "/home/daytona/repo";
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
+const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
 
 interface EnsureProjectResult {
   projectId: string;
@@ -270,10 +270,23 @@ export const getSandboxRuntimeStatus = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
-      authorId: identity.subject,
-      projectId: args.projectId,
-    });
+    const project: { sandboxId: string; sandboxRuntimeStatus?: SandboxRuntimeStatus; sandboxRuntimeCheckedAt?: number } =
+      await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+      });
+
+    const now = Date.now();
+    if (
+      project.sandboxRuntimeStatus &&
+      project.sandboxRuntimeCheckedAt &&
+      now - project.sandboxRuntimeCheckedAt < SANDBOX_RUNTIME_STATUS_CACHE_MS
+    ) {
+      return {
+        status: project.sandboxRuntimeStatus,
+        checkedAt: project.sandboxRuntimeCheckedAt,
+      };
+    }
 
     try {
       const status = await getDaytonaSandboxRuntimeStatus(project.sandboxId);

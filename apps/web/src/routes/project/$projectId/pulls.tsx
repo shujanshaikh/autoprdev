@@ -143,7 +143,7 @@ function PullRow({ pull, index }: { pull: PullRequest; index: number }) {
 
   return (
     <a
-      to={pull.htmlUrl}
+      href={pull.htmlUrl}
       target="_blank"
       rel="noreferrer"
       className={cn(
@@ -402,7 +402,7 @@ function PullsPage() {
 
           {data?.project.githubUrl ? (
             <a
-              to={`${data.project.githubUrl}/pulls`}
+              href={`${data.project.githubUrl}/pulls`}
               target="_blank"
               rel="noreferrer"
               className={cn(

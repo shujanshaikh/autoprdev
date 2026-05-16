@@ -448,7 +448,7 @@ function RepoPagination({
                 e.preventDefault();
                 if (page > 1) onChange(page - 1);
               }}
-              to={page > 1 ? `?page=${page - 1}` : "?page=1"}
+              href={page > 1 ? `?page=${page - 1}` : "?page=1"}
             />
           </PaginationItem>
 
@@ -462,7 +462,7 @@ function RepoPagination({
             ) : (
               <PaginationItem key={p}>
                 <PaginationLink
-                  to={`?page=${p}`}
+                  href={`?page=${p}`}
                   isActive={p === page}
                   size="sm"
                   className="h-7 min-w-7 font-mono text-[11px]"
@@ -489,7 +489,7 @@ function RepoPagination({
                 e.preventDefault();
                 if (page < totalPages) onChange(page + 1);
               }}
-              to={page < totalPages ? `?page=${page + 1}` : `?page=${totalPages}`}
+              href={page < totalPages ? `?page=${page + 1}` : `?page=${totalPages}`}
             />
           </PaginationItem>
         </PaginationContent>
@@ -676,7 +676,7 @@ function LaunchColumn({
           </button>
           {selectedRepo ? (
             <a
-              to={selectedRepo.htmlUrl}
+              href={selectedRepo.htmlUrl}
               target="_blank"
               rel="noreferrer"
               className="block text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground transition hover:text-foreground"

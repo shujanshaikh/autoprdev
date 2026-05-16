@@ -331,7 +331,6 @@ export function ThreadDiffPanel({
         <div className={cn("min-h-0 flex-1 flex-col bg-background", activeTab === "desktop" ? "flex" : "hidden")}>
           {hasOpenedDesktop ? (
           <>
-            {/* Toolbar */}
             <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/45 px-3">
               <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                 <span className="relative inline-flex size-4 items-center justify-center bg-amber-900/70">
@@ -528,7 +527,7 @@ export function ThreadDiffPanel({
                     ) : null}
 
                     <a
-                      to={effectiveUrl}
+                      href={effectiveUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex h-10 w-full items-center justify-center gap-2 border border-primary bg-primary px-3 font-mono text-[11px] uppercase tracking-[0.22em] text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"

@@ -7,8 +7,8 @@ import {
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { DurableAgent, type StreamTextTransform } from "@workflow/ai/agent";
-import { smoothStream, type ModelMessage, type UIMessageChunk } from "ai";
+import { DurableAgent } from "@workflow/ai/agent";
+import {  type ModelMessage, type UIMessageChunk } from "ai";
 import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";

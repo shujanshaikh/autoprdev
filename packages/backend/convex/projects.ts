@@ -451,6 +451,8 @@ export const getDesktopSandboxInternal = internalQuery({
   },
   returns: v.object({
     sandboxId: v.string(),
+    sandboxRuntimeStatus: v.optional(sandboxRuntimeStatusValidator),
+    sandboxRuntimeCheckedAt: v.optional(v.number()),
   }),
   handler: async (ctx, args) => {
     const project = await ctx.db
@@ -466,7 +468,11 @@ export const getDesktopSandboxInternal = internalQuery({
       throw new ConvexError({ code: "PROJECT_SANDBOX_NOT_READY" });
     }
 
-    return { sandboxId: project.sandboxId };
+    return {
+      sandboxId: project.sandboxId,
+      sandboxRuntimeStatus: project.sandboxRuntimeStatus,
+      sandboxRuntimeCheckedAt: project.sandboxRuntimeCheckedAt,
+    };
   },
 });
 

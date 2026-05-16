@@ -1,6 +1,7 @@
 import { cn } from "@autopr/ui/lib/utils";
 
-import { type ThreadDiffEntry, FileTypeIcon, pathParts } from "./thread-diff-panel-utils";
+import { FileTypeIcon, pathParts } from "#/lib/file-type-icon";
+import { type ThreadDiffEntry } from "./thread-diff-panel-utils";
 
 function InlineStatDots({ additions, deletions }: { additions: number; deletions: number }) {
   const total = additions + deletions;

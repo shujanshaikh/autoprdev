@@ -1,7 +1,8 @@
 import { cn } from "@autopr/ui/lib/utils";
 import { ToolDiffView } from "@/components/ai-elements/tool";
 
-import {type ThreadDiffEntry, pathParts } from "./thread-diff-panel-utils";
+import { pathParts } from "#/lib/file-type-icon";
+import { type ThreadDiffEntry } from "./thread-diff-panel-utils";
 import { ThreadDiffStatusIcon } from "./thread-diff-panel-status-icon";
 
 export function ThreadDiffDetailView({ entry, showTurn, compact = false }: { entry: ThreadDiffEntry; showTurn: boolean; compact?: boolean }) {

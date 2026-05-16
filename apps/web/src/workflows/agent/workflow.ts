@@ -30,6 +30,15 @@ interface AssistantPersistenceOptions {
   assistantMessageId: string;
 }
 
+interface AssistantUsageMetadata {
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cachedInputTokens: number;
+  };
+}
+
 function getConvexUrl() {
   const url = process.env.VITE_CONVEX_URL;
   if (!url) {
@@ -62,16 +71,36 @@ async function patchAssistantMessage({
   threadId,
   assistantMessageId,
   parts,
+  metadata,
 }: AssistantPersistenceOptions & {
   parts: unknown[];
+  metadata?: AssistantUsageMetadata;
 }) {
   "use step";
 
   await fetchMutation(
     api.messages.patchAssistant,
-    { threadId, assistantMessageId, parts },
+    { threadId, assistantMessageId, parts, metadata },
     { token: convexAuthToken, url: getConvexUrl() },
   );
+}
+
+async function writeAssistantMetadataChunk(
+  writable: WritableStream<UIMessageChunk>,
+  metadata: AssistantUsageMetadata,
+) {
+  "use step";
+
+  const writer = writable.getWriter();
+
+  try {
+    await writer.write({
+      type: "message-metadata",
+      messageMetadata: metadata,
+    });
+  } finally {
+    writer.releaseLock();
+  }
 }
 
 async function markWorkflowRunFinished({
@@ -153,15 +182,34 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       writable,
       sendStart: !options.assistantMessageId,
       maxSteps: 100,
-      onFinish: async ({ messages }) => {
+      onFinish: async ({ messages, steps }) => {
         if (!persistence) {
           return;
         }
 
+        const usageMetadata: AssistantUsageMetadata = {
+          usage: steps.reduce(
+            (total, step) => ({
+              inputTokens: total.inputTokens + (step.usage.inputTokens ?? 0),
+              outputTokens: total.outputTokens + (step.usage.outputTokens ?? 0),
+              totalTokens: total.totalTokens + (step.usage.totalTokens ?? 0),
+              cachedInputTokens: total.cachedInputTokens + (step.usage.cachedInputTokens ?? 0),
+            }),
+            {
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              cachedInputTokens: 0,
+            },
+          ),
+        };
+
         try {
+          await writeAssistantMetadataChunk(writable, usageMetadata);
           await patchAssistantMessage({
             ...persistence,
             parts: responseMessagesToAssistantParts(messages, inputMessages.length),
+            metadata: usageMetadata,
           });
         } catch (error) {
           if (!isPersistenceUnauthenticatedError(error)) {

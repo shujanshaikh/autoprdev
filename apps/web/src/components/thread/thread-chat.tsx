@@ -1,5 +1,11 @@
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { Badge } from "@autopr/ui/components/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useAction } from "convex/react";
@@ -153,6 +159,98 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
   return entries;
 }
 
+const MINIMAX_M27_CONTEXT_LIMIT = 204_800;
+
+interface AssistantUsageMetadata {
+  usage?: {
+    inputTokens?: unknown;
+    outputTokens?: unknown;
+    totalTokens?: unknown;
+    cachedInputTokens?: unknown;
+  };
+}
+
+function asFiniteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isAssistantUsageMetadata(value: unknown): value is AssistantUsageMetadata {
+  return isRecord(value) && (value.usage === undefined || isRecord(value.usage));
+}
+
+function formatTokens(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  }
+
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+  }
+
+  return `${value}`;
+}
+
+function ThreadContextRemainingIndicator({
+  inputTokens,
+  cachedInputTokens,
+  outputTokens,
+  contextLimit,
+}: {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  contextLimit: number;
+}) {
+  if (contextLimit <= 0) {
+    return null;
+  }
+
+  const remainingTokens = Math.max(0, contextLimit - inputTokens);
+  const percentageUsed = Math.min(100, Math.round((inputTokens / contextLimit) * 100));
+  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger>
+        <Badge
+          variant="outline"
+          className="h-7 shrink-0 items-center gap-2 rounded-none border-border/55 bg-background/70 px-2.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-muted/40"
+        >
+          <span className="text-foreground/85 tabular-nums">{formatTokens(remainingTokens)}</span>
+          <span aria-hidden="true" className="h-3 w-px bg-border/70" />
+          <span className="text-muted-foreground/70 tabular-nums">{percentageUsed}%</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="start" className="min-w-[220px] rounded-none">
+        <div className="space-y-1.5 font-mono text-[11px]">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Remaining</span>
+            <span>{formatTokens(remainingTokens)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Input / limit</span>
+            <span>
+              {formatTokens(inputTokens)} / {formatTokens(contextLimit)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Cached input</span>
+            <span>{formatTokens(cachedInputTokens)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Uncached input</span>
+            <span>{formatTokens(uncachedInputTokens)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Output</span>
+            <span>{formatTokens(outputTokens)}</span>
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function ThreadChat({
   projectId,
   threadId,
@@ -281,7 +379,7 @@ export function ThreadChat({
     [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest],
   );
 
-  const { messages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
+  const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,
     messages: initialMessages,
     transport,
@@ -292,6 +390,32 @@ export function ThreadChat({
       }
     },
   });
+
+  useEffect(() => {
+    setMessages((currentMessages) => currentMessages.map((message) => {
+      const persistedMessage = initialMessages.find((candidate) => candidate.id === message.id);
+
+      if (!persistedMessage) {
+        return message;
+      }
+
+      const nextMetadata = persistedMessage.metadata ?? message.metadata;
+      const nextParts =
+        persistedMessage.parts.length > message.parts.length
+          ? persistedMessage.parts
+          : message.parts;
+
+      if (nextMetadata === message.metadata && nextParts === message.parts) {
+        return message;
+      }
+
+      return {
+        ...message,
+        metadata: nextMetadata,
+        parts: nextParts,
+      };
+    }));
+  }, [initialMessages, setMessages]);
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
   const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
@@ -399,6 +523,24 @@ export function ThreadChat({
       };
     });
   }, [messages]);
+  const conversationUsage = useMemo(() => messages.reduce(
+    (total, message) => {
+      if (!isAssistantUsageMetadata(message.metadata) || !message.metadata.usage) {
+        return total;
+      }
+
+      return {
+        inputTokens: total.inputTokens + asFiniteNumber(message.metadata.usage.inputTokens),
+        outputTokens: total.outputTokens + asFiniteNumber(message.metadata.usage.outputTokens),
+        cachedInputTokens: total.cachedInputTokens + asFiniteNumber(message.metadata.usage.cachedInputTokens),
+      };
+    },
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+    },
+  ), [messages]);
 
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
@@ -473,7 +615,14 @@ export function ThreadChat({
                 />
               </PromptInputBody>
               <PromptInputFooter className="bg-transparent px-2 py-1.5">
-                <PromptInputTools />
+                <PromptInputTools className="min-w-0 flex-1">
+                  <ThreadContextRemainingIndicator
+                    inputTokens={conversationUsage.inputTokens}
+                    cachedInputTokens={conversationUsage.cachedInputTokens}
+                    outputTokens={conversationUsage.outputTokens}
+                    contextLimit={MINIMAX_M27_CONTEXT_LIMIT}
+                  />
+                </PromptInputTools>
                 <PromptInputSubmit
                   className="size-7 rounded-none"
                   disabled={!ready && !busy}
@@ -510,4 +659,3 @@ export function ThreadChat({
     </section>
   );
 }
-

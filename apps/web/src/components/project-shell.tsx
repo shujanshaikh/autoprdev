@@ -432,7 +432,7 @@ function NavLink({
           aria-hidden={true}
         />
         <span className="flex-1 text-left text-[12px] text-sidebar-foreground/85 group-data-[collapsible=icon]:hidden">
-          {label.toLowerCase()}
+          {label}
         </span>
         {typeof count === "number" ? (
           <span className="ml-auto font-mono text-[10px] tabular-nums text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden">

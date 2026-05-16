@@ -17,6 +17,7 @@ import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$pro
 import { Route as ProjectProjectIdPullsRouteImport } from './routes/project/$projectId/pulls'
 import { Route as ApiProjectsFromGithubRouteImport } from './routes/api/projects/from-github'
 import { Route as ApiGithubRepositoriesRouteImport } from './routes/api/github/repositories'
+import { Route as ProjectProjectIdThreadRouteRouteImport } from './routes/project/$projectId/thread/route'
 import { Route as ProjectProjectIdThreadThreadIdRouteImport } from './routes/project/$projectId/thread/$threadId'
 import { Route as ApiProjectProjectIdPullsRouteImport } from './routes/api/project/$projectId/pulls'
 import { Route as ApiProjectProjectIdBranchRouteImport } from './routes/api/project/$projectId/branch'
@@ -68,11 +69,17 @@ const ApiGithubRepositoriesRoute = ApiGithubRepositoriesRouteImport.update({
   path: '/api/github/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectProjectIdThreadRouteRoute =
+  ProjectProjectIdThreadRouteRouteImport.update({
+    id: '/thread',
+    path: '/thread',
+    getParentRoute: () => ProjectProjectIdRouteRoute,
+  } as any)
 const ProjectProjectIdThreadThreadIdRoute =
   ProjectProjectIdThreadThreadIdRouteImport.update({
-    id: '/thread/$threadId',
-    path: '/thread/$threadId',
-    getParentRoute: () => ProjectProjectIdRouteRoute,
+    id: '/$threadId',
+    path: '/$threadId',
+    getParentRoute: () => ProjectProjectIdThreadRouteRoute,
   } as any)
 const ApiProjectProjectIdPullsRoute =
   ApiProjectProjectIdPullsRouteImport.update({
@@ -133,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -152,6 +160,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -173,6 +182,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -195,6 +205,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/project/$projectId'
     | '/api/agent'
+    | '/project/$projectId/thread'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -214,6 +225,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/api/agent'
+    | '/project/$projectId/thread'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -234,6 +246,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/project/$projectId'
     | '/api/agent'
+    | '/project/$projectId/thread'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -320,12 +333,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGithubRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/project/$projectId/thread': {
+      id: '/project/$projectId/thread'
+      path: '/thread'
+      fullPath: '/project/$projectId/thread'
+      preLoaderRoute: typeof ProjectProjectIdThreadRouteRouteImport
+      parentRoute: typeof ProjectProjectIdRouteRoute
+    }
     '/project/$projectId/thread/$threadId': {
       id: '/project/$projectId/thread/$threadId'
-      path: '/thread/$threadId'
+      path: '/$threadId'
       fullPath: '/project/$projectId/thread/$threadId'
       preLoaderRoute: typeof ProjectProjectIdThreadThreadIdRouteImport
-      parentRoute: typeof ProjectProjectIdRouteRoute
+      parentRoute: typeof ProjectProjectIdThreadRouteRoute
     }
     '/api/project/$projectId/pulls': {
       id: '/api/project/$projectId/pulls'
@@ -393,16 +413,31 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface ProjectProjectIdRouteRouteChildren {
-  ProjectProjectIdPullsRoute: typeof ProjectProjectIdPullsRoute
-  ProjectProjectIdIndexRoute: typeof ProjectProjectIdIndexRoute
+interface ProjectProjectIdThreadRouteRouteChildren {
   ProjectProjectIdThreadThreadIdRoute: typeof ProjectProjectIdThreadThreadIdRoute
 }
 
+const ProjectProjectIdThreadRouteRouteChildren: ProjectProjectIdThreadRouteRouteChildren =
+  {
+    ProjectProjectIdThreadThreadIdRoute: ProjectProjectIdThreadThreadIdRoute,
+  }
+
+const ProjectProjectIdThreadRouteRouteWithChildren =
+  ProjectProjectIdThreadRouteRoute._addFileChildren(
+    ProjectProjectIdThreadRouteRouteChildren,
+  )
+
+interface ProjectProjectIdRouteRouteChildren {
+  ProjectProjectIdThreadRouteRoute: typeof ProjectProjectIdThreadRouteRouteWithChildren
+  ProjectProjectIdPullsRoute: typeof ProjectProjectIdPullsRoute
+  ProjectProjectIdIndexRoute: typeof ProjectProjectIdIndexRoute
+}
+
 const ProjectProjectIdRouteRouteChildren: ProjectProjectIdRouteRouteChildren = {
+  ProjectProjectIdThreadRouteRoute:
+    ProjectProjectIdThreadRouteRouteWithChildren,
   ProjectProjectIdPullsRoute: ProjectProjectIdPullsRoute,
   ProjectProjectIdIndexRoute: ProjectProjectIdIndexRoute,
-  ProjectProjectIdThreadThreadIdRoute: ProjectProjectIdThreadThreadIdRoute,
 }
 
 const ProjectProjectIdRouteRouteWithChildren =

@@ -2,7 +2,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Maximize2, Minimize2, Monitor, Power, RefreshCw, Send, Terminal, X } from "lucide-react";
+import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Maximize2, Minimize2, Monitor, Send, Terminal, X } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
@@ -31,8 +31,13 @@ export type ThreadDiffPanelProps = {
 };
 
 const MIN_PANEL_WIDTH = 380;
-const MAX_PANEL_WIDTH = 860;
+const MAX_PANEL_WIDTH_RATIO = 0.8;
 const DEFAULT_PANEL_WIDTH = 640;
+
+function getMaxPanelWidth() {
+  if (typeof window === "undefined") return DEFAULT_PANEL_WIDTH;
+  return Math.max(MIN_PANEL_WIDTH, Math.floor(window.innerWidth * MAX_PANEL_WIDTH_RATIO));
+}
 
 function autoprBranchName(value: string) {
   const withoutPrefix = value.trim().replace(/^autopr[/-]*/i, "");
@@ -75,7 +80,7 @@ export function ThreadDiffPanel({
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [desktopStatusLoading, setDesktopStatusLoading] = useState(false);
   const [desktopRuntimeStatus, setDesktopRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
-  const [desktopRawState, setDesktopRawState] = useState<string | undefined>();
+  const [, setDesktopRawState] = useState<string | undefined>();
   const [desktopError, setDesktopError] = useState<string | undefined>();
   const [desktopFullscreen, setDesktopFullscreen] = useState(false);
   const [hasOpenedDesktop, setHasOpenedDesktop] = useState(false);
@@ -118,7 +123,7 @@ export function ThreadDiffPanel({
       document.body.style.cssText += "; cursor: col-resize; user-select: none;";
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
-        const nextWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
+        const nextWidth = Math.min(getMaxPanelWidth(), Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
         setPanelWidth(nextWidth);
       };
 
@@ -228,7 +233,7 @@ export function ThreadDiffPanel({
           "fixed inset-y-0 right-0 z-40 flex h-full max-h-full w-[min(96vw,720px)] min-w-0 flex-col border-l border-border/50 bg-background transition-transform duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] lg:static lg:z-auto lg:w-[var(--thread-diff-width)] lg:shrink-0",
           open ? "translate-x-0" : "translate-x-full lg:hidden",
         )}
-        style={{ "--thread-diff-width": `${panelWidth}px` } as CSSProperties & Record<"--thread-diff-width", string>}
+        style={{ "--thread-diff-width": `min(${panelWidth}px, 80vw)` } as CSSProperties & Record<"--thread-diff-width", string>}
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-px bg-gradient-to-b from-transparent via-border/60 to-transparent" />
 
@@ -331,44 +336,18 @@ export function ThreadDiffPanel({
         <div className={cn("min-h-0 flex-1 flex-col bg-background", activeTab === "desktop" ? "flex" : "hidden")}>
           {hasOpenedDesktop ? (
           <>
-            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/45 px-3">
-              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                <span className="relative inline-flex size-4 items-center justify-center bg-amber-900/70">
-                  <span
-                    className={cn(
-                      "absolute -bottom-1 h-0.5 w-5 rounded-full",
-                      desktopRuntimeStatus === "started" ? "bg-emerald-500" : desktopRuntimeStatus === "stopped" ? "bg-zinc-500" : "bg-amber-500",
-                    )}
-                  />
-                </span>
-                vm {desktopRuntimeStatus ?? "checking"}
-              </div>
-              <div className="flex items-center gap-2">
-                {desktopWebsocketUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => setDesktopFullscreen((value) => !value)}
-                    className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    {desktopFullscreen ? <Minimize2 className="size-3" aria-hidden="true" /> : <Maximize2 className="size-3" aria-hidden="true" />}
-                    {desktopFullscreen ? "exit" : "fullscreen"}
-                  </button>
-                ) : null}
+            {desktopWebsocketUrl ? (
+              <div className="flex h-10 shrink-0 items-center justify-end gap-2 border-b border-border/45 px-3">
                 <button
                   type="button"
-                  onClick={() => void refreshDesktopStatus()}
-                  disabled={desktopStatusLoading || desktopLoading}
-                  className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                  onClick={() => setDesktopFullscreen((value) => !value)}
+                  className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
-                  {desktopStatusLoading ? (
-                    <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <RefreshCw className="size-3" aria-hidden="true" />
-                  )}
-                  status
+                  {desktopFullscreen ? <Minimize2 className="size-3" aria-hidden="true" /> : <Maximize2 className="size-3" aria-hidden="true" />}
+                  {desktopFullscreen ? "exit" : "fullscreen"}
                 </button>
               </div>
-            </div>
+            ) : null}
 
             {desktopError ? (
               <div
@@ -380,60 +359,27 @@ export function ThreadDiffPanel({
             ) : null}
 
             {!desktopWebsocketUrl ? (
-              <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-                <div className="w-full max-w-sm border border-border bg-card">
-                  <div className="border-b border-border px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <span className="relative inline-flex size-9 items-center justify-center bg-amber-900/75 text-amber-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]">
-                        <Power className="size-4" aria-hidden="true" />
-                        <span
-                          className={cn(
-                            "absolute -bottom-1.5 h-1 w-11 rounded-full",
-                            desktopRuntimeStatus === "started" ? "bg-emerald-500" : desktopRuntimeStatus === "stopped" ? "bg-zinc-500" : "bg-amber-500",
-                          )}
-                        />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">sandbox vm</p>
-                        <p className="mt-1 text-sm font-medium text-foreground">
-                          {desktopStatusLoading ? "Checking state…" : desktopRuntimeStatus === "stopped" ? "The VM is stopped" : desktopRuntimeStatus === "started" ? "The VM is awake" : "State unknown"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-4 p-4">
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      {desktopRuntimeStatus === "stopped"
-                        ? "Awake the VM before opening the remote desktop. This starts the existing Daytona sandbox; it does not create a new one."
-                        : desktopRuntimeStatus === "started"
-                          ? "The sandbox is already running. Open the desktop when you are ready."
-                          : "Check the sandbox power state before starting the desktop session."}
-                    </p>
-                    {desktopRawState ? (
-                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">daytona: {desktopRawState}</p>
-                    ) : null}
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void refreshDesktopStatus()}
-                        disabled={desktopStatusLoading || desktopLoading}
-                        className="inline-flex h-8 items-center gap-1.5 border border-border px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
-                      >
-                        {desktopStatusLoading ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3" aria-hidden="true" />}
-                        check status
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void loadDesktop()}
-                        disabled={desktopLoading || desktopStatusLoading}
-                        className="inline-flex h-8 items-center gap-1.5 bg-primary px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-60"
-                      >
-                        {desktopLoading ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Power className="size-3" aria-hidden="true" />}
-                        {desktopRuntimeStatus === "stopped" ? "Awake the VM" : "Open desktop"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8">
+                <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground/55">
+                  {desktopStatusLoading
+                    ? "Checking sandbox"
+                    : desktopRuntimeStatus === "stopped"
+                      ? "Sandbox · Stopped"
+                      : desktopRuntimeStatus === "started"
+                        ? "Sandbox · Awake"
+                        : "Sandbox · Unknown"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadDesktop()}
+                  disabled={desktopLoading || desktopStatusLoading}
+                  className="group inline-flex h-8 items-center gap-1.5 border border-border/60 bg-background px-3 text-[12.5px] font-medium text-foreground/85 transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+                >
+                  {desktopLoading ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  ) : null}
+                  <span>{desktopRuntimeStatus === "started" ? "Open Desktop" : "Awake the VM"}</span>
+                </button>
               </div>
             ) : (
               <div

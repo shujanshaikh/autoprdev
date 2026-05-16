@@ -1,6 +1,7 @@
 "use node";
 
 import * as daytonaSdk from "@daytona/sdk";
+import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -23,6 +24,13 @@ const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
+const MAX_FILE_SUGGESTION_FILES = 10_000;
+
+const fileSuggestionValidator = v.object({
+  value: v.string(),
+  display: v.string(),
+  isDirectory: v.boolean(),
+});
 
 interface EnsureProjectResult {
   projectId: string;
@@ -114,6 +122,88 @@ function computerUseStatus(value: unknown): string | undefined {
   if (!value || typeof value !== "object") return undefined;
   const status = (value as { status?: unknown }).status;
   return typeof status === "string" ? status : undefined;
+}
+
+function isFileInfo(value: unknown): value is { name: string; isDir: boolean } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    typeof (value as { name?: unknown }).name === "string" &&
+    "isDir" in value &&
+    typeof (value as { isDir?: unknown }).isDir === "boolean"
+  );
+}
+
+function joinRemotePath(base: string, name: string) {
+  return `${base.replace(/\/$/, "")}/${name.replace(/^\//, "")}`;
+}
+
+function toFileSuggestions(paths: string[]) {
+  const seen = new Set<string>();
+  const suggestions: Array<{ value: string; display: string; isDirectory: boolean }> = [];
+
+  for (const path of paths) {
+    const cleanPath = path.trim().replace(/^\.\//, "");
+    if (!cleanPath || cleanPath.includes("\0")) continue;
+
+    const parts = cleanPath.split("/").filter(Boolean);
+    let prefix = "";
+
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      prefix += `${parts[index]}/`;
+      if (!seen.has(prefix)) {
+        seen.add(prefix);
+        suggestions.push({ value: prefix, display: prefix, isDirectory: true });
+      }
+    }
+
+    if (!seen.has(cleanPath)) {
+      seen.add(cleanPath);
+      suggestions.push({ value: cleanPath, display: cleanPath, isDirectory: false });
+    }
+  }
+
+  return suggestions.sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    return a.value.localeCompare(b.value);
+  });
+}
+
+async function listRepoFilesFromDaytonaFs(
+  sandbox: DaytonaSandbox,
+  repoPath: string,
+  maxFiles = MAX_FILE_SUGGESTION_FILES,
+): Promise<string[]> {
+  const files: string[] = [];
+  const queue: Array<{ absolutePath: string; relativePath: string }> = [
+    { absolutePath: repoPath, relativePath: "" },
+  ];
+  const ignoredDirectories = new Set([".git", "node_modules", ".next", ".turbo", "dist", "build", "coverage"]);
+
+  while (queue.length > 0 && files.length < maxFiles) {
+    const current = queue.shift();
+    if (!current) break;
+
+    const entries = await sandbox.fs.listFiles(current.absolutePath);
+
+    for (const entry of entries) {
+      if (!isFileInfo(entry)) continue;
+
+      const relativePath = current.relativePath ? `${current.relativePath}/${entry.name}` : entry.name;
+      if (entry.isDir) {
+        if (!ignoredDirectories.has(entry.name)) {
+          queue.push({ absolutePath: joinRemotePath(current.absolutePath, entry.name), relativePath });
+        }
+        continue;
+      }
+
+      files.push(relativePath);
+      if (files.length >= maxFiles) break;
+    }
+  }
+
+  return files;
 }
 
 function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
@@ -253,6 +343,46 @@ async function bootstrapRepositorySandbox(options: {
     sandboxWorkDir: repoPath,
   };
 }
+
+export const listSandboxFiles = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.array(fileSuggestionValidator),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string; sandboxWorkDir?: string } = await ctx.runQuery(
+      internal.projects.getProjectSandboxFilesInternal,
+      {
+        authorId: identity.subject,
+        projectId: args.projectId,
+      },
+    );
+
+    try {
+      const daytona = createDaytonaClient();
+      const sandbox = await daytona.get(project.sandboxId);
+      const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
+      const absoluteRepoPath = project.sandboxWorkDir ?? `${sandboxWorkDir}/${REPO_PATH}`;
+      const fsRepoPath = absoluteRepoPath.startsWith(`${sandboxWorkDir}/`)
+        ? absoluteRepoPath.slice(sandboxWorkDir.length + 1)
+        : REPO_PATH;
+      const paths = await listRepoFilesFromDaytonaFs(sandbox, fsRepoPath);
+
+      return toFileSuggestions([...new Set(paths)]);
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_LIST_FILES_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
 
 export const getSandboxRuntimeStatus = action({
   args: {

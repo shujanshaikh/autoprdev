@@ -22,17 +22,22 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputFooter,
+  PromptInputProvider,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import {
   isToolDiffPayload,
   toolSlugFromPart,
   type ToolDiffPayload,
 } from "@/components/ai-elements/tool";
+import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dropdown";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { SandboxStatusBar, ThreadMessages } from "#/components/thread/thread-messages";
+import { useFileSuggestions } from "#/hooks/use-file-suggestions";
+import type { FileSuggestion } from "#/lib/file-suggestions";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -160,6 +165,103 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 }
 
 const MINIMAX_M27_CONTEXT_LIMIT = 204_800;
+
+function ThreadChatTextarea({
+  projectId,
+  disabled,
+}: {
+  projectId: string;
+  disabled: boolean;
+}) {
+  const { textInput } = usePromptInputController();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const [files, setFiles] = useState<FileSuggestion[] | null>(null);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const listSandboxFiles = useAction(api.projectActions.listSandboxFiles);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFilesLoading(true);
+
+    void listSandboxFiles({ projectId })
+      .then((result) => {
+        if (!cancelled) setFiles(result);
+      })
+      .catch(() => {
+        if (!cancelled) setFiles([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFilesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [listSandboxFiles, projectId]);
+
+  const insertFileMention = useCallback((value: string, mentionStart: number, cursorPos: number) => {
+    const beforeMention = textInput.value.slice(0, mentionStart);
+    const afterCursor = textInput.value.slice(cursorPos);
+    const inserted = `@${value} `;
+    const nextValue = `${beforeMention}${inserted}${afterCursor}`;
+    const nextCursor = beforeMention.length + inserted.length;
+
+    textInput.setInput(nextValue);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+      setCursorPosition(nextCursor);
+    });
+  }, [textInput]);
+
+  const fileSuggestions = useFileSuggestions({
+    inputValue: textInput.value,
+    cursorPosition,
+    files,
+    onSelect: insertFileMention,
+  });
+
+  const updateCursorPosition = useCallback((element: HTMLTextAreaElement) => {
+    setCursorPosition(element.selectionStart);
+  }, []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    setCursorPosition(textarea?.selectionStart ?? textInput.value.length);
+  }, [textInput.value]);
+
+  return (
+    <div className="relative w-full min-w-0">
+      <FileSuggestionsDropdown
+        suggestions={fileSuggestions.suggestions}
+        selectedIndex={fileSuggestions.selectedIndex}
+        isLoading={filesLoading && fileSuggestions.mentionInfo !== null}
+        isOpen={fileSuggestions.mentionInfo !== null}
+        onSelect={(suggestion) => {
+          if (!fileSuggestions.mentionInfo) return;
+          insertFileMention(suggestion.value, fileSuggestions.mentionInfo.mentionStart, cursorPosition);
+        }}
+      />
+      <PromptInputTextarea
+        ref={textareaRef}
+        disabled={disabled}
+        placeholder="Message this thread… use @ to tag files"
+        className="max-h-40 min-h-14 resize-none px-3.5 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/55"
+        onBlur={(event) => updateCursorPosition(event.currentTarget)}
+        onClick={(event) => updateCursorPosition(event.currentTarget)}
+        onChange={(event) => updateCursorPosition(event.currentTarget)}
+        onInput={(event) => updateCursorPosition(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (fileSuggestions.handleKeyDown(event)) return;
+          updateCursorPosition(event.currentTarget);
+        }}
+        onKeyUp={(event) => updateCursorPosition(event.currentTarget)}
+        onSelect={(event) => updateCursorPosition(event.currentTarget)}
+      />
+    </div>
+  );
+}
 
 interface AssistantUsageMetadata {
   usage?: {
@@ -599,22 +701,19 @@ export function ThreadChat({
 
         <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
           <div className="mx-auto max-w-[680px]">
-            <PromptInput
-              className={cn(
-                // Sharp, flat, matches dashboard panels (border-border + bg-card)
-                "border border-border bg-card shadow-none transition-colors",
-                "focus-within:border-primary/60",
-              )}
-              onSubmit={(message) => void submitMessage(message.text)}
-            >
-              <PromptInputBody>
-                <PromptInputTextarea
-                  disabled={!ready}
-                  placeholder="Message this thread…"
-                  className="max-h-40 min-h-14 resize-none px-3.5 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/55"
-                />
-              </PromptInputBody>
-              <PromptInputFooter className="bg-transparent px-2 py-1.5">
+            <PromptInputProvider>
+              <PromptInput
+                className={cn(
+                  // Sharp, flat, matches dashboard panels (border-border + bg-card)
+                  "overflow-visible border border-border bg-card shadow-none transition-colors",
+                  "focus-within:border-primary/60",
+                )}
+                onSubmit={(message) => void submitMessage(message.text)}
+              >
+                <PromptInputBody>
+                  <ThreadChatTextarea projectId={projectId} disabled={!ready} />
+                </PromptInputBody>
+                <PromptInputFooter className="bg-transparent px-2 py-1.5">
                 <PromptInputTools className="min-w-0 flex-1">
                   <ThreadContextRemainingIndicator
                     inputTokens={conversationUsage.inputTokens}
@@ -629,8 +728,9 @@ export function ThreadChat({
                   onStop={stopGeneration}
                   status={status}
                 />
-              </PromptInputFooter>
-            </PromptInput>
+                </PromptInputFooter>
+              </PromptInput>
+            </PromptInputProvider>
             <SandboxStatusBar
               sandboxStatus={project?.sandboxStatus}
               runtimeStatus={runtimeStatus}

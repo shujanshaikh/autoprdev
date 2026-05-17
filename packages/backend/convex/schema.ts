@@ -35,6 +35,32 @@ export default defineSchema({
     .index("by_author_repo", ["authorId", "repoFullName"])
     .index("by_project_id", ["projectId"]),
 
+  sandboxCosts: defineTable({
+    authorId: v.string(),
+    projectId: v.string(),
+    sandboxId: v.string(),
+    sandboxName: v.optional(v.string()),
+    repoFullName: v.optional(v.string()),
+    daytonaOrganizationId: v.string(),
+    status: v.union(v.literal("active"), v.literal("pending_finalization"), v.literal("finalized")),
+    latestTotalPrice: v.optional(v.number()),
+    finalTotalPrice: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    sandboxCreatedAt: v.number(),
+    deletedAt: v.optional(v.number()),
+    lastSyncedAt: v.optional(v.number()),
+    finalizedAt: v.optional(v.number()),
+    syncError: v.optional(v.string()),
+    finalizationAttempts: v.number(),
+    nextSyncAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_author", ["authorId"])
+    .index("by_sandbox_id", ["sandboxId"])
+    .index("by_author_status", ["authorId", "status"])
+    .index("by_next_sync", ["nextSyncAt"]),
+
   threads: defineTable({
     threadId: v.string(),
     projectId: v.string(),

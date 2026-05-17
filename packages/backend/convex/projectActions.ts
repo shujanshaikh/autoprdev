@@ -681,6 +681,14 @@ export const removeWithSandbox = action({
     });
 
     if (project.sandboxId) {
+      await ctx.runMutation(internal.sandboxCosts.markPendingFinalizationInternal, {
+        authorId: identity.subject,
+        projectId: project.projectId,
+        sandboxId: project.sandboxId,
+        sandboxName: project.sandboxName,
+        repoFullName: project.repoFullName,
+        sandboxCreatedAt: project.createdAt,
+      });
       try {
         await deleteDaytonaSandbox(project.sandboxId);
       } catch (error) {

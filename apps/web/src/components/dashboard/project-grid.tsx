@@ -12,6 +12,11 @@ interface Project {
   currentBranch?: string | null;
   repoBranch?: string | null;
   defaultBranch?: string | null;
+  sandboxCost?: {
+    latestTotalPrice?: number;
+    lastSyncedAt?: number;
+    status: "active" | "pending_finalization" | "finalized";
+  } | null;
 }
 
 interface ProjectGridProps {
@@ -49,10 +54,11 @@ export function ProjectGrid({ projects, onDelete }: ProjectGridProps) {
 
   return (
     <div className="border border-border bg-card">
-      <div className="hidden grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,11rem)_auto] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:grid">
+      <div className="hidden grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,11rem)_minmax(0,8rem)_auto] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:grid">
         <span className="text-left">#</span>
         <span className="min-w-0 text-left">repository</span>
         <span className="min-w-0 text-left">branch / status</span>
+        <span className="min-w-0 text-left">cost</span>
         <span className="text-right">actions</span>
       </div>
 
@@ -73,6 +79,7 @@ export function ProjectGrid({ projects, onDelete }: ProjectGridProps) {
               currentBranch={project.currentBranch}
               repoBranch={project.repoBranch}
               defaultBranch={project.defaultBranch}
+              sandboxCost={project.sandboxCost}
               onDelete={() => onDelete(project.projectId)}
             />
           </div>

@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { randomUuid } from "./lib/uuid";
@@ -193,6 +194,14 @@ export const markSandboxReadyInternal = internalMutation({
       sandboxError: undefined,
       updatedAt: Date.now(),
     });
+    await ctx.runMutation(internal.sandboxCosts.upsertWhenSandboxReadyInternal, {
+      authorId: args.authorId,
+      projectId: args.projectId,
+      sandboxId: args.sandboxId,
+      sandboxName: args.sandboxName,
+      repoFullName: project.repoFullName,
+      sandboxCreatedAt: project.createdAt,
+    });
 
     return null;
   },
@@ -220,7 +229,6 @@ export const markSandboxFailedInternal = internalMutation({
       sandboxError: shortError(args.sandboxError),
       updatedAt: Date.now(),
     });
-
     return null;
   },
 });
@@ -256,6 +264,14 @@ export const markSandboxReady = mutation({
       sandboxError: undefined,
       branchSwitchStatus: "idle",
       updatedAt: Date.now(),
+    });
+    await ctx.runMutation(internal.sandboxCosts.upsertWhenSandboxReadyInternal, {
+      authorId,
+      projectId: args.projectId,
+      sandboxId: args.sandboxId,
+      sandboxName: args.sandboxName,
+      repoFullName: project.repoFullName,
+      sandboxCreatedAt: project.createdAt,
     });
 
     return null;
@@ -320,11 +336,20 @@ export const list = query({
       return [];
     }
 
-    return await ctx.db
+    const projects = await ctx.db
       .query("projects")
       .withIndex("by_author", (q) => q.eq("authorId", identity.subject))
       .order("desc")
       .collect();
+    const costs = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_author", (q) => q.eq("authorId", identity.subject))
+      .collect();
+    const costBySandboxId = new Map(costs.map((cost) => [cost.sandboxId, cost]));
+    return projects.map((project) => ({
+      ...project,
+      sandboxCost: project.sandboxId ? costBySandboxId.get(project.sandboxId) ?? null : null,
+    }));
   },
 });
 
@@ -524,6 +549,9 @@ export const getForRemovalInternal = internalQuery({
     return {
       projectId: project.projectId,
       sandboxId: project.sandboxId,
+      sandboxName: project.sandboxName,
+      repoFullName: project.repoFullName,
+      createdAt: project.createdAt,
     };
   },
 });

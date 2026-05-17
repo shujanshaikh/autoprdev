@@ -21,6 +21,7 @@ import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel"
 import { DashboardHeader } from "#/components/dashboard/dashboard-header";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import { ProjectGrid } from "#/components/dashboard/project-grid";
+import { BillingHistory } from "#/components/dashboard/billing-history";
 import { readJson, type GithubBranch, type GithubRepository } from "#/components/dashboard/types";
 
 const EMPTY_REPOSITORIES: GithubRepository[] = [];
@@ -35,6 +36,7 @@ function Dashboard() {
   );
   const { isAuthenticated } = useConvexAuth();
   const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
+  const sandboxCosts = useQuery(api.sandboxCosts.listForCurrentUser, isAuthenticated ? {} : "skip");
   const removeProjectWithSandbox = useAction(api.projectActions.removeWithSandbox);
 
   const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
@@ -284,6 +286,7 @@ function Dashboard() {
                   />
                 </div>
               </section>
+              <BillingHistory rows={sandboxCosts} />
             </div>
           </main>
 

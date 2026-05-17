@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as crons from "../crons.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_github from "../lib/github.js";
@@ -17,6 +18,8 @@ import type * as messages from "../messages.js";
 import type * as privateData from "../privateData.js";
 import type * as projectActions from "../projectActions.js";
 import type * as projects from "../projects.js";
+import type * as sandboxCostActions from "../sandboxCostActions.js";
+import type * as sandboxCosts from "../sandboxCosts.js";
 import type * as threads from "../threads.js";
 
 import type {
@@ -26,6 +29,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  crons: typeof crons;
   healthCheck: typeof healthCheck;
   "lib/auth": typeof lib_auth;
   "lib/github": typeof lib_github;
@@ -35,6 +39,8 @@ declare const fullApi: ApiFromModules<{
   privateData: typeof privateData;
   projectActions: typeof projectActions;
   projects: typeof projects;
+  sandboxCostActions: typeof sandboxCostActions;
+  sandboxCosts: typeof sandboxCosts;
   threads: typeof threads;
 }>;
 

@@ -17,6 +17,11 @@ interface ProjectRowProps {
   currentBranch?: string | null;
   repoBranch?: string | null;
   defaultBranch?: string | null;
+  sandboxCost?: {
+    latestTotalPrice?: number;
+    lastSyncedAt?: number;
+    status: "active" | "pending_finalization" | "finalized";
+  } | null;
   onDelete: () => void;
 }
 
@@ -29,6 +34,7 @@ export function ProjectRow({
   currentBranch,
   repoBranch,
   defaultBranch,
+  sandboxCost,
   onDelete,
 }: ProjectRowProps) {
   const branch = currentBranch ?? repoBranch ?? defaultBranch ?? "main";
@@ -62,7 +68,7 @@ export function ProjectRow({
     <div
       className={cn(
         "group relative grid items-center gap-4 px-4 py-2 transition",
-        "grid-cols-[2rem_1fr_auto] sm:grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,11rem)_auto]",
+        "grid-cols-[2rem_1fr_auto] sm:grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,11rem)_minmax(0,8rem)_auto]",
         "hover:bg-muted/40",
       )}
     >
@@ -113,6 +119,17 @@ export function ProjectRow({
         </div>
       </div>
 
+      <div className="hidden min-w-0 flex-col gap-1 font-mono text-[10px] sm:flex">
+        <span className="text-foreground">
+          {sandboxCost?.latestTotalPrice === undefined ? "—" : `$${sandboxCost.latestTotalPrice.toFixed(4)}`}
+        </span>
+        <span className="truncate uppercase tracking-[0.16em] text-muted-foreground">
+          {sandboxCost?.lastSyncedAt
+            ? `synced ${relativeAge(sandboxCost.lastSyncedAt)} ago`
+            : "awaiting sync"}
+        </span>
+      </div>
+
       <div className="flex items-center justify-end gap-1">
         <button
           type="button"
@@ -133,4 +150,11 @@ export function ProjectRow({
       </div>
     </div>
   );
+}
+
+function relativeAge(timestamp: number) {
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h`;
 }

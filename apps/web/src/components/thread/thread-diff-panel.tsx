@@ -563,11 +563,15 @@ export function ThreadDiffPanel({
           ) : null}
         </div>
 
-        {terminalTabs.map((terminalTab) => (
-          <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[#1B1B1B]", activeTabId === terminalTab.id ? "flex" : "hidden")}>
-            <DaytonaTerminalView projectId={projectId} />
-          </div>
-        ))}
+        {terminalTabs.map((terminalTab) => {
+          const isActiveTerminal = activeTabId === terminalTab.id;
+
+          return (
+            <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[#1B1B1B]", isActiveTerminal ? "flex" : "hidden")}>
+              {isActiveTerminal ? <DaytonaTerminalView projectId={projectId} /> : null}
+            </div>
+          );
+        })}
 
         {activeTab === "pull-request" ? (
           <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background">

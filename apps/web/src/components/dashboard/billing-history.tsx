@@ -24,8 +24,7 @@ export function BillingHistory({ rows }: { rows: SandboxCost[] | undefined }) {
         {(rows ?? []).map((row) => (
           <div key={row._id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_7rem_8rem_10rem]">
             <div className="min-w-0">
-              <p className="truncate font-mono">{row.repoFullName ?? row.sandboxName ?? row.sandboxId}</p>
-              <p className="truncate font-mono text-[10px] text-muted-foreground">{row.sandboxId}</p>
+              <p className="truncate font-mono">{row.repoFullName ?? row.sandboxName ?? "Unnamed sandbox"}</p>
             </div>
             <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
               {row.status === "pending_finalization" ? "finalizing" : row.status}

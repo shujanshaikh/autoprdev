@@ -20,7 +20,7 @@ import {
   useMutation as useReactMutation,
   useQuery as useReactQuery,
 } from "@tanstack/react-query";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
   ArrowUp,
@@ -28,7 +28,9 @@ import {
   Loader2,
   MessageSquare,
   MessageSquarePlus,
+  Play,
   Search,
+  Square,
   Trash2,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
@@ -171,6 +173,8 @@ function ProjectOverviewPage() {
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
+  const startSandbox = useAction(api.projectActions.startSandbox);
+  const stopSandbox = useAction(api.projectActions.stopSandbox);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
@@ -179,6 +183,8 @@ function ProjectOverviewPage() {
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [sandboxRuntimeStatus, setSandboxRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
+  const [isTogglingSandbox, setIsTogglingSandbox] = useState(false);
   const [openThreadTabs, setOpenThreadTabs] = useState<string[]>(() => readStoredThreadTabs(projectId));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -241,6 +247,8 @@ function ProjectOverviewPage() {
   const isSwitchingBranch = switchBranchMutation.isPending;
   const mutateSwitchBranch = switchBranchMutation.mutate;
   const displayedError = error ?? branchesError;
+  const effectiveSandboxRuntimeStatus = sandboxRuntimeStatus ?? project?.sandboxRuntimeStatus;
+  const isSandboxStarted = effectiveSandboxRuntimeStatus === "started";
 
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
@@ -264,6 +272,25 @@ function ProjectOverviewPage() {
     },
     [startThread],
   );
+
+  const toggleSandboxRuntime = useCallback(async () => {
+    if (!project || project.sandboxStatus !== "ready" || isTogglingSandbox) {
+      return;
+    }
+
+    setIsTogglingSandbox(true);
+    setError(undefined);
+    try {
+      const result = isSandboxStarted
+        ? await stopSandbox({ projectId })
+        : await startSandbox({ projectId });
+      setSandboxRuntimeStatus(result.status);
+    } catch (sandboxError) {
+      setError(sandboxError instanceof Error ? sandboxError.message : "Could not update the sandbox.");
+    } finally {
+      setIsTogglingSandbox(false);
+    }
+  }, [isSandboxStarted, isTogglingSandbox, project, projectId, startSandbox, stopSandbox]);
 
   const handleDeleteThread = useCallback(
     async (threadId: string, title: string) => {
@@ -325,6 +352,7 @@ function ProjectOverviewPage() {
   useEffect(() => {
     if (!project) return;
     setSelectedBranch(currentBranch);
+    setSandboxRuntimeStatus(project.sandboxRuntimeStatus);
   }, [currentBranch, project]);
 
   const switchBranch = useCallback(async (branch: string) => {
@@ -469,6 +497,26 @@ function ProjectOverviewPage() {
                           </div>
                         </div>
                       </form>
+
+                      <div className="mt-3 flex justify-center">
+                        <Button
+                          type="button"
+                          variant={isSandboxStarted ? "outline" : "default"}
+                          size="sm"
+                          onClick={() => void toggleSandboxRuntime()}
+                          disabled={project.sandboxStatus !== "ready" || isTogglingSandbox}
+                          className="h-8 gap-2 font-mono text-[11px]"
+                        >
+                          {isTogglingSandbox ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                          ) : isSandboxStarted ? (
+                            <Square className="size-3.5" aria-hidden="true" />
+                          ) : (
+                            <Play className="size-3.5" aria-hidden="true" />
+                          )}
+                          {isSandboxStarted ? "Stop Sandbox" : "Start Sandbox"}
+                        </Button>
+                      </div>
 
                       <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
                         {quickActions.map((action) => (

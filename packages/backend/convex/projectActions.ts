@@ -263,28 +263,20 @@ async function ensureSandboxStarted(sandboxId: string) {
   return sandbox;
 }
 
-async function runWithStartedSandboxRetry<T>(
-  sandboxId: string,
-  operation: (sandbox: DaytonaSandbox) => Promise<T>,
-): Promise<T> {
-  const deadline = Date.now() + DAYTONA_FS_READY_TIMEOUT_MS;
-  let lastError: unknown;
+async function startDaytonaSandbox(sandboxId: string) {
+  await ensureSandboxStarted(sandboxId);
+  return "started" as const;
+}
 
-  while (Date.now() <= deadline) {
-    const sandbox = await ensureSandboxStarted(sandboxId);
+async function stopDaytonaSandbox(sandboxId: string) {
+  const daytona = createDaytonaClient();
+  const sandbox = await daytona.get(sandboxId);
 
-    try {
-      return await operation(sandbox);
-    } catch (error) {
-      if (!isSandboxNetworkNotReadyError(error)) {
-        throw error;
-      }
-      lastError = error;
-      await sleep(DAYTONA_FS_READY_POLL_MS);
-    }
+  if (sandbox.state && normalizeSandboxRuntimeStatus(sandbox.state) !== "stopped") {
+    await sandbox.stop();
   }
 
-  throw lastError instanceof Error ? lastError : new Error("Sandbox filesystem did not become ready.");
+  return "stopped" as const;
 }
 
 async function runWithAlreadyStartedSandboxRetry<T>(
@@ -507,6 +499,78 @@ export const getSandboxRuntimeStatus = action({
     } catch (error) {
       throw new ConvexError({
         code: "DAYTONA_SANDBOX_STATUS_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const startSandbox = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.object({
+    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown")),
+  }),
+  handler: async (ctx, args): Promise<{ status: SandboxRuntimeStatus }> => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      const status = await startDaytonaSandbox(project.sandboxId);
+      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        sandboxRuntimeStatus: status,
+      });
+      return { status };
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_SANDBOX_START_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const stopSandbox = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.object({
+    status: v.literal("stopped"),
+  }),
+  handler: async (ctx, args): Promise<{ status: "stopped" }> => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      const status = await stopDaytonaSandbox(project.sandboxId);
+      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        sandboxRuntimeStatus: status,
+      });
+      return { status };
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_SANDBOX_STOP_FAILED",
         message: errorMessage(error),
       });
     }

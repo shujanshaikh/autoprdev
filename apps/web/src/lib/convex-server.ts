@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { auth } from "@clerk/tanstack-react-start/server";
+import { getAuth } from "@workos/authkit-tanstack-react-start";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type {
   FunctionArgs,
@@ -9,7 +9,7 @@ import type {
 } from "convex/server";
 
 const missingConvexAuthMessage =
-  "Convex auth is not configured for Clerk. In Clerk, enable the Convex integration or create a JWT template named 'convex'.";
+  "Convex auth is not configured for WorkOS AuthKit. Set WORKOS_CLIENT_ID in Convex and make sure the app uses the same WorkOS environment.";
 
 export class ConvexAuthConfigurationError extends Error {
   constructor(message = missingConvexAuthMessage) {
@@ -33,44 +33,14 @@ function getConvexUrl() {
   return url;
 }
 
-function isMissingConvexJwtTemplateError(error: unknown) {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
+export async function getConvexAuthToken() {
+  const authState = await getAuth();
 
-  const clerkError = error as {
-    status?: unknown;
-    errors?: Array<{ code?: unknown; message?: unknown; longMessage?: unknown }>;
-  };
-
-  return (
-    clerkError.status === 404 &&
-    Array.isArray(clerkError.errors) &&
-    clerkError.errors.some(
-      (entry) =>
-        entry.code === "resource_not_found" &&
-        (entry.message === "JWT template not found" ||
-          entry.longMessage === "No JWT template exists with name: convex"),
-    )
-  );
-}
-
-async function getConvexAuthToken() {
-  const authState = await auth();
-
-  if (!authState.userId) {
+  if (!authState.user) {
     throw new ConvexUnauthorizedError();
   }
 
-  try {
-    return await authState.getToken({ template: "convex" });
-  } catch (error) {
-    if (isMissingConvexJwtTemplateError(error)) {
-      throw new ConvexAuthConfigurationError();
-    }
-
-    throw error;
-  }
+  return authState.accessToken;
 }
 
 export async function convexQuery<Query extends FunctionReference<"query">>(

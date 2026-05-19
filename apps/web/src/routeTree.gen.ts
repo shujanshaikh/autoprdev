@@ -9,7 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignUpRouteImport } from './routes/sign-up'
+import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as GithubConnectRouteImport } from './routes/github-connect'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAgentRouteImport } from './routes/api/agent'
 import { Route as ProjectProjectIdRouteRouteImport } from './routes/project/$projectId/route'
@@ -17,8 +21,10 @@ import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$pro
 import { Route as ProjectProjectIdPullsRouteImport } from './routes/project/$projectId/pulls'
 import { Route as ApiProjectsFromGithubRouteImport } from './routes/api/projects/from-github'
 import { Route as ApiGithubRepositoriesRouteImport } from './routes/api/github/repositories'
+import { Route as ApiGithubConnectRouteImport } from './routes/api/github/connect'
 import { Route as ProjectProjectIdThreadRouteRouteImport } from './routes/project/$projectId/thread/route'
 import { Route as ProjectProjectIdThreadThreadIdRouteImport } from './routes/project/$projectId/thread/$threadId'
+import { Route as ApiWorkosWidgetsPipesTokenRouteImport } from './routes/api/workos/widgets/pipes-token'
 import { Route as ApiProjectProjectIdPullsRouteImport } from './routes/api/project/$projectId/pulls'
 import { Route as ApiProjectProjectIdBranchRouteImport } from './routes/api/project/$projectId/branch'
 import { Route as ApiAgentIdStreamRouteImport } from './routes/api/agent/$id/stream'
@@ -29,9 +35,29 @@ import { Route as ApiGithubRepositoriesOwnerRepoBranchesRouteImport } from './ro
 import { Route as ApiProjectProjectIdThreadThreadIdAgentRunIdRouteImport } from './routes/api/project/$projectId/thread/$threadId/agent/$runId'
 import { Route as ApiProjectProjectIdThreadThreadIdAgentRunIdStreamRouteImport } from './routes/api/project/$projectId/thread/$threadId/agent/$runId/stream'
 
+const SignUpRoute = SignUpRouteImport.update({
+  id: '/sign-up',
+  path: '/sign-up',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GithubConnectRoute = GithubConnectRouteImport.update({
+  id: '/github-connect',
+  path: '/github-connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CallbackRoute = CallbackRouteImport.update({
+  id: '/callback',
+  path: '/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -69,6 +95,11 @@ const ApiGithubRepositoriesRoute = ApiGithubRepositoriesRouteImport.update({
   path: '/api/github/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGithubConnectRoute = ApiGithubConnectRouteImport.update({
+  id: '/api/github/connect',
+  path: '/api/github/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectProjectIdThreadRouteRoute =
   ProjectProjectIdThreadRouteRouteImport.update({
     id: '/thread',
@@ -80,6 +111,12 @@ const ProjectProjectIdThreadThreadIdRoute =
     id: '/$threadId',
     path: '/$threadId',
     getParentRoute: () => ProjectProjectIdThreadRouteRoute,
+  } as any)
+const ApiWorkosWidgetsPipesTokenRoute =
+  ApiWorkosWidgetsPipesTokenRouteImport.update({
+    id: '/api/workos/widgets/pipes-token',
+    path: '/api/workos/widgets/pipes-token',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiProjectProjectIdPullsRoute =
   ApiProjectProjectIdPullsRouteImport.update({
@@ -137,10 +174,15 @@ const ApiProjectProjectIdThreadThreadIdAgentRunIdStreamRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
+  '/github-connect': typeof GithubConnectRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -148,6 +190,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
+  '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
   '/project/$projectId/thread/$threadId': typeof ProjectProjectIdThreadThreadIdRoute
   '/api/project/$projectId/thread/$threadId': typeof ApiProjectProjectIdThreadThreadIdRouteWithChildren
   '/api/github/repositories/$owner/$repo/branches': typeof ApiGithubRepositoriesOwnerRepoBranchesRoute
@@ -158,9 +201,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
+  '/github-connect': typeof GithubConnectRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -168,6 +216,7 @@ export interface FileRoutesByTo {
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
+  '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
   '/project/$projectId/thread/$threadId': typeof ProjectProjectIdThreadThreadIdRoute
   '/api/project/$projectId/thread/$threadId': typeof ApiProjectProjectIdThreadThreadIdRouteWithChildren
   '/api/github/repositories/$owner/$repo/branches': typeof ApiGithubRepositoriesOwnerRepoBranchesRoute
@@ -179,10 +228,15 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
+  '/github-connect': typeof GithubConnectRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -190,6 +244,7 @@ export interface FileRoutesById {
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
+  '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
   '/project/$projectId/thread/$threadId': typeof ProjectProjectIdThreadThreadIdRoute
   '/api/project/$projectId/thread/$threadId': typeof ApiProjectProjectIdThreadThreadIdRouteWithChildren
   '/api/github/repositories/$owner/$repo/branches': typeof ApiGithubRepositoriesOwnerRepoBranchesRoute
@@ -202,10 +257,15 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/callback'
     | '/dashboard'
+    | '/github-connect'
+    | '/sign-in'
+    | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/github/connect'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -213,6 +273,7 @@ export interface FileRouteTypes {
     | '/api/agent/$id/stream'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
+    | '/api/workos/widgets/pipes-token'
     | '/project/$projectId/thread/$threadId'
     | '/api/project/$projectId/thread/$threadId'
     | '/api/github/repositories/$owner/$repo/branches'
@@ -223,9 +284,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/callback'
     | '/dashboard'
+    | '/github-connect'
+    | '/sign-in'
+    | '/sign-up'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/github/connect'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -233,6 +299,7 @@ export interface FileRouteTypes {
     | '/api/agent/$id/stream'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
+    | '/api/workos/widgets/pipes-token'
     | '/project/$projectId/thread/$threadId'
     | '/api/project/$projectId/thread/$threadId'
     | '/api/github/repositories/$owner/$repo/branches'
@@ -243,10 +310,15 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/callback'
     | '/dashboard'
+    | '/github-connect'
+    | '/sign-in'
+    | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/github/connect'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -254,6 +326,7 @@ export interface FileRouteTypes {
     | '/api/agent/$id/stream'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
+    | '/api/workos/widgets/pipes-token'
     | '/project/$projectId/thread/$threadId'
     | '/api/project/$projectId/thread/$threadId'
     | '/api/github/repositories/$owner/$repo/branches'
@@ -265,23 +338,57 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CallbackRoute: typeof CallbackRoute
   DashboardRoute: typeof DashboardRoute
+  GithubConnectRoute: typeof GithubConnectRoute
+  SignInRoute: typeof SignInRoute
+  SignUpRoute: typeof SignUpRoute
   ProjectProjectIdRouteRoute: typeof ProjectProjectIdRouteRouteWithChildren
   ApiAgentRoute: typeof ApiAgentRouteWithChildren
+  ApiGithubConnectRoute: typeof ApiGithubConnectRoute
   ApiGithubRepositoriesRoute: typeof ApiGithubRepositoriesRouteWithChildren
   ApiProjectsFromGithubRoute: typeof ApiProjectsFromGithubRoute
   ApiProjectProjectIdBranchRoute: typeof ApiProjectProjectIdBranchRoute
   ApiProjectProjectIdPullsRoute: typeof ApiProjectProjectIdPullsRoute
+  ApiWorkosWidgetsPipesTokenRoute: typeof ApiWorkosWidgetsPipesTokenRoute
   ApiProjectProjectIdThreadThreadIdRoute: typeof ApiProjectProjectIdThreadThreadIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sign-up': {
+      id: '/sign-up'
+      path: '/sign-up'
+      fullPath: '/sign-up'
+      preLoaderRoute: typeof SignUpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/github-connect': {
+      id: '/github-connect'
+      path: '/github-connect'
+      fullPath: '/github-connect'
+      preLoaderRoute: typeof GithubConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard': {
       id: '/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/callback': {
+      id: '/callback'
+      path: '/callback'
+      fullPath: '/callback'
+      preLoaderRoute: typeof CallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -333,6 +440,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGithubRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/github/connect': {
+      id: '/api/github/connect'
+      path: '/api/github/connect'
+      fullPath: '/api/github/connect'
+      preLoaderRoute: typeof ApiGithubConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/project/$projectId/thread': {
       id: '/project/$projectId/thread'
       path: '/thread'
@@ -346,6 +460,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/project/$projectId/thread/$threadId'
       preLoaderRoute: typeof ProjectProjectIdThreadThreadIdRouteImport
       parentRoute: typeof ProjectProjectIdThreadRouteRoute
+    }
+    '/api/workos/widgets/pipes-token': {
+      id: '/api/workos/widgets/pipes-token'
+      path: '/api/workos/widgets/pipes-token'
+      fullPath: '/api/workos/widgets/pipes-token'
+      preLoaderRoute: typeof ApiWorkosWidgetsPipesTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/project/$projectId/pulls': {
       id: '/api/project/$projectId/pulls'
@@ -521,13 +642,19 @@ const ApiProjectProjectIdThreadThreadIdRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CallbackRoute: CallbackRoute,
   DashboardRoute: DashboardRoute,
+  GithubConnectRoute: GithubConnectRoute,
+  SignInRoute: SignInRoute,
+  SignUpRoute: SignUpRoute,
   ProjectProjectIdRouteRoute: ProjectProjectIdRouteRouteWithChildren,
   ApiAgentRoute: ApiAgentRouteWithChildren,
+  ApiGithubConnectRoute: ApiGithubConnectRoute,
   ApiGithubRepositoriesRoute: ApiGithubRepositoriesRouteWithChildren,
   ApiProjectsFromGithubRoute: ApiProjectsFromGithubRoute,
   ApiProjectProjectIdBranchRoute: ApiProjectProjectIdBranchRoute,
   ApiProjectProjectIdPullsRoute: ApiProjectProjectIdPullsRoute,
+  ApiWorkosWidgetsPipesTokenRoute: ApiWorkosWidgetsPipesTokenRoute,
   ApiProjectProjectIdThreadThreadIdRoute:
     ApiProjectProjectIdThreadThreadIdRouteWithChildren,
 }

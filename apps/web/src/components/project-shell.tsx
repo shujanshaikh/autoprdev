@@ -8,7 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
-import { UserButton } from "@clerk/tanstack-react-start";
 import { Authenticated, Unauthenticated, useMutation } from "convex/react";
 import {
   GitPullRequest,
@@ -38,6 +37,7 @@ import {
 } from "@autopr/ui/components/sidebar";
 
 import { RouteTransition } from "@/components/route-transition";
+import { WorkOSUserButton } from "#/components/auth/workos-user-button";
 import { cn } from "@autopr/ui/lib/utils";
 
 
@@ -360,13 +360,7 @@ export function ProjectSidebar({
               <span className="min-w-0 truncate font-mono text-[11px] text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
                 account
               </span>
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox: "size-6 rounded-none",
-                  },
-                }}
-              />
+              <WorkOSUserButton className="size-8" />
             </div>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -1,6 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { SignInButton, useReverification, useUser } from "@clerk/tanstack-react-start";
 import {
   useMutation as useReactMutation,
   useQuery as useReactQuery,
@@ -13,7 +12,7 @@ import {
   useAction,
   useQuery,
 } from "convex/react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -29,11 +28,6 @@ const EMPTY_BRANCHES: GithubBranch[] = [];
 
 function Dashboard() {
   const navigate = useNavigate();
-  const user = useUser();
-  const createExternalAccount = useReverification(
-    (params: { strategy: "oauth_github"; redirectUrl: string }) =>
-      user.user?.createExternalAccount(params),
-  );
   const { isAuthenticated } = useConvexAuth();
   const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
   const sandboxCosts = useQuery(api.sandboxCosts.listForCurrentUser, isAuthenticated ? {} : "skip");
@@ -188,30 +182,7 @@ function Dashboard() {
   async function connectGithub() {
     setIsConnectingGithub(true);
     setError(undefined);
-
-    try {
-      if (!user.user) {
-        throw new Error("GitHub account linking is not available in this Clerk session.");
-      }
-
-      const externalAccount = await createExternalAccount({
-        strategy: "oauth_github",
-        redirectUrl: window.location.href,
-      });
-      const redirectUrl = externalAccount?.verification?.externalVerificationRedirectURL?.href;
-
-      if (redirectUrl) {
-        window.location.assign(redirectUrl);
-        return;
-      }
-
-      await user.user.reload();
-      await refreshRepositories();
-      setIsConnectingGithub(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not connect GitHub.");
-      setIsConnectingGithub(false);
-    }
+    window.location.assign(`/api/github/connect?returnTo=${encodeURIComponent(window.location.href)}`);
   }
 
   async function createProject() {
@@ -301,35 +272,7 @@ function Dashboard() {
       </Authenticated>
 
       <Unauthenticated>
-        <main className="grid min-h-svh place-items-center px-5">
-          <div className="w-full max-w-md border border-border bg-card">
-            <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3 font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
-              <span className="flex items-center gap-2">
-                <span className="size-1.5 bg-primary" />
-                autopr
-              </span>
-              <span>session · idle</span>
-            </div>
-            <div className="px-7 py-9">
-              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
-                ↳ access required
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight">
-                Sign in to spin up sandboxes.
-              </h1>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                Persistent Daytona workspaces, wired to your GitHub repos in a single
-                four-step flow.
-              </p>
-              <SignInButton>
-                <button className="mt-7 inline-flex h-11 items-center gap-2.5 border border-primary bg-primary px-5 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground transition hover:bg-primary/90">
-                  Continue
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </button>
-              </SignInButton>
-            </div>
-          </div>
-        </main>
+        <Navigate to="/sign-in" replace />
       </Unauthenticated>
 
       <AuthLoading>

@@ -299,6 +299,44 @@
   }
 }
 
+/* ─── Sign-in page ─── */
+
+.sign-in-shell {
+  isolation: isolate;
+}
+
+.sign-in-grid {
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--primary) 10%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 20px 20px;
+  opacity: 0.45;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 20%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 20%, transparent 100%);
+}
+
+.sign-in-cta {
+  position: relative;
+}
+
+.sign-in-cta::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  opacity: 0;
+  background: var(--primary);
+  filter: blur(16px);
+  z-index: -1;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+}
+
+.sign-in-cta:hover::after {
+  opacity: 0.2;
+}
+
+
 /* ─── Streamdown / Markdown Typography ─── */
 /* Document-first minimal design matching reference */
 

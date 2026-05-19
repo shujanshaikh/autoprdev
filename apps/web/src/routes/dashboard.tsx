@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import {
   useMutation as useReactMutation,
@@ -12,7 +12,7 @@ import {
   useAction,
   useQuery,
 } from "convex/react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -272,33 +272,7 @@ function Dashboard() {
       </Authenticated>
 
       <Unauthenticated>
-        <main className="grid min-h-svh place-items-center px-5">
-          <div className="w-full max-w-md border border-border bg-card">
-            <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3 font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
-              <span className="flex items-center gap-2">
-                <span className="size-1.5 bg-primary" />
-                autopr
-              </span>
-              <span>session · idle</span>
-            </div>
-            <div className="px-7 py-9">
-              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
-                ↳ access required
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight">
-                Sign in to spin up sandboxes.
-              </h1>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                Persistent Daytona workspaces, wired to your GitHub repos in a single
-                four-step flow.
-              </p>
-              <a href="/sign-in" className="mt-7 inline-flex h-11 items-center gap-2.5 border border-primary bg-primary px-5 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground transition hover:bg-primary/90">
-                  Continue
-                  <ArrowRight className="size-4" aria-hidden="true" />
-              </a>
-            </div>
-          </div>
-        </main>
+        <Navigate to="/sign-in" replace />
       </Unauthenticated>
 
       <AuthLoading>

@@ -1,12 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { auth } from "@clerk/tanstack-react-start/server";
 import { convertToModelMessages, createUIMessageStreamResponse, type UIMessage } from "ai";
 import { nanoid } from "nanoid";
 import { start } from "workflow/api";
 import { z } from "zod";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexMutation, convexQuery, getConvexAuthToken } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage } from "#/lib/chat-messages";
 import { agentWorkflow } from "#/workflows/agent/workflow";
 
@@ -46,7 +45,7 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
-    const convexAuthToken = await (await auth()).getToken({ template: "convex" });
+    const convexAuthToken = await getConvexAuthToken();
 
     if (!convexAuthToken) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

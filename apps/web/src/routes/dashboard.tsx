@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { SignInButton, useReverification, useUser } from "@clerk/tanstack-react-start";
 import {
   useMutation as useReactMutation,
   useQuery as useReactQuery,
@@ -29,11 +28,6 @@ const EMPTY_BRANCHES: GithubBranch[] = [];
 
 function Dashboard() {
   const navigate = useNavigate();
-  const user = useUser();
-  const createExternalAccount = useReverification(
-    (params: { strategy: "oauth_github"; redirectUrl: string }) =>
-      user.user?.createExternalAccount(params),
-  );
   const { isAuthenticated } = useConvexAuth();
   const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
   const sandboxCosts = useQuery(api.sandboxCosts.listForCurrentUser, isAuthenticated ? {} : "skip");
@@ -188,30 +182,7 @@ function Dashboard() {
   async function connectGithub() {
     setIsConnectingGithub(true);
     setError(undefined);
-
-    try {
-      if (!user.user) {
-        throw new Error("GitHub account linking is not available in this Clerk session.");
-      }
-
-      const externalAccount = await createExternalAccount({
-        strategy: "oauth_github",
-        redirectUrl: window.location.href,
-      });
-      const redirectUrl = externalAccount?.verification?.externalVerificationRedirectURL?.href;
-
-      if (redirectUrl) {
-        window.location.assign(redirectUrl);
-        return;
-      }
-
-      await user.user.reload();
-      await refreshRepositories();
-      setIsConnectingGithub(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not connect GitHub.");
-      setIsConnectingGithub(false);
-    }
+    window.location.assign(`/api/github/connect?returnTo=${encodeURIComponent(window.location.href)}`);
   }
 
   async function createProject() {
@@ -321,12 +292,10 @@ function Dashboard() {
                 Persistent Daytona workspaces, wired to your GitHub repos in a single
                 four-step flow.
               </p>
-              <SignInButton>
-                <button className="mt-7 inline-flex h-11 items-center gap-2.5 border border-primary bg-primary px-5 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground transition hover:bg-primary/90">
+              <a href="/sign-in" className="mt-7 inline-flex h-11 items-center gap-2.5 border border-primary bg-primary px-5 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground transition hover:bg-primary/90">
                   Continue
                   <ArrowRight className="size-4" aria-hidden="true" />
-                </button>
-              </SignInButton>
+              </a>
             </div>
           </div>
         </main>

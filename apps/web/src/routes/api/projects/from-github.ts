@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubBranches, getGithubRepository } from "@autopr/backend/convex/lib/github_oauth";
-import { auth } from "@clerk/tanstack-react-start/server";
 import { z } from "zod";
 
 import { convexMutation, convexQuery } from "#/lib/convex-server";
@@ -10,6 +9,7 @@ import {
   authenticatedGithubCloneUrl,
   getGithubOAuthToken,
   GithubConnectionError,
+  requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
 
@@ -27,12 +27,6 @@ const requestSchema = z.object({
 });
 
 async function POST(req: Request) {
-  const authState = await auth();
-
-  if (!authState.userId) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const parsed = requestSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: "Select a GitHub repository and branch." }, { status: 400 });
@@ -42,7 +36,8 @@ async function POST(req: Request) {
   const { repository, branch } = parsed.data;
 
   try {
-    const token = await getGithubOAuthToken(authState.userId);
+    const authState = await requireWorkOSAuth();
+    const token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
     const [verifiedRepo, branches] = await Promise.all([
       getGithubRepository(token, repository.owner, repository.name),
       fetchGithubBranches(token, repository.owner, repository.name),
@@ -153,6 +148,6 @@ async function POST(req: Request) {
 
 export const Route = createFileRoute("/api/projects/from-github")({
   server: {
-    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, { params: Promise.resolve(params) } as any) },
+    handlers: { POST: async ({ request }: { request: Request }) => POST(request) },
   },
 });

@@ -1,14 +1,16 @@
-import { UserButton, useUser } from "@clerk/tanstack-react-start";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
+
+import { WorkOSUserButton } from "#/components/auth/workos-user-button";
 
 interface DashboardHeaderProps {
   projectCount: number;
 }
 
 export function DashboardHeader({ projectCount }: DashboardHeaderProps) {
-  const user = useUser();
+  const { user } = useAuth();
   const name =
-    user.user?.firstName ??
-    user.user?.primaryEmailAddress?.emailAddress?.split("@")[0] ??
+    user?.firstName ??
+    user?.email?.split("@")[0] ??
     "operator";
 
   return (
@@ -26,7 +28,7 @@ export function DashboardHeader({ projectCount }: DashboardHeaderProps) {
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:inline">
           {String(projectCount).padStart(2, "0")} projects
         </span>
-        <UserButton />
+        <WorkOSUserButton />
       </div>
     </header>
   );

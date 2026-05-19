@@ -1,18 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubPullRequests } from "@autopr/backend/convex/lib/github_oauth";
-import { auth } from "@clerk/tanstack-react-start/server";
 
 import { convexQuery } from "#/lib/convex-server";
-import { getGithubOAuthToken, GithubConnectionError, safeErrorMessage } from "#/lib/github-oauth-server";
+import { getGithubOAuthToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
 
 async function GET(_req: Request, { params }: { params: Promise<{ projectId: string }> }) {
-  const authState = await auth();
-
-  if (!authState.userId) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const { projectId } = await params;
   const project = await convexQuery(api.projects.get, { projectId });
 
@@ -21,7 +14,8 @@ async function GET(_req: Request, { params }: { params: Promise<{ projectId: str
   }
 
   try {
-    const token = await getGithubOAuthToken(authState.userId);
+    const authState = await requireWorkOSAuth();
+    const token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
     const pulls = await fetchGithubPullRequests(token, project.repoOwner, project.repoName);
 
     return Response.json({

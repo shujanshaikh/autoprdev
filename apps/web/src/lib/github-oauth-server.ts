@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
-import { clerkClient } from "@clerk/tanstack-react-start/server";
+import { WorkOS } from "@workos-inc/node";
+import { getAuth } from "@workos/authkit-tanstack-react-start";
 
 export class GithubConnectionError extends Error {
   constructor(message = "Connect GitHub to continue.") {
@@ -9,16 +10,120 @@ export class GithubConnectionError extends Error {
   }
 }
 
-export async function getGithubOAuthToken(userId: string): Promise<string> {
-  const client = await clerkClient();
-  const response = await client.users.getUserOauthAccessToken(userId, "github");
-  const token = response.data[0]?.token;
+function normalizeWorkOSErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+
+  if (error.message.includes("Data Integration not found") || error.message.includes("slug=github")) {
+    return "GitHub is not configured in WorkOS Pipes. Add the GitHub provider in WorkOS Pipes before connecting repositories.";
+  }
+
+  return error.message;
+}
+
+function getWorkOS() {
+  const apiKey = process.env.WORKOS_API_KEY;
+  if (!apiKey) {
+    throw new GithubConnectionError("Set WORKOS_API_KEY before connecting GitHub.");
+  }
+
+  return new WorkOS(apiKey);
+}
+
+function getWorkOSApiKey() {
+  const apiKey = process.env.WORKOS_API_KEY;
+  if (!apiKey) {
+    throw new GithubConnectionError("Set WORKOS_API_KEY before connecting GitHub.");
+  }
+
+  return apiKey;
+}
+
+export async function requireWorkOSAuth() {
+  const authState = await getAuth();
+
+  if (!authState.user) {
+    throw new GithubConnectionError("Unauthorized");
+  }
+
+  return authState;
+}
+
+export async function getGithubOAuthToken(userId: string, organizationId?: string | null): Promise<string> {
+  const response = await getWorkOS()
+    .pipes.getAccessToken({
+      provider: "github",
+      userId,
+      organizationId,
+    })
+    .catch((error: unknown) => {
+      throw new GithubConnectionError(normalizeWorkOSErrorMessage(error) ?? "Could not load the connected GitHub token.");
+    });
+
+  if (!response.active) {
+    throw new GithubConnectionError(
+      response.error === "needs_reauthorization"
+        ? "Reconnect GitHub to continue."
+        : "Connect GitHub to continue.",
+    );
+  }
+
+  const token = response.accessToken.accessToken;
 
   if (!token) {
     throw new GithubConnectionError();
   }
 
+  if (response.accessToken.missingScopes.length > 0) {
+    throw new GithubConnectionError(
+      `Reconnect GitHub with the required scopes: ${response.accessToken.missingScopes.join(", ")}.`,
+    );
+  }
+
   return token;
+}
+
+export async function getGithubWidgetToken(userId: string, organizationId?: string) {
+  if (!organizationId) {
+    throw new GithubConnectionError("Select or create a WorkOS organization before connecting GitHub.");
+  }
+
+  const { token } = await getWorkOS().widgets.createToken({
+    userId,
+    organizationId,
+  });
+
+  return token;
+}
+
+export async function getGithubAuthorizationUrl(options: {
+  userId: string;
+  organizationId?: string | null;
+  returnTo?: string;
+}) {
+  const response = await fetch("https://api.workos.com/data-integrations/github/authorize", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getWorkOSApiKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: options.userId,
+      organization_id: options.organizationId,
+      return_to: options.returnTo,
+    }),
+  });
+
+  const body = (await response.json().catch(() => undefined)) as { url?: string; message?: string } | undefined;
+
+  if (!response.ok || !body?.url) {
+    throw new GithubConnectionError(
+      normalizeWorkOSErrorMessage(new Error(body?.message ?? "")) ?? body?.message ?? "Could not start GitHub authorization.",
+    );
+  }
+
+  return body.url;
 }
 
 export interface GithubUserIdentity {
@@ -71,10 +176,11 @@ async function fetchGithubUserEmail(token: string, fallbackEmail?: string | null
   };
 }
 
-export async function getGithubUserIdentity(userId: string, token: string): Promise<GithubUserIdentity> {
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const fallbackEmail = user.primaryEmailAddress?.emailAddress;
+export async function getGithubUserIdentity(
+  user: { firstName?: string | null; lastName?: string | null; email?: string | null },
+  token: string,
+): Promise<GithubUserIdentity> {
+  const fallbackEmail = user.email;
   const githubUser = await fetchGithubUserEmail(token, fallbackEmail);
   const email = githubUser.email ?? fallbackEmail;
 
@@ -82,12 +188,8 @@ export async function getGithubUserIdentity(userId: string, token: string): Prom
     throw new GithubConnectionError("Could not determine the connected GitHub user's email.");
   }
 
-  const name =
-    githubUser.name ??
-    user.fullName ??
-    user.username ??
-    githubUser.username ??
-    email.split("@")[0];
+  const workosName = [user.firstName, user.lastName].filter(Boolean).join(" ");
+  const name = githubUser.name ?? (workosName || githubUser.username) ?? email.split("@")[0];
 
   return {
     username: githubUser.username,

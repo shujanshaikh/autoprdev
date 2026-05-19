@@ -1,9 +1,8 @@
-import { ClerkProvider, useAuth } from '@clerk/tanstack-react-start'
 import { Toaster } from '@autopr/ui/components/sonner'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ConvexReactClient } from 'convex/react'
-import { ConvexProviderWithClerk } from 'convex/react-clerk'
-import { useState } from 'react'
+import { AuthKitProvider, useAccessToken, useAuth } from '@workos/authkit-tanstack-react-start/client'
+import { ConvexProviderWithAuth, ConvexReactClient } from 'convex/react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { ThemeProvider } from './components/theme-provider'
 
@@ -29,13 +28,35 @@ export function Providers({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <ClerkProvider>
+    <AuthKitProvider>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-        <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+        <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
           <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-        </ConvexProviderWithClerk>
+        </ConvexProviderWithAuth>
         <Toaster richColors />
       </ThemeProvider>
-    </ClerkProvider>
+    </AuthKitProvider>
+  )
+}
+
+function useAuthFromAuthKit() {
+  const { loading, user } = useAuth()
+  const { getAccessToken, refresh } = useAccessToken()
+
+  const fetchAccessToken = useCallback(
+    async ({ forceRefreshToken }: { forceRefreshToken?: boolean } = {}) => {
+      if (!user) return null
+      return (forceRefreshToken ? await refresh() : await getAccessToken()) ?? null
+    },
+    [getAccessToken, refresh, user],
+  )
+
+  return useMemo(
+    () => ({
+      isLoading: loading,
+      isAuthenticated: Boolean(user),
+      fetchAccessToken,
+    }),
+    [fetchAccessToken, loading, user],
   )
 }

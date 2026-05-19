@@ -1,24 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubBranches } from "@autopr/backend/convex/lib/github_oauth";
-import { auth } from "@clerk/tanstack-react-start/server";
 import { z } from "zod";
 
 import { convexMutation, convexQuery } from "#/lib/convex-server";
 import { SandboxGitConflictError, switchProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
-import { getGithubOAuthToken, GithubConnectionError, safeErrorMessage } from "#/lib/github-oauth-server";
+import { getGithubOAuthToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
 
 const requestSchema = z.object({
   branch: z.string().min(1),
 });
 
 async function POST(req: Request, { params }: { params: Promise<{ projectId: string }> }) {
-  const authState = await auth();
-
-  if (!authState.userId) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const parsed = requestSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: "Select a branch." }, { status: 400 });
@@ -40,7 +33,8 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
   const previousBranch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch;
 
   try {
-    const token = await getGithubOAuthToken(authState.userId);
+    const authState = await requireWorkOSAuth();
+    const token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
     const branches = await fetchGithubBranches(token, project.repoOwner, project.repoName);
 
     if (!branches.some((entry) => entry.name === branch)) {

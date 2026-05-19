@@ -1,6 +1,6 @@
 import { createStart } from '@tanstack/react-start'
-import { clerkMiddleware } from '@clerk/tanstack-react-start/server'
+import { authkitMiddleware } from '@workos/authkit-tanstack-react-start'
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [clerkMiddleware()],
+  requestMiddleware: [authkitMiddleware()],
 }))

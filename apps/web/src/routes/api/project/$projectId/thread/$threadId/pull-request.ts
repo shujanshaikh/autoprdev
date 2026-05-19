@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { createGithubPullRequest } from "@autopr/backend/convex/lib/github_oauth";
-import { auth } from "@clerk/tanstack-react-start/server";
 import { z } from "zod";
 
 import { convexMutation, convexQuery } from "#/lib/convex-server";
@@ -10,6 +9,7 @@ import {
   getGithubOAuthToken,
   getGithubUserIdentity,
   GithubConnectionError,
+  requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
 
@@ -47,12 +47,6 @@ async function POST(
   const requestedBranch = autoprBranchName(parsed.data.branch);
   if (!requestedBranch) {
     return Response.json({ error: "Enter a branch name after autopr/." }, { status: 400 });
-  }
-
-  const authState = await auth();
-
-  if (!authState.userId) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { projectId, threadId } = await params;
@@ -94,8 +88,9 @@ async function POST(
       [`Created from AutoPR thread \`${threadId}\`.`, "", "This PR contains the changes currently staged in the thread sandbox."].join("\n");
 
     try {
-      const token = await getGithubOAuthToken(authState.userId);
-      const gitIdentity = await getGithubUserIdentity(authState.userId, token);
+      const authState = await requireWorkOSAuth();
+      const token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+      const gitIdentity = await getGithubUserIdentity(authState.user, token);
       await convexMutation(api.threads.markPullRequestCreating, { threadId, branch });
 
       try {

@@ -26,6 +26,6 @@ async function POST(req: Request) {
 
 export const Route = createFileRoute("/api/agent")({
   server: {
-    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, { params: Promise.resolve(params) } as any) },
+    handlers: { POST: async ({ request }: { request: Request }) => POST(request) },
   },
 });

@@ -10,19 +10,36 @@ import {
 } from "@autopr/ui/components/dropdown-menu";
 import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { LogOut, UserRound } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export function WorkOSUserButton({ className }: { className?: string }) {
   const { signOut, user } = useAuth();
+  const [showProfileImage, setShowProfileImage] = useState(true);
   const initials = user?.firstName?.[0] ?? user?.email?.[0] ?? "U";
   const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(" ");
+  const profilePictureUrl = user?.profilePictureUrl;
+
+  useEffect(() => {
+    setShowProfileImage(true);
+  }, [profilePictureUrl]);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className={className} />}>
         <span className="sr-only">Open user menu</span>
-        <span className="flex size-7 items-center justify-center rounded-full border border-border bg-background font-mono text-[10px] uppercase">
-          {initials ? initials.toUpperCase() : <UserRound className="size-3.5" aria-hidden="true" />}
-        </span>
+        {profilePictureUrl && showProfileImage ? (
+          <img
+            src={profilePictureUrl}
+            alt={displayName || user?.email || "User profile"}
+            className="size-7 rounded-full border border-border object-cover"
+            referrerPolicy="no-referrer"
+            onError={() => setShowProfileImage(false)}
+          />
+        ) : (
+          <span className="flex size-7 items-center justify-center rounded-full border border-border bg-background font-mono text-[10px] uppercase">
+            {initials ? initials.toUpperCase() : <UserRound className="size-3.5" aria-hidden="true" />}
+          </span>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuGroup>

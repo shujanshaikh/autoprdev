@@ -481,12 +481,7 @@ function ProjectOverviewPage() {
                             />
                           </div>
 
-                          <div className="flex items-center justify-between px-3 py-2">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-[10px] tracking-wide text-muted-foreground/50">
-                                autopr agent
-                              </span>
-                            </div>
+                          <div className="flex items-center justify-end px-3 py-2">
                             <button
                               type="submit"
                               disabled={project.sandboxStatus !== "ready" || isCreatingThread}

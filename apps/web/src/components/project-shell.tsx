@@ -356,10 +356,7 @@ export function ProjectSidebar({
       <SidebarFooter className="mt-auto border-t border-sidebar-border/60 p-2">
         <SidebarMenu className="gap-0">
           <SidebarMenuItem>
-            <div className="flex h-9 items-center justify-between gap-2.5 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-              <span className="min-w-0 truncate font-mono text-[11px] text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
-                account
-              </span>
+            <div className="flex h-9 items-center justify-end gap-2.5 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
               <WorkOSUserButton className="size-8" />
             </div>
           </SidebarMenuItem>

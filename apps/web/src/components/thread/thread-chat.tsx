@@ -2,6 +2,13 @@ import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Badge } from "@autopr/ui/components/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@autopr/ui/components/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -164,7 +171,14 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
   return entries;
 }
 
-const MINIMAX_M27_CONTEXT_LIMIT = 204_800;
+const CODEX_MODELS = [
+  { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 1_000_000 },
+  { id: "gpt-5.2-codex", label: "GPT-5.2 Codex", contextLimit: 400_000 },
+  { id: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max", contextLimit: 400_000 },
+  { id: "gpt-5.1-codex", label: "GPT-5.1 Codex", contextLimit: 400_000 },
+  { id: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini", contextLimit: 400_000 },
+  { id: "gpt-5-codex", label: "GPT-5 Codex", contextLimit: 400_000 },
+] as const;
 
 function ThreadChatTextarea({
   projectId,
@@ -403,6 +417,7 @@ export function ThreadChat({
   const [runtimeStatus, setRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>(
     project?.sandboxRuntimeStatus,
   );
+  const [selectedModel, setSelectedModel] = useState<(typeof CODEX_MODELS)[number]["id"]>("gpt-5.5");
   const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
@@ -487,13 +502,14 @@ export function ThreadChat({
           api: options.api,
           body: {
             message: options.messages[options.messages.length - 1],
+            model: selectedModel,
           },
           headers: options.headers,
           credentials: options.credentials,
         }),
         prepareReconnectToStreamRequest,
       }),
-    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest],
+    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest, selectedModel],
   );
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
@@ -658,6 +674,8 @@ export function ThreadChat({
       cachedInputTokens: 0,
     },
   ), [messages]);
+  const selectedModelContextLimit =
+    CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
 
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
@@ -729,20 +747,35 @@ export function ThreadChat({
                   <ThreadChatTextarea projectId={projectId} disabled={!ready} />
                 </PromptInputBody>
                 <PromptInputFooter className="bg-transparent px-2 py-1.5">
-                <PromptInputTools className="min-w-0 flex-1">
-                  <ThreadContextRemainingIndicator
-                    inputTokens={conversationUsage.inputTokens}
-                    cachedInputTokens={conversationUsage.cachedInputTokens}
-                    outputTokens={conversationUsage.outputTokens}
-                    contextLimit={MINIMAX_M27_CONTEXT_LIMIT}
+                  <PromptInputTools className="min-w-0 flex-1">
+                    <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as typeof selectedModel)}>
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start" className="min-w-52">
+                        {CODEX_MODELS.map((model) => (
+                          <SelectItem key={model.id} value={model.id}>
+                            {model.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <ThreadContextRemainingIndicator
+                      inputTokens={conversationUsage.inputTokens}
+                      cachedInputTokens={conversationUsage.cachedInputTokens}
+                      outputTokens={conversationUsage.outputTokens}
+                      contextLimit={selectedModelContextLimit}
+                    />
+                  </PromptInputTools>
+                  <PromptInputSubmit
+                    className="size-7 rounded-none"
+                    disabled={!ready && !busy}
+                    onStop={stopGeneration}
+                    status={status}
                   />
-                </PromptInputTools>
-                <PromptInputSubmit
-                  className="size-7 rounded-none"
-                  disabled={!ready && !busy}
-                  onStop={stopGeneration}
-                  status={status}
-                />
                 </PromptInputFooter>
               </PromptInput>
             </PromptInputProvider>

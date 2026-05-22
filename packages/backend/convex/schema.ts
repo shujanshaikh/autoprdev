@@ -61,6 +61,18 @@ export default defineSchema({
     .index("by_author_status", ["authorId", "status"])
     .index("by_next_sync", ["nextSyncAt"]),
 
+  codexCredentials: defineTable({
+    authorId: v.string(),
+    organizationId: v.string(),
+    vaultObjectId: v.string(),
+    vaultVersionId: v.optional(v.string()),
+    accountId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    connectedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_author", ["authorId"]),
+
   threads: defineTable({
     threadId: v.string(),
     projectId: v.string(),

@@ -7,8 +7,9 @@ import {
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { createOpenAI } from "@ai-sdk/openai";
 import { DurableAgent } from "@workflow/ai/agent";
-import {  type ModelMessage, type UIMessageChunk } from "ai";
+import { type ModelMessage, type UIMessageChunk } from "ai";
 import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
@@ -22,6 +23,15 @@ export interface AgentWorkflowOptions {
   repoBranch?: string;
   assistantMessageId?: string;
   convexAuthToken?: string;
+  codex?: CodexAgentModelOptions;
+}
+
+interface CodexAgentModelOptions {
+  provider: "openai-codex";
+  modelId: string;
+  accessToken: string;
+  accountId?: string;
+  expiresAt: number;
 }
 
 interface AssistantPersistenceOptions {
@@ -131,6 +141,109 @@ function getAssistantPersistenceOptions(options: AgentWorkflowOptions): Assistan
   };
 }
 
+function responseInputContentToText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") {
+        return part;
+      }
+      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+        return part.text;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function codexOpenAIModel(options: CodexAgentModelOptions) {
+  if (options.expiresAt <= Date.now()) {
+    throw new Error("Codex credentials expired. Reconnect Codex and try again.");
+  }
+
+  return async () => {
+    "use step";
+
+    const provider = createOpenAI({
+      apiKey: options.accessToken,
+      fetch: async (input, init) => {
+        const requestUrl = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url);
+        const url = requestUrl.pathname.includes("/v1/responses") || requestUrl.pathname.includes("/chat/completions")
+          ? new URL("https://chatgpt.com/backend-api/codex/responses")
+          : requestUrl;
+
+        const headers = new Headers(init?.headers);
+        headers.set("authorization", `Bearer ${options.accessToken}`);
+        if (options.accountId) {
+          headers.set("ChatGPT-Account-Id", options.accountId);
+        }
+
+        const nextInit: RequestInit = { ...init, headers };
+        if (typeof nextInit.body === "string" && nextInit.method === "POST") {
+          const body = JSON.parse(nextInit.body) as {
+            instructions?: string;
+            input?: Array<Record<string, unknown>>;
+            store?: boolean;
+          };
+
+          body.store = false;
+
+          if (Array.isArray(body.input)) {
+            const instructions = body.input
+              .filter((item) => item.role === "system" || item.role === "developer")
+              .map((item) => responseInputContentToText(item.content))
+              .filter(Boolean)
+              .join("\n");
+
+            body.input = body.input.filter((item) => item.type !== "item_reference");
+
+            if (!body.instructions && instructions) {
+              body.instructions = instructions;
+              body.input = body.input.filter((item) => item.role !== "system" && item.role !== "developer");
+            }
+
+          }
+
+          nextInit.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(url, nextInit);
+        if (!response.ok) {
+          const errorBody = await response.clone().text().catch(() => "<failed to read response body>");
+          throw new Error(
+            `Codex API request failed: ${response.status} ${response.statusText} ${errorBody}`,
+          );
+        }
+
+        return response;
+      },
+    });
+    const model = provider.responses(options.modelId);
+
+    if (options.accountId) {
+      const originalDoStream = model.doStream.bind(model);
+      model.doStream = (callOptions) =>
+        originalDoStream({
+          ...callOptions,
+          headers: {
+            ...callOptions.headers,
+            "ChatGPT-Account-Id": options.accountId,
+          },
+        });
+    }
+
+    return model;
+  };
+}
+
 export async function agentWorkflow(inputMessages: ModelMessage[], options: AgentWorkflowOptions) {
   "use workflow";
 
@@ -164,11 +277,15 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
         .join("\n"),
   });
 
+  if (options.codex?.expiresAt && options.codex.expiresAt <= Date.now()) {
+    throw new Error("Codex credentials expired. Reconnect Codex and try again.");
+  }
+
   const agent = new DurableAgent({
-    model: "minimax/minimax-m2.7",
+    model: options.codex ? codexOpenAIModel(options.codex) : "minimax/minimax-m2.7",
     instructions: createCachedSystemMessage(instructions),
     tools,
-    toolChoice: "required",
+    toolChoice: "auto",
   });
   const writable = getWritable<UIMessageChunk>();
 
@@ -182,6 +299,15 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       writable,
       sendStart: !options.assistantMessageId,
       maxSteps: 100,
+      maxRetries: 1,
+      providerOptions: options.codex
+        ? {
+            openai: {
+              store: false,
+              instructions,
+            },
+          }
+        : undefined,
       onFinish: async ({ messages, steps }) => {
         if (!persistence) {
           return;

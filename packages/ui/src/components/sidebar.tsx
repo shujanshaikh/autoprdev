@@ -262,8 +262,9 @@ function SidebarTrigger({
   const isOpen = isMobile ? openMobile : state === "expanded"
 
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <div className="group/sidebar-trigger-wrap relative flex items-center">
+      <Tooltip>
+        <TooltipTrigger
         render={
           <Button
             data-sidebar="trigger"
@@ -272,6 +273,7 @@ function SidebarTrigger({
             variant="ghost"
             size="icon-sm"
             aria-label={isOpen ? "Hide sidebar" : "Show sidebar"}
+            title={isOpen ? "Hide sidebar" : "Show sidebar"}
             className={cn(
               "group/sidebar-trigger relative size-7 rounded-[6px] text-muted-foreground/85",
               "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
@@ -314,16 +316,26 @@ function SidebarTrigger({
           </Button>
         }
       />
-      <TooltipContent side="bottom" sideOffset={8}>
+        <TooltipContent side="bottom" align="start" sideOffset={8} alignOffset={-4}>
+          <span>{isOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
+          <kbd
+            data-slot="kbd"
+            className="ml-1 inline-flex h-4 items-center rounded-[3px] bg-background/15 px-1 font-mono text-[10px] font-medium text-background/80"
+          >
+            ⌘B
+          </kbd>
+        </TooltipContent>
+      </Tooltip>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 items-center gap-1.5 whitespace-nowrap bg-foreground px-3 py-1.5 text-xs text-background opacity-0 shadow-sm transition-opacity duration-150 group-hover/sidebar-trigger-wrap:flex group-hover/sidebar-trigger-wrap:opacity-100 group-focus-within/sidebar-trigger-wrap:flex group-focus-within/sidebar-trigger-wrap:opacity-100"
+      >
         <span>{isOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
-        <kbd
-          data-slot="kbd"
-          className="ml-1 inline-flex h-4 items-center rounded-[3px] bg-background/15 px-1 font-mono text-[10px] font-medium text-background/80"
-        >
+        <kbd className="inline-flex h-4 items-center bg-background/15 px-1 font-mono text-[10px] font-medium text-background/80">
           ⌘B
         </kbd>
-      </TooltipContent>
-    </Tooltip>
+      </div>
+    </div>
   )
 }
 

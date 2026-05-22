@@ -17,6 +17,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
+import { CodexConnectDialog } from "#/components/dashboard/codex-connect-dialog";
 import { DashboardHeader } from "#/components/dashboard/dashboard-header";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import { ProjectGrid } from "#/components/dashboard/project-grid";
@@ -38,8 +39,21 @@ function Dashboard() {
   const [repoSearch, setRepoSearch] = useState("");
   const [isConnectingGithub, setIsConnectingGithub] = useState(false);
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
+  const [isCodexDialogOpen, setIsCodexDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | undefined>();
+
+  const codexStatusQuery = useReactQuery({
+    queryKey: ["codex", "status"],
+    enabled: isAuthenticated,
+    retry: false,
+    queryFn: async () =>
+      readJson<{
+        connected: boolean;
+        email?: string;
+        accountId?: string;
+      }>(await fetch("/api/codex/status")),
+  });
 
   const repositoriesQuery = useReactQuery({
     queryKey: ["github", "repositories"],
@@ -212,7 +226,11 @@ function Dashboard() {
       <Authenticated>
         <div className="dashboard-shell relative flex h-svh min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
           <main className="mx-auto flex h-full w-full max-w-6xl flex-1 flex-col px-5 pt-5 pb-5 sm:px-8 lg:px-10">
-            <DashboardHeader projectCount={projectCount} />
+            <DashboardHeader
+              projectCount={projectCount}
+              isCodexConnected={Boolean(codexStatusQuery.data?.connected)}
+              onConnectCodex={() => setIsCodexDialogOpen(true)}
+            />
 
             <div className="flex min-h-0 flex-1 flex-col gap-5">
               <div className="flex shrink-0 flex-col">
@@ -267,6 +285,12 @@ function Dashboard() {
             projectName={projectToDelete?.repoFullName ?? "this project"}
             isDeleting={isDeleting}
             onDelete={deleteProject}
+          />
+          <CodexConnectDialog
+            open={isCodexDialogOpen}
+            status={codexStatusQuery.data}
+            onOpenChange={setIsCodexDialogOpen}
+            onStatusChange={() => void codexStatusQuery.refetch()}
           />
         </div>
       </Authenticated>

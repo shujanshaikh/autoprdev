@@ -22,11 +22,15 @@ import { Route as ProjectProjectIdPullsRouteImport } from './routes/project/$pro
 import { Route as ApiProjectsFromGithubRouteImport } from './routes/api/projects/from-github'
 import { Route as ApiGithubRepositoriesRouteImport } from './routes/api/github/repositories'
 import { Route as ApiGithubConnectRouteImport } from './routes/api/github/connect'
+import { Route as ApiCodexStatusRouteImport } from './routes/api/codex/status'
+import { Route as ApiCodexDisconnectRouteImport } from './routes/api/codex/disconnect'
 import { Route as ProjectProjectIdThreadRouteRouteImport } from './routes/project/$projectId/thread/route'
 import { Route as ProjectProjectIdThreadThreadIdRouteImport } from './routes/project/$projectId/thread/$threadId'
 import { Route as ApiWorkosWidgetsPipesTokenRouteImport } from './routes/api/workos/widgets/pipes-token'
 import { Route as ApiProjectProjectIdPullsRouteImport } from './routes/api/project/$projectId/pulls'
 import { Route as ApiProjectProjectIdBranchRouteImport } from './routes/api/project/$projectId/branch'
+import { Route as ApiCodexDeviceStartRouteImport } from './routes/api/codex/device/start'
+import { Route as ApiCodexDevicePollRouteImport } from './routes/api/codex/device/poll'
 import { Route as ApiAgentIdStreamRouteImport } from './routes/api/agent/$id/stream'
 import { Route as ApiProjectProjectIdThreadThreadIdRouteImport } from './routes/api/project/$projectId/thread/$threadId'
 import { Route as ApiProjectProjectIdThreadThreadIdPullRequestRouteImport } from './routes/api/project/$projectId/thread/$threadId/pull-request'
@@ -100,6 +104,16 @@ const ApiGithubConnectRoute = ApiGithubConnectRouteImport.update({
   path: '/api/github/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCodexStatusRoute = ApiCodexStatusRouteImport.update({
+  id: '/api/codex/status',
+  path: '/api/codex/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCodexDisconnectRoute = ApiCodexDisconnectRouteImport.update({
+  id: '/api/codex/disconnect',
+  path: '/api/codex/disconnect',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectProjectIdThreadRouteRoute =
   ProjectProjectIdThreadRouteRouteImport.update({
     id: '/thread',
@@ -130,6 +144,16 @@ const ApiProjectProjectIdBranchRoute =
     path: '/api/project/$projectId/branch',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiCodexDeviceStartRoute = ApiCodexDeviceStartRouteImport.update({
+  id: '/api/codex/device/start',
+  path: '/api/codex/device/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCodexDevicePollRoute = ApiCodexDevicePollRouteImport.update({
+  id: '/api/codex/device/poll',
+  path: '/api/codex/device/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentIdStreamRoute = ApiAgentIdStreamRouteImport.update({
   id: '/$id/stream',
   path: '/$id/stream',
@@ -182,12 +206,16 @@ export interface FileRoutesByFullPath {
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
+  '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
+  '/api/codex/device/poll': typeof ApiCodexDevicePollRoute
+  '/api/codex/device/start': typeof ApiCodexDeviceStartRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
   '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
@@ -208,12 +236,16 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
+  '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
   '/project/$projectId': typeof ProjectProjectIdIndexRoute
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
+  '/api/codex/device/poll': typeof ApiCodexDevicePollRoute
+  '/api/codex/device/start': typeof ApiCodexDeviceStartRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
   '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
@@ -236,12 +268,16 @@ export interface FileRoutesById {
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
+  '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
+  '/api/codex/device/poll': typeof ApiCodexDevicePollRoute
+  '/api/codex/device/start': typeof ApiCodexDeviceStartRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
   '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
@@ -265,12 +301,16 @@ export interface FileRouteTypes {
     | '/project/$projectId'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/codex/disconnect'
+    | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
     | '/project/$projectId/'
     | '/api/agent/$id/stream'
+    | '/api/codex/device/poll'
+    | '/api/codex/device/start'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
     | '/api/workos/widgets/pipes-token'
@@ -291,12 +331,16 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/codex/disconnect'
+    | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
     | '/project/$projectId'
     | '/api/agent/$id/stream'
+    | '/api/codex/device/poll'
+    | '/api/codex/device/start'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
     | '/api/workos/widgets/pipes-token'
@@ -318,12 +362,16 @@ export interface FileRouteTypes {
     | '/project/$projectId'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/codex/disconnect'
+    | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
     | '/project/$projectId/'
     | '/api/agent/$id/stream'
+    | '/api/codex/device/poll'
+    | '/api/codex/device/start'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
     | '/api/workos/widgets/pipes-token'
@@ -345,9 +393,13 @@ export interface RootRouteChildren {
   SignUpRoute: typeof SignUpRoute
   ProjectProjectIdRouteRoute: typeof ProjectProjectIdRouteRouteWithChildren
   ApiAgentRoute: typeof ApiAgentRouteWithChildren
+  ApiCodexDisconnectRoute: typeof ApiCodexDisconnectRoute
+  ApiCodexStatusRoute: typeof ApiCodexStatusRoute
   ApiGithubConnectRoute: typeof ApiGithubConnectRoute
   ApiGithubRepositoriesRoute: typeof ApiGithubRepositoriesRouteWithChildren
   ApiProjectsFromGithubRoute: typeof ApiProjectsFromGithubRoute
+  ApiCodexDevicePollRoute: typeof ApiCodexDevicePollRoute
+  ApiCodexDeviceStartRoute: typeof ApiCodexDeviceStartRoute
   ApiProjectProjectIdBranchRoute: typeof ApiProjectProjectIdBranchRoute
   ApiProjectProjectIdPullsRoute: typeof ApiProjectProjectIdPullsRoute
   ApiWorkosWidgetsPipesTokenRoute: typeof ApiWorkosWidgetsPipesTokenRoute
@@ -447,6 +499,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGithubConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/codex/status': {
+      id: '/api/codex/status'
+      path: '/api/codex/status'
+      fullPath: '/api/codex/status'
+      preLoaderRoute: typeof ApiCodexStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/codex/disconnect': {
+      id: '/api/codex/disconnect'
+      path: '/api/codex/disconnect'
+      fullPath: '/api/codex/disconnect'
+      preLoaderRoute: typeof ApiCodexDisconnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/project/$projectId/thread': {
       id: '/project/$projectId/thread'
       path: '/thread'
@@ -480,6 +546,20 @@ declare module '@tanstack/react-router' {
       path: '/api/project/$projectId/branch'
       fullPath: '/api/project/$projectId/branch'
       preLoaderRoute: typeof ApiProjectProjectIdBranchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/codex/device/start': {
+      id: '/api/codex/device/start'
+      path: '/api/codex/device/start'
+      fullPath: '/api/codex/device/start'
+      preLoaderRoute: typeof ApiCodexDeviceStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/codex/device/poll': {
+      id: '/api/codex/device/poll'
+      path: '/api/codex/device/poll'
+      fullPath: '/api/codex/device/poll'
+      preLoaderRoute: typeof ApiCodexDevicePollRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agent/$id/stream': {
@@ -649,9 +729,13 @@ const rootRouteChildren: RootRouteChildren = {
   SignUpRoute: SignUpRoute,
   ProjectProjectIdRouteRoute: ProjectProjectIdRouteRouteWithChildren,
   ApiAgentRoute: ApiAgentRouteWithChildren,
+  ApiCodexDisconnectRoute: ApiCodexDisconnectRoute,
+  ApiCodexStatusRoute: ApiCodexStatusRoute,
   ApiGithubConnectRoute: ApiGithubConnectRoute,
   ApiGithubRepositoriesRoute: ApiGithubRepositoriesRouteWithChildren,
   ApiProjectsFromGithubRoute: ApiProjectsFromGithubRoute,
+  ApiCodexDevicePollRoute: ApiCodexDevicePollRoute,
+  ApiCodexDeviceStartRoute: ApiCodexDeviceStartRoute,
   ApiProjectProjectIdBranchRoute: ApiProjectProjectIdBranchRoute,
   ApiProjectProjectIdPullsRoute: ApiProjectProjectIdPullsRoute,
   ApiWorkosWidgetsPipesTokenRoute: ApiWorkosWidgetsPipesTokenRoute,

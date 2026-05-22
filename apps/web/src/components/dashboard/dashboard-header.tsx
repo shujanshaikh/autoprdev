@@ -1,12 +1,20 @@
 import { useAuth } from "@workos/authkit-tanstack-react-start/client";
+import { Bot } from "lucide-react";
 
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
+import { Button } from "@autopr/ui/components/button";
 
 interface DashboardHeaderProps {
   projectCount: number;
+  isCodexConnected: boolean;
+  onConnectCodex: () => void;
 }
 
-export function DashboardHeader({ projectCount }: DashboardHeaderProps) {
+export function DashboardHeader({
+  projectCount,
+  isCodexConnected,
+  onConnectCodex,
+}: DashboardHeaderProps) {
   const { user } = useAuth();
   const name =
     user?.firstName ??
@@ -28,6 +36,15 @@ export function DashboardHeader({ projectCount }: DashboardHeaderProps) {
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:inline">
           {String(projectCount).padStart(2, "0")} projects
         </span>
+        <Button
+          type="button"
+          variant={isCodexConnected ? "secondary" : "outline"}
+          size="sm"
+          onClick={onConnectCodex}
+        >
+          <Bot className="size-3.5" />
+          Codex
+        </Button>
         <WorkOSUserButton />
       </div>
     </header>

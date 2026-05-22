@@ -7,9 +7,11 @@ import { z } from "zod";
 
 import { convexMutation, convexQuery, getConvexAuthToken } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage } from "#/lib/chat-messages";
+import { getCodexAgentModelConfig } from "#/lib/codex-auth-server";
 import { agentWorkflow } from "#/workflows/agent/workflow";
 
 const agentRequestSchema = z.object({
+  model: z.string().optional(),
   message: z.object({
     id: z.string(),
     role: z.enum(["system", "user", "assistant"]),
@@ -51,6 +53,14 @@ async function POST(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const codex = await getCodexAgentModelConfig(parsed.data.model).catch((error) =>
+      error instanceof Error ? error : new Error("Could not load Codex credentials."),
+    );
+
+    if (codex instanceof Error) {
+      return Response.json({ error: codex.message }, { status: 401 });
+    }
+
     const userMessage = parsed.data.message as UIMessage;
     const assistantMessageId = await convexMutation(api.messages.createTurn, {
       projectId,
@@ -87,6 +97,7 @@ async function POST(
         repoBranch: project.repoBranch,
         assistantMessageId,
         convexAuthToken,
+        codex,
       },
     ]);
 

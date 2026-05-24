@@ -30,6 +30,7 @@ export interface AgentWorkflowOptions {
 interface CodexAgentModelOptions {
   provider: "openai-codex";
   modelId: string;
+  reasoningEffort: string;
   vaultObjectId: string;
   vaultVersionId?: string;
   accountId?: string;
@@ -197,10 +198,12 @@ function codexOpenAIModel(options: CodexAgentModelOptions) {
           const body = JSON.parse(nextInit.body) as {
             instructions?: string;
             input?: Array<Record<string, unknown>>;
+            reasoning?: Record<string, unknown>;
             store?: boolean;
           };
 
           body.store = false;
+          body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
 
           if (Array.isArray(body.input)) {
             const instructions = body.input
@@ -312,6 +315,9 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
             openai: {
               store: false,
               instructions,
+              reasoningEffort: options.codex.reasoningEffort,
+              reasoningSummary: "auto",
+              include: ["reasoning.encrypted_content"],
             },
           }
         : undefined,

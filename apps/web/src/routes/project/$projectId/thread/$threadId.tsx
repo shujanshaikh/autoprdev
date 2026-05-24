@@ -11,16 +11,19 @@ import Loader from "@/components/loader";
 import { toUIMessage } from "@/lib/chat-messages";
 import { ThreadChat } from "#/components/thread/thread-chat";
 import { ThreadTabs } from "#/components/thread/thread-tabs";
-import { isCodexModelId } from "#/lib/codex-models";
+import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
 import { readStoredThreadTabs, writeStoredThreadTabs } from "#/components/thread/thread-tabs-storage";
 
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { prompt?: string; model?: string };
+  const search = useSearch({ strict: false }) as { prompt?: string; model?: string; reasoningEffort?: string };
   const { isAuthenticated } = useConvexAuth();
   const initialPrompt = search.prompt?.trim() || undefined;
   const initialModel = isCodexModelId(search.model) ? search.model : undefined;
+  const initialReasoningEffort = isCodexReasoningEffortForModel(initialModel, search.reasoningEffort)
+    ? search.reasoningEffort
+    : undefined;
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
@@ -60,7 +63,12 @@ function ProjectThreadPageContent() {
   }, []);
 
   const handleInitialPromptConsumed = useCallback(() => {
-    navigate({ to: ".", search: (prev) => ({ ...prev, prompt: undefined, model: undefined }), replace: true, resetScroll: false });
+    navigate({
+      to: ".",
+      search: (prev) => ({ ...prev, prompt: undefined, model: undefined, reasoningEffort: undefined }),
+      replace: true,
+      resetScroll: false,
+    });
   }, [navigate]);
 
   const handleSelectThreadTab = useCallback((nextThreadId: string) => {
@@ -199,6 +207,7 @@ function ProjectThreadPageContent() {
                   initialMessages={initialMessages}
                   initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
                   initialModel={initialModel}
+                  initialReasoningEffort={initialReasoningEffort}
                   disabled={disabled}
                   diffPanelOpen={diffPanelOpen}
                   onDiffPanelOpenChange={setDiffPanelOpen}

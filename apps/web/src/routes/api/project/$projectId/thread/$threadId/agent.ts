@@ -12,6 +12,7 @@ import { agentWorkflow } from "#/workflows/agent/workflow";
 
 const agentRequestSchema = z.object({
   model: z.string().optional(),
+  reasoningEffort: z.string().optional(),
   message: z.object({
     id: z.string(),
     role: z.enum(["system", "user", "assistant"]),
@@ -53,7 +54,7 @@ async function POST(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const codex = await getCodexAgentModelConfig(parsed.data.model).catch((error) =>
+    const codex = await getCodexAgentModelConfig(parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
       error instanceof Error ? error : new Error("Could not load Codex credentials."),
     );
 

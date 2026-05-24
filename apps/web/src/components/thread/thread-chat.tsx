@@ -44,9 +44,16 @@ import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dr
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { SandboxStatusBar, ThreadMessages } from "#/components/thread/thread-messages";
 import { useFileSuggestions } from "#/hooks/use-file-suggestions";
-import { CODEX_MODELS, DEFAULT_CODEX_MODEL, type CodexModelId } from "#/lib/codex-models";
+import {
+  CODEX_MODELS,
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_CODEX_REASONING_EFFORT,
+  getCodexReasoningEfforts,
+  type CodexModelId,
+  type CodexReasoningEffort,
+} from "#/lib/codex-models";
 export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
-export type { CodexModelId } from "#/lib/codex-models";
+export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
 import type { FileSuggestion } from "#/lib/file-suggestions";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
 
@@ -383,6 +390,7 @@ export function ThreadChat({
   initialMessages,
   initialPrompt,
   initialModel,
+  initialReasoningEffort,
   disabled,
   diffPanelOpen,
   onDiffPanelOpenChange,
@@ -397,6 +405,7 @@ export function ThreadChat({
   initialMessages: UIMessage[];
   initialPrompt?: string;
   initialModel?: CodexModelId;
+  initialReasoningEffort?: CodexReasoningEffort;
   disabled: boolean;
   diffPanelOpen: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
@@ -414,6 +423,10 @@ export function ThreadChat({
     project?.sandboxRuntimeStatus,
   );
   const [selectedModel, setSelectedModel] = useState<CodexModelId>(initialModel ?? DEFAULT_CODEX_MODEL);
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
+    initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
+  );
+  const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
@@ -499,13 +512,14 @@ export function ThreadChat({
           body: {
             message: options.messages[options.messages.length - 1],
             model: selectedModel,
+            reasoningEffort: selectedReasoningEffort,
           },
           headers: options.headers,
           credentials: options.credentials,
         }),
         prepareReconnectToStreamRequest,
       }),
-    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest, selectedModel],
+    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest, selectedModel, selectedReasoningEffort],
   );
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
@@ -673,6 +687,12 @@ export function ThreadChat({
   const selectedModelContextLimit =
     CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
 
+  useEffect(() => {
+    if (!selectedReasoningEfforts.includes(selectedReasoningEffort)) {
+      setSelectedReasoningEffort(DEFAULT_CODEX_REASONING_EFFORT);
+    }
+  }, [selectedReasoningEffort, selectedReasoningEfforts]);
+
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
     if (!nextMessage || disabled) {
@@ -755,6 +775,25 @@ export function ThreadChat({
                         {CODEX_MODELS.map((model) => (
                           <SelectItem key={model.id} value={model.id}>
                             {model.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={selectedReasoningEffort}
+                      onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-[170px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label="Reasoning level"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start" alignItemWithTrigger={false} side="top" className="min-w-44">
+                        {selectedReasoningEfforts.map((effort) => (
+                          <SelectItem key={effort} value={effort}>
+                            {effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1)} reasoning
                           </SelectItem>
                         ))}
                       </SelectContent>

@@ -4,6 +4,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { WorkOS } from "@workos-inc/node";
 
 import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { DEFAULT_CODEX_REASONING_EFFORT, isCodexReasoningEffortForModel } from "#/lib/codex-models";
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 
 const OPENAI_AUTH_ISSUER = "https://auth.openai.com";
@@ -125,6 +126,16 @@ function normalizeCodexModel(model: string | undefined) {
   return selectedModel;
 }
 
+function normalizeCodexReasoningEffort(modelId: string, reasoningEffort: string | undefined) {
+  const selectedReasoningEffort = reasoningEffort?.trim() || DEFAULT_CODEX_REASONING_EFFORT;
+
+  if (!isCodexReasoningEffortForModel(modelId, selectedReasoningEffort)) {
+    throw new CodexConnectionError("Select a supported reasoning level for this Codex model.", 400);
+  }
+
+  return selectedReasoningEffort;
+}
+
 function codexVaultObjectName(userId: string) {
   return `autopr-codex-${userId}`;
 }
@@ -190,7 +201,7 @@ export async function getCodexConnectionStatus() {
   return await convexQuery(api.codexAuth.status, {});
 }
 
-export async function getCodexAgentModelConfig(model?: string) {
+export async function getCodexAgentModelConfig(model?: string, reasoningEffort?: string) {
   await requireCodexAuthContext();
   const status = await convexQuery(api.codexAuth.status, {});
 
@@ -202,6 +213,7 @@ export async function getCodexAgentModelConfig(model?: string) {
   const vaultObject = await getWorkOSVault().readObject({ id: reference.vaultObjectId });
   let credential = parseStoredCodexCredential(vaultObject.value);
   const modelId = normalizeCodexModel(model);
+  const selectedReasoningEffort = normalizeCodexReasoningEffort(modelId, reasoningEffort);
 
   if (credential.expiresAt <= Date.now() + 60_000) {
     const tokens = await refreshCodexTokens(credential.refreshToken);
@@ -235,6 +247,7 @@ export async function getCodexAgentModelConfig(model?: string) {
   return {
     provider: "openai-codex" as const,
     modelId,
+    reasoningEffort: selectedReasoningEffort,
     vaultObjectId: reference.vaultObjectId,
     vaultVersionId: reference.vaultVersionId,
     accountId: credential.accountId,

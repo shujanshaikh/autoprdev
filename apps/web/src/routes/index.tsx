@@ -38,12 +38,12 @@ function Home() {
             </Link>
           </li>
           <li>
-            <Link
-              to="/dashboard"
+            <a
+              href="/api/auth/sign-in?returnTo=%2Fdashboard"
               className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Sign in
-            </Link>
+            </a>
           </li>
         </ul>
       </nav>

@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignUpRouteImport } from './routes/sign-up'
-import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as GithubConnectRouteImport } from './routes/github-connect'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as CallbackRouteImport } from './routes/callback'
@@ -24,6 +23,7 @@ import { Route as ApiGithubRepositoriesRouteImport } from './routes/api/github/r
 import { Route as ApiGithubConnectRouteImport } from './routes/api/github/connect'
 import { Route as ApiCodexStatusRouteImport } from './routes/api/codex/status'
 import { Route as ApiCodexDisconnectRouteImport } from './routes/api/codex/disconnect'
+import { Route as ApiAuthSignInRouteImport } from './routes/api/auth/sign-in'
 import { Route as ProjectProjectIdThreadRouteRouteImport } from './routes/project/$projectId/thread/route'
 import { Route as ProjectProjectIdThreadThreadIdRouteImport } from './routes/project/$projectId/thread/$threadId'
 import { Route as ApiWorkosWidgetsPipesTokenRouteImport } from './routes/api/workos/widgets/pipes-token'
@@ -42,11 +42,6 @@ import { Route as ApiProjectProjectIdThreadThreadIdAgentRunIdStreamRouteImport }
 const SignUpRoute = SignUpRouteImport.update({
   id: '/sign-up',
   path: '/sign-up',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SignInRoute = SignInRouteImport.update({
-  id: '/sign-in',
-  path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GithubConnectRoute = GithubConnectRouteImport.update({
@@ -112,6 +107,11 @@ const ApiCodexStatusRoute = ApiCodexStatusRouteImport.update({
 const ApiCodexDisconnectRoute = ApiCodexDisconnectRouteImport.update({
   id: '/api/codex/disconnect',
   path: '/api/codex/disconnect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthSignInRoute = ApiAuthSignInRouteImport.update({
+  id: '/api/auth/sign-in',
+  path: '/api/auth/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectProjectIdThreadRouteRoute =
@@ -201,11 +201,11 @@ export interface FileRoutesByFullPath {
   '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
   '/github-connect': typeof GithubConnectRoute
-  '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
@@ -232,10 +232,10 @@ export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
   '/github-connect': typeof GithubConnectRoute
-  '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
@@ -263,11 +263,11 @@ export interface FileRoutesById {
   '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
   '/github-connect': typeof GithubConnectRoute
-  '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
+  '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
@@ -296,11 +296,11 @@ export interface FileRouteTypes {
     | '/callback'
     | '/dashboard'
     | '/github-connect'
-    | '/sign-in'
     | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/auth/sign-in'
     | '/api/codex/disconnect'
     | '/api/codex/status'
     | '/api/github/connect'
@@ -327,10 +327,10 @@ export interface FileRouteTypes {
     | '/callback'
     | '/dashboard'
     | '/github-connect'
-    | '/sign-in'
     | '/sign-up'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/auth/sign-in'
     | '/api/codex/disconnect'
     | '/api/codex/status'
     | '/api/github/connect'
@@ -357,11 +357,11 @@ export interface FileRouteTypes {
     | '/callback'
     | '/dashboard'
     | '/github-connect'
-    | '/sign-in'
     | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
     | '/project/$projectId/thread'
+    | '/api/auth/sign-in'
     | '/api/codex/disconnect'
     | '/api/codex/status'
     | '/api/github/connect'
@@ -389,10 +389,10 @@ export interface RootRouteChildren {
   CallbackRoute: typeof CallbackRoute
   DashboardRoute: typeof DashboardRoute
   GithubConnectRoute: typeof GithubConnectRoute
-  SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   ProjectProjectIdRouteRoute: typeof ProjectProjectIdRouteRouteWithChildren
   ApiAgentRoute: typeof ApiAgentRouteWithChildren
+  ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiCodexDisconnectRoute: typeof ApiCodexDisconnectRoute
   ApiCodexStatusRoute: typeof ApiCodexStatusRoute
   ApiGithubConnectRoute: typeof ApiGithubConnectRoute
@@ -413,13 +413,6 @@ declare module '@tanstack/react-router' {
       path: '/sign-up'
       fullPath: '/sign-up'
       preLoaderRoute: typeof SignUpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sign-in': {
-      id: '/sign-in'
-      path: '/sign-in'
-      fullPath: '/sign-in'
-      preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/github-connect': {
@@ -511,6 +504,13 @@ declare module '@tanstack/react-router' {
       path: '/api/codex/disconnect'
       fullPath: '/api/codex/disconnect'
       preLoaderRoute: typeof ApiCodexDisconnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/sign-in': {
+      id: '/api/auth/sign-in'
+      path: '/api/auth/sign-in'
+      fullPath: '/api/auth/sign-in'
+      preLoaderRoute: typeof ApiAuthSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/project/$projectId/thread': {
@@ -725,10 +725,10 @@ const rootRouteChildren: RootRouteChildren = {
   CallbackRoute: CallbackRoute,
   DashboardRoute: DashboardRoute,
   GithubConnectRoute: GithubConnectRoute,
-  SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   ProjectProjectIdRouteRoute: ProjectProjectIdRouteRouteWithChildren,
   ApiAgentRoute: ApiAgentRouteWithChildren,
+  ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiCodexDisconnectRoute: ApiCodexDisconnectRoute,
   ApiCodexStatusRoute: ApiCodexStatusRoute,
   ApiGithubConnectRoute: ApiGithubConnectRoute,

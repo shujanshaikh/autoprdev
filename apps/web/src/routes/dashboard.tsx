@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import {
   useMutation as useReactMutation,
@@ -26,6 +26,14 @@ import { readJson, type GithubBranch, type GithubRepository } from "#/components
 
 const EMPTY_REPOSITORIES: GithubRepository[] = [];
 const EMPTY_BRANCHES: GithubBranch[] = [];
+
+function SignInRedirect() {
+  useEffect(() => {
+    window.location.replace("/api/auth/sign-in?returnTo=%2Fdashboard");
+  }, []);
+
+  return null;
+}
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -296,7 +304,7 @@ function Dashboard() {
       </Authenticated>
 
       <Unauthenticated>
-        <Navigate to="/sign-in" replace />
+        <SignInRedirect />
       </Unauthenticated>
 
       <AuthLoading>

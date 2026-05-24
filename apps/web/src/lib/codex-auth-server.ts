@@ -19,7 +19,7 @@ type WorkOSVaultObject = {
   };
 };
 
-type WorkOSVault = {
+export type WorkOSVault = {
   createObject(input: {
     name: string;
     value: string;
@@ -52,7 +52,7 @@ type CodexTokenResponse = {
   expires_in?: number;
 };
 
-type StoredCodexCredential = {
+export type StoredCodexCredential = {
   provider: "openai-codex";
   type: "oauth";
   accessToken: string;
@@ -78,7 +78,7 @@ export class CodexConnectionError extends Error {
   }
 }
 
-function getWorkOSVault() {
+export function getWorkOSVault() {
   const apiKey = process.env.WORKOS_API_KEY;
   if (!apiKey) {
     throw new CodexConnectionError("WorkOS Vault is not configured. Set WORKOS_API_KEY.", 500);
@@ -138,7 +138,7 @@ async function fetchJson<T>(url: string, init: RequestInit, errorMessage: string
   return (await response.json()) as T;
 }
 
-function parseStoredCodexCredential(value: string): StoredCodexCredential {
+export function parseStoredCodexCredential(value: string): StoredCodexCredential {
   const parsed = JSON.parse(value) as Partial<StoredCodexCredential>;
 
   if (
@@ -235,7 +235,8 @@ export async function getCodexAgentModelConfig(model?: string) {
   return {
     provider: "openai-codex" as const,
     modelId,
-    accessToken: credential.accessToken,
+    vaultObjectId: reference.vaultObjectId,
+    vaultVersionId: reference.vaultVersionId,
     accountId: credential.accountId,
     expiresAt: credential.expiresAt,
   };

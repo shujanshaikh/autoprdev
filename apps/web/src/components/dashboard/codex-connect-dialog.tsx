@@ -6,9 +6,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
+import { cn } from "@autopr/ui/lib/utils";
 import { Check, Copy, ExternalLink, Loader2, Unplug } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { CodexLogo } from "#/components/icons/codex-logo";
 import { readJson } from "#/components/dashboard/types";
 
 type CodexStatus = {
@@ -54,7 +56,9 @@ export function CodexConnectDialog({
     fetch("/api/codex/device/start", { method: "POST" })
       .then((response) => readJson<DeviceStartResponse>(response))
       .then(setDevice)
-      .catch((err) => setError(err instanceof Error ? err.message : "Could not start Codex authorization."))
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Could not start Codex authorization."),
+      )
       .finally(() => setIsStarting(false));
   }, [device, isStarting, open, status?.connected]);
 
@@ -89,7 +93,9 @@ export function CodexConnectDialog({
         timeout = setTimeout(poll, activeDevice.intervalMs);
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Could not complete Codex authorization.");
+          setError(
+            err instanceof Error ? err.message : "Could not complete Codex authorization.",
+          );
         }
       } finally {
         if (!cancelled) setIsPolling(false);
@@ -125,108 +131,280 @@ export function CodexConnectDialog({
     }
   }
 
+  const isLive = isStarting || isPolling;
+  const statusLabel = status?.connected
+    ? "connected"
+    : isStarting
+      ? "preparing"
+      : isPolling
+        ? "waiting for auth"
+        : "idle";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] max-w-[min(46rem,calc(100vw-2rem))] gap-6 overflow-y-auto border border-white/10 bg-[#202020] p-5 text-white shadow-2xl ring-0 sm:p-8">
-        <DialogHeader className="gap-2 pr-8">
-          <DialogTitle className="text-2xl font-semibold tracking-normal sm:text-3xl">
-            Connect Codex
-          </DialogTitle>
-          <DialogDescription className="text-sm text-white/55 sm:text-base">
-            Route OpenAI models through your ChatGPT subscription
-          </DialogDescription>
-        </DialogHeader>
-
-        {status?.connected ? (
-          <div className="space-y-5">
-            <div className="flex items-start gap-3 border-l border-emerald-400/45 pl-4">
-              <Check className="mt-0.5 size-5 text-emerald-400" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Codex is connected</p>
-                <p className="break-words text-xs text-white/50">
-                  {status.email ?? status.accountId ?? "ChatGPT subscription access is stored in WorkOS Vault."}
-                </p>
-              </div>
+      <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-md">
+        {/* Header */}
+        <div className="border-b border-border px-5 pt-4 pb-4 pr-12">
+          <DialogHeader className="gap-2">
+            <div className="flex items-center gap-2">
+              <span aria-hidden className="inline-block size-1.5 bg-primary" />
+              <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                autopr / codex
+              </span>
+              <CodexLogo
+                aria-hidden
+                className="ml-auto size-3.5 text-muted-foreground/70"
+              />
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isDisconnecting}
-              onClick={disconnect}
-              className="border-white/15 bg-transparent text-white hover:bg-white/10"
-            >
-              {isDisconnecting ? <Loader2 className="animate-spin" /> : <Unplug />}
-              Disconnect
-            </Button>
-          </div>
+            <DialogTitle className="text-base font-semibold tracking-tight text-foreground">
+              Connect Codex
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed text-muted-foreground">
+              Route OpenAI models through your ChatGPT subscription. Authorize this
+              workspace once via device code.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        {/* Body */}
+        {status?.connected ? (
+          <ConnectedBody
+            status={status}
+            isDisconnecting={isDisconnecting}
+            onDisconnect={() => void disconnect()}
+          />
         ) : (
-          <ol className="space-y-6 text-base leading-relaxed text-white sm:text-[1.35rem]">
-            <li className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-4">
-              <span className="font-mono text-white/35">1.</span>
-              <div className="min-w-0 space-y-3">
-                <p>Enable device code authorization in your security settings:</p>
+          <ol className="divide-y divide-border">
+            <Step
+              n={1}
+              done={Boolean(device)}
+              title="Enable device code authorization"
+              hint="Open your ChatGPT security settings and turn on device codes."
+              action={
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 border-white/15 bg-transparent px-4 text-sm text-white hover:bg-white/10 sm:h-14 sm:px-5 sm:text-xl"
-                  onClick={() => device && window.open(device.securitySettingsUrl, "_blank", "noopener,noreferrer")}
+                  size="sm"
                   disabled={!device}
+                  onClick={() =>
+                    device &&
+                    window.open(
+                      device.securitySettingsUrl,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
                 >
-                  Security settings <ExternalLink className="size-5" />
+                  Security settings
+                  <ExternalLink className="size-3" aria-hidden="true" />
                 </Button>
-              </div>
-            </li>
-
-            <li className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-4">
-              <span className="font-mono text-white/35">2.</span>
-              <div className="min-w-0 space-y-3">
-                <p>Copy this code:</p>
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="min-w-0 border border-white/10 bg-white/[0.06] px-4 py-4 font-mono text-2xl font-bold tracking-[0.12em] sm:px-8 sm:py-6 sm:text-4xl">
-                    {device?.userCode ?? "--------"}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={!device}
-                    onClick={copyCode}
-                    aria-label={copied ? "Copied" : "Copy code"}
-                    className="text-white/60 hover:bg-white/10 hover:text-white"
-                  >
-                    {copied ? <Check /> : <Copy />}
-                  </Button>
-                </div>
-              </div>
-            </li>
-
-            <li className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-4">
-              <span className="font-mono text-white/35">3.</span>
-              <div className="min-w-0 space-y-3">
-                <p>Open the verification page and paste the code:</p>
+              }
+            />
+            <Step
+              n={2}
+              done={copied}
+              title="Copy this code"
+              hint="Paste it on the verification page in step 3."
+              action={
+                <CodeBox
+                  userCode={device?.userCode}
+                  copied={copied}
+                  onCopy={() => void copyCode()}
+                  disabled={!device}
+                />
+              }
+            />
+            <Step
+              n={3}
+              done={false}
+              title="Verify in your browser"
+              hint="Paste the code on ChatGPT's verification page to authorize."
+              action={
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 border-white/15 bg-transparent px-4 text-sm text-white hover:bg-white/10 sm:h-14 sm:px-5 sm:text-xl"
-                  onClick={() => device && window.open(device.verificationUrl, "_blank", "noopener,noreferrer")}
+                  size="sm"
                   disabled={!device}
+                  onClick={() =>
+                    device &&
+                    window.open(
+                      device.verificationUrl,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
                 >
-                  Verification page <ExternalLink className="size-5" />
+                  Verification page
+                  <ExternalLink className="size-3" aria-hidden="true" />
                 </Button>
-              </div>
-            </li>
+              }
+            />
           </ol>
         )}
 
-        {!status?.connected && (
-          <div className="flex items-center gap-3 text-sm text-white/50 sm:text-lg">
-            {isStarting || isPolling ? <Loader2 className="size-5 animate-spin" /> : null}
-            <span>{isStarting ? "Preparing authorization..." : "Waiting for authentication..."}</span>
-          </div>
-        )}
+        {/* Status bar */}
+        <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-5 py-2.5">
+          <span
+            aria-hidden
+            className={cn(
+              "inline-block size-1.5",
+              status?.connected
+                ? "bg-primary"
+                : isLive
+                  ? "animate-pulse bg-primary"
+                  : "bg-muted-foreground/40",
+            )}
+          />
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+            {statusLabel}
+          </span>
+          {isLive ? (
+            <Loader2
+              className="ml-auto size-3 animate-spin text-muted-foreground"
+              aria-hidden="true"
+            />
+          ) : null}
+        </div>
 
-        {error ? <p className="text-sm text-red-300">{error}</p> : null}
+        {error ? (
+          <div
+            role="alert"
+            className="border-t border-destructive/40 bg-destructive/[0.04] px-5 py-2.5 font-mono text-xs"
+          >
+            <span className="mr-2 uppercase tracking-[0.2em] text-destructive">err</span>
+            <span className="text-destructive/90">{error}</span>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Step({
+  n,
+  done,
+  title,
+  hint,
+  action,
+}: {
+  n: number;
+  done: boolean;
+  title: string;
+  hint: string;
+  action: React.ReactNode;
+}) {
+  return (
+    <li className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 px-5 py-4">
+      <span
+        aria-hidden
+        className={cn(
+          "mt-0.5 inline-flex size-5 items-center justify-center border font-mono text-[10px] leading-none transition-colors",
+          done
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-background text-muted-foreground",
+        )}
+      >
+        {done ? <Check className="size-3" strokeWidth={3} /> : n}
+      </span>
+      <div className="min-w-0 space-y-2">
+        <div className="space-y-0.5">
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
+        </div>
+        {action}
+      </div>
+    </li>
+  );
+}
+
+function CodeBox({
+  userCode,
+  copied,
+  disabled,
+  onCopy,
+}: {
+  userCode?: string;
+  copied: boolean;
+  disabled: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex items-stretch gap-2">
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-center justify-center border border-border bg-muted/40 px-3 py-2 font-mono text-base font-semibold tracking-[0.22em]",
+          userCode ? "text-foreground" : "text-muted-foreground/50",
+        )}
+        aria-live="polite"
+      >
+        {userCode ?? "─────────"}
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        disabled={disabled}
+        onClick={onCopy}
+        aria-label={copied ? "Copied" : "Copy code"}
+        className="self-stretch"
+      >
+        {copied ? (
+          <Check className="size-3.5 text-primary" aria-hidden="true" />
+        ) : (
+          <Copy className="size-3.5" aria-hidden="true" />
+        )}
+      </Button>
+    </div>
+  );
+}
+
+function ConnectedBody({
+  status,
+  isDisconnecting,
+  onDisconnect,
+}: {
+  status: { email?: string; accountId?: string };
+  isDisconnecting: boolean;
+  onDisconnect: () => void;
+}) {
+  const identity =
+    status.email ??
+    status.accountId ??
+    "ChatGPT subscription stored in WorkOS Vault.";
+
+  return (
+    <div className="space-y-3 px-5 py-5">
+      <div className="border border-border bg-muted/30 px-3 py-3">
+        <div className="flex items-start gap-2.5">
+          <span
+            aria-hidden
+            className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center border border-primary bg-primary text-primary-foreground"
+          >
+            <Check className="size-3" strokeWidth={3} />
+          </span>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <p className="text-sm font-medium text-foreground">Codex is connected</p>
+            <p className="break-words font-mono text-[11px] text-muted-foreground">
+              {identity}
+            </p>
+          </div>
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={isDisconnecting}
+        onClick={onDisconnect}
+        className="w-full"
+      >
+        {isDisconnecting ? (
+          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+        ) : (
+          <Unplug className="size-3.5" aria-hidden="true" />
+        )}
+        Disconnect
+      </Button>
+    </div>
   );
 }

@@ -13,6 +13,7 @@ import { type ModelMessage, type UIMessageChunk } from "ai";
 import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
+import { getWorkOSVault, parseStoredCodexCredential } from "#/lib/codex-auth-server";
 
 export interface AgentWorkflowOptions {
   projectId?: string;
@@ -29,7 +30,8 @@ export interface AgentWorkflowOptions {
 interface CodexAgentModelOptions {
   provider: "openai-codex";
   modelId: string;
-  accessToken: string;
+  vaultObjectId: string;
+  vaultVersionId?: string;
   accountId?: string;
   expiresAt: number;
 }
@@ -165,15 +167,18 @@ function responseInputContentToText(content: unknown): string {
 }
 
 function codexOpenAIModel(options: CodexAgentModelOptions) {
-  if (options.expiresAt <= Date.now()) {
-    throw new Error("Codex credentials expired. Reconnect Codex and try again.");
-  }
-
   return async () => {
     "use step";
 
+    const vaultObject = await getWorkOSVault().readObject({ id: options.vaultObjectId });
+    const credential = parseStoredCodexCredential(vaultObject.value);
+
+    if (credential.expiresAt <= Date.now()) {
+      throw new Error("Codex credentials expired. Reconnect Codex and try again.");
+    }
+
     const provider = createOpenAI({
-      apiKey: options.accessToken,
+      apiKey: credential.accessToken,
       fetch: async (input, init) => {
         const requestUrl = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url);
         const url = requestUrl.pathname.includes("/v1/responses") || requestUrl.pathname.includes("/chat/completions")
@@ -181,9 +186,10 @@ function codexOpenAIModel(options: CodexAgentModelOptions) {
           : requestUrl;
 
         const headers = new Headers(init?.headers);
-        headers.set("authorization", `Bearer ${options.accessToken}`);
-        if (options.accountId) {
-          headers.set("ChatGPT-Account-Id", options.accountId);
+        headers.set("authorization", `Bearer ${credential.accessToken}`);
+        const accountId = credential.accountId ?? options.accountId;
+        if (accountId) {
+          headers.set("ChatGPT-Account-Id", accountId);
         }
 
         const nextInit: RequestInit = { ...init, headers };
@@ -228,14 +234,15 @@ function codexOpenAIModel(options: CodexAgentModelOptions) {
     });
     const model = provider.responses(options.modelId);
 
-    if (options.accountId) {
+    const accountId = credential.accountId ?? options.accountId;
+    if (accountId) {
       const originalDoStream = model.doStream.bind(model);
       model.doStream = (callOptions) =>
         originalDoStream({
           ...callOptions,
           headers: {
             ...callOptions.headers,
-            "ChatGPT-Account-Id": options.accountId,
+            "ChatGPT-Account-Id": accountId,
           },
         });
     }

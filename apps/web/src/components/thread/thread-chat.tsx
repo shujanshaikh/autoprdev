@@ -44,6 +44,9 @@ import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dr
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { SandboxStatusBar, ThreadMessages } from "#/components/thread/thread-messages";
 import { useFileSuggestions } from "#/hooks/use-file-suggestions";
+import { CODEX_MODELS, DEFAULT_CODEX_MODEL, type CodexModelId } from "#/lib/codex-models";
+export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
+export type { CodexModelId } from "#/lib/codex-models";
 import type { FileSuggestion } from "#/lib/file-suggestions";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
 
@@ -170,15 +173,6 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 
   return entries;
 }
-
-const CODEX_MODELS = [
-  { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 1_000_000 },
-  { id: "gpt-5.2-codex", label: "GPT-5.2 Codex", contextLimit: 400_000 },
-  { id: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max", contextLimit: 400_000 },
-  { id: "gpt-5.1-codex", label: "GPT-5.1 Codex", contextLimit: 400_000 },
-  { id: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini", contextLimit: 400_000 },
-  { id: "gpt-5-codex", label: "GPT-5 Codex", contextLimit: 400_000 },
-] as const;
 
 function ThreadChatTextarea({
   projectId,
@@ -388,6 +382,7 @@ export function ThreadChat({
   currentRunId,
   initialMessages,
   initialPrompt,
+  initialModel,
   disabled,
   diffPanelOpen,
   onDiffPanelOpenChange,
@@ -401,6 +396,7 @@ export function ThreadChat({
   currentRunId?: string;
   initialMessages: UIMessage[];
   initialPrompt?: string;
+  initialModel?: CodexModelId;
   disabled: boolean;
   diffPanelOpen: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
@@ -417,7 +413,7 @@ export function ThreadChat({
   const [runtimeStatus, setRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>(
     project?.sandboxRuntimeStatus,
   );
-  const [selectedModel, setSelectedModel] = useState<(typeof CODEX_MODELS)[number]["id"]>("gpt-5.5");
+  const [selectedModel, setSelectedModel] = useState<CodexModelId>(initialModel ?? DEFAULT_CODEX_MODEL);
   const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 

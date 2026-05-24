@@ -38,6 +38,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThreadTabs } from "#/components/thread/thread-tabs";
+import { CODEX_MODELS, DEFAULT_CODEX_MODEL, type CodexModelId } from "#/lib/codex-models";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -180,6 +181,7 @@ function ProjectOverviewPage() {
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [selectedBranch, setSelectedBranch] = useState("");
+  const [selectedModel, setSelectedModel] = useState<CodexModelId>(DEFAULT_CODEX_MODEL);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -257,13 +259,14 @@ function ProjectOverviewPage() {
     setError(undefined);
     try {
       const threadId = await createThread({ projectId, title: prompt || "New thread" });
-      await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search: prompt ? { prompt } : undefined });
-      navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search: prompt ? { prompt } : undefined });
+      const search = prompt ? { prompt, model: selectedModel } : { model: selectedModel };
+      await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
+      navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
       setIsCreatingThread(false);
     }
-  }, [project, projectId, promptValue, createThread, router, navigate]);
+  }, [project, projectId, promptValue, selectedModel, createThread, router, navigate]);
 
   const handlePromptSubmit = useCallback(
     (event: React.FormEvent) => {
@@ -481,7 +484,23 @@ function ProjectOverviewPage() {
                             />
                           </div>
 
-                          <div className="flex items-center justify-end px-3 py-2">
+                          <div className="flex items-center justify-between gap-2 px-3 py-2">
+                            <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as CodexModelId)}>
+                              <SelectTrigger
+                                size="sm"
+                                className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent align="start" className="min-w-52">
+                                {CODEX_MODELS.map((model) => (
+                                  <SelectItem key={model.id} value={model.id}>
+                                    {model.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             <button
                               type="submit"
                               disabled={project.sandboxStatus !== "ready" || isCreatingThread}

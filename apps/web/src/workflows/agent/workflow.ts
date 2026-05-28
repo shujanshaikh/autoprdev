@@ -22,7 +22,7 @@ export interface AgentWorkflowOptions {
   repoBranch?: string;
   assistantMessageId?: string;
   convexAuthToken?: string;
-  codex?: CodexAgentModelOptions;
+  codex: CodexAgentModelOptions;
 }
 
 interface CodexAgentModelOptions {
@@ -290,12 +290,10 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     throw new Error("Codex credentials expired. Reconnect Codex and try again.");
   }
 
-  const codexOptions = options.codex
-    ? {
-        ...options.codex,
-        promptCacheKey: options.codex.promptCacheKey ?? codexPromptCacheKey(options),
-      }
-    : undefined;
+  const codexOptions = {
+    ...options.codex,
+    promptCacheKey: options.codex.promptCacheKey ?? codexPromptCacheKey(options),
+  };
 
   const writable = getWritable<UIMessageChunk>();
 
@@ -306,7 +304,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
   try {
     await harness.run(async ({ instructions, tools }) => {
       const agent = new DurableAgent({
-        model: codexOptions ? codexOpenAIModel(codexOptions) : "minimax/minimax-m2.7",
+        model: codexOpenAIModel(codexOptions),
         instructions: createCachedSystemMessage(instructions),
         tools,
         toolChoice: "auto",
@@ -318,18 +316,16 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
         sendStart: !options.assistantMessageId,
         maxSteps: 100,
         maxRetries: 1,
-        providerOptions: codexOptions
-          ? {
-              openai: {
-                store: false,
-                instructions,
-                promptCacheKey: codexOptions.promptCacheKey,
-                reasoningEffort: codexOptions.reasoningEffort,
-                reasoningSummary: "auto",
-                include: ["reasoning.encrypted_content"],
-              },
-            }
-          : undefined,
+        providerOptions: {
+          openai: {
+            store: false,
+            instructions,
+            promptCacheKey: codexOptions.promptCacheKey,
+            reasoningEffort: codexOptions.reasoningEffort,
+            reasoningSummary: "auto",
+            include: ["reasoning.encrypted_content"],
+          },
+        },
         onFinish: async ({ messages, steps }) => {
           if (!persistence) {
             return;

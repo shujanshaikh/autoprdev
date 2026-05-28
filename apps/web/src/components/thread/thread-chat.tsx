@@ -2,6 +2,13 @@ import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Badge } from "@autopr/ui/components/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@autopr/ui/components/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -37,6 +44,16 @@ import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dr
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { SandboxStatusBar, ThreadMessages } from "#/components/thread/thread-messages";
 import { useFileSuggestions } from "#/hooks/use-file-suggestions";
+import {
+  CODEX_MODELS,
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_CODEX_REASONING_EFFORT,
+  getCodexReasoningEfforts,
+  type CodexModelId,
+  type CodexReasoningEffort,
+} from "#/lib/codex-models";
+export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
+export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
 import type { FileSuggestion } from "#/lib/file-suggestions";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
 
@@ -163,8 +180,6 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 
   return entries;
 }
-
-const MINIMAX_M27_CONTEXT_LIMIT = 204_800;
 
 function ThreadChatTextarea({
   projectId,
@@ -374,6 +389,8 @@ export function ThreadChat({
   currentRunId,
   initialMessages,
   initialPrompt,
+  initialModel,
+  initialReasoningEffort,
   disabled,
   diffPanelOpen,
   onDiffPanelOpenChange,
@@ -387,6 +404,8 @@ export function ThreadChat({
   currentRunId?: string;
   initialMessages: UIMessage[];
   initialPrompt?: string;
+  initialModel?: CodexModelId;
+  initialReasoningEffort?: CodexReasoningEffort;
   disabled: boolean;
   diffPanelOpen: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
@@ -403,6 +422,11 @@ export function ThreadChat({
   const [runtimeStatus, setRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>(
     project?.sandboxRuntimeStatus,
   );
+  const [selectedModel, setSelectedModel] = useState<CodexModelId>(initialModel ?? DEFAULT_CODEX_MODEL);
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
+    initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
+  );
+  const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
@@ -487,13 +511,15 @@ export function ThreadChat({
           api: options.api,
           body: {
             message: options.messages[options.messages.length - 1],
+            model: selectedModel,
+            reasoningEffort: selectedReasoningEffort,
           },
           headers: options.headers,
           credentials: options.credentials,
         }),
         prepareReconnectToStreamRequest,
       }),
-    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest],
+    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest, selectedModel, selectedReasoningEffort],
   );
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
@@ -658,6 +684,14 @@ export function ThreadChat({
       cachedInputTokens: 0,
     },
   ), [messages]);
+  const selectedModelContextLimit =
+    CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
+
+  useEffect(() => {
+    if (!selectedReasoningEfforts.includes(selectedReasoningEffort)) {
+      setSelectedReasoningEffort(DEFAULT_CODEX_REASONING_EFFORT);
+    }
+  }, [selectedReasoningEffort, selectedReasoningEfforts]);
 
   const submitMessage = useCallback(async (text: string) => {
     const nextMessage = text.trim();
@@ -729,20 +763,54 @@ export function ThreadChat({
                   <ThreadChatTextarea projectId={projectId} disabled={!ready} />
                 </PromptInputBody>
                 <PromptInputFooter className="bg-transparent px-2 py-1.5">
-                <PromptInputTools className="min-w-0 flex-1">
-                  <ThreadContextRemainingIndicator
-                    inputTokens={conversationUsage.inputTokens}
-                    cachedInputTokens={conversationUsage.cachedInputTokens}
-                    outputTokens={conversationUsage.outputTokens}
-                    contextLimit={MINIMAX_M27_CONTEXT_LIMIT}
+                  <PromptInputTools className="min-w-0 flex-1">
+                    <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as typeof selectedModel)}>
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start" className="min-w-52">
+                        {CODEX_MODELS.map((model) => (
+                          <SelectItem key={model.id} value={model.id}>
+                            {model.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={selectedReasoningEffort}
+                      onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-[170px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label="Reasoning level"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start" alignItemWithTrigger={false} side="top" className="min-w-44">
+                        {selectedReasoningEfforts.map((effort) => (
+                          <SelectItem key={effort} value={effort}>
+                            {effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1)} reasoning
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <ThreadContextRemainingIndicator
+                      inputTokens={conversationUsage.inputTokens}
+                      cachedInputTokens={conversationUsage.cachedInputTokens}
+                      outputTokens={conversationUsage.outputTokens}
+                      contextLimit={selectedModelContextLimit}
+                    />
+                  </PromptInputTools>
+                  <PromptInputSubmit
+                    className="size-7 rounded-none"
+                    disabled={!ready && !busy}
+                    onStop={stopGeneration}
+                    status={status}
                   />
-                </PromptInputTools>
-                <PromptInputSubmit
-                  className="size-7 rounded-none"
-                  disabled={!ready && !busy}
-                  onStop={stopGeneration}
-                  status={status}
-                />
                 </PromptInputFooter>
               </PromptInput>
             </PromptInputProvider>

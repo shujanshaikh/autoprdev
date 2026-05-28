@@ -262,8 +262,9 @@ function SidebarTrigger({
   const isOpen = isMobile ? openMobile : state === "expanded"
 
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <div className="group/sidebar-trigger-wrap relative flex items-center">
+      <Tooltip>
+        <TooltipTrigger
         render={
           <Button
             data-sidebar="trigger"
@@ -314,16 +315,18 @@ function SidebarTrigger({
           </Button>
         }
       />
-      <TooltipContent side="bottom" sideOffset={8}>
-        <span>{isOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
-        <kbd
-          data-slot="kbd"
-          className="ml-1 inline-flex h-4 items-center rounded-[3px] bg-background/15 px-1 font-mono text-[10px] font-medium text-background/80"
-        >
-          ⌘B
-        </kbd>
-      </TooltipContent>
-    </Tooltip>
+        <TooltipContent side="bottom" align="start" sideOffset={8} alignOffset={-4}>
+          <span>{isOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
+          <kbd
+            data-slot="kbd"
+            className="ml-1 inline-flex h-4 items-center rounded-[3px] bg-background/15 px-1 font-mono text-[10px] font-medium text-background/80"
+          >
+            ⌘B
+          </kbd>
+        </TooltipContent>
+      </Tooltip>
+
+    </div>
   )
 }
 

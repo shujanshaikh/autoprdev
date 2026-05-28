@@ -38,7 +38,7 @@ function GithubConnect() {
     return (
       <main className="grid min-h-svh place-items-center px-5">
         <a
-          href={`/sign-in?returnTo=${encodeURIComponent("/github-connect")}`}
+          href={`/api/auth/sign-in?returnTo=${encodeURIComponent("/github-connect")}`}
           className="inline-flex h-10 items-center border border-primary bg-primary px-4 text-sm font-medium text-primary-foreground"
         >
           Sign in to connect GitHub

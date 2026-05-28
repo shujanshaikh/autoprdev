@@ -38,6 +38,14 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThreadTabs } from "#/components/thread/thread-tabs";
+import {
+  CODEX_MODELS,
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_CODEX_REASONING_EFFORT,
+  getCodexReasoningEfforts,
+  type CodexModelId,
+  type CodexReasoningEffort,
+} from "#/lib/codex-models";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -180,6 +188,11 @@ function ProjectOverviewPage() {
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [selectedBranch, setSelectedBranch] = useState("");
+  const [selectedModel, setSelectedModel] = useState<CodexModelId>(DEFAULT_CODEX_MODEL);
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
+    DEFAULT_CODEX_REASONING_EFFORT,
+  );
+  const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -257,13 +270,16 @@ function ProjectOverviewPage() {
     setError(undefined);
     try {
       const threadId = await createThread({ projectId, title: prompt || "New thread" });
-      await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search: prompt ? { prompt } : undefined });
-      navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search: prompt ? { prompt } : undefined });
+      const search = prompt
+        ? { prompt, model: selectedModel, reasoningEffort: selectedReasoningEffort }
+        : { model: selectedModel, reasoningEffort: selectedReasoningEffort };
+      await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
+      navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
       setIsCreatingThread(false);
     }
-  }, [project, projectId, promptValue, createThread, router, navigate]);
+  }, [project, projectId, promptValue, selectedModel, selectedReasoningEffort, createThread, router, navigate]);
 
   const handlePromptSubmit = useCallback(
     (event: React.FormEvent) => {
@@ -354,6 +370,12 @@ function ProjectOverviewPage() {
     setSelectedBranch(currentBranch);
     setSandboxRuntimeStatus(project.sandboxRuntimeStatus);
   }, [currentBranch, project]);
+
+  useEffect(() => {
+    if (!selectedReasoningEfforts.includes(selectedReasoningEffort)) {
+      setSelectedReasoningEffort(DEFAULT_CODEX_REASONING_EFFORT);
+    }
+  }, [selectedReasoningEffort, selectedReasoningEfforts]);
 
   const switchBranch = useCallback(async (branch: string) => {
     if (!project || branch === currentBranch) {
@@ -481,7 +503,45 @@ function ProjectOverviewPage() {
                             />
                           </div>
 
-                          <div className="flex items-center justify-end px-3 py-2">
+                          <div className="flex items-center justify-between gap-2 px-3 py-2">
+                            <div className="flex min-w-0 items-center gap-1">
+                              <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as CodexModelId)}>
+                              <SelectTrigger
+                                size="sm"
+                                className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent align="start" className="min-w-52">
+                                {CODEX_MODELS.map((model) => (
+                                  <SelectItem key={model.id} value={model.id}>
+                                    {model.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={selectedReasoningEffort}
+                              onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}
+                            >
+                              <SelectTrigger
+                                size="sm"
+                                className="h-7 max-w-[170px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                                aria-label="Reasoning level"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent align="start" alignItemWithTrigger={false} side="top" className="min-w-44">
+                                {selectedReasoningEfforts.map((effort) => (
+                                  <SelectItem key={effort} value={effort}>
+                                    {effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1)} reasoning
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            </div>
                             <button
                               type="submit"
                               disabled={project.sandboxStatus !== "ready" || isCreatingThread}

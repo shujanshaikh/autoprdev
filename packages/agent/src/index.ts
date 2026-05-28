@@ -1,3 +1,12 @@
+export {
+  CodingHarness,
+  CodingHarnessBusyError,
+  type CodingHarnessContext,
+  type CodingHarnessEvent,
+  type CodingHarnessListener,
+  type CodingHarnessOptions,
+  type CodingHarnessPhase,
+} from "./harness";
 export { buildSandboxAgentSystemPrompt } from "./system-prompt";
 export { applyAgenticCache, createCachedSystemMessage } from "./cache";
 export {

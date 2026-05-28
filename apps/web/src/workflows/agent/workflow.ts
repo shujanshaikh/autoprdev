@@ -31,6 +31,7 @@ interface CodexAgentModelOptions {
   provider: "openai-codex";
   modelId: string;
   reasoningEffort: string;
+  promptCacheKey?: string;
   vaultObjectId: string;
   vaultVersionId?: string;
   accountId?: string;
@@ -167,6 +168,13 @@ function responseInputContentToText(content: unknown): string {
     .join("\n");
 }
 
+function codexPromptCacheKey(options: AgentWorkflowOptions) {
+  const source = options.threadId ?? options.sandboxCacheKey;
+  const stableSegment = source.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 120);
+
+  return `autopr-${stableSegment}`;
+}
+
 function codexOpenAIModel(options: CodexAgentModelOptions) {
   return async () => {
     "use step";
@@ -198,11 +206,13 @@ function codexOpenAIModel(options: CodexAgentModelOptions) {
           const body = JSON.parse(nextInit.body) as {
             instructions?: string;
             input?: Array<Record<string, unknown>>;
+            prompt_cache_key?: string;
             reasoning?: Record<string, unknown>;
             store?: boolean;
           };
 
           body.store = false;
+          body.prompt_cache_key = body.prompt_cache_key || options.promptCacheKey;
           body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
 
           if (Array.isArray(body.input)) {
@@ -291,8 +301,15 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     throw new Error("Codex credentials expired. Reconnect Codex and try again.");
   }
 
+  const codexOptions = options.codex
+    ? {
+        ...options.codex,
+        promptCacheKey: options.codex.promptCacheKey ?? codexPromptCacheKey(options),
+      }
+    : undefined;
+
   const agent = new DurableAgent({
-    model: options.codex ? codexOpenAIModel(options.codex) : "minimax/minimax-m2.7",
+    model: codexOptions ? codexOpenAIModel(codexOptions) : "minimax/minimax-m2.7",
     instructions: createCachedSystemMessage(instructions),
     tools,
     toolChoice: "auto",
@@ -310,12 +327,13 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       sendStart: !options.assistantMessageId,
       maxSteps: 100,
       maxRetries: 1,
-      providerOptions: options.codex
+      providerOptions: codexOptions
         ? {
             openai: {
               store: false,
               instructions,
-              reasoningEffort: options.codex.reasoningEffort,
+              promptCacheKey: codexOptions.promptCacheKey,
+              reasoningEffort: codexOptions.reasoningEffort,
               reasoningSummary: "auto",
               include: ["reasoning.encrypted_content"],
             },

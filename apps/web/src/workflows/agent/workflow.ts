@@ -1,9 +1,7 @@
 import {
   applyAgenticCache,
-  buildSandboxAgentSystemPrompt,
+  CodingHarness,
   createCachedSystemMessage,
-  createDaytonaTools,
-  prepareDaytonaSandbox,
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
@@ -275,26 +273,17 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
   };
-  const sandbox = await prepareDaytonaSandbox(sandboxOptions);
-  const tools = createDaytonaTools(sandboxOptions);
-  const instructions = buildSandboxAgentSystemPrompt({
-    cwd: sandbox.workDir,
-    sandboxId: sandbox.sandboxId,
-    sandboxName: sandbox.sandboxName,
-    snapshot: sandbox.snapshot,
-    selectedTools: Object.keys(tools),
-    appendSystemPrompt:
-      [
-        "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
-        options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
-        options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
-        `Sandbox ID: ${sandbox.sandboxId}`,
-        `Working directory: ${sandbox.workDir}`,
-        options.projectId ? `Project ID: ${options.projectId}` : undefined,
-        options.threadId ? `Thread ID: ${options.threadId}` : undefined,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+  const harness = new CodingHarness({
+    ...sandboxOptions,
+    appendSystemPrompt: [
+      "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
+      options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
+      options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
+      options.projectId ? `Project ID: ${options.projectId}` : undefined,
+      options.threadId ? `Thread ID: ${options.threadId}` : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   });
 
   if (options.codex?.expiresAt && options.codex.expiresAt <= Date.now()) {
@@ -308,12 +297,6 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       }
     : undefined;
 
-  const agent = new DurableAgent({
-    model: codexOptions ? codexOpenAIModel(codexOptions) : "minimax/minimax-m2.7",
-    instructions: createCachedSystemMessage(instructions),
-    tools,
-    toolChoice: "auto",
-  });
   const writable = getWritable<UIMessageChunk>();
 
   if (options.assistantMessageId) {
@@ -321,59 +304,68 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
   }
 
   try {
-    await agent.stream({
-      messages: applyAgenticCache(inputMessages),
-      writable,
-      sendStart: !options.assistantMessageId,
-      maxSteps: 100,
-      maxRetries: 1,
-      providerOptions: codexOptions
-        ? {
-            openai: {
-              store: false,
-              instructions,
-              promptCacheKey: codexOptions.promptCacheKey,
-              reasoningEffort: codexOptions.reasoningEffort,
-              reasoningSummary: "auto",
-              include: ["reasoning.encrypted_content"],
-            },
-          }
-        : undefined,
-      onFinish: async ({ messages, steps }) => {
-        if (!persistence) {
-          return;
-        }
+    await harness.run(async ({ instructions, tools }) => {
+      const agent = new DurableAgent({
+        model: codexOptions ? codexOpenAIModel(codexOptions) : "minimax/minimax-m2.7",
+        instructions: createCachedSystemMessage(instructions),
+        tools,
+        toolChoice: "auto",
+      });
 
-        const usageMetadata: AssistantUsageMetadata = {
-          usage: steps.reduce(
-            (total, step) => ({
-              inputTokens: total.inputTokens + (step.usage.inputTokens ?? 0),
-              outputTokens: total.outputTokens + (step.usage.outputTokens ?? 0),
-              totalTokens: total.totalTokens + (step.usage.totalTokens ?? 0),
-              cachedInputTokens: total.cachedInputTokens + (step.usage.cachedInputTokens ?? 0),
-            }),
-            {
-              inputTokens: 0,
-              outputTokens: 0,
-              totalTokens: 0,
-              cachedInputTokens: 0,
-            },
-          ),
-        };
-
-        try {
-          await writeAssistantMetadataChunk(writable, usageMetadata);
-          await patchAssistantMessage({
-            ...persistence,
-            parts: responseMessagesToAssistantParts(messages, inputMessages.length),
-            metadata: usageMetadata,
-          });
-        } catch (error) {
-          if (!isPersistenceUnauthenticatedError(error)) {
-            throw error;
+      await agent.stream({
+        messages: applyAgenticCache(inputMessages),
+        writable,
+        sendStart: !options.assistantMessageId,
+        maxSteps: 100,
+        maxRetries: 1,
+        providerOptions: codexOptions
+          ? {
+              openai: {
+                store: false,
+                instructions,
+                promptCacheKey: codexOptions.promptCacheKey,
+                reasoningEffort: codexOptions.reasoningEffort,
+                reasoningSummary: "auto",
+                include: ["reasoning.encrypted_content"],
+              },
+            }
+          : undefined,
+        onFinish: async ({ messages, steps }) => {
+          if (!persistence) {
+            return;
           }
-        }
-      },
+
+          const usageMetadata: AssistantUsageMetadata = {
+            usage: steps.reduce(
+              (total, step) => ({
+                inputTokens: total.inputTokens + (step.usage.inputTokens ?? 0),
+                outputTokens: total.outputTokens + (step.usage.outputTokens ?? 0),
+                totalTokens: total.totalTokens + (step.usage.totalTokens ?? 0),
+                cachedInputTokens: total.cachedInputTokens + (step.usage.cachedInputTokens ?? 0),
+              }),
+              {
+                inputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 0,
+                cachedInputTokens: 0,
+              },
+            ),
+          };
+
+          try {
+            await writeAssistantMetadataChunk(writable, usageMetadata);
+            await patchAssistantMessage({
+              ...persistence,
+              parts: responseMessagesToAssistantParts(messages, inputMessages.length),
+              metadata: usageMetadata,
+            });
+          } catch (error) {
+            if (!isPersistenceUnauthenticatedError(error)) {
+              throw error;
+            }
+          }
+        },
+      });
     });
   } finally {
     if (persistence) {

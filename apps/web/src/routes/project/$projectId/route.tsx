@@ -1,9 +1,10 @@
 import { api } from "@autopr/backend/convex/_generated/api";
-import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useEffect } from "react";
 
-import { AuthGate, ProjectShell } from "#/components/project-shell";
+import { AuthGate } from "#/components/project-shell";
+import { WorkspaceShell } from "#/components/workspace-shell";
 
 function ProjectLayout() {
   const { projectId } = Route.useParams();
@@ -11,20 +12,25 @@ function ProjectLayout() {
   const { isAuthenticated } = useConvexAuth();
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
+  const markProjectOpened = useMutation(api.projects.markOpened);
   const activeThreadId = location.pathname.match(/\/thread\/([^/?#]+)/)?.[1];
+  const openedProjectId = project?.projectId;
+
+  useEffect(() => {
+    if (!openedProjectId) return;
+
+    void markProjectOpened({ projectId: openedProjectId });
+  }, [markProjectOpened, openedProjectId]);
 
   return (
     <AuthGate>
-      <TooltipProvider>
-        <ProjectShell
-          projectId={projectId}
-          repoFullName={project?.repoFullName}
-          threads={threads}
-          activeThreadId={activeThreadId ? decodeURIComponent(activeThreadId) : undefined}
-        >
-          <Outlet />
-        </ProjectShell>
-      </TooltipProvider>
+      <WorkspaceShell
+        activeProjectId={project?.projectId ?? projectId}
+        activeProjectThreads={threads}
+        activeThreadId={activeThreadId ? decodeURIComponent(activeThreadId) : undefined}
+      >
+        <Outlet />
+      </WorkspaceShell>
     </AuthGate>
   );
 }

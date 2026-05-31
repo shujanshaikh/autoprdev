@@ -12,6 +12,8 @@ import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
 import { getWorkOSVault, parseStoredCodexCredential } from "#/lib/codex-auth-server";
+import { getAuthkit } from "@workos/authkit-tanstack-react-start";
+import type { Impersonator, User } from "@workos-inc/node";
 
 export interface AgentWorkflowOptions {
   projectId?: string;
@@ -21,7 +23,7 @@ export interface AgentWorkflowOptions {
   repoUrl?: string;
   repoBranch?: string;
   assistantMessageId?: string;
-  convexAuthToken?: string;
+  convexAuth?: WorkOSWorkflowAuth;
   codex: CodexAgentModelOptions;
 }
 
@@ -37,9 +39,16 @@ interface CodexAgentModelOptions {
 }
 
 interface AssistantPersistenceOptions {
-  convexAuthToken: string;
+  convexAuth: WorkOSWorkflowAuth;
   threadId: string;
   assistantMessageId: string;
+}
+
+interface WorkOSWorkflowAuth {
+  accessToken: string;
+  refreshToken: string;
+  user: User;
+  impersonator?: Impersonator;
 }
 
 interface AssistantUsageMetadata {
@@ -63,6 +72,29 @@ function isPersistenceUnauthenticatedError(error: unknown) {
   return error instanceof Error && error.message.includes("Unauthorized");
 }
 
+async function refreshWorkOSConvexAuth(convexAuth: WorkOSWorkflowAuth) {
+  "use step";
+
+  const authkit = await getAuthkit();
+  const { auth } = await authkit.refreshSession({
+    accessToken: convexAuth.accessToken,
+    refreshToken: convexAuth.refreshToken,
+    user: convexAuth.user,
+    impersonator: convexAuth.impersonator,
+  });
+
+  if (!auth.user) {
+    throw new Error("Unauthorized");
+  }
+
+  return {
+    accessToken: auth.accessToken,
+    refreshToken: auth.refreshToken,
+    user: auth.user,
+    impersonator: auth.impersonator,
+  } satisfies WorkOSWorkflowAuth;
+}
+
 async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>, messageId: string) {
   "use step";
 
@@ -79,7 +111,7 @@ async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>
 }
 
 async function patchAssistantMessage({
-  convexAuthToken,
+  convexAuth,
   threadId,
   assistantMessageId,
   parts,
@@ -93,7 +125,7 @@ async function patchAssistantMessage({
   await fetchMutation(
     api.messages.patchAssistant,
     { threadId, assistantMessageId, parts, metadata },
-    { token: convexAuthToken, url: getConvexUrl() },
+    { token: convexAuth.accessToken, url: getConvexUrl() },
   );
 }
 
@@ -116,10 +148,10 @@ async function writeAssistantMetadataChunk(
 }
 
 async function markWorkflowRunFinished({
-  convexAuthToken,
+  convexAuth,
   threadId,
   runId,
-}: Pick<AssistantPersistenceOptions, "convexAuthToken" | "threadId"> & {
+}: Pick<AssistantPersistenceOptions, "convexAuth" | "threadId"> & {
   runId: string;
 }) {
   "use step";
@@ -127,17 +159,17 @@ async function markWorkflowRunFinished({
   await fetchMutation(
     api.threads.markRunFinished,
     { threadId, runId },
-    { token: convexAuthToken, url: getConvexUrl() },
+    { token: convexAuth.accessToken, url: getConvexUrl() },
   );
 }
 
 function getAssistantPersistenceOptions(options: AgentWorkflowOptions): AssistantPersistenceOptions | null {
-  if (!options.convexAuthToken || !options.threadId || !options.assistantMessageId) {
+  if (!options.convexAuth || !options.threadId || !options.assistantMessageId) {
     return null;
   }
 
   return {
-    convexAuthToken: options.convexAuthToken,
+    convexAuth: options.convexAuth,
     threadId: options.threadId,
     assistantMessageId: options.assistantMessageId,
   };
@@ -296,6 +328,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
   };
 
   const writable = getWritable<UIMessageChunk>();
+  let persistenceFinished = false;
 
   if (options.assistantMessageId) {
     await writeAssistantStartChunk(writable, options.assistantMessageId);
@@ -350,11 +383,21 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
 
           try {
             await writeAssistantMetadataChunk(writable, usageMetadata);
-            await patchAssistantMessage({
+            const refreshedPersistence = {
               ...persistence,
+              convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
+            };
+            await patchAssistantMessage({
+              ...refreshedPersistence,
               parts: responseMessagesToAssistantParts(messages, inputMessages.length),
               metadata: usageMetadata,
             });
+            await markWorkflowRunFinished({
+              convexAuth: refreshedPersistence.convexAuth,
+              threadId: refreshedPersistence.threadId,
+              runId: workflowRunId,
+            });
+            persistenceFinished = true;
           } catch (error) {
             if (!isPersistenceUnauthenticatedError(error)) {
               throw error;
@@ -364,11 +407,15 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       });
     });
   } finally {
-    if (persistence) {
+    if (persistence && !persistenceFinished) {
       try {
+        const refreshedPersistence = {
+          ...persistence,
+          convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
+        };
         await markWorkflowRunFinished({
-          convexAuthToken: persistence.convexAuthToken,
-          threadId: persistence.threadId,
+          convexAuth: refreshedPersistence.convexAuth,
+          threadId: refreshedPersistence.threadId,
           runId: workflowRunId,
         });
       } catch (error) {

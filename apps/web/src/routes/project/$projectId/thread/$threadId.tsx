@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { cn } from "@autopr/ui/lib/utils";
-import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { useConvexAuth, useQuery } from "convex/react";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -10,9 +9,7 @@ import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-di
 import Loader from "@/components/loader";
 import { toUIMessage } from "@/lib/chat-messages";
 import { ThreadChat } from "#/components/thread/thread-chat";
-import { ThreadTabs } from "#/components/thread/thread-tabs";
 import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
-import { readStoredThreadTabs, writeStoredThreadTabs } from "#/components/thread/thread-tabs-storage";
 
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
@@ -26,29 +23,15 @@ function ProjectThreadPageContent() {
     : undefined;
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
-  const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [diffCount, setDiffCount] = useState(0);
-  const [openThreadTabs, setOpenThreadTabs] = useState<string[]>(() => readStoredThreadTabs(projectId, threadId));
 
   const initialMessages = useMemo(() => dbMessages?.map(toUIMessage) ?? [], [dbMessages]);
   const shouldAutoSubmitInitialPrompt = Boolean(initialPrompt && dbMessages && dbMessages.length === 0);
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
-  const threadLookup = useMemo(() => new Map((threads ?? []).map((t) => [t.threadId, t])), [threads]);
-  const visibleThreadTabs = useMemo(
-    () => openThreadTabs.map((id) => threadLookup.get(id) ?? (id === threadId ? thread : undefined) ?? { threadId: id }),
-    [openThreadTabs, threadLookup, thread, threadId],
-  );
-  useEffect(() => {
-    setOpenThreadTabs((tabs) => tabs.includes(threadId) ? tabs : [...tabs, threadId]);
-  }, [threadId]);
-
-  useEffect(() => {
-    writeStoredThreadTabs(projectId, openThreadTabs);
-  }, [openThreadTabs, projectId]);
 
   useEffect(() => {
     setDiffCount(0);
@@ -71,65 +54,10 @@ function ProjectThreadPageContent() {
     });
   }, [navigate]);
 
-  const handleSelectThreadTab = useCallback((nextThreadId: string) => {
-    setOpenThreadTabs((tabs) => {
-      const nextTabs = tabs.includes(nextThreadId) ? tabs : [...tabs, nextThreadId];
-      writeStoredThreadTabs(projectId, nextTabs);
-      return nextTabs;
-    });
-    navigate({
-      to: "/project/$projectId/thread/$threadId",
-      params: { projectId, threadId: nextThreadId },
-      resetScroll: false,
-    });
-  }, [navigate, projectId]);
-
-  const handleCloseThreadTab = useCallback((closedThreadId: string) => {
-    setOpenThreadTabs((tabs) => {
-      if (tabs.length === 1) {
-        return tabs;
-      }
-
-      const closedIndex = tabs.indexOf(closedThreadId);
-      const nextTabs = tabs.filter((id) => id !== closedThreadId);
-      if (closedThreadId === threadId) {
-        const fallbackThreadId = nextTabs[Math.max(0, closedIndex - 1)] ?? nextTabs[0];
-        if (fallbackThreadId) {
-          navigate({
-            to: "/project/$projectId/thread/$threadId",
-            params: { projectId, threadId: fallbackThreadId },
-            resetScroll: false,
-          });
-        }
-      }
-      writeStoredThreadTabs(projectId, nextTabs);
-      return nextTabs;
-    });
-  }, [navigate, projectId, threadId]);
-
-
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
-              <div className="flex shrink-0 items-center border-r border-border px-2">
-                <SidebarTrigger />
-              </div>
-
-
-              <ThreadTabs
-                tabs={visibleThreadTabs}
-                activeThreadId={threadId}
-                resolveFallbackTitle={(tab) =>
-                  tab.threadId === threadId ? initialPrompt : undefined
-                }
-                onSelectTab={handleSelectThreadTab}
-                onCloseTab={handleCloseThreadTab}
-                canCloseTab={() => visibleThreadTabs.length > 1}
-                onNewTab={() =>
-                  navigate({ to: "/project/$projectId", params: { projectId } })
-                }
-                newTabLabel="Open project threads"
-              />
+              <div className="min-w-0 flex-1" />
 
               <Tooltip>
                 <TooltipTrigger

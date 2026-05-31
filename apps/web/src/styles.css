@@ -157,6 +157,7 @@
 [data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(7) { animation-delay: 120ms; }
 [data-sidebar="menu"] > [data-sidebar="menu-item"]:nth-child(8) { animation-delay: 140ms; }
 
+
 /* Thin scrollbar */
 [data-slot="sidebar-content"] {
   scrollbar-color: color-mix(in oklch, var(--sidebar-foreground) 8%, transparent) transparent;

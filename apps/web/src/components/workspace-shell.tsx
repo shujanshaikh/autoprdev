@@ -31,9 +31,9 @@ import {
   Bot,
   Folder,
   GitBranch,
-  Home,
   Loader2,
   MessageSquarePlus,
+  Pencil,
   Plus,
   Settings,
   Search,
@@ -482,8 +482,21 @@ function WorkspaceSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<WorkspaceThread | undefined>();
+  const [expandedProjectId, setExpandedProjectId] = useState<string | undefined>(activeProjectId);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const expandedProjectThreads = useQuery(
+    api.threads.listByProject,
+    expandedProjectId && expandedProjectId !== activeProjectId
+      ? { projectId: expandedProjectId }
+      : "skip",
+  );
+
+  useEffect(() => {
+    if (activeProjectId) {
+      setExpandedProjectId(activeProjectId);
+    }
+  }, [activeProjectId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -509,20 +522,27 @@ function WorkspaceSidebar({
 
   const SIDEBAR_MAX_THREADS = 6;
 
-  const { visibleThreads, totalThreadCount } = useMemo(() => {
-    if (!activeProjectThreads) return { visibleThreads: undefined, totalThreadCount: 0 };
+  const getSidebarThreads = useCallback((sourceThreads: WorkspaceThread[] | undefined) => {
+    if (!sourceThreads) return { visibleThreads: undefined, totalThreadCount: 0 };
     const threads = normalizedSearch
-      ? activeProjectThreads.filter((thread) =>
+      ? sourceThreads.filter((thread) =>
         `${thread.title ?? ""} ${thread.threadId}`.toLowerCase().includes(normalizedSearch),
       )
-      : activeProjectThreads;
+      : sourceThreads;
     return { visibleThreads: threads.slice(0, SIDEBAR_MAX_THREADS), totalThreadCount: threads.length };
-  }, [activeProjectThreads, normalizedSearch]);
+  }, [normalizedSearch]);
 
   function handleNewChat() {
     if (activeProjectId) {
       navigate({ to: "/project/$projectId", params: { projectId: activeProjectId } });
     }
+  }
+
+  function handleProjectNewChat(event: MouseEvent<HTMLButtonElement>, projectId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    setExpandedProjectId(projectId);
+    navigate({ to: "/project/$projectId", params: { projectId } });
   }
 
   function handleDeleteThread(event: MouseEvent<HTMLButtonElement>, thread: WorkspaceThread) {
@@ -551,8 +571,8 @@ function WorkspaceSidebar({
   return (
     <>
       <Sidebar collapsible="icon" variant="sidebar">
-        <SidebarHeader className="gap-2 border-b border-sidebar-border/70 px-2.5 py-2">
-          <div className="flex items-center gap-1.5">
+        <SidebarHeader className="h-11 shrink-0 justify-center gap-0 border-b border-sidebar-border/70 px-2.5 py-0">
+          <div className="flex min-w-0 items-center gap-1.5">
             <SidebarTrigger className="text-sidebar-foreground/70 hover:text-sidebar-foreground" />
             <button
               type="button"
@@ -568,23 +588,6 @@ function WorkspaceSidebar({
         </SidebarHeader>
 
         <SidebarContent className="minimal-scrollbar">
-          <SidebarGroup className="px-2 pt-2">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    render={<Link to="/dashboard" />}
-                    tooltip="Dashboard"
-                    className="h-8 gap-2 px-2 text-sidebar-foreground/75"
-                  >
-                    <Home className="size-4 text-sidebar-foreground/55" aria-hidden="true" />
-                    <span className="group-data-[collapsible=icon]:hidden">Dashboard</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
           <SidebarGroup className="min-h-0 flex-1 px-2 py-2">
             <div className="mb-2 flex items-center gap-2 px-2 group-data-[collapsible=icon]:hidden">
               <SidebarGroupLabel className="h-7 flex-1 px-0">Projects</SidebarGroupLabel>
@@ -661,16 +664,20 @@ function WorkspaceSidebar({
                 ) : (
                   filteredProjects.map((project) => {
                     const active = project.projectId === activeProjectId;
+                    const expanded = project.projectId === expandedProjectId;
+                    const projectThreads =
+                      active ? activeProjectThreads : expanded ? expandedProjectThreads : undefined;
+                    const { visibleThreads, totalThreadCount } = getSidebarThreads(projectThreads);
                     const { name } = projectParts(project.repoFullName);
                     return (
                       <SidebarMenuItem key={project.projectId} className="mb-1">
                         {/* ── Folder row ── */}
                         <SidebarMenuButton
-                          isActive={active}
                           render={<Link to="/project/$projectId" params={{ projectId: project.projectId }} />}
                           tooltip={project.repoFullName}
+                          onClick={() => setExpandedProjectId(project.projectId)}
                           className={cn(
-                            "group/project h-8 items-center gap-2 px-2 py-1",
+                            "group/project h-8 items-center gap-2 px-2 py-1 pr-12",
                             active
                               ? "bg-transparent text-sidebar-foreground hover:bg-transparent"
                               : "text-sidebar-foreground/55 hover:text-sidebar-foreground",
@@ -693,6 +700,18 @@ function WorkspaceSidebar({
                         <SidebarMenuAction
                           type="button"
                           showOnHover
+                          aria-label={`New chat for ${project.repoFullName}`}
+                          title="New chat"
+                          onClick={(event) => {
+                            handleProjectNewChat(event, project.projectId);
+                          }}
+                          className="right-6 text-sidebar-foreground/30 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                        >
+                          <Pencil aria-hidden="true" />
+                        </SidebarMenuAction>
+                        <SidebarMenuAction
+                          type="button"
+                          showOnHover
                           aria-label={`Delete ${project.repoFullName}`}
                           title="Delete project"
                           onClick={(event) => {
@@ -706,7 +725,7 @@ function WorkspaceSidebar({
                         </SidebarMenuAction>
 
                         {/* ── Thread list ── */}
-                        {active ? (
+                        {expanded ? (
                           <div className="group-data-[collapsible=icon]:hidden">
                             {visibleThreads === undefined ? (
                               <div className="flex items-center py-3 pl-8">

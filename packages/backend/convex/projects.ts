@@ -10,6 +10,10 @@ const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready")
 const sandboxRuntimeStatusValidator = v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown"));
 type SandboxStatus = "creating" | "ready" | "failed";
 
+function projectRecency(project: { lastOpenedAt?: number; updatedAt: number; createdAt: number }) {
+  return project.lastOpenedAt ?? project.updatedAt ?? project.createdAt;
+}
+
 export const ensureForGithubRepoInternal = internalMutation({
   args: {
     authorId: v.string(),
@@ -328,6 +332,29 @@ export const get = query({
   },
 });
 
+export const latest = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_author", (q) => q.eq("authorId", identity.subject))
+      .collect();
+
+    return projects.reduce((latestProject, project) => {
+      if (!latestProject) {
+        return project;
+      }
+
+      return projectRecency(project) > projectRecency(latestProject) ? project : latestProject;
+    }, null as (typeof projects)[number] | null);
+  },
+});
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -350,6 +377,30 @@ export const list = query({
       ...project,
       sandboxCost: project.sandboxId ? costBySandboxId.get(project.sandboxId) ?? null : null,
     }));
+  },
+});
+
+export const markOpened = mutation({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      lastOpenedAt: Date.now(),
+    });
+
+    return null;
   },
 });
 

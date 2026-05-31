@@ -13,7 +13,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             to="/dashboard"
             className="px-4 py-2 text-sm text-foreground/70 transition-colors hover:text-foreground"
           >
-            Sign in from dashboard
+            Sign in
           </Link>
         </main>
       </Unauthenticated>

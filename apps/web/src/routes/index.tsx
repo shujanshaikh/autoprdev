@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
+import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 
+import { LatestProjectEntry, LoadingState } from "#/components/latest-project-entry";
 import { CodexFloating } from "@/components/landing/codex-floating";
 import { EmailCta } from "@/components/landing/email-cta";
 
@@ -9,7 +11,7 @@ export const metadata = {
   description: "Run long-lived coding agents in isolated Daytona sandboxes connected to your GitHub repositories.",
 };
 
-function Home() {
+function LandingHome() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto">
       <div className="border-b border-primary/15 bg-primary/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-primary-foreground/90 dark:text-primary-foreground/90">
@@ -70,7 +72,7 @@ function Home() {
         <footer className="relative z-10 mt-auto flex flex-wrap items-center justify-between gap-4 border-t border-border/50 pt-10 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
           <span>© 2026 autopr</span>          <div className="flex flex-wrap items-center gap-6">
             <Link to="/dashboard" className="hover:text-foreground">
-              Dashboard
+              Open app
             </Link>
             <Link to="/dashboard" className="hover:text-foreground">
               Privacy
@@ -79,6 +81,24 @@ function Home() {
         </footer>
       </main>
     </div>
+  );
+}
+
+function Home() {
+  return (
+    <>
+      <Authenticated>
+        <LatestProjectEntry />
+      </Authenticated>
+
+      <Unauthenticated>
+        <LandingHome />
+      </Unauthenticated>
+
+      <AuthLoading>
+        <LoadingState />
+      </AuthLoading>
+    </>
   );
 }
 

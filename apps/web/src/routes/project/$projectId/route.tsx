@@ -1,6 +1,7 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useEffect } from "react";
 
 import { AuthGate } from "#/components/project-shell";
 import { WorkspaceShell } from "#/components/workspace-shell";
@@ -11,7 +12,15 @@ function ProjectLayout() {
   const { isAuthenticated } = useConvexAuth();
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
+  const markProjectOpened = useMutation(api.projects.markOpened);
   const activeThreadId = location.pathname.match(/\/thread\/([^/?#]+)/)?.[1];
+  const openedProjectId = project?.projectId;
+
+  useEffect(() => {
+    if (!openedProjectId) return;
+
+    void markProjectOpened({ projectId: openedProjectId });
+  }, [markProjectOpened, openedProjectId]);
 
   return (
     <AuthGate>

@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@autopr/ui/components/select";
-import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import {
   useMutation as useReactMutation,
   useQuery as useReactQuery,
@@ -352,27 +351,21 @@ function ProjectOverviewPage() {
   return (
     <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
-          <div className="flex shrink-0 items-center border-r border-border px-2">
-            <SidebarTrigger />
-          </div>
-          <div className="min-w-0 flex-1" />
-        </header>
-            <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
-              {project === undefined || threads === undefined ? (
-                <div className="grid flex-1 place-items-center">
-                  <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
-                    <Loader2 className="size-5 animate-spin text-primary/50" aria-hidden="true" />
-                    <span className="font-mono text-xs tracking-wide">Loading project…</span>
-                  </div>
-                </div>
-              ) : !project ? (
-                <div className="flex flex-1 items-center justify-center">
-                  <div className="border border-border px-6 py-5 text-sm text-muted-foreground">
-                    Project not found.
-                  </div>
-                </div>
-              ) : (
+        <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
+          {project === undefined || threads === undefined ? (
+            <div className="grid flex-1 place-items-center">
+              <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+                <Loader2 className="size-5 animate-spin text-primary/50" aria-hidden="true" />
+                <span className="font-mono text-xs tracking-wide">Loading project…</span>
+              </div>
+            </div>
+          ) : !project ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="border border-border px-6 py-5 text-sm text-muted-foreground">
+                Project not found.
+              </div>
+            </div>
+          ) : (
                 <>
                   <div className="flex flex-1 flex-col items-center justify-center px-5 py-16 sm:px-8">
                     <div className="w-full max-w-[600px]">

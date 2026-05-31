@@ -31,7 +31,6 @@ import {
   Folder,
   GitBranch,
   Loader2,
-  MessageSquarePlus,
   Pencil,
   Plus,
   Settings,
@@ -532,12 +531,6 @@ function WorkspaceSidebar({
     return { visibleThreads: threads.slice(0, SIDEBAR_MAX_THREADS), totalThreadCount: threads.length };
   }, [normalizedSearch]);
 
-  function handleNewChat() {
-    if (activeProjectId) {
-      navigate({ to: "/project/$projectId", params: { projectId: activeProjectId } });
-    }
-  }
-
   function handleProjectNewChat(event: MouseEvent<HTMLButtonElement>, projectId: string) {
     event.preventDefault();
     event.stopPropagation();
@@ -574,16 +567,6 @@ function WorkspaceSidebar({
         <SidebarHeader className="h-11 shrink-0 justify-center gap-0 border-b border-sidebar-border/70 px-2.5 py-0">
           <div className="flex min-w-0 items-center gap-1.5">
             <SidebarTrigger className="text-sidebar-foreground/70 hover:text-sidebar-foreground" />
-            <button
-              type="button"
-              onClick={handleNewChat}
-              disabled={!activeProjectId}
-              title={activeProjectId ? "New chat" : "Create a project first"}
-              className="inline-flex h-8 min-w-0 flex-1 items-center gap-2 rounded-none px-2 text-left text-[13px] text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:text-sidebar-foreground/35 disabled:hover:bg-transparent group-data-[collapsible=icon]:hidden"
-            >
-              <MessageSquarePlus className="size-4 shrink-0" aria-hidden="true" />
-              <span className="truncate">New chat</span>
-            </button>
           </div>
         </SidebarHeader>
 

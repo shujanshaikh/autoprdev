@@ -28,7 +28,6 @@ import {
 import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import {
-  Bot,
   Folder,
   GitBranch,
   Loader2,
@@ -71,6 +70,7 @@ import { BillingHistory } from "#/components/dashboard/billing-history";
 import { CodexConnectDialog } from "#/components/dashboard/codex-connect-dialog";
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
+import { CodexLogo } from "#/components/icons/codex-logo";
 import {
   readJson,
   statusStyles,
@@ -812,7 +812,7 @@ function WorkspaceSidebar({
                 onClick={onOpenCodex}
                 className="h-8 gap-2 px-2 text-sidebar-foreground/75"
               >
-                <Bot className="size-4 text-sidebar-foreground/55" aria-hidden="true" />
+                <CodexLogo className="size-4 text-sidebar-foreground/55" />
                 <span className="group-data-[collapsible=icon]:hidden">Codex</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -835,6 +835,11 @@ function WorkspaceSidebar({
                 >
                   <Settings className="size-4" aria-hidden="true" />
                 </button>
+                <WorkOSUserButton className="size-8 group-data-[collapsible=icon]:hidden" />
+              </div>
+            </SidebarMenuItem>
+            <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
+              <div className="flex h-9 items-center justify-center">
                 <WorkOSUserButton className="size-8" />
               </div>
             </SidebarMenuItem>

@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@autopr/ui/components/select";
+import { SidebarTrigger } from "@autopr/ui/components/sidebar";
 import {
   useMutation as useReactMutation,
   useQuery as useReactQuery,
@@ -405,17 +406,26 @@ function ProjectOverviewPage() {
   return (
     <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            {visibleThreadTabs.length > 0 ? (
-              <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
-                <ThreadTabs
-                  tabs={visibleThreadTabs}
-                  onSelectTab={handleSelectThreadTab}
-                  onCloseTab={handleCloseThreadTab}
-                  newTabActive
-                  newTabLabel="Project threads"
-                />
-              </header>
-            ) : null}
+        <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
+          <div className="flex shrink-0 items-center border-r border-border px-2">
+            <SidebarTrigger />
+          </div>
+          {visibleThreadTabs.length > 0 ? (
+            <ThreadTabs
+              tabs={visibleThreadTabs}
+              onSelectTab={handleSelectThreadTab}
+              onCloseTab={handleCloseThreadTab}
+              newTabActive
+              newTabLabel="Project threads"
+            />
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center px-3">
+              <span className="truncate text-[13px] font-medium text-foreground/85">
+                Project threads
+              </span>
+            </div>
+          )}
+        </header>
             <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
               {project === undefined || threads === undefined ? (
                 <div className="grid flex-1 place-items-center">

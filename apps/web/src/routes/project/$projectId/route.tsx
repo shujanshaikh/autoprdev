@@ -1,9 +1,9 @@
 import { api } from "@autopr/backend/convex/_generated/api";
-import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { useConvexAuth, useQuery } from "convex/react";
 
-import { AuthGate, ProjectShell } from "#/components/project-shell";
+import { AuthGate } from "#/components/project-shell";
+import { WorkspaceShell } from "#/components/workspace-shell";
 
 function ProjectLayout() {
   const { projectId } = Route.useParams();
@@ -15,16 +15,13 @@ function ProjectLayout() {
 
   return (
     <AuthGate>
-      <TooltipProvider>
-        <ProjectShell
-          projectId={projectId}
-          repoFullName={project?.repoFullName}
-          threads={threads}
-          activeThreadId={activeThreadId ? decodeURIComponent(activeThreadId) : undefined}
-        >
-          <Outlet />
-        </ProjectShell>
-      </TooltipProvider>
+      <WorkspaceShell
+        activeProjectId={project?.projectId ?? projectId}
+        activeProjectThreads={threads}
+        activeThreadId={activeThreadId ? decodeURIComponent(activeThreadId) : undefined}
+      >
+        <Outlet />
+      </WorkspaceShell>
     </AuthGate>
   );
 }

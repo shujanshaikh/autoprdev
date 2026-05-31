@@ -4,8 +4,9 @@ import { convertToModelMessages, createUIMessageStreamResponse, type UIMessage }
 import { nanoid } from "nanoid";
 import { start } from "workflow/api";
 import { z } from "zod";
+import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 
-import { convexMutation, convexQuery, getConvexAuthToken } from "#/lib/convex-server";
+import { convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage } from "#/lib/chat-messages";
 import { getCodexAgentModelConfig } from "#/lib/codex-auth-server";
 import { agentWorkflow } from "#/workflows/agent/workflow";
@@ -48,9 +49,10 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
-    const convexAuthToken = await getConvexAuthToken();
+    const authkit = await getAuthkit();
+    const workOSSession = await authkit.getSession(req);
 
-    if (!convexAuthToken) {
+    if (!workOSSession) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -97,7 +99,7 @@ async function POST(
         repoUrl: project.cloneUrl,
         repoBranch: project.repoBranch,
         assistantMessageId,
-        convexAuthToken,
+        convexAuth: workOSSession,
         codex,
       },
     ]);

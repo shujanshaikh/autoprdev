@@ -15,6 +15,7 @@ import {
 } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { WorkflowChatTransport } from "@workflow/ai";
+import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
 import { useAction } from "convex/react";
 import { parsePatch } from "diff";
 import {
@@ -429,6 +430,7 @@ export function ThreadChat({
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
+  const { refresh: refreshWorkOSAccessToken } = useAccessToken();
 
   useEffect(() => {
     if (currentRunId) {
@@ -507,19 +509,31 @@ export function ThreadChat({
         api: agentApi,
         onChatSendMessage: handleChatSendMessage,
         onChatEnd: handleChatEnd,
-        prepareSendMessagesRequest: (options) => ({
-          api: options.api,
-          body: {
-            message: options.messages[options.messages.length - 1],
-            model: selectedModel,
-            reasoningEffort: selectedReasoningEffort,
-          },
-          headers: options.headers,
-          credentials: options.credentials,
-        }),
+        prepareSendMessagesRequest: async (options) => {
+          await refreshWorkOSAccessToken();
+
+          return {
+            api: options.api,
+            body: {
+              message: options.messages[options.messages.length - 1],
+              model: selectedModel,
+              reasoningEffort: selectedReasoningEffort,
+            },
+            headers: options.headers,
+            credentials: options.credentials,
+          };
+        },
         prepareReconnectToStreamRequest,
       }),
-    [agentApi, handleChatEnd, handleChatSendMessage, prepareReconnectToStreamRequest, selectedModel, selectedReasoningEffort],
+    [
+      agentApi,
+      handleChatEnd,
+      handleChatSendMessage,
+      prepareReconnectToStreamRequest,
+      refreshWorkOSAccessToken,
+      selectedModel,
+      selectedReasoningEffort,
+    ],
   );
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({

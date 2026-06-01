@@ -300,6 +300,37 @@
   }
 }
 
+/* ─── Settings dialog ─── */
+
+@keyframes settingsCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes settingsFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [style*="settingsCardIn"],
+  [class*="settingsFadeIn"] {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ─── Sign-in page ─── */
 
 .sign-in-shell {

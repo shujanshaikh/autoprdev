@@ -65,8 +65,8 @@ import {
 } from "react";
 
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
-import { BillingHistory } from "#/components/dashboard/billing-history";
 import { CodexConnectDialog } from "#/components/dashboard/codex-connect-dialog";
+import { SettingsDialog } from "#/components/settings/settings-dialog";
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import { CodexLogo } from "#/components/icons/codex-logo";
@@ -375,87 +375,6 @@ function ProjectSummaryRow({ project }: { project: WorkspaceProject }) {
   );
 }
 
-function WorkspaceSettingsDialog({
-  open,
-  onOpenChange,
-  projects,
-  sandboxCosts,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  projects: WorkspaceProject[] | undefined;
-  sandboxCosts: WorkspaceSandboxCost[] | undefined;
-}) {
-  const projectCount = projects?.length ?? 0;
-  const readyCount = projects?.filter((project) => project.sandboxStatus === "ready").length ?? 0;
-  const runningCount = projects?.filter((project) => project.sandboxRuntimeStatus === "started").length ?? 0;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(46rem,calc(100svh-2rem))] overflow-hidden p-0 sm:max-w-5xl">
-        <DialogHeader className="border-b border-border px-4 py-3">
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Project status, recent sandboxes, and billing history.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="minimal-scrollbar min-h-0 overflow-y-auto p-4">
-          <div className="flex flex-col gap-4">
-            <section className="grid gap-3 sm:grid-cols-3">
-              <div className="border border-border bg-card px-4 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  total
-                </p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{projectCount}</p>
-              </div>
-              <div className="border border-border bg-card px-4 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  ready
-                </p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{readyCount}</p>
-              </div>
-              <div className="border border-border bg-card px-4 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  running
-                </p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{runningCount}</p>
-              </div>
-            </section>
-
-            <section className="border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-4 py-2">
-                <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                  Recent projects
-                </h2>
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
-                  sidebar synced
-                </span>
-              </div>
-              {projects === undefined ? (
-                <div className="flex min-h-28 items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  Loading projects
-                </div>
-              ) : projects.length === 0 ? (
-                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No sandboxes yet.
-                </div>
-              ) : (
-                <div>
-                  {projects.slice(0, 8).map((project) => (
-                    <ProjectSummaryRow key={project.projectId} project={project} />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <BillingHistory rows={sandboxCosts} />
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function WorkspaceSidebar({
   projects,
@@ -993,7 +912,7 @@ export function WorkspaceShell({
           onOpenChange={setIsCodexDialogOpen}
           onStatusChange={() => void codexStatusQuery.refetch()}
         />
-        <WorkspaceSettingsDialog
+        <SettingsDialog
           open={isSettingsDialogOpen}
           projects={projects}
           sandboxCosts={sandboxCosts}

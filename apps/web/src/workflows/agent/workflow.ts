@@ -52,13 +52,16 @@ interface WorkOSWorkflowAuth {
   impersonator?: Impersonator;
 }
 
+type AssistantTokenUsageMetadata = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+};
+
 interface AssistantUsageMetadata {
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-    cachedInputTokens: number;
-  };
+  usage: AssistantTokenUsageMetadata;
+  contextUsage: AssistantTokenUsageMetadata;
 }
 
 function getConvexUrl() {
@@ -71,6 +74,36 @@ function getConvexUrl() {
 
 function isPersistenceUnauthenticatedError(error: unknown) {
   return error instanceof Error && error.message.includes("Unauthorized");
+}
+
+function emptyTokenUsage(): AssistantTokenUsageMetadata {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cachedInputTokens: 0,
+  };
+}
+
+function tokenUsageFromStep(step: { usage: Partial<AssistantTokenUsageMetadata> }): AssistantTokenUsageMetadata {
+  return {
+    inputTokens: step.usage.inputTokens ?? 0,
+    outputTokens: step.usage.outputTokens ?? 0,
+    totalTokens: step.usage.totalTokens ?? 0,
+    cachedInputTokens: step.usage.cachedInputTokens ?? 0,
+  };
+}
+
+function addTokenUsage(
+  total: AssistantTokenUsageMetadata,
+  usage: AssistantTokenUsageMetadata,
+): AssistantTokenUsageMetadata {
+  return {
+    inputTokens: total.inputTokens + usage.inputTokens,
+    outputTokens: total.outputTokens + usage.outputTokens,
+    totalTokens: total.totalTokens + usage.totalTokens,
+    cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
+  };
 }
 
 async function refreshWorkOSConvexAuth(convexAuth: WorkOSWorkflowAuth) {
@@ -375,21 +408,10 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
             return;
           }
 
+          const stepUsages = steps.map(tokenUsageFromStep);
           const usageMetadata: AssistantUsageMetadata = {
-            usage: steps.reduce(
-              (total, step) => ({
-                inputTokens: total.inputTokens + (step.usage.inputTokens ?? 0),
-                outputTokens: total.outputTokens + (step.usage.outputTokens ?? 0),
-                totalTokens: total.totalTokens + (step.usage.totalTokens ?? 0),
-                cachedInputTokens: total.cachedInputTokens + (step.usage.cachedInputTokens ?? 0),
-              }),
-              {
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                cachedInputTokens: 0,
-              },
-            ),
+            usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),
+            contextUsage: stepUsages.at(-1) ?? emptyTokenUsage(),
           };
 
           try {

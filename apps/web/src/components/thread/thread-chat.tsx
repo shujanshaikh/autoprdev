@@ -296,20 +296,67 @@ function ThreadChatTextarea({
 }
 
 interface AssistantUsageMetadata {
-  usage?: {
-    inputTokens?: unknown;
-    outputTokens?: unknown;
-    totalTokens?: unknown;
-    cachedInputTokens?: unknown;
-  };
+  usage?: TokenUsageMetadata;
+  contextUsage?: TokenUsageMetadata;
 }
+
+type TokenUsageMetadata = {
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  totalTokens?: unknown;
+  cachedInputTokens?: unknown;
+};
+
+type TokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+};
 
 function asFiniteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function isAssistantUsageMetadata(value: unknown): value is AssistantUsageMetadata {
-  return isRecord(value) && (value.usage === undefined || isRecord(value.usage));
+  return (
+    isRecord(value) &&
+    (value.usage === undefined || isRecord(value.usage)) &&
+    (value.contextUsage === undefined || isRecord(value.contextUsage))
+  );
+}
+
+function readTokenUsage(value: unknown): TokenUsage | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const hasTokenUsage = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens"].some(
+    (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
+  );
+
+  if (!hasTokenUsage) {
+    return null;
+  }
+
+  return {
+    inputTokens: asFiniteNumber(value.inputTokens),
+    outputTokens: asFiniteNumber(value.outputTokens),
+    totalTokens: asFiniteNumber(value.totalTokens),
+    cachedInputTokens: asFiniteNumber(value.cachedInputTokens),
+  };
+}
+
+function contextTokensFromUsage(usage: TokenUsage) {
+  return usage.totalTokens > 0 ? usage.totalTokens : usage.inputTokens + usage.outputTokens;
+}
+
+function getAssistantContextUsage(metadata: unknown): TokenUsage | null {
+  if (!isAssistantUsageMetadata(metadata)) {
+    return null;
+  }
+
+  return readTokenUsage(metadata.contextUsage) ?? readTokenUsage(metadata.usage);
 }
 
 function formatTokens(value: number) {
@@ -325,23 +372,20 @@ function formatTokens(value: number) {
 }
 
 function ThreadContextRemainingIndicator({
-  inputTokens,
-  cachedInputTokens,
-  outputTokens,
+  usage,
   contextLimit,
 }: {
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
+  usage: TokenUsage;
   contextLimit: number;
 }) {
   if (contextLimit <= 0) {
     return null;
   }
 
-  const remainingTokens = Math.max(0, contextLimit - inputTokens);
-  const percentageUsed = Math.min(100, Math.round((inputTokens / contextLimit) * 100));
-  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const contextTokens = contextTokensFromUsage(usage);
+  const remainingTokens = Math.max(0, contextLimit - contextTokens);
+  const percentageUsed = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
+  const uncachedInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
 
   return (
     <Tooltip>
@@ -362,14 +406,18 @@ function ThreadContextRemainingIndicator({
             <span>{formatTokens(remainingTokens)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
-            <span className="text-muted-foreground">Input / limit</span>
+            <span className="text-muted-foreground">Context / limit</span>
             <span>
-              {formatTokens(inputTokens)} / {formatTokens(contextLimit)}
+              {formatTokens(contextTokens)} / {formatTokens(contextLimit)}
             </span>
           </div>
           <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Input</span>
+            <span>{formatTokens(usage.inputTokens)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Cached input</span>
-            <span>{formatTokens(cachedInputTokens)}</span>
+            <span>{formatTokens(usage.cachedInputTokens)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Uncached input</span>
@@ -377,7 +425,7 @@ function ThreadContextRemainingIndicator({
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Output</span>
-            <span>{formatTokens(outputTokens)}</span>
+            <span>{formatTokens(usage.outputTokens)}</span>
           </div>
         </div>
       </TooltipContent>
@@ -702,24 +750,18 @@ export function ThreadChat({
       };
     });
   }, [messages]);
-  const conversationUsage = useMemo(() => messages.reduce(
-    (total, message) => {
-      if (!isAssistantUsageMetadata(message.metadata) || !message.metadata.usage) {
-        return total;
-      }
+  const currentContextUsage = useMemo(() => {
+    const latestAssistantWithUsage = findLastBy(messages, (message) =>
+      message.role === "assistant" && getAssistantContextUsage(message.metadata) !== null
+    );
 
-      return {
-        inputTokens: total.inputTokens + asFiniteNumber(message.metadata.usage.inputTokens),
-        outputTokens: total.outputTokens + asFiniteNumber(message.metadata.usage.outputTokens),
-        cachedInputTokens: total.cachedInputTokens + asFiniteNumber(message.metadata.usage.cachedInputTokens),
-      };
-    },
-    {
+    return getAssistantContextUsage(latestAssistantWithUsage?.metadata) ?? {
       inputTokens: 0,
       outputTokens: 0,
+      totalTokens: 0,
       cachedInputTokens: 0,
-    },
-  ), [messages]);
+    };
+  }, [messages]);
   const selectedModelContextLimit =
     CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
 
@@ -861,9 +903,7 @@ export function ThreadChat({
                       </TooltipContent>
                     </Tooltip>
                     <ThreadContextRemainingIndicator
-                      inputTokens={conversationUsage.inputTokens}
-                      cachedInputTokens={conversationUsage.cachedInputTokens}
-                      outputTokens={conversationUsage.outputTokens}
+                      usage={currentContextUsage}
                       contextLimit={selectedModelContextLimit}
                     />
                   </PromptInputTools>

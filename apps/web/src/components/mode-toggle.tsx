@@ -1,29 +1,48 @@
 import { Button } from "@autopr/ui/components/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@autopr/ui/components/dropdown-menu";
+import { cn } from "@autopr/ui/lib/utils";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import * as React from "react";
 
-export function ModeToggle() {
-  const { setTheme } = useTheme();
+export function ModeToggle({ className }: { className?: string }) {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = React.useState(false);
+  const isDark = mounted && resolvedTheme === "dark";
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="icon" />}>
-        <Sun className="size-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-        <Moon className="absolute size-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-        <span className="sr-only">Toggle theme</span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>Light</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>Dark</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>System</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={cn(
+        "relative overflow-hidden text-muted-foreground",
+        "hover:bg-muted/60 hover:text-foreground",
+        "dark:hover:bg-sidebar-accent",
+        className,
+      )}
+      aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+      aria-pressed={isDark}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+    >
+      <Sun
+        className={cn(
+          "size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none",
+          isDark ? "-translate-y-1 rotate-45 opacity-0" : "translate-y-0 rotate-0 opacity-100",
+        )}
+        aria-hidden="true"
+      />
+      <Moon
+        className={cn(
+          "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none",
+          isDark ? "translate-y-0 rotate-0 opacity-100" : "translate-y-1 -rotate-45 opacity-0",
+        )}
+        aria-hidden="true"
+      />
+      <span className="sr-only">{isDark ? "Switch to light mode" : "Switch to dark mode"}</span>
+    </Button>
   );
 }

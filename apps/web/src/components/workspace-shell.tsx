@@ -70,6 +70,7 @@ import { CodexConnectDialog } from "#/components/dashboard/codex-connect-dialog"
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import { CodexLogo } from "#/components/icons/codex-logo";
+import { ModeToggle } from "#/components/mode-toggle";
 import {
   readJson,
   statusStyles,
@@ -818,7 +819,13 @@ function WorkspaceSidebar({
                 >
                   <Settings className="size-4" aria-hidden="true" />
                 </button>
+                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden" />
                 <WorkOSUserButton className="size-8 group-data-[collapsible=icon]:hidden" />
+              </div>
+            </SidebarMenuItem>
+            <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
+              <div className="flex h-9 items-center justify-center">
+                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
               </div>
             </SidebarMenuItem>
             <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">

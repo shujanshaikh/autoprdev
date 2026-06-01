@@ -2,6 +2,7 @@ import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { Bot } from "lucide-react";
 
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
+import { ModeToggle } from "#/components/mode-toggle";
 import { Button } from "@autopr/ui/components/button";
 
 interface DashboardHeaderProps {
@@ -45,6 +46,7 @@ export function DashboardHeader({
           <Bot className="size-3.5" />
           Codex
         </Button>
+        <ModeToggle />
         <WorkOSUserButton />
       </div>
     </header>

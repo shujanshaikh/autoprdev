@@ -19,6 +19,7 @@ import {
   ToolOutput,
   ExploreToolRow,
   isExploreTool,
+  isComputerRecordingTool,
   toolSlugFromPart,
   type ToolPart,
 } from "@/components/ai-elements/tool";
@@ -308,18 +309,27 @@ export function ThreadMessages({
                   const input = "input" in part ? part.input : undefined;
                   const output = "output" in part ? part.output : undefined;
                   const errorText = "errorText" in part ? part.errorText : undefined;
+                  const toolName = part.type === "dynamic-tool" ? getToolName(part) : undefined;
+
+                  if (
+                    toolSlugFromPart(part.type, toolName) === "computer" &&
+                    !isComputerRecordingTool(input, output, partState)
+                  ) {
+                    return null;
+                  }
   
                   return (
                     <Tool key={`${message.id}-tool-${stableKey}`} defaultOpen={partState !== "output-available"}>
                       {part.type === "dynamic-tool" ? (
                         <ToolHeader
                           input={input}
+                          output={output}
                           state={partState}
-                          toolName={getToolName(part)}
+                          toolName={toolName!}
                           type={part.type}
                         />
                       ) : (
-                        <ToolHeader input={input} state={partState} type={part.type} />
+                        <ToolHeader input={input} output={output} state={partState} type={part.type} />
                       )}
                       <ToolContent>
                         {input !== undefined ? (

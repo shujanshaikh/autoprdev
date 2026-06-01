@@ -5,7 +5,6 @@ import {
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import { Video } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
@@ -192,22 +191,7 @@ function formatToolSummaryLine(slug: string, input: unknown): string {
     case "sandboxInfo":
       return "";
     case "computer": {
-      if (Array.isArray(o.actions)) {
-        const actions = o.actions
-          .filter(isRecord)
-          .map((action) => (typeof action.type === "string" ? action.type.replace(/_/g, " ") : "action"));
-        if (actions.length > 0) {
-          return actions.length === 1 ? actions[0] ?? "" : `${actions[0]} +${actions.length - 1}`;
-        }
-      }
-      const action = typeof o.action === "string" ? o.action.replace(/_/g, " ") : "action";
-      if (typeof o.url === "string") {
-        return `${action} ${o.url}`;
-      }
-      if (typeof o.recordingId === "string") {
-        return `${action} ${o.recordingId}`;
-      }
-      return action;
+      return "";
     }
     default:
       if (isShallowDisplayable(o)) {
@@ -271,6 +255,70 @@ function isContentDetailsOutput(
   return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
 }
 
+function computerActionTypes(input: unknown): string[] {
+  if (!isRecord(input)) {
+    return [];
+  }
+
+  const actionTypes: string[] = [];
+
+  if (Array.isArray(input.actions)) {
+    for (const action of input.actions) {
+      if (isRecord(action) && typeof action.type === "string") {
+        actionTypes.push(action.type);
+      }
+    }
+  }
+
+  if (typeof input.action === "string") {
+    actionTypes.push(input.action);
+  }
+
+  if (typeof input.type === "string") {
+    actionTypes.push(input.type);
+  }
+
+  return actionTypes;
+}
+
+function outputHasDemoRecording(output: unknown): boolean {
+  const contentDetails = computerContentOutputToContentDetails(output);
+  const details = contentDetails?.details ?? (isContentDetailsOutput(output) ? output.details : null);
+
+  if (!details) {
+    return false;
+  }
+
+  return demoRecordingsFromDetails(details).length > 0;
+}
+
+export function isComputerRecordingTool(
+  input: unknown,
+  output: unknown,
+  state: ToolPart["state"],
+): boolean {
+  const actionTypes = computerActionTypes(input);
+
+  return (
+    (actionTypes.includes("start_recording") && state !== "output-available") ||
+    actionTypes.includes("stop_recording") ||
+    outputHasDemoRecording(output)
+  );
+}
+
+function computerRecordingLabel(input: unknown, output: unknown, state: ToolPart["state"]): string {
+  const actionTypes = computerActionTypes(input);
+
+  if (
+    state === "output-available" &&
+    (actionTypes.includes("stop_recording") || outputHasDemoRecording(output))
+  ) {
+    return "Screen recorded";
+  }
+
+  return "Screen recording";
+}
+
 export type ToolDiffPayload = {
   renderer: "pierre";
   patch?: string;
@@ -330,56 +378,9 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
   );
 }
 
-function formatDuration(seconds?: number) {
-  if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
-    return null;
-  }
-
-  if (seconds < 60) {
-    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const remainder = Math.round(seconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${remainder}`;
-}
-
-function formatBytes(bytes?: number) {
-  if (typeof bytes !== "number" || !Number.isFinite(bytes)) {
-    return null;
-  }
-
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
-  const stats = [
-    recording.status,
-    formatDuration(recording.durationSeconds),
-    formatBytes(recording.sizeBytes),
-  ].filter(Boolean);
-
   return (
     <div className="overflow-hidden border border-border/60 bg-card">
-      <div className="flex min-w-0 items-center gap-2 border-b border-border/50 px-3 py-2">
-        <Video className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[11px] font-medium text-foreground">
-            {recording.fileName ?? "Demo recording"}
-          </p>
-          {stats.length > 0 ? (
-            <p className="mt-0.5 truncate text-[10px] text-muted-foreground/75">{stats.join(" · ")}</p>
-          ) : null}
-        </div>
-      </div>
       {recording.url ? (
         <video
           className="aspect-video w-full bg-black"
@@ -410,18 +411,6 @@ function demoRecordingsFromDetails(details: Record<string, unknown>) {
   return recordings;
 }
 
-function screenshotDataUrl(details: Record<string, unknown>) {
-  const screenshot = isRecord(details.screenshot) ? details.screenshot : null;
-  if (!screenshot || typeof screenshot.data !== "string") {
-    return null;
-  }
-
-  const mimeType = typeof screenshot.mimeType === "string" ? screenshot.mimeType : "image/png";
-  return screenshot.data.startsWith("data:image/")
-    ? screenshot.data
-    : `data:${mimeType};base64,${screenshot.data}`;
-}
-
 function ContentDetailsBody({
   slug,
   content,
@@ -439,8 +428,21 @@ function ContentDetailsBody({
       ? details.diff
       : null;
   const demoRecordings = slug === "computer" ? demoRecordingsFromDetails(details) : [];
-  const screenshotUrl = slug === "computer" ? screenshotDataUrl(details) : null;
   const showMeta = !(slug === "edit" && diffPayload);
+
+  if (slug === "computer") {
+    if (demoRecordings.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2">
+        {demoRecordings.map((recording) => (
+          <DemoRecordingCard key={recording.id} recording={recording} />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1.5">
@@ -450,22 +452,7 @@ function ContentDetailsBody({
       {showMeta && meta && (!pathLine || meta !== pathLine) ? (
         <p className="text-[10px] leading-snug text-muted-foreground/80">{meta}</p>
       ) : null}
-      {screenshotUrl ? (
-        <div className="overflow-hidden border border-border/50 bg-black">
-          <img
-            src={screenshotUrl}
-            alt="Computer screenshot"
-            className="max-h-[min(45vh,420px)] w-full object-contain"
-          />
-        </div>
-      ) : null}
-      {demoRecordings.length > 0 ? (
-        <div className="space-y-2">
-          {demoRecordings.map((recording) => (
-            <DemoRecordingCard key={recording.id} recording={recording} />
-          ))}
-        </div>
-      ) : diffPayload ? (
+      {diffPayload ? (
         <ToolDiffView diff={diffPayload} pathLine={pathLine} />
       ) : (
         <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
@@ -515,6 +502,7 @@ export type ToolHeaderProps = {
   title?: string;
   className?: string;
   input?: unknown;
+  output?: unknown;
 } & (
   | { type: ToolUIPart["type"]; state: ToolUIPart["state"]; toolName?: never }
   | {
@@ -531,13 +519,16 @@ export const ToolHeader = ({
   state,
   toolName,
   input,
+  output,
   ...props
 }: ToolHeaderProps) => {
   const slug = toolSlugFromPart(type, type === "dynamic-tool" ? toolName : undefined);
   const derivedName =
     type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-");
   const fallbackName = title ?? derivedName;
-  const label = title ? fallbackName : displayToolLabel(slug);
+  const label = slug === "computer"
+    ? computerRecordingLabel(input, output, state)
+    : title ? fallbackName : displayToolLabel(slug);
   const summary = formatToolSummaryLine(slug, input);
   const streaming = isToolStreamingState(state);
   const lineText = [label, summary].filter(Boolean).join(" ");
@@ -599,7 +590,7 @@ export const ToolInput = ({
   ...props
 }: ToolInputProps) => {
   const slug = toolSlugFromPart(toolType, toolName);
-  if (slug === "edit") {
+  if (slug === "edit" || slug === "computer") {
     return null;
   }
 

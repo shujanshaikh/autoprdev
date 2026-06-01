@@ -8,8 +8,54 @@ export interface DaytonaSandbox {
   name?: string;
   snapshot?: string;
   state?: string;
+  toolboxProxyUrl?: string;
   start(timeout?: number): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
+  computerUse: {
+    start(): Promise<unknown>;
+    stop(): Promise<unknown>;
+    getStatus(): Promise<unknown>;
+    mouse: {
+      getPosition(): Promise<unknown>;
+      move(x: number, y: number): Promise<unknown>;
+      click(x: number, y: number, button?: string, double?: boolean): Promise<unknown>;
+      drag(startX: number, startY: number, endX: number, endY: number, button?: string): Promise<unknown>;
+      scroll(x: number, y: number, direction: "up" | "down", amount?: number): Promise<unknown>;
+    };
+    keyboard: {
+      type(text: string, delay?: number): Promise<void>;
+      press(key: string, modifiers?: string[]): Promise<void>;
+      hotkey(keys: string): Promise<void>;
+    };
+    screenshot: {
+      takeCompressed(options?: {
+        showCursor?: boolean;
+        format?: string;
+        quality?: number;
+        scale?: number;
+      }): Promise<unknown>;
+      takeCompressedRegion(
+        region: { x: number; y: number; width: number; height: number },
+        options?: {
+          showCursor?: boolean;
+          format?: string;
+          quality?: number;
+          scale?: number;
+        },
+      ): Promise<unknown>;
+    };
+    display: {
+      getInfo(): Promise<unknown>;
+      getWindows(): Promise<unknown>;
+    };
+    recording: {
+      start(label?: string): Promise<unknown>;
+      stop(id: string): Promise<unknown>;
+      list(): Promise<unknown>;
+      get(id: string): Promise<unknown>;
+      download(id: string, localPath: string): Promise<void>;
+    };
+  };
   git: {
     status(path: string): Promise<unknown>;
     clone(url: string, path: string, branch?: string): Promise<unknown>;
@@ -59,7 +105,7 @@ export interface SandboxSessionOptions {
 }
 
 // Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
-const DEFAULT_DAYTONA_SNAPSHOT = "daytonaio/sandbox:0.6.0";
+const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;

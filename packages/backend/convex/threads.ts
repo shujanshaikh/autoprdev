@@ -10,6 +10,7 @@ export const create = mutation({
   args: {
     projectId: v.string(),
     title: v.optional(v.string()),
+    demoEnabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
@@ -37,6 +38,7 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
       isLive: false,
+      demoEnabled: args.demoEnabled ?? false,
     });
 
     return threadId;
@@ -162,6 +164,23 @@ async function requireThreadForAuthor(ctx: any, threadId: string) {
 
   return thread;
 }
+
+export const setDemoEnabled = mutation({
+  args: {
+    threadId: v.string(),
+    demoEnabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+
+    await ctx.db.patch(thread._id, {
+      demoEnabled: args.demoEnabled,
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
 
 export const markPullRequestCreating = mutation({
   args: {

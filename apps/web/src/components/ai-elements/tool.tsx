@@ -5,10 +5,16 @@ import {
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
+import { Video } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
 
+import {
+  computerContentOutputToContentDetails,
+  isDemoRecordingMetadata,
+  type DemoRecordingMetadata,
+} from "@/lib/chat-messages";
 import { CodeBlock } from "./code-block";
 import { PierreDiffView } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
@@ -81,7 +87,7 @@ export function toolSlugFromPart(type: string, toolName?: string): string {
 }
 
 /** Primary tools that get full expandable rendering */
-const PRIMARY_TOOL_SLUGS = new Set(["edit", "write", "bash"]);
+const PRIMARY_TOOL_SLUGS = new Set(["edit", "write", "bash", "computer"]);
 
 /** Returns true if the tool is an "explore" tool (read-only, search, etc.) */
 export function isExploreTool(type: string, toolName?: string): boolean {
@@ -185,6 +191,24 @@ function formatToolSummaryLine(slug: string, input: unknown): string {
     }
     case "sandboxInfo":
       return "";
+    case "computer": {
+      if (Array.isArray(o.actions)) {
+        const actions = o.actions
+          .filter(isRecord)
+          .map((action) => (typeof action.type === "string" ? action.type.replace(/_/g, " ") : "action"));
+        if (actions.length > 0) {
+          return actions.length === 1 ? actions[0] ?? "" : `${actions[0]} +${actions.length - 1}`;
+        }
+      }
+      const action = typeof o.action === "string" ? o.action.replace(/_/g, " ") : "action";
+      if (typeof o.url === "string") {
+        return `${action} ${o.url}`;
+      }
+      if (typeof o.recordingId === "string") {
+        return `${action} ${o.recordingId}`;
+      }
+      return action;
+    }
     default:
       if (isShallowDisplayable(o)) {
         return shallowEntries(o)
@@ -306,6 +330,98 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
   );
 }
 
+function formatDuration(seconds?: number) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+    return null;
+  }
+
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${remainder}`;
+}
+
+function formatBytes(bytes?: number) {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes)) {
+    return null;
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
+  const stats = [
+    recording.status,
+    formatDuration(recording.durationSeconds),
+    formatBytes(recording.sizeBytes),
+  ].filter(Boolean);
+
+  return (
+    <div className="overflow-hidden border border-border/60 bg-card">
+      <div className="flex min-w-0 items-center gap-2 border-b border-border/50 px-3 py-2">
+        <Video className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[11px] font-medium text-foreground">
+            {recording.fileName ?? "Demo recording"}
+          </p>
+          {stats.length > 0 ? (
+            <p className="mt-0.5 truncate text-[10px] text-muted-foreground/75">{stats.join(" · ")}</p>
+          ) : null}
+        </div>
+      </div>
+      {recording.url ? (
+        <video
+          className="aspect-video w-full bg-black"
+          controls
+          preload="metadata"
+          src={recording.url}
+        />
+      ) : (
+        <div className="px-3 py-2 text-[11px] text-muted-foreground">
+          Recording metadata is available, but no playback URL was attached.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function demoRecordingsFromDetails(details: Record<string, unknown>) {
+  const recordings: DemoRecordingMetadata[] = [];
+
+  if (isDemoRecordingMetadata(details.recording)) {
+    recordings.push(details.recording);
+  }
+
+  if (Array.isArray(details.recordings)) {
+    recordings.push(...details.recordings.filter(isDemoRecordingMetadata));
+  }
+
+  return recordings;
+}
+
+function screenshotDataUrl(details: Record<string, unknown>) {
+  const screenshot = isRecord(details.screenshot) ? details.screenshot : null;
+  if (!screenshot || typeof screenshot.data !== "string") {
+    return null;
+  }
+
+  const mimeType = typeof screenshot.mimeType === "string" ? screenshot.mimeType : "image/png";
+  return screenshot.data.startsWith("data:image/")
+    ? screenshot.data
+    : `data:${mimeType};base64,${screenshot.data}`;
+}
+
 function ContentDetailsBody({
   slug,
   content,
@@ -322,6 +438,8 @@ function ContentDetailsBody({
     (slug === "write" || slug === "edit") && isToolDiffPayload(details.diff)
       ? details.diff
       : null;
+  const demoRecordings = slug === "computer" ? demoRecordingsFromDetails(details) : [];
+  const screenshotUrl = slug === "computer" ? screenshotDataUrl(details) : null;
   const showMeta = !(slug === "edit" && diffPayload);
 
   return (
@@ -332,7 +450,22 @@ function ContentDetailsBody({
       {showMeta && meta && (!pathLine || meta !== pathLine) ? (
         <p className="text-[10px] leading-snug text-muted-foreground/80">{meta}</p>
       ) : null}
-      {diffPayload ? (
+      {screenshotUrl ? (
+        <div className="overflow-hidden border border-border/50 bg-black">
+          <img
+            src={screenshotUrl}
+            alt="Computer screenshot"
+            className="max-h-[min(45vh,420px)] w-full object-contain"
+          />
+        </div>
+      ) : null}
+      {demoRecordings.length > 0 ? (
+        <div className="space-y-2">
+          {demoRecordings.map((recording) => (
+            <DemoRecordingCard key={recording.id} recording={recording} />
+          ))}
+        </div>
+      ) : diffPayload ? (
         <ToolDiffView diff={diffPayload} pathLine={pathLine} />
       ) : (
         <div className="max-h-[min(55vh,520px)] overflow-auto border border-border/50">
@@ -513,11 +646,20 @@ export const ToolOutput = ({
   }
 
   const slug = toolSlugFromPart(toolType, toolName);
+  const computerContentDetails = slug === "computer" ? computerContentOutputToContentDetails(output) : null;
 
   let body: ReactNode;
 
   if (errorText) {
     body = <div className="py-0.5 text-[11px] leading-relaxed text-destructive">{errorText}</div>;
+  } else if (computerContentDetails) {
+    body = (
+      <ContentDetailsBody
+        slug={slug}
+        content={computerContentDetails.content}
+        details={computerContentDetails.details}
+      />
+    );
   } else if (isContentDetailsOutput(output)) {
     body = <ContentDetailsBody slug={slug} content={output.content} details={output.details} />;
   } else if (typeof output === "object" && !isValidElement(output)) {

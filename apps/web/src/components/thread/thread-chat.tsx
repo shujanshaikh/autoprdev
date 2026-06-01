@@ -16,7 +16,7 @@ import {
 import { cn } from "@autopr/ui/lib/utils";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { parsePatch } from "diff";
 import {
   getToolName,
@@ -24,6 +24,7 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
+import { Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -427,9 +428,12 @@ export function ThreadChat({
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
+  const [optimisticDemoEnabled, setOptimisticDemoEnabled] = useState(Boolean(thread?.demoEnabled));
+  const [demoSaving, setDemoSaving] = useState(false);
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
+  const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const { refresh: refreshWorkOSAccessToken } = useAccessToken();
 
   useEffect(() => {
@@ -441,6 +445,10 @@ export function ThreadChat({
   useEffect(() => {
     setRuntimeStatus(project?.sandboxRuntimeStatus);
   }, [project?.sandboxRuntimeStatus]);
+
+  useEffect(() => {
+    setOptimisticDemoEnabled(Boolean(thread?.demoEnabled));
+  }, [thread?.demoEnabled]);
 
   useEffect(() => {
     if (project?.sandboxStatus !== "ready") return;
@@ -665,6 +673,20 @@ export function ThreadChat({
 
     pendingStopRef.current = stopPromise;
   }, [clearError, getRunApi, messages, stop]);
+  const toggleDemoEnabled = useCallback(async () => {
+    const nextDemoEnabled = !optimisticDemoEnabled;
+    setOptimisticDemoEnabled(nextDemoEnabled);
+    setDemoSaving(true);
+
+    try {
+      await setDemoEnabled({ threadId, demoEnabled: nextDemoEnabled });
+    } catch (toggleError) {
+      setOptimisticDemoEnabled(!nextDemoEnabled);
+      console.error("Failed to update demo mode", toggleError);
+    } finally {
+      setDemoSaving(false);
+    }
+  }, [optimisticDemoEnabled, setDemoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
   const keyedMessages = useMemo(() => {
@@ -812,6 +834,32 @@ export function ThreadChat({
                         ))}
                       </SelectContent>
                     </Select>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={optimisticDemoEnabled}
+                            disabled={demoSaving}
+                            onClick={() => void toggleDemoEnabled()}
+                            className={cn(
+                              "inline-flex h-7 shrink-0 items-center gap-1.5 border border-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition",
+                              "hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                              optimisticDemoEnabled && "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                            )}
+                          >
+                            <Video className="size-3.5" aria-hidden />
+                            <span>Demo</span>
+                          </button>
+                        }
+                      />
+                      <TooltipContent side="top" align="start" className="max-w-64 rounded-none">
+                        {optimisticDemoEnabled
+                          ? "Future runs in this thread will record a Daytona browser demo."
+                          : "Allow future runs to record a Daytona browser demo."}
+                      </TooltipContent>
+                    </Tooltip>
                     <ThreadContextRemainingIndicator
                       inputTokens={conversationUsage.inputTokens}
                       cachedInputTokens={conversationUsage.cachedInputTokens}

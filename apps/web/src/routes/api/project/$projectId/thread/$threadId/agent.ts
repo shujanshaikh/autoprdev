@@ -99,6 +99,7 @@ async function POST(
         repoUrl: project.cloneUrl,
         repoBranch: project.repoBranch,
         assistantMessageId,
+        demoEnabled: Boolean(thread.demoEnabled),
         convexAuth: workOSSession,
         codex,
       },

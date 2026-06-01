@@ -82,6 +82,7 @@ export default defineSchema({
     updatedAt: v.number(),
     currentRunId: v.optional(v.string()),
     isLive: v.optional(v.boolean()),
+    demoEnabled: v.optional(v.boolean()),
     pullRequestStatus: v.optional(v.union(v.literal("idle"), v.literal("creating"), v.literal("created"), v.literal("failed"))),
     pullRequestUrl: v.optional(v.string()),
     pullRequestNumber: v.optional(v.number()),

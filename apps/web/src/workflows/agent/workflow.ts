@@ -23,6 +23,7 @@ export interface AgentWorkflowOptions {
   repoUrl?: string;
   repoBranch?: string;
   assistantMessageId?: string;
+  demoEnabled?: boolean;
   convexAuth?: WorkOSWorkflowAuth;
   codex: CodexAgentModelOptions;
 }
@@ -305,14 +306,24 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
   };
+  const demoRecordingBasePath = options.demoEnabled && options.projectId && options.threadId
+    ? `/api/project/${encodeURIComponent(options.projectId)}` +
+      `/thread/${encodeURIComponent(options.threadId)}`
+    : undefined;
   const harness = new CodingHarness({
     ...sandboxOptions,
+    computer: demoRecordingBasePath
+      ? { recordingBasePath: demoRecordingBasePath }
+      : false,
     appendSystemPrompt: [
       "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
+      demoRecordingBasePath
+        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; stop recording promptly and include the recording metadata in your response. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+        : undefined,
     ]
       .filter(Boolean)
       .join("\n"),

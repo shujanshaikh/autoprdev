@@ -14,7 +14,9 @@ const bashInputSchema = z.object({
   isBackground: z
     .boolean()
     .optional()
-    .describe("If true, starts the command asynchronously in a persistent sandbox session and returns immediately."),
+    .describe(
+      "Use true for long-running commands such as dev servers, preview servers, watchers, and tail -f. Starts the command asynchronously in a persistent Daytona session and returns immediately with session and command metadata.",
+    ),
 });
 
 type BashInput = z.infer<typeof bashInputSchema>;
@@ -38,6 +40,11 @@ async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessi
   const combined = combineCommandOutput(stdout, stderr) || output;
   const truncatedOutput = truncateText(combined, MAX_COMMAND_OUTPUT_CHARS);
   const isBackground = Boolean(input.isBackground);
+  const timedOut = Boolean(result.timedOut);
+  const backgroundLaunchFailed = isBackground && typeof result.exitCode === "number" && result.exitCode !== 0;
+  const timeoutSummary = result.timeout
+    ? `Command timed out after ${result.timeout} second${result.timeout === 1 ? "" : "s"}.`
+    : "Daytona timed out while waiting for the command to finish.";
 
   return {
     content:
@@ -45,19 +52,22 @@ async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessi
       `Working directory: ${result.cwd}\n` +
       `Background: ${isBackground ? "yes" : "no"}\n` +
       `Session ID: ${result.sessionId}\n` +
-      `Command ID: ${result.cmdId}\n` +
-      `Exit code: ${isBackground ? "pending" : result.exitCode ?? "unknown"}\n\n` +
-      `${truncatedOutput.text || (isBackground ? "Command started in background." : "(no output)")}`,
+      `Command ID: ${result.cmdId ?? "unknown"}\n` +
+      `Timed out: ${timedOut ? "yes" : "no"}\n` +
+      `Exit code: ${isBackground && !backgroundLaunchFailed ? "pending" : result.exitCode ?? "unknown"}\n\n` +
+      `${truncatedOutput.text || (timedOut ? timeoutSummary : isBackground ? "Command started in background." : "(no output)")}`,
     details: {
       command,
       cwd: result.cwd,
       sessionId: result.sessionId,
-      cmdId: result.cmdId,
+      cmdId: result.cmdId ?? null,
       isBackground,
       exitCode: result.exitCode ?? null,
       stdout,
       stderr,
       output,
+      timedOut,
+      timeout: result.timeout ?? null,
       truncated: truncatedOutput.truncated,
     },
   };

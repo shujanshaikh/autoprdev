@@ -32,6 +32,7 @@ import {
   Search,
   Square,
   Trash2,
+  Video,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
@@ -162,6 +163,7 @@ function ProjectOverviewPage() {
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
+  const [demoEnabled, setDemoEnabled] = useState(false);
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -231,7 +233,7 @@ function ProjectOverviewPage() {
     setIsCreatingThread(true);
     setError(undefined);
     try {
-      const threadId = await createThread({ projectId, title: prompt || "New thread" });
+      const threadId = await createThread({ projectId, title: prompt || "New thread", demoEnabled });
       const search = prompt
         ? { prompt, model: selectedModel, reasoningEffort: selectedReasoningEffort }
         : { model: selectedModel, reasoningEffort: selectedReasoningEffort };
@@ -241,7 +243,7 @@ function ProjectOverviewPage() {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
       setIsCreatingThread(false);
     }
-  }, [project, projectId, promptValue, selectedModel, selectedReasoningEffort, createThread, router, navigate]);
+  }, [project, projectId, promptValue, demoEnabled, selectedModel, selectedReasoningEffort, createThread, router, navigate]);
 
   const handlePromptSubmit = useCallback(
     (event: React.FormEvent) => {
@@ -439,7 +441,7 @@ function ProjectOverviewPage() {
                           </div>
 
                           <div className="flex items-center justify-between gap-2 px-3 py-2">
-                            <div className="flex min-w-0 items-center gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
                               <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as CodexModelId)}>
                               <SelectTrigger
                                 size="sm"
@@ -476,6 +478,22 @@ function ProjectOverviewPage() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={demoEnabled}
+                              onClick={() => setDemoEnabled((enabled) => !enabled)}
+                              disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                              title={demoEnabled ? "Demo enabled for new threads" : "Allow the agent to record a demo for new threads"}
+                              className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                demoEnabled
+                                  ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
+                                  : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                              }`}
+                            >
+                              <Video className="size-3.5" aria-hidden="true" />
+                              <span>Demo</span>
+                            </button>
                             </div>
                             <button
                               type="submit"

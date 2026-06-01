@@ -16,6 +16,233 @@ export function toUIMessage(row: StoredMessageRow): UIMessage {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function dynamicToolName(part: UIMessage["parts"][number]): string | undefined {
+  if (part.type !== "dynamic-tool" || !("toolName" in part)) {
+    return undefined;
+  }
+
+  return typeof part.toolName === "string" ? part.toolName : undefined;
+}
+
+export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
+
+const SCREENSHOT_PAYLOAD_KEYS = new Set(["base64", "data", "image", "screenshot"]);
+const MIN_SCREENSHOT_PAYLOAD_CHARS = 1024;
+
+function shouldStripScreenshotPayload(key: string, value: string, isScreenshotContext: boolean) {
+  return (
+    isScreenshotContext &&
+    SCREENSHOT_PAYLOAD_KEYS.has(key.toLowerCase()) &&
+    (value.length >= MIN_SCREENSHOT_PAYLOAD_CHARS || value.startsWith("data:image/"))
+  );
+}
+
+function sanitizeScreenshotPayloads(value: unknown, isScreenshotContext = false): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeScreenshotPayloads(item, isScreenshotContext));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  let strippedPayload = false;
+  const next: Record<string, unknown> = {};
+
+  for (const [key, child] of Object.entries(value)) {
+    const childIsScreenshotContext = isScreenshotContext || key.toLowerCase().includes("screenshot");
+
+    if (typeof child === "string" && shouldStripScreenshotPayload(key, child, childIsScreenshotContext)) {
+      next[key] = {
+        omitted: true,
+        base64Length: child.length,
+      };
+      strippedPayload = true;
+      continue;
+    }
+
+    next[key] = sanitizeScreenshotPayloads(child, childIsScreenshotContext);
+  }
+
+  if (strippedPayload && isScreenshotContext) {
+    next.payloadStripped = true;
+  }
+
+  return next;
+}
+
+export interface DemoRecordingMetadata {
+  type: "daytona_recording";
+  id: string;
+  fileName?: string;
+  filePath?: string;
+  status?: string;
+  startTime?: string;
+  endTime?: string;
+  durationSeconds?: number;
+  sizeBytes?: number;
+  url?: string;
+  contentType?: string;
+}
+
+export function isDemoRecordingMetadata(value: unknown): value is DemoRecordingMetadata {
+  return (
+    isRecord(value) &&
+    value.type === "daytona_recording" &&
+    typeof value.id === "string"
+  );
+}
+
+function isContentDetailsOutput(
+  value: unknown,
+): value is { content: string; details: Record<string, unknown> } {
+  return isRecord(value) && typeof value.content === "string" && isRecord(value.details);
+}
+
+function parseComputerMetadata(text: string): Record<string, unknown> | null {
+  if (!text.startsWith(COMPUTER_METADATA_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(text.slice(COMPUTER_METADATA_PREFIX.length));
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function imageContentPart(value: unknown): { data: string; mediaType: string } | null {
+  if (!isRecord(value) || typeof value.data !== "string") {
+    return null;
+  }
+
+  if (value.type === "image-data" && typeof value.mediaType === "string") {
+    return { data: value.data, mediaType: value.mediaType };
+  }
+
+  if (value.type === "media" && typeof value.mediaType === "string" && value.mediaType.startsWith("image/")) {
+    return { data: value.data, mediaType: value.mediaType };
+  }
+
+  return null;
+}
+
+export function computerContentOutputToContentDetails(
+  output: unknown,
+): { content: string; details: Record<string, unknown> } | null {
+  if (isContentDetailsOutput(output)) {
+    return output;
+  }
+
+  if (!Array.isArray(output)) {
+    return null;
+  }
+
+  const content: string[] = [];
+  let details: Record<string, unknown> | null = null;
+  let screenshotImage: { data: string; mediaType: string } | null = null;
+
+  for (const item of output) {
+    if (isRecord(item) && item.type === "text" && typeof item.text === "string") {
+      const metadata = parseComputerMetadata(item.text);
+      if (metadata) {
+        details = metadata;
+      } else {
+        content.push(item.text);
+      }
+      continue;
+    }
+
+    screenshotImage ??= imageContentPart(item);
+  }
+
+  if (!details) {
+    return null;
+  }
+
+  if (screenshotImage) {
+    const screenshot = isRecord(details.screenshot) ? details.screenshot : {};
+    details = {
+      ...details,
+      screenshot: {
+        ...screenshot,
+        data: screenshotImage.data,
+        mimeType: screenshotImage.mediaType,
+      },
+    };
+  }
+
+  return {
+    content: content.join("\n").trim() || "Computer action completed.",
+    details,
+  };
+}
+
+function normalizeComputerOutput(output: unknown): unknown {
+  return computerContentOutputToContentDetails(output) ?? output;
+}
+
+function collectDemoRecordings(value: unknown, recordings: DemoRecordingMetadata[]) {
+  if (isDemoRecordingMetadata(value)) {
+    recordings.push(value);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectDemoRecordings(item, recordings);
+    }
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  for (const child of Object.values(value)) {
+    collectDemoRecordings(child, recordings);
+  }
+}
+
+export function findDemoRecordingMetadataInParts(
+  parts: UIMessage["parts"],
+  recordingId: string,
+): DemoRecordingMetadata | null {
+  for (const part of parts) {
+    if (dynamicToolName(part) !== "computer" || !("output" in part)) {
+      continue;
+    }
+
+    const recordings: DemoRecordingMetadata[] = [];
+    collectDemoRecordings(normalizeComputerOutput(part.output), recordings);
+    const match = recordings.find((recording) => recording.id === recordingId);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
+export function sanitizeAssistantPartsForPersistence(parts: UIMessage["parts"]): UIMessage["parts"] {
+  return parts.map((part) => {
+    if (dynamicToolName(part) !== "computer" || !("output" in part)) {
+      return part;
+    }
+
+    return {
+      ...part,
+      output: sanitizeScreenshotPayloads(normalizeComputerOutput(part.output)),
+    } as UIMessage["parts"][number];
+  });
+}
+
 function isCompleteToolPart(part: UIMessage["parts"][number]) {
   return (
     part.type === "dynamic-tool" &&
@@ -50,10 +277,12 @@ function trimDanglingStepStarts(parts: UIMessage["parts"]) {
 }
 
 export function sanitizeStoppedAssistantParts(parts: UIMessage["parts"]): UIMessage["parts"] {
-  return trimDanglingStepStarts(parts.flatMap((part) => {
-    const normalizedPart = normalizeStoppedAssistantPart(part);
-    return normalizedPart ? [normalizedPart] : [];
-  }));
+  return sanitizeAssistantPartsForPersistence(
+    trimDanglingStepStarts(parts.flatMap((part) => {
+      const normalizedPart = normalizeStoppedAssistantPart(part);
+      return normalizedPart ? [normalizedPart] : [];
+    })),
+  );
 }
 
 export function sanitizeMessageForModelConversion(message: UIMessage): UIMessage {
@@ -241,5 +470,5 @@ export function responseMessagesToAssistantParts(messages: ModelMessage[], start
     }
   }
 
-  return parts;
+  return sanitizeAssistantPartsForPersistence(parts);
 }

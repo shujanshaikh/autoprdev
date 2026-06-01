@@ -1,6 +1,6 @@
 import { cn } from "@autopr/ui/lib/utils";
 import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
-import { Bot, ChevronDown } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -60,15 +60,12 @@ function ExploreToolGroup({
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="my-1.5 w-full min-w-0 font-mono text-[11px] leading-tight text-muted-foreground/50">
+    <div className="my-1.5 w-full min-w-0 font-mono text-xs leading-tight text-muted-foreground/50">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         className="group/explore flex w-full cursor-pointer items-center gap-1.5 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
-        <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground/40 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}
-        />
         <span className="font-medium text-muted-foreground/70">{anyStreaming ? "Exploring" : "Explored"}</span>
         <span className="text-muted-foreground/40">
           {summaryParts.join(", ")}

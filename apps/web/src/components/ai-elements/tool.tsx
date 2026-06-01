@@ -5,6 +5,7 @@ import {
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
+import { ChevronDown } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
@@ -201,6 +202,49 @@ function formatToolSummaryLine(slug: string, input: unknown): string {
       }
       return "";
   }
+}
+
+function bashCommandFromInput(input: unknown): string {
+  if (!isRecord(input)) {
+    return "";
+  }
+
+  return typeof input.command === "string" ? input.command.trim() : "";
+}
+
+function bashHeaderLabel(input: unknown): string {
+  const command = bashCommandFromInput(input);
+  const normalized = command.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "Run shell command";
+  }
+
+  if (/\b(vite|dev)\b/.test(normalized) && /\b(run|npm|pnpm|bun|yarn)\b/.test(normalized)) {
+    return "Start dev server";
+  }
+
+  if (/\bcheck-types\b/.test(normalized)) {
+    return "Run typecheck";
+  }
+
+  if (/\b(test|vitest|jest|playwright)\b/.test(normalized)) {
+    return "Run tests";
+  }
+
+  if (/^(cat|sed|nl|tail|head)\b/.test(normalized)) {
+    return "Read file";
+  }
+
+  if (/^(rg|grep|find)\b/.test(normalized)) {
+    return "Search files";
+  }
+
+  if (/^(ls|pwd|git status)\b/.test(normalized)) {
+    return "Inspect workspace";
+  }
+
+  return "Run shell command";
 }
 
 function formatReadDetailsMeta(d: Record<string, unknown>): string | null {
@@ -444,6 +488,20 @@ function ContentDetailsBody({
     );
   }
 
+  if (slug === "bash") {
+    return content.trim().length > 0 ? (
+      <div className="max-h-[min(45vh,360px)] overflow-auto">
+        <CodeBlock
+          className="rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+          code={content}
+          language={PLAIN_TEXT_LANG}
+        />
+      </div>
+    ) : (
+      <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>
+    );
+  }
+
   return (
     <div className="space-y-1.5">
       {showMeta && pathLine ? (
@@ -528,11 +586,45 @@ export const ToolHeader = ({
   const fallbackName = title ?? derivedName;
   const label = slug === "computer"
     ? computerRecordingLabel(input, output, state)
+    : slug === "bash"
+      ? bashHeaderLabel(input)
     : title ? fallbackName : displayToolLabel(slug);
-  const summary = formatToolSummaryLine(slug, input);
+  const summary = slug === "bash" ? "" : formatToolSummaryLine(slug, input);
   const streaming = isToolStreamingState(state);
   const lineText = [label, summary].filter(Boolean).join(" ");
   const status = <ToolStatusText state={state} />;
+
+  if (slug === "bash") {
+    return (
+      <CollapsibleTrigger
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 border-b border-border/70 bg-card px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-muted/20 focus-visible:ring-1 focus-visible:ring-ring",
+          className
+        )}
+        {...props}
+      >
+        <ChevronDown
+          className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-data-[state=closed]:-rotate-90"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 overflow-hidden text-left">
+          {streaming ? (
+            <Shimmer as="span" className="block max-w-full truncate align-baseline text-[13px]" duration={2} spread={2}>
+              {label}
+            </Shimmer>
+          ) : (
+            <span className="block truncate font-sans text-[13px] font-medium leading-none text-muted-foreground">
+              {label}
+            </span>
+          )}
+        </span>
+        {status}
+        <span className="sr-only">
+          {fallbackName}, {statusLabel[state]}. Toggle for arguments and result.
+        </span>
+      </CollapsibleTrigger>
+    );
+  }
 
   return (
     <CollapsibleTrigger
@@ -569,7 +661,7 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in",
+      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in group-data-[tool=bash]:m-0 group-data-[tool=bash]:p-0",
       className
     )}
     {...props}
@@ -592,6 +684,25 @@ export const ToolInput = ({
   const slug = toolSlugFromPart(toolType, toolName);
   if (slug === "edit" || slug === "computer") {
     return null;
+  }
+
+  if (slug === "bash") {
+    const command = bashCommandFromInput(input);
+
+    if (!command) {
+      return null;
+    }
+
+    return (
+      <div className={cn("px-3.5 pt-3", className)} {...props}>
+        <div className="flex min-w-0 items-start gap-2.5 font-mono text-[13px] leading-relaxed text-foreground/90">
+          <span className="shrink-0 select-none text-muted-foreground">$</span>
+          <code className="min-w-0 flex-1 whitespace-pre-wrap break-words bg-transparent p-0 text-[inherit] leading-[inherit]">
+            {command}
+          </code>
+        </div>
+      </div>
+    );
   }
 
   const asRecord = isRecord(input) ? input : null;
@@ -633,7 +744,10 @@ export const ToolOutput = ({
   ...props
 }: ToolOutputProps) => {
   if (!(output || errorText)) {
-    return null;
+    const slug = toolSlugFromPart(toolType, toolName);
+    if (slug !== "bash") {
+      return null;
+    }
   }
 
   const slug = toolSlugFromPart(toolType, toolName);
@@ -643,6 +757,8 @@ export const ToolOutput = ({
 
   if (errorText) {
     body = <div className="py-0.5 text-[11px] leading-relaxed text-destructive">{errorText}</div>;
+  } else if (slug === "bash" && !output) {
+    body = <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>;
   } else if (computerContentDetails) {
     body = (
       <ContentDetailsBody
@@ -662,7 +778,14 @@ export const ToolOutput = ({
   } else if (typeof output === "string") {
     body = (
       <div className="[&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent">
-        <CodeBlock code={output} language="json" />
+        <CodeBlock
+          className={cn(
+            slug === "bash" &&
+              "rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+          )}
+          code={output}
+          language={slug === "bash" ? PLAIN_TEXT_LANG : "json"}
+        />
       </div>
     );
   } else {
@@ -670,8 +793,8 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("mt-1.5 space-y-0.5 pt-1", className)} {...props}>
-      <div className={cn("overflow-x-auto text-xs [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/80")}>
+    <div className={cn("mt-1.5 space-y-0.5 pt-1", slug === "bash" && "m-0 px-3.5 pb-3 pt-2.5", className)} {...props}>
+      <div className={cn("overflow-x-auto text-[13px] [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/80")}>
         {body}
       </div>
     </div>

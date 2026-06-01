@@ -310,16 +310,25 @@ export function ThreadMessages({
                   const output = "output" in part ? part.output : undefined;
                   const errorText = "errorText" in part ? part.errorText : undefined;
                   const toolName = part.type === "dynamic-tool" ? getToolName(part) : undefined;
+                  const toolSlug = toolSlugFromPart(part.type, toolName);
 
                   if (
-                    toolSlugFromPart(part.type, toolName) === "computer" &&
+                    toolSlug === "computer" &&
                     !isComputerRecordingTool(input, output, partState)
                   ) {
                     return null;
                   }
   
                   return (
-                    <Tool key={`${message.id}-tool-${stableKey}`} defaultOpen={partState !== "output-available"}>
+                    <Tool
+                      key={`${message.id}-tool-${stableKey}`}
+                      className={cn(
+                        toolSlug === "bash" &&
+                          "my-1.5 rounded-none border border-border bg-card text-muted-foreground shadow-none"
+                      )}
+                      data-tool={toolSlug}
+                      defaultOpen={partState !== "output-available"}
+                    >
                       {part.type === "dynamic-tool" ? (
                         <ToolHeader
                           input={input}

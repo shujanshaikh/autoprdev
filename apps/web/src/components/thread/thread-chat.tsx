@@ -44,7 +44,7 @@ import {
 } from "@/components/ai-elements/tool";
 import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dropdown";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
-import { SandboxStatusBar, ThreadMessages } from "#/components/thread/thread-messages";
+import { ThreadMessages } from "#/components/thread/thread-messages";
 import { useFileSuggestions } from "#/hooks/use-file-suggestions";
 import {
   CODEX_MODELS,
@@ -469,9 +469,6 @@ export function ThreadChat({
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
-  const [runtimeStatus, setRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>(
-    project?.sandboxRuntimeStatus,
-  );
   const [selectedModel, setSelectedModel] = useState<CodexModelId>(initialModel ?? DEFAULT_CODEX_MODEL);
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
@@ -479,8 +476,6 @@ export function ThreadChat({
   const [optimisticDemoEnabled, setOptimisticDemoEnabled] = useState(Boolean(thread?.demoEnabled));
   const [demoSaving, setDemoSaving] = useState(false);
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
-  const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
-  const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const { refresh: refreshWorkOSAccessToken } = useAccessToken();
 
@@ -491,33 +486,8 @@ export function ThreadChat({
   }, [currentRunId]);
 
   useEffect(() => {
-    setRuntimeStatus(project?.sandboxRuntimeStatus);
-  }, [project?.sandboxRuntimeStatus]);
-
-  useEffect(() => {
     setOptimisticDemoEnabled(Boolean(thread?.demoEnabled));
   }, [thread?.demoEnabled]);
-
-  useEffect(() => {
-    if (project?.sandboxStatus !== "ready") return;
-    let cancelled = false;
-    setRuntimeStatusLoading(true);
-
-    void getSandboxRuntimeStatus({ projectId })
-      .then((result) => {
-        if (!cancelled) setRuntimeStatus(result.status);
-      })
-      .catch(() => {
-        if (!cancelled) setRuntimeStatus("unknown");
-      })
-      .finally(() => {
-        if (!cancelled) setRuntimeStatusLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getSandboxRuntimeStatus, project?.sandboxStatus, projectId]);
 
   const agentApi = `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`;
 
@@ -916,11 +886,6 @@ export function ThreadChat({
                 </PromptInputFooter>
               </PromptInput>
             </PromptInputProvider>
-            <SandboxStatusBar
-              sandboxStatus={project?.sandboxStatus}
-              runtimeStatus={runtimeStatus}
-              checking={runtimeStatusLoading}
-            />
           </div>
         </div>
       </div>

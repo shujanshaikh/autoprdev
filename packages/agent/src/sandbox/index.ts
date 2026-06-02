@@ -8,8 +8,10 @@ export interface DaytonaSandbox {
   name?: string;
   snapshot?: string;
   state?: string;
+  autoArchiveInterval?: number;
   toolboxProxyUrl?: string;
   start(timeout?: number): Promise<void>;
+  setAutoArchiveInterval(interval: number): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
   computerUse: {
     start(): Promise<unknown>;
@@ -108,6 +110,7 @@ export interface SandboxSessionOptions {
 const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
+const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 6 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const REPO_PATH = "repo";
 
@@ -150,6 +153,14 @@ async function ensureSandboxStarted(sandbox: DaytonaSandbox): Promise<DaytonaSan
   return sandbox;
 }
 
+async function ensureSandboxAutoArchiveInterval(sandbox: DaytonaSandbox): Promise<DaytonaSandbox> {
+  if (sandbox.autoArchiveInterval !== SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES) {
+    await sandbox.setAutoArchiveInterval(SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES);
+  }
+
+  return sandbox;
+}
+
 async function ensureRepoCloned(
   sandbox: DaytonaSandbox,
   repoUrl: string | undefined,
@@ -186,13 +197,16 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
   const daytona = await createDaytonaClient();
 
   if (resolved.sandboxId) {
-    return ensureSandboxStarted(await daytona.get(resolved.sandboxId));
+    return ensureSandboxStarted(
+      await ensureSandboxAutoArchiveInterval(await daytona.get(resolved.sandboxId)),
+    );
   }
 
   return ensureSandboxStarted(
     await daytona.create({
       snapshot: resolved.snapshot,
       autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
+      autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
     }),
   );
 }

@@ -73,7 +73,10 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(46rem,calc(100svh-2rem))] overflow-hidden p-0 sm:max-w-5xl">
+      <DialogContent
+        animated={false}
+        className="h-[min(46rem,calc(100svh-2rem))] overflow-hidden p-0 sm:max-w-5xl"
+      >
         <div className="flex h-full flex-col sm:flex-row">
           <aside className="shrink-0 border-b border-border sm:w-48 sm:border-b-0 sm:border-r">
             <DialogHeader className="px-4 pb-3 pr-12 pt-4 sm:pr-4">
@@ -126,7 +129,7 @@ export function SettingsDialog({
                 id="settings-panel-overview"
                 role="tabpanel"
                 aria-labelledby="settings-tab-overview"
-                className="flex flex-col gap-4 animate-[settingsFadeIn_0.2s_ease-out]"
+                className="flex flex-col gap-4"
               >
                 <SettingsStats
                   projects={projects}
@@ -139,7 +142,6 @@ export function SettingsDialog({
                 id="settings-panel-codex"
                 role="tabpanel"
                 aria-labelledby="settings-tab-codex"
-                className="animate-[settingsFadeIn_0.2s_ease-out]"
               >
                 <div className="overflow-hidden border border-border bg-background">
                   <CodexConnectPanel
@@ -154,7 +156,6 @@ export function SettingsDialog({
                 id="settings-panel-billing"
                 role="tabpanel"
                 aria-labelledby="settings-tab-billing"
-                className="animate-[settingsFadeIn_0.2s_ease-out]"
               >
                 <SettingsBilling sandboxCosts={sandboxCosts} />
               </div>

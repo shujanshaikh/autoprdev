@@ -28,25 +28,21 @@ export function SettingsStats({ projects, sandboxCosts }: SettingsStatsProps) {
         label="Total"
         value={projectCount}
         loading={loading}
-        delay={0}
       />
       <StatCard
         label="Ready"
         value={readyCount}
         loading={loading}
-        delay={1}
       />
       <StatCard
         label="Running"
         value={runningCount}
         loading={loading}
-        delay={2}
       />
       <StatCard
         label="Total Spend"
         value={`$${totalSpend.toFixed(2)}`}
         loading={sandboxCosts === undefined}
-        delay={3}
         isCurrency
       />
     </section>
@@ -57,23 +53,15 @@ function StatCard({
   label,
   value,
   loading,
-  delay,
   isCurrency,
 }: {
   label: string;
   value: number | string;
   loading: boolean;
-  delay: number;
   isCurrency?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "border border-border bg-card px-4 py-3 transition-all",
-        "animate-[settingsCardIn_0.35s_ease-out_both]",
-      )}
-      style={{ animationDelay: `${delay * 70}ms` }}
-    >
+    <div className="border border-border bg-card px-4 py-3 transition-all">
       <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
         {label}
       </p>

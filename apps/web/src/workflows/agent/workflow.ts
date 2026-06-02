@@ -63,6 +63,16 @@ interface AssistantUsageMetadata {
   contextUsage: AssistantTokenUsageMetadata;
 }
 
+type WorkflowIssue = {
+  workflowRunId: string;
+  stepName?: string;
+  attempt?: number;
+  retryCount?: number;
+  message: string;
+  errorStack?: string;
+  occurredAt: number;
+};
+
 function getConvexUrl() {
   const url = process.env.VITE_CONVEX_URL;
   if (!url) {
@@ -102,6 +112,70 @@ function addTokenUsage(
     outputTokens: total.outputTokens + usage.outputTokens,
     totalTokens: total.totalTokens + usage.totalTokens,
     cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
+  };
+}
+
+function readRecordProperty(error: unknown, key: string): unknown {
+  return typeof error === "object" && error !== null ? (error as Record<string, unknown>)[key] : undefined;
+}
+
+function readStringProperty(error: unknown, key: string): string | undefined {
+  const value = readRecordProperty(error, key);
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readNumberProperty(error: unknown, key: string): number | undefined {
+  const value = readRecordProperty(error, key);
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readNestedErrorMessage(value: unknown): string | undefined {
+  if (!readRecordProperty(value, "error")) {
+    return undefined;
+  }
+
+  const error = readRecordProperty(value, "error");
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const message = (error as Record<string, unknown>).message;
+  return typeof message === "string" && message.length > 0 ? message : undefined;
+}
+
+function parseEmbeddedErrorMessage(message: string): string | undefined {
+  const jsonStart = message.indexOf("{");
+  const jsonEnd = message.lastIndexOf("}");
+
+  if (jsonStart === -1 || jsonEnd <= jsonStart) {
+    return undefined;
+  }
+
+  try {
+    return readNestedErrorMessage(JSON.parse(message.slice(jsonStart, jsonEnd + 1)));
+  } catch {
+    return undefined;
+  }
+}
+
+function displayMessageFromError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const directNestedMessage = readNestedErrorMessage(error);
+  const embeddedMessage = parseEmbeddedErrorMessage(message);
+  const causeMessage = parseEmbeddedErrorMessage(String(readRecordProperty(error, "cause") ?? ""));
+
+  return directNestedMessage ?? embeddedMessage ?? causeMessage ?? message;
+}
+
+function workflowIssueFromError(error: unknown, workflowRunId: string): WorkflowIssue {
+  return {
+    workflowRunId,
+    stepName: readStringProperty(error, "stepName"),
+    attempt: readNumberProperty(error, "attempt"),
+    retryCount: readNumberProperty(error, "retryCount"),
+    message: displayMessageFromError(error),
+    errorStack: error instanceof Error ? error.stack : undefined,
+    occurredAt: Date.now(),
   };
 }
 
@@ -192,6 +266,22 @@ async function markWorkflowRunFinished({
   await fetchMutation(
     api.threads.markRunFinished,
     { threadId, runId },
+    { token: convexAuth.accessToken, url: getConvexUrl() },
+  );
+}
+
+async function recordWorkflowIssue({
+  convexAuth,
+  threadId,
+  issue,
+}: Pick<AssistantPersistenceOptions, "convexAuth" | "threadId"> & {
+  issue: WorkflowIssue;
+}) {
+  "use step";
+
+  await fetchMutation(
+    api.threads.recordWorkflowIssue,
+    { threadId, issue },
     { token: convexAuth.accessToken, url: getConvexUrl() },
   );
 }
@@ -334,6 +424,27 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
         },
       });
     });
+  } catch (error) {
+    if (persistence) {
+      try {
+        const refreshedPersistence = {
+          ...persistence,
+          convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
+        };
+        await recordWorkflowIssue({
+          convexAuth: refreshedPersistence.convexAuth,
+          threadId: refreshedPersistence.threadId,
+          issue: workflowIssueFromError(error, workflowRunId),
+        });
+        persistenceFinished = true;
+      } catch (recordError) {
+        if (!isPersistenceUnauthenticatedError(recordError)) {
+          console.error("Failed to record workflow issue", recordError);
+        }
+      }
+    }
+
+    throw error;
   } finally {
     if (persistence && !persistenceFinished) {
       try {

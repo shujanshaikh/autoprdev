@@ -314,6 +314,10 @@ type TokenUsage = {
   cachedInputTokens: number;
 };
 
+type WorkflowIssue = {
+  message?: unknown;
+};
+
 function asFiniteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -369,6 +373,45 @@ function formatTokens(value: number) {
   }
 
   return `${value}`;
+}
+
+function parseEmbeddedErrorMessage(message: string) {
+  const jsonStart = message.indexOf("{");
+  const jsonEnd = message.lastIndexOf("}");
+
+  if (jsonStart === -1 || jsonEnd <= jsonStart) {
+    return message;
+  }
+
+  try {
+    const parsed = JSON.parse(message.slice(jsonStart, jsonEnd + 1));
+    if (
+      isRecord(parsed) &&
+      isRecord(parsed.error) &&
+      typeof parsed.error.message === "string" &&
+      parsed.error.message.length > 0
+    ) {
+      return parsed.error.message;
+    }
+  } catch {
+    return message;
+  }
+
+  return message;
+}
+
+function WorkflowIssuePanel({ issue }: { issue: WorkflowIssue | undefined }) {
+  if (!issue || typeof issue.message !== "string") {
+    return null;
+  }
+
+  const message = parseEmbeddedErrorMessage(issue.message);
+
+  return (
+    <div className="mb-4 border border-destructive/35 bg-destructive/5 px-3.5 py-3 text-sm text-muted-foreground">
+      <p className="break-words">{message}</p>
+    </div>
+  );
 }
 
 function ThreadContextRemainingIndicator({
@@ -798,6 +841,7 @@ export function ThreadChat({
 
         <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
           <div className="mx-auto max-w-[680px]">
+            <WorkflowIssuePanel issue={thread?.workflowIssue} />
             <PromptInputProvider>
               <PromptInput
                 className={cn(

@@ -4,7 +4,6 @@ import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 
 import { LatestProjectEntry, LoadingState } from "#/components/latest-project-entry";
 import { CodexFloating } from "@/components/landing/codex-floating";
-import { EmailCta } from "@/components/landing/email-cta";
 
 export const metadata = {
   title: "Autopr | Cloud-native coding agents",
@@ -14,10 +13,6 @@ export const metadata = {
 function LandingHome() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto">
-      <div className="border-b border-primary/15 bg-primary/[0.07] px-4 py-2 text-center text-[11px] font-medium tracking-wide text-primary-foreground/90 dark:text-primary-foreground/90">
-        Sandbox billing only · Bring your Codex subscription, zero API markup from us
-      </div>
-
       <nav
         className="pointer-events-none fixed right-5 top-[46%] z-20 hidden -translate-y-1/2 md:pointer-events-auto lg:block"
         aria-label="Section links"
@@ -64,8 +59,15 @@ function LandingHome() {
             <span className="block sm:inline">The cloud-native coding agent</span>
           </h1>
 
-          <EmailCta />
         </header>
+
+        <div className="relative z-10 mx-auto mt-12 flex w-full max-w-4xl justify-center">
+          <img
+            src="https://pub-0423ac2cbe034b45b505d5c8dfd5f072.r2.dev/autopr/480bfbf5-70be-4c01-a98e-a56ef026a0e8%20Copy.JPG"
+            alt="Autopr product screenshot"
+            className="w-full border border-border/40 shadow-lg"
+          />
+        </div>
 
         <CodexFloating />
 

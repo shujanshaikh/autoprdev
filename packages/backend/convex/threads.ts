@@ -5,6 +5,7 @@ import { requireUserId } from "./lib/auth";
 import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
+const longError = (message: string) => message.slice(0, 8_000);
 
 export const create = mutation({
   args: {
@@ -111,9 +112,65 @@ export const markRunStarted = mutation({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
+    const now = Date.now();
+
+    if (thread.workflowIssue?.workflowRunId === args.runId) {
+      await ctx.db.patch(thread._id, {
+        currentRunId: undefined,
+        isLive: false,
+        updatedAt: now,
+      });
+
+      return null;
+    }
+
     await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
       isLive: true,
+      workflowIssue: undefined,
+      updatedAt: now,
+    });
+
+    return null;
+  },
+});
+
+export const recordWorkflowIssue = mutation({
+  args: {
+    threadId: v.string(),
+    issue: v.object({
+      workflowRunId: v.string(),
+      stepName: v.optional(v.string()),
+      attempt: v.optional(v.number()),
+      retryCount: v.optional(v.number()),
+      message: v.string(),
+      errorStack: v.optional(v.string()),
+      occurredAt: v.number(),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    if (thread.currentRunId && thread.currentRunId !== args.issue.workflowRunId) {
+      return null;
+    }
+
+    await ctx.db.patch(thread._id, {
+      currentRunId: undefined,
+      isLive: false,
+      workflowIssue: {
+        ...args.issue,
+        message: shortError(args.issue.message),
+        errorStack: args.issue.errorStack ? longError(args.issue.errorStack) : undefined,
+      },
       updatedAt: Date.now(),
     });
 

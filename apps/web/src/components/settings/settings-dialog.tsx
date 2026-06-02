@@ -8,6 +8,8 @@ import {
 } from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
 import { LayoutDashboard, Receipt } from "lucide-react";
+import { CodexConnectPanel, type CodexStatus } from "#/components/dashboard/codex-connect-dialog";
+import { CodexLogo } from "#/components/icons/codex-logo";
 import type { SandboxStatus, SandboxRuntimeStatus } from "#/components/dashboard/types";
 import { SettingsStats } from "./settings-stats";
 import { SettingsProjects } from "./settings-projects";
@@ -38,10 +40,15 @@ export interface WorkspaceSandboxCost {
   deletedAt?: number;
 }
 
-type SettingsTab = "overview" | "billing";
+type SettingsTab = "overview" | "codex" | "billing";
 
-const tabs: { id: SettingsTab; label: string; icon: typeof LayoutDashboard }[] = [
+const tabs: {
+  id: SettingsTab;
+  label: string;
+  icon: typeof LayoutDashboard | typeof CodexLogo;
+}[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "codex", label: "Codex", icon: CodexLogo },
   { id: "billing", label: "Billing", icon: Receipt },
 ];
 
@@ -50,6 +57,8 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   projects: WorkspaceProject[] | undefined;
   sandboxCosts: WorkspaceSandboxCost[] | undefined;
+  codexStatus?: CodexStatus;
+  onCodexStatusChange: () => void;
 }
 
 export function SettingsDialog({
@@ -57,6 +66,8 @@ export function SettingsDialog({
   onOpenChange,
   projects,
   sandboxCosts,
+  codexStatus,
+  onCodexStatusChange,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
 
@@ -65,10 +76,10 @@ export function SettingsDialog({
       <DialogContent className="h-[min(46rem,calc(100svh-2rem))] overflow-hidden p-0 sm:max-w-5xl">
         <div className="flex h-full flex-col sm:flex-row">
           <aside className="shrink-0 border-b border-border sm:w-48 sm:border-b-0 sm:border-r">
-            <DialogHeader className="px-4 pb-3 pt-4">
+            <DialogHeader className="px-4 pb-3 pr-12 pt-4 sm:pr-4">
               <DialogTitle>Settings</DialogTitle>
               <DialogDescription className="text-xs">
-                Projects, usage &amp; billing.
+                Projects, Codex &amp; billing.
               </DialogDescription>
             </DialogHeader>
 
@@ -83,6 +94,7 @@ export function SettingsDialog({
                 return (
                   <button
                     key={tab.id}
+                    id={`settings-tab-${tab.id}`}
                     type="button"
                     role="tab"
                     aria-selected={isActive}
@@ -108,7 +120,7 @@ export function SettingsDialog({
               })}
             </nav>
           </aside>
-          <div className="minimal-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
+          <div className="minimal-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto p-4 pt-12">
             {activeTab === "overview" ? (
               <div
                 id="settings-panel-overview"
@@ -121,6 +133,21 @@ export function SettingsDialog({
                   sandboxCosts={sandboxCosts}
                 />
                 <SettingsProjects projects={projects} />
+              </div>
+            ) : activeTab === "codex" ? (
+              <div
+                id="settings-panel-codex"
+                role="tabpanel"
+                aria-labelledby="settings-tab-codex"
+                className="animate-[settingsFadeIn_0.2s_ease-out]"
+              >
+                <div className="overflow-hidden border border-border bg-background">
+                  <CodexConnectPanel
+                    active={open && activeTab === "codex"}
+                    status={codexStatus}
+                    onStatusChange={onCodexStatusChange}
+                  />
+                </div>
               </div>
             ) : (
               <div

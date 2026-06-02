@@ -1,7 +1,10 @@
+import type { SVGProps } from "react";
+
 /** Codex mark for “bring your own subscription” — provided brand SVG. */
-export function CodexLogo({ className }: { className?: string }) {
+export function CodexLogo({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
     <svg
+      {...props}
       className={className}
       fill="currentColor"
       fillRule="evenodd"

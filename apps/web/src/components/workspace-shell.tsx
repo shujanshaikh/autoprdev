@@ -65,11 +65,9 @@ import {
 } from "react";
 
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
-import { CodexConnectDialog } from "#/components/dashboard/codex-connect-dialog";
 import { SettingsDialog } from "#/components/settings/settings-dialog";
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
-import { CodexLogo } from "#/components/icons/codex-logo";
 import { ModeToggle } from "#/components/mode-toggle";
 import {
   readJson,
@@ -383,7 +381,6 @@ function WorkspaceSidebar({
   activeProjectThreads,
   onCreateProject,
   onDeleteProject,
-  onOpenCodex,
   onOpenSettings,
 }: {
   projects: WorkspaceProject[] | undefined;
@@ -392,7 +389,6 @@ function WorkspaceSidebar({
   activeProjectThreads: WorkspaceThread[] | undefined;
   onCreateProject: () => void;
   onDeleteProject: (projectId: string) => void;
-  onOpenCodex: () => void;
   onOpenSettings: () => void;
 }) {
   const navigate = useNavigate();
@@ -450,6 +446,10 @@ function WorkspaceSidebar({
       : sourceThreads;
     return { visibleThreads: threads.slice(0, SIDEBAR_MAX_THREADS), totalThreadCount: threads.length };
   }, [normalizedSearch]);
+
+  function scrollProjectThreadsIntoView() {
+    document.getElementById("project-threads")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   function handleProjectNewChat(event: MouseEvent<HTMLButtonElement>, projectId: string) {
     event.preventDefault();
@@ -688,6 +688,12 @@ function WorkspaceSidebar({
                                   <Link
                                     to="/project/$projectId"
                                     params={{ projectId: project.projectId }}
+                                    hash="project-threads"
+                                    onClick={() => {
+                                      if (active) {
+                                        scrollProjectThreadsIntoView();
+                                      }
+                                    }}
                                     className="block py-1.5 pl-8 text-[13px] text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/55"
                                   >
                                     See all ({totalThreadCount})
@@ -708,17 +714,6 @@ function WorkspaceSidebar({
 
         <SidebarFooter className="border-t border-sidebar-border/70 p-2">
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                type="button"
-                tooltip="Codex"
-                onClick={onOpenCodex}
-                className="h-8 gap-2 px-2 text-sidebar-foreground/75"
-              >
-                <CodexLogo className="size-4 text-sidebar-foreground/55" />
-                <span className="group-data-[collapsible=icon]:hidden">Codex</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
             <SidebarMenuItem>
               <div className="flex h-9 items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center">
                 <button
@@ -812,7 +807,6 @@ export function WorkspaceShell({
   ) as WorkspaceSandboxCost[] | undefined;
   const removeProjectWithSandbox = useAction(api.projectActions.removeWithSandbox);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isCodexDialogOpen, setIsCodexDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
   const [isDeletingProject, setIsDeletingProject] = useState(false);
@@ -878,7 +872,6 @@ export function WorkspaceShell({
           activeProjectThreads={sidebarThreads}
           onCreateProject={() => setIsCreateDialogOpen(true)}
           onDeleteProject={(projectId) => setProjectIdToDelete(projectId)}
-          onOpenCodex={() => setIsCodexDialogOpen(true)}
           onOpenSettings={() => setIsSettingsDialogOpen(true)}
         />
         <SidebarInset className="min-w-0 overflow-hidden">
@@ -906,16 +899,12 @@ export function WorkspaceShell({
             {deleteError}
           </div>
         ) : null}
-        <CodexConnectDialog
-          open={isCodexDialogOpen}
-          status={codexStatusQuery.data}
-          onOpenChange={setIsCodexDialogOpen}
-          onStatusChange={() => void codexStatusQuery.refetch()}
-        />
         <SettingsDialog
           open={isSettingsDialogOpen}
           projects={projects}
           sandboxCosts={sandboxCosts}
+          codexStatus={codexStatusQuery.data}
+          onCodexStatusChange={() => void codexStatusQuery.refetch()}
           onOpenChange={setIsSettingsDialogOpen}
         />
       </SidebarProvider>

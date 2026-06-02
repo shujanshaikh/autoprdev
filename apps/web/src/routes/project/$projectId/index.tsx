@@ -593,7 +593,7 @@ function ProjectOverviewPage() {
                     </div>
                   ) : null}
 
-                  <div className="mx-auto w-full max-w-[600px] px-5 pt-2 pb-12">
+                  <div id="project-threads" className="scroll-mt-4 mx-auto w-full max-w-[600px] px-5 pt-2 pb-12">
                     <div className="mb-3 flex items-center gap-2">
                       <div className="flex items-center gap-2">
                         {openThreads.length > 0 ? (

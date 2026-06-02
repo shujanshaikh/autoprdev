@@ -106,6 +106,96 @@ export class SandboxNoChangesError extends Error {
   }
 }
 
+export interface PreparedProjectSandboxCommit {
+  branch: string;
+  status: string;
+  diff: string;
+}
+
+export async function prepareProjectSandboxCommit(options: {
+  sandboxId: string;
+}): Promise<PreparedProjectSandboxCommit> {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
+
+  const status = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`),
+  ).trim();
+
+  if (!status) {
+    throw new SandboxNoChangesError("There are no sandbox changes to commit.");
+  }
+
+  await sandbox.git.add(REPO_PATH, ["."]);
+
+  const branch = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+  ).trim();
+
+  if (!branch) {
+    throw new Error("The sandbox repository is not on a named branch.");
+  }
+
+  const diff = commandOutput(
+    await runSandboxCommand(
+      sandbox,
+      [
+        `cd ${quotedRepoPath}`,
+        "git diff --cached --stat",
+        "git diff --cached --no-ext-diff --unified=80",
+      ].join(" && "),
+    ),
+  ).trim();
+
+  return { branch, status, diff };
+}
+
+export async function commitPreparedProjectSandboxChanges(options: {
+  sandboxId: string;
+  commitMessage: string;
+  authorName: string;
+  authorEmail: string;
+  push?: boolean;
+  githubUsername?: string;
+  githubToken?: string;
+}): Promise<{ branch: string; commitSha: string; pushed: boolean }> {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
+  const branch = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+  ).trim();
+
+  if (!branch) {
+    throw new Error("The sandbox repository is not on a named branch.");
+  }
+
+  const stagedDiff = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git diff --cached --name-only`),
+  ).trim();
+
+  if (!stagedDiff) {
+    throw new SandboxNoChangesError("There are no staged sandbox changes to commit.");
+  }
+
+  const commit = await sandbox.git.commit(
+    REPO_PATH,
+    options.commitMessage,
+    options.authorName,
+    options.authorEmail,
+  );
+
+  if (options.push) {
+    if (!options.githubUsername || !options.githubToken) {
+      throw new Error("GitHub credentials are required to push changes.");
+    }
+
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git config push.autoSetupRemote true`);
+    await sandbox.git.push(REPO_PATH, options.githubUsername, options.githubToken);
+  }
+
+  return { branch, commitSha: commit.sha, pushed: Boolean(options.push) };
+}
+
 export async function commitAndPushProjectSandboxChanges(options: {
   sandboxId: string;
   githubToken: string;

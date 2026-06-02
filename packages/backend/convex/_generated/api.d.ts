@@ -9,6 +9,7 @@
  */
 
 import type * as codexAuth from "../codexAuth.js";
+import type * as commitMessages from "../commitMessages.js";
 import type * as crons from "../crons.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -31,6 +32,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   codexAuth: typeof codexAuth;
+  commitMessages: typeof commitMessages;
   crons: typeof crons;
   healthCheck: typeof healthCheck;
   "lib/auth": typeof lib_auth;

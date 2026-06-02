@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { getAuth } from "@workos/authkit-tanstack-react-start";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import type {
   FunctionArgs,
   FunctionReference,
@@ -67,4 +67,17 @@ export async function convexMutation<Mutation extends FunctionReference<"mutatio
   }
 
   return fetchMutation(mutation, args, { token, url: getConvexUrl() });
+}
+
+export async function convexAction<Action extends FunctionReference<"action">>(
+  action: Action,
+  args: FunctionArgs<Action>,
+): Promise<FunctionReturnType<Action>> {
+  const token = await getConvexAuthToken();
+
+  if (!token) {
+    throw new ConvexUnauthorizedError();
+  }
+
+  return fetchAction(action, args, { token, url: getConvexUrl() });
 }

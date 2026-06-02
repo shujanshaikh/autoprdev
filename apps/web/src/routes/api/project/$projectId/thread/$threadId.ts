@@ -6,14 +6,32 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { createSandbox } from "@autopr/agent/sandbox";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { z } from "zod";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
+import {
+  commitPreparedProjectSandboxChanges,
+  prepareProjectSandboxCommit,
+  SandboxNoChangesError,
+} from "#/lib/daytona-project-sandbox";
+import {
+  getGithubOAuthToken,
+  getGithubUserIdentity,
+  GithubConnectionError,
+  requireWorkOSAuth,
+  safeErrorMessage,
+} from "#/lib/github-oauth-server";
 
 type DaytonaRecording = {
   fileName?: string;
   sizeBytes?: number;
 };
+
+const postRequestSchema = z.object({
+  action: z.literal("commit"),
+  push: z.boolean().optional(),
+});
 
 function safeRecordingFilename(recordingId: string, fileName?: string) {
   const candidate = fileName?.trim() || `${recordingId}.mp4`;
@@ -60,6 +78,22 @@ function contentDisposition(filename: string) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not load recording.";
+}
+
+function workOSCommitIdentity(user: {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+}) {
+  const email = user.email?.trim();
+
+  if (!email) {
+    throw new Error("Could not determine your commit author email.");
+  }
+
+  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || email.split("@")[0] || email;
+
+  return { name, email };
 }
 
 async function GET(
@@ -132,11 +166,89 @@ async function DELETE(
   return Response.json({ projectId, threadId });
 }
 
+async function POST(
+  req: Request,
+  { params }: { params: Promise<{ projectId: string; threadId: string }> },
+) {
+  const parsed = postRequestSchema.safeParse(await req.json().catch(() => null));
+
+  if (!parsed.success) {
+    return Response.json({ error: "Invalid thread action." }, { status: 400 });
+  }
+
+  const { projectId, threadId } = await params;
+  const [project, thread] = await Promise.all([
+    convexQuery(api.projects.get, { projectId }),
+    convexQuery(api.threads.get, { threadId }),
+  ]);
+
+  if (!project || !thread || thread.projectId !== projectId) {
+    return Response.json({ error: "Thread not found." }, { status: 404 });
+  }
+
+  if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+    return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
+  }
+
+  try {
+    const authState = await requireWorkOSAuth();
+    let gitIdentity = workOSCommitIdentity(authState.user);
+    let githubUsername: string | undefined;
+    let githubToken: string | undefined;
+
+    if (parsed.data.push) {
+      githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+      const githubIdentity = await getGithubUserIdentity(authState.user, githubToken);
+      gitIdentity = {
+        name: githubIdentity.name,
+        email: githubIdentity.email,
+      };
+      githubUsername = githubIdentity.username;
+    }
+
+    const prepared = await prepareProjectSandboxCommit({ sandboxId: project.sandboxId });
+    const commitMessage = await convexAction(api.commitMessages.generate, {
+      projectId,
+      branch: prepared.branch,
+      status: prepared.status,
+      diff: prepared.diff,
+    });
+    const result = await commitPreparedProjectSandboxChanges({
+      sandboxId: project.sandboxId,
+      commitMessage,
+      authorName: gitIdentity.name,
+      authorEmail: gitIdentity.email,
+      push: parsed.data.push,
+      githubUsername,
+      githubToken,
+    });
+
+    return Response.json({
+      status: result.pushed ? "pushed" : "committed",
+      branch: result.branch,
+      commitSha: result.commitSha,
+      commitMessage,
+    });
+  } catch (error) {
+    if (error instanceof SandboxNoChangesError) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+
+    if (error instanceof GithubConnectionError) {
+      return Response.json({ error: error.message }, { status: 401 });
+    }
+
+    return Response.json({ error: safeErrorMessage(error, "Could not commit sandbox changes.") }, { status: 500 });
+  }
+}
+
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId")({
   server: {
     handlers: {
       GET: async ({ request, params }: { request: Request; params: any }) =>
         GET(request, { params: Promise.resolve(params) } as any),
+      POST: async ({ request, params }: { request: Request; params: any }) =>
+        POST(request, { params: Promise.resolve(params) } as any),
       DELETE: async ({ request, params }: { request: Request; params: any }) =>
         DELETE(request, { params: Promise.resolve(params) } as any),
     },

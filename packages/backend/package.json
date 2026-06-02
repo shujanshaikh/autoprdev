@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@daytona/sdk": "^0.164.0",
+    "ai": "^6.0.168",
     "convex": "catalog:",
     "dotenv": "catalog:",
     "zod": "catalog:"

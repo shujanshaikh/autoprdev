@@ -9,6 +9,7 @@ import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-di
 import Loader from "@/components/loader";
 import { toUIMessage } from "@/lib/chat-messages";
 import { ThreadChat } from "#/components/thread/thread-chat";
+import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
 import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
 
 function ProjectThreadPageContent() {
@@ -58,6 +59,8 @@ function ProjectThreadPageContent() {
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
               <div className="min-w-0 flex-1" />
+
+              <ThreadCommitButton projectId={projectId} threadId={threadId} disabled={disabled || loading || notFound} />
 
               <Tooltip>
                 <TooltipTrigger

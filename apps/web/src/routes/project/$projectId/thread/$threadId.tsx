@@ -60,7 +60,12 @@ function ProjectThreadPageContent() {
             <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
               <div className="min-w-0 flex-1" />
 
-              <ThreadCommitButton projectId={projectId} threadId={threadId} disabled={disabled || loading || notFound} />
+              <ThreadCommitButton
+                projectId={projectId}
+                threadId={threadId}
+                disabled={disabled || loading || notFound}
+                thread={thread}
+              />
 
               <Tooltip>
                 <TooltipTrigger

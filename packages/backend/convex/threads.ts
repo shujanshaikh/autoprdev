@@ -243,6 +243,30 @@ export const markPullRequestFailed = mutation({
   },
 });
 
+export const markChangesCommitted = mutation({
+  args: {
+    threadId: v.string(),
+    status: v.union(v.literal("committed"), v.literal("pushed")),
+    branch: v.string(),
+    commitSha: v.string(),
+    commitMessage: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+
+    await ctx.db.patch(thread._id, {
+      commitStatus: args.status,
+      commitBranch: args.branch,
+      commitSha: args.commitSha,
+      commitMessage: args.commitMessage,
+      committedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
 export const remove = mutation({
   args: {
     threadId: v.string(),

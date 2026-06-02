@@ -190,6 +190,18 @@ async function POST(
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
 
+  if (thread.commitStatus) {
+    return Response.json({
+      error: thread.commitStatus === "pushed"
+        ? "Changes for this thread have already been committed and pushed."
+        : "Changes for this thread have already been committed.",
+      status: thread.commitStatus,
+      branch: thread.commitBranch,
+      commitSha: thread.commitSha,
+      commitMessage: thread.commitMessage,
+    }, { status: 409 });
+  }
+
   try {
     const authState = await requireWorkOSAuth();
     let gitIdentity = workOSCommitIdentity(authState.user);
@@ -222,9 +234,18 @@ async function POST(
       githubUsername,
       githubToken,
     });
+    const status = result.pushed ? "pushed" : "committed";
+
+    await convexMutation(api.threads.markChangesCommitted, {
+      threadId,
+      status,
+      branch: result.branch,
+      commitSha: result.commitSha,
+      commitMessage,
+    });
 
     return Response.json({
-      status: result.pushed ? "pushed" : "committed",
+      status,
       branch: result.branch,
       commitSha: result.commitSha,
       commitMessage,

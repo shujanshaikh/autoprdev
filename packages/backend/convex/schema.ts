@@ -89,6 +89,11 @@ export default defineSchema({
     pullRequestBranch: v.optional(v.string()),
     pullRequestError: v.optional(v.string()),
     pullRequestCreatedAt: v.optional(v.number()),
+    commitStatus: v.optional(v.union(v.literal("committed"), v.literal("pushed"))),
+    commitBranch: v.optional(v.string()),
+    commitSha: v.optional(v.string()),
+    commitMessage: v.optional(v.string()),
+    committedAt: v.optional(v.number()),
   })
     .index("by_thread_id", ["threadId"])
     .index("by_project", ["projectId"])

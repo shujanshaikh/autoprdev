@@ -1,7 +1,7 @@
 "use node";
 
 import { gateway, generateText } from "ai";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import { action } from "./_generated/server";
 
@@ -37,7 +37,13 @@ export const generate = action({
     status: v.string(),
     diff: v.string(),
   },
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
     const diff = trimForCommitPrompt(args.diff);
     const { text } = await generateText({
       model: gateway(COMMIT_MESSAGE_MODEL_ID),

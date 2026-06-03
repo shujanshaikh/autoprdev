@@ -449,12 +449,15 @@ function ProjectOverviewPage() {
                             >
                               <SelectValue placeholder={isLoadingBranches ? "Loading branches" : currentBranch} />
                             </SelectTrigger>
-                            <SelectContent align="center" className="max-h-72">
+                            <SelectContent
+                              align="center"
+                              className="max-h-72 w-[min(calc(100vw-2rem),28rem)] min-w-72"
+                            >
                               {branches.map((branch) => (
                                 <SelectItem key={branch.sha} value={branch.name}>
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <GitBranch className="size-3.5" aria-hidden="true" />
-                                    <span className="truncate font-mono">{branch.name}</span>
+                                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                                    <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
+                                    <span className="min-w-0 truncate font-mono">{branch.name}</span>
                                   </span>
                                 </SelectItem>
                               ))}

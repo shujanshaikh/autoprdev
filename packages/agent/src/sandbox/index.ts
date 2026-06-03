@@ -110,7 +110,7 @@ export interface SandboxSessionOptions {
 const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
-const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 6 * 60;
+const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const REPO_PATH = "repo";
 

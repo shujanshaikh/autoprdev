@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { api } from "@autopr/backend/convex/_generated/api";
+import { createOpenAI } from "@ai-sdk/openai";
 import { WorkOS } from "@workos-inc/node";
 
 import { convexMutation, convexQuery } from "#/lib/convex-server";
@@ -71,6 +72,8 @@ type CodexTokenClaims = {
     chatgpt_account_id?: string;
   };
 };
+
+type CodexResponsesModel = ReturnType<ReturnType<typeof createOpenAI>["responses"]>;
 
 export class CodexConnectionError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -201,7 +204,7 @@ export async function getCodexConnectionStatus() {
   return await convexQuery(api.codexAuth.status, {});
 }
 
-export async function getCodexAgentModelConfig(model?: string, reasoningEffort?: string) {
+async function readFreshCodexCredentialReference() {
   await requireCodexAuthContext();
   const status = await convexQuery(api.codexAuth.status, {});
 
@@ -212,8 +215,6 @@ export async function getCodexAgentModelConfig(model?: string, reasoningEffort?:
   const reference = await convexQuery(api.codexAuth.getVaultReference, {});
   const vaultObject = await getWorkOSVault().readObject({ id: reference.vaultObjectId });
   let credential = parseStoredCodexCredential(vaultObject.value);
-  const modelId = normalizeCodexModel(model);
-  const selectedReasoningEffort = normalizeCodexReasoningEffort(modelId, reasoningEffort);
 
   if (credential.expiresAt <= Date.now() + 60_000) {
     const tokens = await refreshCodexTokens(credential.refreshToken);
@@ -243,6 +244,148 @@ export async function getCodexAgentModelConfig(model?: string, reasoningEffort?:
       expiresAt: credential.expiresAt,
     });
   }
+
+  return { reference, credential };
+}
+
+function responseInputContentToText(content: unknown) {
+  if (!Array.isArray(content)) {
+    return typeof content === "string" ? content : "";
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") {
+        return part;
+      }
+      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+        return part.text;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function createCodexResponsesModelFromCredential(
+  credential: StoredCodexCredential,
+  options: {
+    modelId: string;
+    reasoningEffort: string;
+    promptCacheKey?: string;
+    accountId?: string;
+  },
+): CodexResponsesModel {
+  if (credential.expiresAt <= Date.now()) {
+    throw new CodexConnectionError("Codex credentials expired. Reconnect Codex and try again.", 401);
+  }
+
+  const provider = createOpenAI({
+    apiKey: credential.accessToken,
+    fetch: async (input, init) => {
+      const requestUrl = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url);
+      const url = requestUrl.pathname.includes("/v1/responses") || requestUrl.pathname.includes("/chat/completions")
+        ? new URL("https://chatgpt.com/backend-api/codex/responses")
+        : requestUrl;
+
+      const headers = new Headers(init?.headers);
+      headers.set("authorization", `Bearer ${credential.accessToken}`);
+      const accountId = credential.accountId ?? options.accountId;
+      if (accountId) {
+        headers.set("ChatGPT-Account-Id", accountId);
+      }
+
+      const nextInit: RequestInit = { ...init, headers };
+      if (typeof nextInit.body === "string" && nextInit.method === "POST") {
+        const body = JSON.parse(nextInit.body) as {
+          instructions?: string;
+          input?: Array<Record<string, unknown>>;
+          prompt_cache_key?: string;
+          reasoning?: Record<string, unknown>;
+          store?: boolean;
+          stream?: boolean;
+        };
+
+        body.store = false;
+        body.stream = true;
+        body.prompt_cache_key = body.prompt_cache_key || options.promptCacheKey;
+        body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
+
+        if (Array.isArray(body.input)) {
+          const instructions = body.input
+            .filter((item) => item.role === "system" || item.role === "developer")
+            .map((item) => responseInputContentToText(item.content))
+            .filter(Boolean)
+            .join("\n");
+
+          body.input = body.input.filter((item) => item.type !== "item_reference");
+
+          if (!body.instructions && instructions) {
+            body.instructions = instructions;
+            body.input = body.input.filter((item) => item.role !== "system" && item.role !== "developer");
+          }
+        }
+
+        nextInit.body = JSON.stringify(body);
+      }
+
+      const response = await fetch(url, nextInit);
+      if (!response.ok) {
+        const errorBody = await response.clone().text().catch(() => "<failed to read response body>");
+        throw new CodexConnectionError(
+          `Codex API request failed: ${response.status} ${response.statusText} ${errorBody}`,
+          response.status,
+        );
+      }
+
+      return response;
+    },
+  });
+  const responsesModel = provider.responses(options.modelId);
+
+  const accountId = credential.accountId ?? options.accountId;
+  if (accountId) {
+    const originalDoStream = responsesModel.doStream.bind(responsesModel);
+    responsesModel.doStream = (callOptions) =>
+      originalDoStream({
+        ...callOptions,
+        headers: {
+          ...callOptions.headers,
+          "ChatGPT-Account-Id": accountId,
+        },
+      });
+  }
+
+  return responsesModel;
+}
+
+export async function createCodexResponsesModel(options: {
+  vaultObjectId: string;
+  modelId: string;
+  reasoningEffort: string;
+  promptCacheKey?: string;
+  accountId?: string;
+}): Promise<CodexResponsesModel> {
+  const vaultObject = await getWorkOSVault().readObject({ id: options.vaultObjectId });
+  const credential = parseStoredCodexCredential(vaultObject.value);
+
+  return createCodexResponsesModelFromCredential(credential, options);
+}
+
+export async function createAuthenticatedCodexResponsesModel(options: {
+  modelId: string;
+  reasoningEffort: string;
+  promptCacheKey?: string;
+}): Promise<CodexResponsesModel> {
+  const { credential } = await readFreshCodexCredentialReference();
+
+  return createCodexResponsesModelFromCredential(credential, options);
+}
+
+export async function getCodexAgentModelConfig(model?: string, reasoningEffort?: string) {
+  const { reference, credential } = await readFreshCodexCredentialReference();
+  const modelId = normalizeCodexModel(model);
+  const selectedReasoningEffort = normalizeCodexReasoningEffort(modelId, reasoningEffort);
 
   return {
     provider: "openai-codex" as const,

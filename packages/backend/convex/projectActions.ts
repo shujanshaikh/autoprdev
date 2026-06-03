@@ -13,9 +13,10 @@ const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready")
 type SandboxStatus = "creating" | "ready" | "failed";
 
 
-const DEFAULT_DAYTONA_SNAPSHOT = "daytonaio/sandbox:0.6.0";
+const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
+const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const REPO_PATH = "repo";
 const DAYTONA_NOVNC_PORT = 6080;
 const DAYTONA_WEB_TERMINAL_PORT = 22222;
@@ -67,7 +68,7 @@ interface PtyTerminalResult {
   cwd: string;
 }
 
-type SandboxRuntimeStatus = "started" | "stopped" | "unknown";
+type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
 
 interface SandboxRuntimeStatusResult {
   status: SandboxRuntimeStatus;
@@ -223,7 +224,8 @@ function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
   if (typeof state !== "string") return "unknown";
   const normalized = state.toLowerCase();
   if (normalized === "started" || normalized === "running") return "started";
-  if (normalized === "stopped" || normalized === "stopping" || normalized === "archived") return "stopped";
+  if (normalized === "archived") return "archived";
+  if (normalized === "stopped" || normalized === "stopping") return "stopped";
   return "unknown";
 }
 
@@ -384,7 +386,7 @@ async function bootstrapRepositorySandbox(options: {
   const sandbox = await daytona.create({
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
     autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
-
+    autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
   });
   const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
   const repoPath = `${sandboxWorkDir}/${REPO_PATH}`;
@@ -457,9 +459,10 @@ export const listSandboxFiles = action({
 export const getSandboxRuntimeStatus = action({
   args: {
     projectId: v.string(),
+    forceRefresh: v.optional(v.boolean()),
   },
   returns: v.object({
-    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown")),
+    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("archived"), v.literal("unknown")),
     rawState: v.optional(v.string()),
     checkedAt: v.number(),
   }),
@@ -478,6 +481,7 @@ export const getSandboxRuntimeStatus = action({
 
     const now = Date.now();
     if (
+      !args.forceRefresh &&
       project.sandboxRuntimeStatus &&
       project.sandboxRuntimeCheckedAt &&
       now - project.sandboxRuntimeCheckedAt < SANDBOX_RUNTIME_STATUS_CACHE_MS
@@ -510,7 +514,7 @@ export const startSandbox = action({
     projectId: v.string(),
   },
   returns: v.object({
-    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown")),
+    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("archived"), v.literal("unknown")),
   }),
   handler: async (ctx, args): Promise<{ status: SandboxRuntimeStatus }> => {
     const identity = await ctx.auth.getUserIdentity();

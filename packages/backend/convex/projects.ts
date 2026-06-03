@@ -7,7 +7,12 @@ import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
 const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready"), v.literal("failed"));
-const sandboxRuntimeStatusValidator = v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown"));
+const sandboxRuntimeStatusValidator = v.union(
+  v.literal("started"),
+  v.literal("stopped"),
+  v.literal("archived"),
+  v.literal("unknown"),
+);
 type SandboxStatus = "creating" | "ready" | "failed";
 
 function projectRecency(project: { lastOpenedAt?: number; updatedAt: number; createdAt: number }) {

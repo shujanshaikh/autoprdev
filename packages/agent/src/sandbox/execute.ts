@@ -65,6 +65,54 @@ function createCommandSessionId(): string {
   return `autopr-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const DAYTONA_TIMEOUT_ERROR_NAME = "DaytonaTimeoutError";
+const COMMAND_TIMEOUT_EXIT_CODE = 124;
+const COMMAND_TIMEOUT_GRACE_SECONDS = 5;
+const BACKGROUND_COMMAND_START_TIMEOUT_SECONDS = 15;
+
+export interface SandboxCommandResult {
+  cwd: string;
+  sessionId: string;
+  cmdId?: string;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  output?: string;
+  timedOut?: boolean;
+  timeout?: number;
+}
+
+function normalizeCommandTimeout(timeout: number | undefined): number | undefined {
+  if (timeout === undefined) {
+    return undefined;
+  }
+
+  if (!Number.isFinite(timeout) || timeout < 1) {
+    throw new Error(`Invalid command timeout: ${timeout}`);
+  }
+
+  return Math.ceil(timeout);
+}
+
+function isDaytonaTimeoutError(error: unknown): error is Error {
+  return error instanceof Error && error.name === DAYTONA_TIMEOUT_ERROR_NAME;
+}
+
+function buildTimedCommand(command: string, timeout: number): string {
+  const script = shellQuote(command);
+  const duration = shellQuote(`${timeout}s`);
+
+  return `if command -v timeout >/dev/null 2>&1; then timeout ${duration} bash -lc ${script}; else bash -lc ${script}; fi`;
+}
+
+function formatTimeoutMessage(timeout: number | undefined): string {
+  if (timeout) {
+    return `Command timed out after ${timeout} second${timeout === 1 ? "" : "s"}.`;
+  }
+
+  return "Daytona timed out while waiting for the command to finish.";
+}
+
 export function resolveSandboxPath(inputPath: string | undefined, sandboxWorkDir: string): string {
   const workDir = normalizePosixPath(toPosixPath(sandboxWorkDir));
 
@@ -106,20 +154,21 @@ export async function executeSandboxCommand(
     isBackground?: boolean;
     sandboxOptions?: SandboxSessionOptions;
   } = {},
-): Promise<{
-  cwd: string;
-  sessionId: string;
-  cmdId: string;
-  exitCode?: number;
-  stdout?: string;
-  stderr?: string;
-  output?: string;
-}> {
+): Promise<SandboxCommandResult> {
   const { sandbox, workDir } = await getSandboxContext(options.sandboxOptions);
   const cwd = options.cwd ?? workDir;
   const sessionId = createCommandSessionId();
-  const remoteCommand = `cd ${shellQuote(cwd)} && ${prependEnvExports(command, options.env)}`;
-  let keepSession = false;
+  const requestedTimeout = normalizeCommandTimeout(options.timeout);
+  const isBackground = Boolean(options.isBackground);
+  const commandTimeout = isBackground ? undefined : requestedTimeout;
+  const commandWithEnv = prependEnvExports(command, options.env);
+  const remoteCommandBody = commandTimeout ? buildTimedCommand(commandWithEnv, commandTimeout) : commandWithEnv;
+  const remoteCommand = `cd ${shellQuote(cwd)} && ${remoteCommandBody}`;
+  const sdkTimeout = isBackground
+    ? BACKGROUND_COMMAND_START_TIMEOUT_SECONDS
+    : commandTimeout
+      ? commandTimeout + COMMAND_TIMEOUT_GRACE_SECONDS
+      : requestedTimeout;
 
   await sandbox.process.createSession(sessionId);
 
@@ -128,12 +177,11 @@ export async function executeSandboxCommand(
       sessionId,
       {
         command: remoteCommand,
-        runAsync: options.isBackground,
+        runAsync: isBackground,
         suppressInputEcho: true,
       },
-      options.timeout,
+      sdkTimeout,
     );
-    keepSession = Boolean(options.isBackground);
 
     return {
       cwd,
@@ -143,9 +191,27 @@ export async function executeSandboxCommand(
       stdout: result.stdout,
       stderr: result.stderr,
       output: "output" in result && typeof result.output === "string" ? result.output : undefined,
+      timedOut: commandTimeout !== undefined && result.exitCode === COMMAND_TIMEOUT_EXIT_CODE,
+      timeout: commandTimeout,
+    };
+  } catch (error) {
+    if (!isDaytonaTimeoutError(error)) {
+      throw error;
+    }
+
+    const message = formatTimeoutMessage(commandTimeout);
+
+    return {
+      cwd,
+      sessionId,
+      exitCode: COMMAND_TIMEOUT_EXIT_CODE,
+      stderr: message,
+      output: message,
+      timedOut: true,
+      timeout: commandTimeout,
     };
   } finally {
-    if (!keepSession) {
+    if (!isBackground) {
       await sandbox.process.deleteSession(sessionId).catch(() => undefined);
     }
   }

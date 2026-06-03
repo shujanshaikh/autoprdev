@@ -16,7 +16,7 @@ import {
 import { cn } from "@autopr/ui/lib/utils";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { parsePatch } from "diff";
 import {
   getToolName,
@@ -24,6 +24,7 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
+import { Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -43,7 +44,7 @@ import {
 } from "@/components/ai-elements/tool";
 import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dropdown";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
-import { SandboxStatusBar, ThreadMessages } from "#/components/thread/thread-messages";
+import { ThreadMessages } from "#/components/thread/thread-messages";
 import { useFileSuggestions } from "#/hooks/use-file-suggestions";
 import {
   CODEX_MODELS,
@@ -295,20 +296,71 @@ function ThreadChatTextarea({
 }
 
 interface AssistantUsageMetadata {
-  usage?: {
-    inputTokens?: unknown;
-    outputTokens?: unknown;
-    totalTokens?: unknown;
-    cachedInputTokens?: unknown;
-  };
+  usage?: TokenUsageMetadata;
+  contextUsage?: TokenUsageMetadata;
 }
+
+type TokenUsageMetadata = {
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  totalTokens?: unknown;
+  cachedInputTokens?: unknown;
+};
+
+type TokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+};
+
+type WorkflowIssue = {
+  message?: unknown;
+};
 
 function asFiniteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function isAssistantUsageMetadata(value: unknown): value is AssistantUsageMetadata {
-  return isRecord(value) && (value.usage === undefined || isRecord(value.usage));
+  return (
+    isRecord(value) &&
+    (value.usage === undefined || isRecord(value.usage)) &&
+    (value.contextUsage === undefined || isRecord(value.contextUsage))
+  );
+}
+
+function readTokenUsage(value: unknown): TokenUsage | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const hasTokenUsage = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens"].some(
+    (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
+  );
+
+  if (!hasTokenUsage) {
+    return null;
+  }
+
+  return {
+    inputTokens: asFiniteNumber(value.inputTokens),
+    outputTokens: asFiniteNumber(value.outputTokens),
+    totalTokens: asFiniteNumber(value.totalTokens),
+    cachedInputTokens: asFiniteNumber(value.cachedInputTokens),
+  };
+}
+
+function contextTokensFromUsage(usage: TokenUsage) {
+  return usage.totalTokens > 0 ? usage.totalTokens : usage.inputTokens + usage.outputTokens;
+}
+
+function getAssistantContextUsage(metadata: unknown): TokenUsage | null {
+  if (!isAssistantUsageMetadata(metadata)) {
+    return null;
+  }
+
+  return readTokenUsage(metadata.contextUsage) ?? readTokenUsage(metadata.usage);
 }
 
 function formatTokens(value: number) {
@@ -323,24 +375,60 @@ function formatTokens(value: number) {
   return `${value}`;
 }
 
+function parseEmbeddedErrorMessage(message: string) {
+  const jsonStart = message.indexOf("{");
+  const jsonEnd = message.lastIndexOf("}");
+
+  if (jsonStart === -1 || jsonEnd <= jsonStart) {
+    return message;
+  }
+
+  try {
+    const parsed = JSON.parse(message.slice(jsonStart, jsonEnd + 1));
+    if (
+      isRecord(parsed) &&
+      isRecord(parsed.error) &&
+      typeof parsed.error.message === "string" &&
+      parsed.error.message.length > 0
+    ) {
+      return parsed.error.message;
+    }
+  } catch {
+    return message;
+  }
+
+  return message;
+}
+
+function WorkflowIssuePanel({ issue }: { issue: WorkflowIssue | undefined }) {
+  if (!issue || typeof issue.message !== "string") {
+    return null;
+  }
+
+  const message = parseEmbeddedErrorMessage(issue.message);
+
+  return (
+    <div className="mb-4 border border-destructive/35 bg-destructive/5 px-3.5 py-3 text-sm text-muted-foreground">
+      <p className="break-words">{message}</p>
+    </div>
+  );
+}
+
 function ThreadContextRemainingIndicator({
-  inputTokens,
-  cachedInputTokens,
-  outputTokens,
+  usage,
   contextLimit,
 }: {
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
+  usage: TokenUsage;
   contextLimit: number;
 }) {
   if (contextLimit <= 0) {
     return null;
   }
 
-  const remainingTokens = Math.max(0, contextLimit - inputTokens);
-  const percentageUsed = Math.min(100, Math.round((inputTokens / contextLimit) * 100));
-  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const contextTokens = contextTokensFromUsage(usage);
+  const remainingTokens = Math.max(0, contextLimit - contextTokens);
+  const percentageUsed = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
+  const uncachedInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
 
   return (
     <Tooltip>
@@ -361,14 +449,18 @@ function ThreadContextRemainingIndicator({
             <span>{formatTokens(remainingTokens)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
-            <span className="text-muted-foreground">Input / limit</span>
+            <span className="text-muted-foreground">Context / limit</span>
             <span>
-              {formatTokens(inputTokens)} / {formatTokens(contextLimit)}
+              {formatTokens(contextTokens)} / {formatTokens(contextLimit)}
             </span>
           </div>
           <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Input</span>
+            <span>{formatTokens(usage.inputTokens)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Cached input</span>
-            <span>{formatTokens(cachedInputTokens)}</span>
+            <span>{formatTokens(usage.cachedInputTokens)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Uncached input</span>
@@ -376,7 +468,7 @@ function ThreadContextRemainingIndicator({
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Output</span>
-            <span>{formatTokens(outputTokens)}</span>
+            <span>{formatTokens(usage.outputTokens)}</span>
           </div>
         </div>
       </TooltipContent>
@@ -420,16 +512,14 @@ export function ThreadChat({
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
-  const [runtimeStatus, setRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>(
-    project?.sandboxRuntimeStatus,
-  );
   const [selectedModel, setSelectedModel] = useState<CodexModelId>(initialModel ?? DEFAULT_CODEX_MODEL);
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
+  const [optimisticDemoEnabled, setOptimisticDemoEnabled] = useState(Boolean(thread?.demoEnabled));
+  const [demoSaving, setDemoSaving] = useState(false);
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
-  const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
-  const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
+  const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const { refresh: refreshWorkOSAccessToken } = useAccessToken();
 
   useEffect(() => {
@@ -439,29 +529,8 @@ export function ThreadChat({
   }, [currentRunId]);
 
   useEffect(() => {
-    setRuntimeStatus(project?.sandboxRuntimeStatus);
-  }, [project?.sandboxRuntimeStatus]);
-
-  useEffect(() => {
-    if (project?.sandboxStatus !== "ready") return;
-    let cancelled = false;
-    setRuntimeStatusLoading(true);
-
-    void getSandboxRuntimeStatus({ projectId })
-      .then((result) => {
-        if (!cancelled) setRuntimeStatus(result.status);
-      })
-      .catch(() => {
-        if (!cancelled) setRuntimeStatus("unknown");
-      })
-      .finally(() => {
-        if (!cancelled) setRuntimeStatusLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getSandboxRuntimeStatus, project?.sandboxStatus, projectId]);
+    setOptimisticDemoEnabled(Boolean(thread?.demoEnabled));
+  }, [thread?.demoEnabled]);
 
   const agentApi = `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`;
 
@@ -665,6 +734,20 @@ export function ThreadChat({
 
     pendingStopRef.current = stopPromise;
   }, [clearError, getRunApi, messages, stop]);
+  const toggleDemoEnabled = useCallback(async () => {
+    const nextDemoEnabled = !optimisticDemoEnabled;
+    setOptimisticDemoEnabled(nextDemoEnabled);
+    setDemoSaving(true);
+
+    try {
+      await setDemoEnabled({ threadId, demoEnabled: nextDemoEnabled });
+    } catch (toggleError) {
+      setOptimisticDemoEnabled(!nextDemoEnabled);
+      console.error("Failed to update demo mode", toggleError);
+    } finally {
+      setDemoSaving(false);
+    }
+  }, [optimisticDemoEnabled, setDemoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
   const keyedMessages = useMemo(() => {
@@ -680,24 +763,18 @@ export function ThreadChat({
       };
     });
   }, [messages]);
-  const conversationUsage = useMemo(() => messages.reduce(
-    (total, message) => {
-      if (!isAssistantUsageMetadata(message.metadata) || !message.metadata.usage) {
-        return total;
-      }
+  const currentContextUsage = useMemo(() => {
+    const latestAssistantWithUsage = findLastBy(messages, (message) =>
+      message.role === "assistant" && getAssistantContextUsage(message.metadata) !== null
+    );
 
-      return {
-        inputTokens: total.inputTokens + asFiniteNumber(message.metadata.usage.inputTokens),
-        outputTokens: total.outputTokens + asFiniteNumber(message.metadata.usage.outputTokens),
-        cachedInputTokens: total.cachedInputTokens + asFiniteNumber(message.metadata.usage.cachedInputTokens),
-      };
-    },
-    {
+    return getAssistantContextUsage(latestAssistantWithUsage?.metadata) ?? {
       inputTokens: 0,
       outputTokens: 0,
+      totalTokens: 0,
       cachedInputTokens: 0,
-    },
-  ), [messages]);
+    };
+  }, [messages]);
   const selectedModelContextLimit =
     CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
 
@@ -764,6 +841,7 @@ export function ThreadChat({
 
         <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
           <div className="mx-auto max-w-[680px]">
+            <WorkflowIssuePanel issue={thread?.workflowIssue} />
             <PromptInputProvider>
               <PromptInput
                 className={cn(
@@ -812,10 +890,34 @@ export function ThreadChat({
                         ))}
                       </SelectContent>
                     </Select>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={optimisticDemoEnabled}
+                            disabled={demoSaving}
+                            onClick={() => void toggleDemoEnabled()}
+                            className={cn(
+                              "inline-flex h-7 shrink-0 items-center gap-1.5 border border-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition",
+                              "hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                              optimisticDemoEnabled && "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                            )}
+                          >
+                            <Video className="size-3.5" aria-hidden />
+                            <span>Demo</span>
+                          </button>
+                        }
+                      />
+                      <TooltipContent side="top" align="start" className="max-w-64 rounded-none">
+                        {optimisticDemoEnabled
+                          ? "Future runs in this thread will record a Daytona browser demo."
+                          : "Allow future runs to record a Daytona browser demo."}
+                      </TooltipContent>
+                    </Tooltip>
                     <ThreadContextRemainingIndicator
-                      inputTokens={conversationUsage.inputTokens}
-                      cachedInputTokens={conversationUsage.cachedInputTokens}
-                      outputTokens={conversationUsage.outputTokens}
+                      usage={currentContextUsage}
                       contextLimit={selectedModelContextLimit}
                     />
                   </PromptInputTools>
@@ -828,11 +930,6 @@ export function ThreadChat({
                 </PromptInputFooter>
               </PromptInput>
             </PromptInputProvider>
-            <SandboxStatusBar
-              sandboxStatus={project?.sandboxStatus}
-              runtimeStatus={runtimeStatus}
-              checking={runtimeStatusLoading}
-            />
           </div>
         </div>
       </div>

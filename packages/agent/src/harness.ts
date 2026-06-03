@@ -1,5 +1,5 @@
 import { buildSandboxAgentSystemPrompt } from "./system-prompt";
-import { createDaytonaTools, type DaytonaTools } from "./tools";
+import { createDaytonaTools, type DaytonaComputerToolOptions, type DaytonaTools } from "./tools";
 import { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
 import type { SandboxSessionOptions } from "./sandbox";
 
@@ -23,6 +23,7 @@ export type CodingHarnessListener = (event: CodingHarnessEvent) => void | Promis
 export interface CodingHarnessOptions extends SandboxSessionOptions {
   appendSystemPrompt?: string;
   selectedTools?: string[];
+  computer?: false | DaytonaComputerToolOptions;
 }
 
 export class CodingHarnessBusyError extends Error {
@@ -69,7 +70,9 @@ export class CodingHarness {
 
     try {
       const sandbox = await prepareDaytonaSandbox(this.options);
-      const tools = createDaytonaTools(this.options);
+      const tools = createDaytonaTools(this.options, {
+        computer: this.options.computer,
+      });
       const instructions = buildSandboxAgentSystemPrompt({
         cwd: sandbox.workDir,
         sandboxId: sandbox.sandboxId,

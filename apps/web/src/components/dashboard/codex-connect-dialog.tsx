@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { CodexLogo } from "#/components/icons/codex-logo";
 import { readJson } from "#/components/dashboard/types";
 
-type CodexStatus = {
+export type CodexStatus = {
   connected: boolean;
   email?: string;
   accountId?: string;
@@ -40,6 +40,31 @@ export function CodexConnectDialog({
   onOpenChange,
   onStatusChange,
 }: CodexConnectDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-md">
+        <CodexConnectPanel
+          active={open}
+          asDialogHeader
+          status={status}
+          onStatusChange={onStatusChange}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function CodexConnectPanel({
+  active,
+  asDialogHeader = false,
+  status,
+  onStatusChange,
+}: {
+  active: boolean;
+  asDialogHeader?: boolean;
+  status?: CodexStatus;
+  onStatusChange: () => void;
+}) {
   const [device, setDevice] = useState<DeviceStartResponse>();
   const [isStarting, setIsStarting] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
@@ -48,7 +73,7 @@ export function CodexConnectDialog({
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    if (!open || status?.connected) return;
+    if (!active || status?.connected) return;
     if (device || isStarting) return;
 
     setIsStarting(true);
@@ -60,10 +85,10 @@ export function CodexConnectDialog({
         setError(err instanceof Error ? err.message : "Could not start Codex authorization."),
       )
       .finally(() => setIsStarting(false));
-  }, [device, isStarting, open, status?.connected]);
+  }, [active, device, isStarting, status?.connected]);
 
   useEffect(() => {
-    if (!open || !device || status?.connected) return;
+    if (!active || !device || status?.connected) return;
 
     const activeDevice = device;
     let cancelled = false;
@@ -108,7 +133,7 @@ export function CodexConnectDialog({
       cancelled = true;
       if (timeout) clearTimeout(timeout);
     };
-  }, [device, onStatusChange, open, status?.connected]);
+  }, [active, device, onStatusChange, status?.connected]);
 
   async function copyCode() {
     if (!device) return;
@@ -141,21 +166,12 @@ export function CodexConnectDialog({
         : "idle";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-md">
-        {/* Header */}
-        <div className="border-b border-border px-5 pt-4 pb-4 pr-12">
+    <>
+      {/* Header */}
+      <div className="border-b border-border px-5 pt-4 pb-4 pr-12">
+        {asDialogHeader ? (
           <DialogHeader className="gap-2">
-            <div className="flex items-center gap-2">
-              <span aria-hidden className="inline-block size-1.5 bg-primary" />
-              <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                autopr / codex
-              </span>
-              <CodexLogo
-                aria-hidden
-                className="ml-auto size-3.5 text-muted-foreground/70"
-              />
-            </div>
+            <CodexPanelKicker />
             <DialogTitle className="text-base font-semibold tracking-tight text-foreground">
               Connect Codex
             </DialogTitle>
@@ -164,119 +180,145 @@ export function CodexConnectDialog({
               workspace once via device code.
             </DialogDescription>
           </DialogHeader>
-        </div>
-
-        {/* Body */}
-        {status?.connected ? (
-          <ConnectedBody
-            status={status}
-            isDisconnecting={isDisconnecting}
-            onDisconnect={() => void disconnect()}
-          />
         ) : (
-          <ol className="divide-y divide-border">
-            <Step
-              n={1}
-              done={Boolean(device)}
-              title="Enable device code authorization"
-              hint="Open your ChatGPT security settings and turn on device codes."
-              action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!device}
-                  onClick={() =>
-                    device &&
-                    window.open(
-                      device.securitySettingsUrl,
-                      "_blank",
-                      "noopener,noreferrer",
-                    )
-                  }
-                >
-                  Security settings
-                  <ExternalLink className="size-3" aria-hidden="true" />
-                </Button>
-              }
-            />
-            <Step
-              n={2}
-              done={copied}
-              title="Copy this code"
-              hint="Paste it on the verification page in step 3."
-              action={
-                <CodeBox
-                  userCode={device?.userCode}
-                  copied={copied}
-                  onCopy={() => void copyCode()}
-                  disabled={!device}
-                />
-              }
-            />
-            <Step
-              n={3}
-              done={false}
-              title="Verify in your browser"
-              hint="Paste the code on ChatGPT's verification page to authorize."
-              action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!device}
-                  onClick={() =>
-                    device &&
-                    window.open(
-                      device.verificationUrl,
-                      "_blank",
-                      "noopener,noreferrer",
-                    )
-                  }
-                >
-                  Verification page
-                  <ExternalLink className="size-3" aria-hidden="true" />
-                </Button>
-              }
-            />
-          </ol>
-        )}
-
-        {/* Status bar */}
-        <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-5 py-2.5">
-          <span
-            aria-hidden
-            className={cn(
-              "inline-block size-1.5",
-              status?.connected
-                ? "bg-primary"
-                : isLive
-                  ? "animate-pulse bg-primary"
-                  : "bg-muted-foreground/40",
-            )}
-          />
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-            {statusLabel}
-          </span>
-          {isLive ? (
-            <Loader2
-              className="ml-auto size-3 animate-spin text-muted-foreground"
-              aria-hidden="true"
-            />
-          ) : null}
-        </div>
-
-        {error ? (
-          <div
-            role="alert"
-            className="border-t border-destructive/40 bg-destructive/[0.04] px-5 py-2.5 font-mono text-xs"
-          >
-            <span className="mr-2 uppercase tracking-[0.2em] text-destructive">err</span>
-            <span className="text-destructive/90">{error}</span>
+          <div className="space-y-2">
+            <CodexPanelKicker />
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              Connect Codex
+            </h2>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Route OpenAI models through your ChatGPT subscription. Authorize this
+              workspace once via device code.
+            </p>
           </div>
+        )}
+      </div>
+
+      {/* Body */}
+      {status?.connected ? (
+        <ConnectedBody
+          status={status}
+          isDisconnecting={isDisconnecting}
+          onDisconnect={() => void disconnect()}
+        />
+      ) : (
+        <ol className="divide-y divide-border">
+          <Step
+            n={1}
+            done={Boolean(device)}
+            title="Enable device code authorization"
+            hint="Open your ChatGPT security settings and turn on device codes."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!device}
+                onClick={() =>
+                  device &&
+                  window.open(
+                    device.securitySettingsUrl,
+                    "_blank",
+                    "noopener,noreferrer",
+                  )
+                }
+              >
+                Security settings
+                <ExternalLink className="size-3" aria-hidden="true" />
+              </Button>
+            }
+          />
+          <Step
+            n={2}
+            done={copied}
+            title="Copy this code"
+            hint="Paste it on the verification page in step 3."
+            action={
+              <CodeBox
+                userCode={device?.userCode}
+                copied={copied}
+                onCopy={() => void copyCode()}
+                disabled={!device}
+              />
+            }
+          />
+          <Step
+            n={3}
+            done={false}
+            title="Verify in your browser"
+            hint="Paste the code on ChatGPT's verification page to authorize."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!device}
+                onClick={() =>
+                  device &&
+                  window.open(
+                    device.verificationUrl,
+                    "_blank",
+                    "noopener,noreferrer",
+                  )
+                }
+              >
+                Verification page
+                <ExternalLink className="size-3" aria-hidden="true" />
+              </Button>
+            }
+          />
+        </ol>
+      )}
+
+      {/* Status bar */}
+      <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-5 py-2.5">
+        <span
+          aria-hidden
+          className={cn(
+            "inline-block size-1.5",
+            status?.connected
+              ? "bg-primary"
+              : isLive
+                ? "animate-pulse bg-primary"
+                : "bg-muted-foreground/40",
+          )}
+        />
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+          {statusLabel}
+        </span>
+        {isLive ? (
+          <Loader2
+            className="ml-auto size-3 animate-spin text-muted-foreground"
+            aria-hidden="true"
+          />
         ) : null}
-      </DialogContent>
-    </Dialog>
+      </div>
+
+      {error ? (
+        <div
+          role="alert"
+          className="border-t border-destructive/40 bg-destructive/[0.04] px-5 py-2.5 font-mono text-xs"
+        >
+          <span className="mr-2 uppercase tracking-[0.2em] text-destructive">err</span>
+          <span className="text-destructive/90">{error}</span>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function CodexPanelKicker() {
+  return (
+    <div className="flex items-center gap-2">
+      <span aria-hidden className="inline-block size-1.5 bg-primary" />
+      <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+        autopr / codex
+      </span>
+      <CodexLogo
+        aria-hidden
+        className="ml-auto size-3.5 text-muted-foreground/70"
+      />
+    </div>
   );
 }
 

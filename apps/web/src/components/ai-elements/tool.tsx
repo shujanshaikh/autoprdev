@@ -5,10 +5,16 @@ import {
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
+import { ChevronDown } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
 
+import {
+  computerContentOutputToContentDetails,
+  isDemoRecordingMetadata,
+  type DemoRecordingMetadata,
+} from "@/lib/chat-messages";
 import { CodeBlock } from "./code-block";
 import { PierreDiffView } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
@@ -81,7 +87,7 @@ export function toolSlugFromPart(type: string, toolName?: string): string {
 }
 
 /** Primary tools that get full expandable rendering */
-const PRIMARY_TOOL_SLUGS = new Set(["edit", "write", "bash"]);
+const PRIMARY_TOOL_SLUGS = new Set(["edit", "write", "bash", "computer"]);
 
 /** Returns true if the tool is an "explore" tool (read-only, search, etc.) */
 export function isExploreTool(type: string, toolName?: string): boolean {
@@ -185,6 +191,9 @@ function formatToolSummaryLine(slug: string, input: unknown): string {
     }
     case "sandboxInfo":
       return "";
+    case "computer": {
+      return "";
+    }
     default:
       if (isShallowDisplayable(o)) {
         return shallowEntries(o)
@@ -193,6 +202,49 @@ function formatToolSummaryLine(slug: string, input: unknown): string {
       }
       return "";
   }
+}
+
+function bashCommandFromInput(input: unknown): string {
+  if (!isRecord(input)) {
+    return "";
+  }
+
+  return typeof input.command === "string" ? input.command.trim() : "";
+}
+
+function bashHeaderLabel(input: unknown): string {
+  const command = bashCommandFromInput(input);
+  const normalized = command.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "Run shell command";
+  }
+
+  if (/\b(vite|dev)\b/.test(normalized) && /\b(run|npm|pnpm|bun|yarn)\b/.test(normalized)) {
+    return "Start dev server";
+  }
+
+  if (/\bcheck-types\b/.test(normalized)) {
+    return "Run typecheck";
+  }
+
+  if (/\b(test|vitest|jest|playwright)\b/.test(normalized)) {
+    return "Run tests";
+  }
+
+  if (/^(cat|sed|nl|tail|head)\b/.test(normalized)) {
+    return "Read file";
+  }
+
+  if (/^(rg|grep|find)\b/.test(normalized)) {
+    return "Search files";
+  }
+
+  if (/^(ls|pwd|git status)\b/.test(normalized)) {
+    return "Inspect workspace";
+  }
+
+  return "Run shell command";
 }
 
 function formatReadDetailsMeta(d: Record<string, unknown>): string | null {
@@ -245,6 +297,70 @@ function isContentDetailsOutput(
   v: unknown
 ): v is { content: string; details: Record<string, unknown> } {
   return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
+}
+
+function computerActionTypes(input: unknown): string[] {
+  if (!isRecord(input)) {
+    return [];
+  }
+
+  const actionTypes: string[] = [];
+
+  if (Array.isArray(input.actions)) {
+    for (const action of input.actions) {
+      if (isRecord(action) && typeof action.type === "string") {
+        actionTypes.push(action.type);
+      }
+    }
+  }
+
+  if (typeof input.action === "string") {
+    actionTypes.push(input.action);
+  }
+
+  if (typeof input.type === "string") {
+    actionTypes.push(input.type);
+  }
+
+  return actionTypes;
+}
+
+function outputHasDemoRecording(output: unknown): boolean {
+  const contentDetails = computerContentOutputToContentDetails(output);
+  const details = contentDetails?.details ?? (isContentDetailsOutput(output) ? output.details : null);
+
+  if (!details) {
+    return false;
+  }
+
+  return demoRecordingsFromDetails(details).length > 0;
+}
+
+export function isComputerRecordingTool(
+  input: unknown,
+  output: unknown,
+  state: ToolPart["state"],
+): boolean {
+  const actionTypes = computerActionTypes(input);
+
+  return (
+    (actionTypes.includes("start_recording") && state !== "output-available") ||
+    actionTypes.includes("stop_recording") ||
+    outputHasDemoRecording(output)
+  );
+}
+
+function computerRecordingLabel(input: unknown, output: unknown, state: ToolPart["state"]): string {
+  const actionTypes = computerActionTypes(input);
+
+  if (
+    state === "output-available" &&
+    (actionTypes.includes("stop_recording") || outputHasDemoRecording(output))
+  ) {
+    return "Screen recorded";
+  }
+
+  return "Screen recording";
 }
 
 export type ToolDiffPayload = {
@@ -306,6 +422,39 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
   );
 }
 
+function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
+  return (
+    <div className="overflow-hidden border border-border/60 bg-card">
+      {recording.url ? (
+        <video
+          className="aspect-video w-full bg-black"
+          controls
+          preload="metadata"
+          src={recording.url}
+        />
+      ) : (
+        <div className="px-3 py-2 text-[11px] text-muted-foreground">
+          Recording metadata is available, but no playback URL was attached.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function demoRecordingsFromDetails(details: Record<string, unknown>) {
+  const recordings: DemoRecordingMetadata[] = [];
+
+  if (isDemoRecordingMetadata(details.recording)) {
+    recordings.push(details.recording);
+  }
+
+  if (Array.isArray(details.recordings)) {
+    recordings.push(...details.recordings.filter(isDemoRecordingMetadata));
+  }
+
+  return recordings;
+}
+
 function ContentDetailsBody({
   slug,
   content,
@@ -322,7 +471,36 @@ function ContentDetailsBody({
     (slug === "write" || slug === "edit") && isToolDiffPayload(details.diff)
       ? details.diff
       : null;
+  const demoRecordings = slug === "computer" ? demoRecordingsFromDetails(details) : [];
   const showMeta = !(slug === "edit" && diffPayload);
+
+  if (slug === "computer") {
+    if (demoRecordings.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2">
+        {demoRecordings.map((recording) => (
+          <DemoRecordingCard key={recording.id} recording={recording} />
+        ))}
+      </div>
+    );
+  }
+
+  if (slug === "bash") {
+    return content.trim().length > 0 ? (
+      <div className="max-h-[min(45vh,360px)] overflow-auto">
+        <CodeBlock
+          className="rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+          code={content}
+          language={PLAIN_TEXT_LANG}
+        />
+      </div>
+    ) : (
+      <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>
+    );
+  }
 
   return (
     <div className="space-y-1.5">
@@ -382,6 +560,7 @@ export type ToolHeaderProps = {
   title?: string;
   className?: string;
   input?: unknown;
+  output?: unknown;
 } & (
   | { type: ToolUIPart["type"]; state: ToolUIPart["state"]; toolName?: never }
   | {
@@ -398,17 +577,54 @@ export const ToolHeader = ({
   state,
   toolName,
   input,
+  output,
   ...props
 }: ToolHeaderProps) => {
   const slug = toolSlugFromPart(type, type === "dynamic-tool" ? toolName : undefined);
   const derivedName =
     type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-");
   const fallbackName = title ?? derivedName;
-  const label = title ? fallbackName : displayToolLabel(slug);
-  const summary = formatToolSummaryLine(slug, input);
+  const label = slug === "computer"
+    ? computerRecordingLabel(input, output, state)
+    : slug === "bash"
+      ? bashHeaderLabel(input)
+    : title ? fallbackName : displayToolLabel(slug);
+  const summary = slug === "bash" ? "" : formatToolSummaryLine(slug, input);
   const streaming = isToolStreamingState(state);
   const lineText = [label, summary].filter(Boolean).join(" ");
   const status = <ToolStatusText state={state} />;
+
+  if (slug === "bash") {
+    return (
+      <CollapsibleTrigger
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 border-b border-border/70 bg-card px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-muted/20 focus-visible:ring-1 focus-visible:ring-ring",
+          className
+        )}
+        {...props}
+      >
+        <ChevronDown
+          className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-data-[state=closed]:-rotate-90"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 overflow-hidden text-left">
+          {streaming ? (
+            <Shimmer as="span" className="block max-w-full truncate align-baseline text-[13px]" duration={2} spread={2}>
+              {label}
+            </Shimmer>
+          ) : (
+            <span className="block truncate font-sans text-[13px] font-medium leading-none text-muted-foreground">
+              {label}
+            </span>
+          )}
+        </span>
+        {status}
+        <span className="sr-only">
+          {fallbackName}, {statusLabel[state]}. Toggle for arguments and result.
+        </span>
+      </CollapsibleTrigger>
+    );
+  }
 
   return (
     <CollapsibleTrigger
@@ -445,7 +661,7 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in",
+      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in group-data-[tool=bash]:m-0 group-data-[tool=bash]:p-0",
       className
     )}
     {...props}
@@ -466,8 +682,27 @@ export const ToolInput = ({
   ...props
 }: ToolInputProps) => {
   const slug = toolSlugFromPart(toolType, toolName);
-  if (slug === "edit") {
+  if (slug === "edit" || slug === "computer") {
     return null;
+  }
+
+  if (slug === "bash") {
+    const command = bashCommandFromInput(input);
+
+    if (!command) {
+      return null;
+    }
+
+    return (
+      <div className={cn("px-3.5 pt-3", className)} {...props}>
+        <div className="flex min-w-0 items-start gap-2.5 font-mono text-[13px] leading-relaxed text-foreground/90">
+          <span className="shrink-0 select-none text-muted-foreground">$</span>
+          <code className="min-w-0 flex-1 whitespace-pre-wrap break-words bg-transparent p-0 text-[inherit] leading-[inherit]">
+            {command}
+          </code>
+        </div>
+      </div>
+    );
   }
 
   const asRecord = isRecord(input) ? input : null;
@@ -509,15 +744,29 @@ export const ToolOutput = ({
   ...props
 }: ToolOutputProps) => {
   if (!(output || errorText)) {
-    return null;
+    const slug = toolSlugFromPart(toolType, toolName);
+    if (slug !== "bash") {
+      return null;
+    }
   }
 
   const slug = toolSlugFromPart(toolType, toolName);
+  const computerContentDetails = slug === "computer" ? computerContentOutputToContentDetails(output) : null;
 
   let body: ReactNode;
 
   if (errorText) {
     body = <div className="py-0.5 text-[11px] leading-relaxed text-destructive">{errorText}</div>;
+  } else if (slug === "bash" && !output) {
+    body = <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>;
+  } else if (computerContentDetails) {
+    body = (
+      <ContentDetailsBody
+        slug={slug}
+        content={computerContentDetails.content}
+        details={computerContentDetails.details}
+      />
+    );
   } else if (isContentDetailsOutput(output)) {
     body = <ContentDetailsBody slug={slug} content={output.content} details={output.details} />;
   } else if (typeof output === "object" && !isValidElement(output)) {
@@ -529,7 +778,14 @@ export const ToolOutput = ({
   } else if (typeof output === "string") {
     body = (
       <div className="[&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent">
-        <CodeBlock code={output} language="json" />
+        <CodeBlock
+          className={cn(
+            slug === "bash" &&
+              "rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+          )}
+          code={output}
+          language={slug === "bash" ? PLAIN_TEXT_LANG : "json"}
+        />
       </div>
     );
   } else {
@@ -537,8 +793,8 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("mt-1.5 space-y-0.5 pt-1", className)} {...props}>
-      <div className={cn("overflow-x-auto text-xs [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/80")}>
+    <div className={cn("mt-1.5 space-y-0.5 pt-1", slug === "bash" && "m-0 px-3.5 pb-3 pt-2.5", className)} {...props}>
+      <div className={cn("overflow-x-auto text-[13px] [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/80")}>
         {body}
       </div>
     </div>

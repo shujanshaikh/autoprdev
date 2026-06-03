@@ -5,13 +5,12 @@ import {
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { createOpenAI } from "@ai-sdk/openai";
 import { DurableAgent } from "@workflow/ai/agent";
 import { type ModelMessage, type UIMessageChunk } from "ai";
 import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
-import { getWorkOSVault, parseStoredCodexCredential } from "#/lib/codex-auth-server";
+import { createCodexResponsesModel } from "#/lib/codex-auth-server";
 import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import type { Impersonator, User } from "@workos-inc/node";
 
@@ -23,6 +22,7 @@ export interface AgentWorkflowOptions {
   repoUrl?: string;
   repoBranch?: string;
   assistantMessageId?: string;
+  demoEnabled?: boolean;
   convexAuth?: WorkOSWorkflowAuth;
   codex: CodexAgentModelOptions;
 }
@@ -51,14 +51,27 @@ interface WorkOSWorkflowAuth {
   impersonator?: Impersonator;
 }
 
+type AssistantTokenUsageMetadata = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+};
+
 interface AssistantUsageMetadata {
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-    cachedInputTokens: number;
-  };
+  usage: AssistantTokenUsageMetadata;
+  contextUsage: AssistantTokenUsageMetadata;
 }
+
+type WorkflowIssue = {
+  workflowRunId: string;
+  stepName?: string;
+  attempt?: number;
+  retryCount?: number;
+  message: string;
+  errorStack?: string;
+  occurredAt: number;
+};
 
 function getConvexUrl() {
   const url = process.env.VITE_CONVEX_URL;
@@ -70,6 +83,100 @@ function getConvexUrl() {
 
 function isPersistenceUnauthenticatedError(error: unknown) {
   return error instanceof Error && error.message.includes("Unauthorized");
+}
+
+function emptyTokenUsage(): AssistantTokenUsageMetadata {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cachedInputTokens: 0,
+  };
+}
+
+function tokenUsageFromStep(step: { usage: Partial<AssistantTokenUsageMetadata> }): AssistantTokenUsageMetadata {
+  return {
+    inputTokens: step.usage.inputTokens ?? 0,
+    outputTokens: step.usage.outputTokens ?? 0,
+    totalTokens: step.usage.totalTokens ?? 0,
+    cachedInputTokens: step.usage.cachedInputTokens ?? 0,
+  };
+}
+
+function addTokenUsage(
+  total: AssistantTokenUsageMetadata,
+  usage: AssistantTokenUsageMetadata,
+): AssistantTokenUsageMetadata {
+  return {
+    inputTokens: total.inputTokens + usage.inputTokens,
+    outputTokens: total.outputTokens + usage.outputTokens,
+    totalTokens: total.totalTokens + usage.totalTokens,
+    cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
+  };
+}
+
+function readRecordProperty(error: unknown, key: string): unknown {
+  return typeof error === "object" && error !== null ? (error as Record<string, unknown>)[key] : undefined;
+}
+
+function readStringProperty(error: unknown, key: string): string | undefined {
+  const value = readRecordProperty(error, key);
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readNumberProperty(error: unknown, key: string): number | undefined {
+  const value = readRecordProperty(error, key);
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readNestedErrorMessage(value: unknown): string | undefined {
+  if (!readRecordProperty(value, "error")) {
+    return undefined;
+  }
+
+  const error = readRecordProperty(value, "error");
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const message = (error as Record<string, unknown>).message;
+  return typeof message === "string" && message.length > 0 ? message : undefined;
+}
+
+function parseEmbeddedErrorMessage(message: string): string | undefined {
+  const jsonStart = message.indexOf("{");
+  const jsonEnd = message.lastIndexOf("}");
+
+  if (jsonStart === -1 || jsonEnd <= jsonStart) {
+    return undefined;
+  }
+
+  try {
+    return readNestedErrorMessage(JSON.parse(message.slice(jsonStart, jsonEnd + 1)));
+  } catch {
+    return undefined;
+  }
+}
+
+function displayMessageFromError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const directNestedMessage = readNestedErrorMessage(error);
+  const embeddedMessage = parseEmbeddedErrorMessage(message);
+  const causeMessage = parseEmbeddedErrorMessage(String(readRecordProperty(error, "cause") ?? ""));
+
+  return directNestedMessage ?? embeddedMessage ?? causeMessage ?? message;
+}
+
+function workflowIssueFromError(error: unknown, workflowRunId: string): WorkflowIssue {
+  return {
+    workflowRunId,
+    stepName: readStringProperty(error, "stepName"),
+    attempt: readNumberProperty(error, "attempt"),
+    retryCount: readNumberProperty(error, "retryCount"),
+    message: displayMessageFromError(error),
+    errorStack: error instanceof Error ? error.stack : undefined,
+    occurredAt: Date.now(),
+  };
 }
 
 async function refreshWorkOSConvexAuth(convexAuth: WorkOSWorkflowAuth) {
@@ -163,6 +270,22 @@ async function markWorkflowRunFinished({
   );
 }
 
+async function recordWorkflowIssue({
+  convexAuth,
+  threadId,
+  issue,
+}: Pick<AssistantPersistenceOptions, "convexAuth" | "threadId"> & {
+  issue: WorkflowIssue;
+}) {
+  "use step";
+
+  await fetchMutation(
+    api.threads.recordWorkflowIssue,
+    { threadId, issue },
+    { token: convexAuth.accessToken, url: getConvexUrl() },
+  );
+}
+
 function getAssistantPersistenceOptions(options: AgentWorkflowOptions): AssistantPersistenceOptions | null {
   if (!options.convexAuth || !options.threadId || !options.assistantMessageId) {
     return null;
@@ -173,29 +296,6 @@ function getAssistantPersistenceOptions(options: AgentWorkflowOptions): Assistan
     threadId: options.threadId,
     assistantMessageId: options.assistantMessageId,
   };
-}
-
-function responseInputContentToText(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return "";
-  }
-
-  return content
-    .map((part) => {
-      if (typeof part === "string") {
-        return part;
-      }
-      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-        return part.text;
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
 }
 
 function codexPromptCacheKey(options: AgentWorkflowOptions) {
@@ -209,88 +309,7 @@ function codexOpenAIModel(options: CodexAgentModelOptions) {
   return async () => {
     "use step";
 
-    const vaultObject = await getWorkOSVault().readObject({ id: options.vaultObjectId });
-    const credential = parseStoredCodexCredential(vaultObject.value);
-
-    if (credential.expiresAt <= Date.now()) {
-      throw new Error("Codex credentials expired. Reconnect Codex and try again.");
-    }
-
-    const provider = createOpenAI({
-      apiKey: credential.accessToken,
-      fetch: async (input, init) => {
-        const requestUrl = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url);
-        const url = requestUrl.pathname.includes("/v1/responses") || requestUrl.pathname.includes("/chat/completions")
-          ? new URL("https://chatgpt.com/backend-api/codex/responses")
-          : requestUrl;
-
-        const headers = new Headers(init?.headers);
-        headers.set("authorization", `Bearer ${credential.accessToken}`);
-        const accountId = credential.accountId ?? options.accountId;
-        if (accountId) {
-          headers.set("ChatGPT-Account-Id", accountId);
-        }
-
-        const nextInit: RequestInit = { ...init, headers };
-        if (typeof nextInit.body === "string" && nextInit.method === "POST") {
-          const body = JSON.parse(nextInit.body) as {
-            instructions?: string;
-            input?: Array<Record<string, unknown>>;
-            prompt_cache_key?: string;
-            reasoning?: Record<string, unknown>;
-            store?: boolean;
-          };
-
-          body.store = false;
-          body.prompt_cache_key = body.prompt_cache_key || options.promptCacheKey;
-          body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
-
-          if (Array.isArray(body.input)) {
-            const instructions = body.input
-              .filter((item) => item.role === "system" || item.role === "developer")
-              .map((item) => responseInputContentToText(item.content))
-              .filter(Boolean)
-              .join("\n");
-
-            body.input = body.input.filter((item) => item.type !== "item_reference");
-
-            if (!body.instructions && instructions) {
-              body.instructions = instructions;
-              body.input = body.input.filter((item) => item.role !== "system" && item.role !== "developer");
-            }
-
-          }
-
-          nextInit.body = JSON.stringify(body);
-        }
-
-        const response = await fetch(url, nextInit);
-        if (!response.ok) {
-          const errorBody = await response.clone().text().catch(() => "<failed to read response body>");
-          throw new Error(
-            `Codex API request failed: ${response.status} ${response.statusText} ${errorBody}`,
-          );
-        }
-
-        return response;
-      },
-    });
-    const model = provider.responses(options.modelId);
-
-    const accountId = credential.accountId ?? options.accountId;
-    if (accountId) {
-      const originalDoStream = model.doStream.bind(model);
-      model.doStream = (callOptions) =>
-        originalDoStream({
-          ...callOptions,
-          headers: {
-            ...callOptions.headers,
-            "ChatGPT-Account-Id": accountId,
-          },
-        });
-    }
-
-    return model;
+    return await createCodexResponsesModel(options);
   };
 }
 
@@ -305,14 +324,24 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
   };
+  const demoRecordingBasePath = options.demoEnabled && options.projectId && options.threadId
+    ? `/api/project/${encodeURIComponent(options.projectId)}` +
+      `/thread/${encodeURIComponent(options.threadId)}`
+    : undefined;
   const harness = new CodingHarness({
     ...sandboxOptions,
+    computer: demoRecordingBasePath
+      ? { recordingBasePath: demoRecordingBasePath }
+      : false,
     appendSystemPrompt: [
       "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
+      demoRecordingBasePath
+        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; stop recording promptly and include the recording metadata in your response. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+        : undefined,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -364,21 +393,10 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
             return;
           }
 
+          const stepUsages = steps.map(tokenUsageFromStep);
           const usageMetadata: AssistantUsageMetadata = {
-            usage: steps.reduce(
-              (total, step) => ({
-                inputTokens: total.inputTokens + (step.usage.inputTokens ?? 0),
-                outputTokens: total.outputTokens + (step.usage.outputTokens ?? 0),
-                totalTokens: total.totalTokens + (step.usage.totalTokens ?? 0),
-                cachedInputTokens: total.cachedInputTokens + (step.usage.cachedInputTokens ?? 0),
-              }),
-              {
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                cachedInputTokens: 0,
-              },
-            ),
+            usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),
+            contextUsage: stepUsages.at(-1) ?? emptyTokenUsage(),
           };
 
           try {
@@ -406,6 +424,27 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
         },
       });
     });
+  } catch (error) {
+    if (persistence) {
+      try {
+        const refreshedPersistence = {
+          ...persistence,
+          convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
+        };
+        await recordWorkflowIssue({
+          convexAuth: refreshedPersistence.convexAuth,
+          threadId: refreshedPersistence.threadId,
+          issue: workflowIssueFromError(error, workflowRunId),
+        });
+        persistenceFinished = true;
+      } catch (recordError) {
+        if (!isPersistenceUnauthenticatedError(recordError)) {
+          console.error("Failed to record workflow issue", recordError);
+        }
+      }
+    }
+
+    throw error;
   } finally {
     if (persistence && !persistenceFinished) {
       try {

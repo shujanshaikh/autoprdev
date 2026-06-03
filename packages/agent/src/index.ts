@@ -17,4 +17,4 @@ export {
   type SandboxSessionOptions,
 } from "./sandbox";
 export { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
-export { createDaytonaTools, type DaytonaTools } from "./tools";
+export { createDaytonaTools, type DaytonaComputerToolOptions, type DaytonaTools } from "./tools";

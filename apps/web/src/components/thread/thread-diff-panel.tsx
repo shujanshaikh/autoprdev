@@ -153,7 +153,7 @@ export function ThreadDiffPanel({
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [desktopStatusLoading, setDesktopStatusLoading] = useState(false);
-  const [desktopRuntimeStatus, setDesktopRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
+  const [desktopRuntimeStatus, setDesktopRuntimeStatus] = useState<"started" | "stopped" | "archived" | "unknown" | undefined>();
   const [, setDesktopRawState] = useState<string | undefined>();
   const [desktopError, setDesktopError] = useState<string | undefined>();
   const [desktopFullscreen, setDesktopFullscreen] = useState(false);
@@ -513,6 +513,8 @@ export function ThreadDiffPanel({
                       ? "Sandbox · Stopped"
                       : desktopRuntimeStatus === "started"
                         ? "Sandbox · Awake"
+                        : desktopRuntimeStatus === "archived"
+                          ? "Sandbox · Archived"
                         : "Sandbox · Unknown"}
                 </p>
                 <button

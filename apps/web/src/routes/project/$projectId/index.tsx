@@ -28,10 +28,12 @@ import {
   Loader2,
   MessageSquare,
   MessageSquarePlus,
+  Archive,
   Play,
   Search,
   Square,
   Trash2,
+  Video,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
@@ -151,6 +153,7 @@ function ProjectOverviewPage() {
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
+  const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const startSandbox = useAction(api.projectActions.startSandbox);
   const stopSandbox = useAction(api.projectActions.stopSandbox);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
@@ -162,11 +165,13 @@ function ProjectOverviewPage() {
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
+  const [demoEnabled, setDemoEnabled] = useState(false);
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
-  const [sandboxRuntimeStatus, setSandboxRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
+  const [sandboxRuntimeStatus, setSandboxRuntimeStatus] = useState<"started" | "stopped" | "archived" | "unknown" | undefined>();
+  const [isCheckingSandboxRuntime, setIsCheckingSandboxRuntime] = useState(false);
   const [isTogglingSandbox, setIsTogglingSandbox] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -224,6 +229,30 @@ function ProjectOverviewPage() {
   const displayedError = error ?? branchesError;
   const effectiveSandboxRuntimeStatus = sandboxRuntimeStatus ?? project?.sandboxRuntimeStatus;
   const isSandboxStarted = effectiveSandboxRuntimeStatus === "started";
+  const sandboxRuntimeButton = (() => {
+    if (isTogglingSandbox) {
+      return { icon: Loader2, label: "Updating Sandbox", variant: "outline" as const };
+    }
+
+    if (isCheckingSandboxRuntime) {
+      return { icon: Loader2, label: "Checking Sandbox", variant: "outline" as const };
+    }
+
+    if (effectiveSandboxRuntimeStatus === "started") {
+      return { icon: Square, label: "Stop Sandbox", variant: "outline" as const };
+    }
+
+    if (effectiveSandboxRuntimeStatus === "archived") {
+      return { icon: Archive, label: "Start Archived Sandbox", variant: "secondary" as const };
+    }
+
+    if (effectiveSandboxRuntimeStatus === "unknown") {
+      return { icon: Play, label: "Start Sandbox (Unknown)", variant: "default" as const };
+    }
+
+    return { icon: Play, label: "Start Sandbox", variant: "default" as const };
+  })();
+  const SandboxRuntimeButtonIcon = sandboxRuntimeButton.icon;
 
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
@@ -231,7 +260,7 @@ function ProjectOverviewPage() {
     setIsCreatingThread(true);
     setError(undefined);
     try {
-      const threadId = await createThread({ projectId, title: prompt || "New thread" });
+      const threadId = await createThread({ projectId, title: prompt || "New thread", demoEnabled });
       const search = prompt
         ? { prompt, model: selectedModel, reasoningEffort: selectedReasoningEffort }
         : { model: selectedModel, reasoningEffort: selectedReasoningEffort };
@@ -241,7 +270,7 @@ function ProjectOverviewPage() {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
       setIsCreatingThread(false);
     }
-  }, [project, projectId, promptValue, selectedModel, selectedReasoningEffort, createThread, router, navigate]);
+  }, [project, projectId, promptValue, demoEnabled, selectedModel, selectedReasoningEffort, createThread, router, navigate]);
 
   const handlePromptSubmit = useCallback(
     (event: React.FormEvent) => {
@@ -316,6 +345,33 @@ function ProjectOverviewPage() {
     setSelectedBranch(currentBranch);
     setSandboxRuntimeStatus(project.sandboxRuntimeStatus);
   }, [currentBranch, project]);
+
+  useEffect(() => {
+    if (!project || project.sandboxStatus !== "ready") return;
+    let cancelled = false;
+
+    setIsCheckingSandboxRuntime(true);
+    void getSandboxRuntimeStatus({ projectId, forceRefresh: true })
+      .then((result) => {
+        if (!cancelled) {
+          setSandboxRuntimeStatus(result.status);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSandboxRuntimeStatus("unknown");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCheckingSandboxRuntime(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getSandboxRuntimeStatus, project?.sandboxStatus, projectId]);
 
   useEffect(() => {
     if (!selectedReasoningEfforts.includes(selectedReasoningEffort)) {
@@ -393,12 +449,15 @@ function ProjectOverviewPage() {
                             >
                               <SelectValue placeholder={isLoadingBranches ? "Loading branches" : currentBranch} />
                             </SelectTrigger>
-                            <SelectContent align="center" className="max-h-72">
+                            <SelectContent
+                              align="center"
+                              className="max-h-72 w-[min(calc(100vw-2rem),28rem)] min-w-72"
+                            >
                               {branches.map((branch) => (
                                 <SelectItem key={branch.sha} value={branch.name}>
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <GitBranch className="size-3.5" aria-hidden="true" />
-                                    <span className="truncate font-mono">{branch.name}</span>
+                                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                                    <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
+                                    <span className="min-w-0 truncate font-mono">{branch.name}</span>
                                   </span>
                                 </SelectItem>
                               ))}
@@ -439,7 +498,7 @@ function ProjectOverviewPage() {
                           </div>
 
                           <div className="flex items-center justify-between gap-2 px-3 py-2">
-                            <div className="flex min-w-0 items-center gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
                               <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as CodexModelId)}>
                               <SelectTrigger
                                 size="sm"
@@ -476,6 +535,22 @@ function ProjectOverviewPage() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={demoEnabled}
+                              onClick={() => setDemoEnabled((enabled) => !enabled)}
+                              disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                              title={demoEnabled ? "Demo enabled for new threads" : "Allow the agent to record a demo for new threads"}
+                              className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                demoEnabled
+                                  ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
+                                  : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                              }`}
+                            >
+                              <Video className="size-3.5" aria-hidden="true" />
+                              <span>Demo</span>
+                            </button>
                             </div>
                             <button
                               type="submit"
@@ -491,20 +566,17 @@ function ProjectOverviewPage() {
                       <div className="mt-3 flex justify-center">
                         <Button
                           type="button"
-                          variant={isSandboxStarted ? "outline" : "default"}
+                          variant={sandboxRuntimeButton.variant}
                           size="sm"
                           onClick={() => void toggleSandboxRuntime()}
-                          disabled={project.sandboxStatus !== "ready" || isTogglingSandbox}
+                          disabled={project.sandboxStatus !== "ready" || isTogglingSandbox || isCheckingSandboxRuntime}
                           className="h-8 gap-2 font-mono text-[11px]"
                         >
-                          {isTogglingSandbox ? (
-                            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                          ) : isSandboxStarted ? (
-                            <Square className="size-3.5" aria-hidden="true" />
-                          ) : (
-                            <Play className="size-3.5" aria-hidden="true" />
-                          )}
-                          {isSandboxStarted ? "Stop Sandbox" : "Start Sandbox"}
+                          <SandboxRuntimeButtonIcon
+                            className={`size-3.5 ${isTogglingSandbox || isCheckingSandboxRuntime ? "animate-spin" : ""}`}
+                            aria-hidden="true"
+                          />
+                          {sandboxRuntimeButton.label}
                         </Button>
                       </div>
 
@@ -575,7 +647,7 @@ function ProjectOverviewPage() {
                     </div>
                   ) : null}
 
-                  <div className="mx-auto w-full max-w-[600px] px-5 pt-2 pb-12">
+                  <div id="project-threads" className="scroll-mt-4 mx-auto w-full max-w-[600px] px-5 pt-2 pb-12">
                     <div className="mb-3 flex items-center gap-2">
                       <div className="flex items-center gap-2">
                         {openThreads.length > 0 ? (

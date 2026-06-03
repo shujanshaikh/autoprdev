@@ -1,6 +1,6 @@
 import { cn } from "@autopr/ui/lib/utils";
 import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
-import { Bot, ChevronDown } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -19,6 +19,7 @@ import {
   ToolOutput,
   ExploreToolRow,
   isExploreTool,
+  isComputerRecordingTool,
   toolSlugFromPart,
   type ToolPart,
 } from "@/components/ai-elements/tool";
@@ -59,15 +60,12 @@ function ExploreToolGroup({
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="my-1.5 w-full min-w-0 font-mono text-[11px] leading-tight text-muted-foreground/50">
+    <div className="my-1.5 w-full min-w-0 font-mono text-xs leading-tight text-muted-foreground/50">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         className="group/explore flex w-full cursor-pointer items-center gap-1.5 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
-        <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground/40 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}
-        />
         <span className="font-medium text-muted-foreground/70">{anyStreaming ? "Exploring" : "Explored"}</span>
         <span className="text-muted-foreground/40">
           {summaryParts.join(", ")}
@@ -129,7 +127,7 @@ export function SandboxStatusBar({
   checking = false,
 }: {
   sandboxStatus?: "creating" | "ready" | "failed";
-  runtimeStatus?: "started" | "stopped" | "unknown";
+  runtimeStatus?: "started" | "stopped" | "archived" | "unknown";
   checking?: boolean;
 }) {
   const vmLabel = sandboxStatus === "ready" ? runtimeStatus ?? "unknown" : sandboxStatus ?? "unknown";
@@ -142,6 +140,8 @@ export function SandboxStatusBar({
           ? "bg-emerald-500"
           : runtimeStatus === "stopped"
             ? "bg-zinc-500"
+            : runtimeStatus === "archived"
+              ? "bg-sky-500"
             : "bg-muted-foreground/60";
 
   return (
@@ -308,18 +308,36 @@ export function ThreadMessages({
                   const input = "input" in part ? part.input : undefined;
                   const output = "output" in part ? part.output : undefined;
                   const errorText = "errorText" in part ? part.errorText : undefined;
+                  const toolName = part.type === "dynamic-tool" ? getToolName(part) : undefined;
+                  const toolSlug = toolSlugFromPart(part.type, toolName);
+
+                  if (
+                    toolSlug === "computer" &&
+                    !isComputerRecordingTool(input, output, partState)
+                  ) {
+                    return null;
+                  }
   
                   return (
-                    <Tool key={`${message.id}-tool-${stableKey}`} defaultOpen={partState !== "output-available"}>
+                    <Tool
+                      key={`${message.id}-tool-${stableKey}`}
+                      className={cn(
+                        toolSlug === "bash" &&
+                          "my-1.5 rounded-none border border-border bg-card text-muted-foreground shadow-none"
+                      )}
+                      data-tool={toolSlug}
+                      defaultOpen={partState !== "output-available"}
+                    >
                       {part.type === "dynamic-tool" ? (
                         <ToolHeader
                           input={input}
+                          output={output}
                           state={partState}
-                          toolName={getToolName(part)}
+                          toolName={toolName!}
                           type={part.type}
                         />
                       ) : (
-                        <ToolHeader input={input} state={partState} type={part.type} />
+                        <ToolHeader input={input} output={output} state={partState} type={part.type} />
                       )}
                       <ToolContent>
                         {input !== undefined ? (

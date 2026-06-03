@@ -1,4 +1,5 @@
 import { createDaytonaBashTool } from "./bash";
+import { createDaytonaComputerTool, type DaytonaComputerToolOptions } from "./computer";
 import { createDaytonaEditTool } from "./edit";
 import { createDaytonaFindTool } from "./find";
 import { createDaytonaGrepTool } from "./grep";
@@ -8,8 +9,15 @@ import { createDaytonaSandboxInfoTool } from "./sandbox-info";
 import { createDaytonaWriteTool } from "./write";
 import type { SandboxSessionOptions } from "../sandbox";
 
-export function createDaytonaTools(sandboxOptions: SandboxSessionOptions) {
-  return {
+export interface DaytonaToolsOptions {
+  computer?: false | DaytonaComputerToolOptions;
+}
+
+export function createDaytonaTools(
+  sandboxOptions: SandboxSessionOptions,
+  options: DaytonaToolsOptions = {},
+) {
+  const tools = {
     sandboxInfo: createDaytonaSandboxInfoTool(sandboxOptions),
     read: createDaytonaReadTool(sandboxOptions),
     ls: createDaytonaLsTool(sandboxOptions),
@@ -19,6 +27,16 @@ export function createDaytonaTools(sandboxOptions: SandboxSessionOptions) {
     write: createDaytonaWriteTool(sandboxOptions),
     bash: createDaytonaBashTool(sandboxOptions),
   };
+
+  if (!options.computer) {
+    return tools;
+  }
+
+  return {
+    ...tools,
+    computer: createDaytonaComputerTool(sandboxOptions, options.computer),
+  };
 }
 
 export type DaytonaTools = ReturnType<typeof createDaytonaTools>;
+export type { DaytonaComputerToolOptions };

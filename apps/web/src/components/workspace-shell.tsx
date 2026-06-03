@@ -65,11 +65,10 @@ import {
 } from "react";
 
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
-import { BillingHistory } from "#/components/dashboard/billing-history";
-import { CodexConnectDialog } from "#/components/dashboard/codex-connect-dialog";
+import { SettingsDialog } from "#/components/settings/settings-dialog";
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
-import { CodexLogo } from "#/components/icons/codex-logo";
+import { ModeToggle } from "#/components/mode-toggle";
 import {
   readJson,
   statusStyles,
@@ -374,87 +373,6 @@ function ProjectSummaryRow({ project }: { project: WorkspaceProject }) {
   );
 }
 
-function WorkspaceSettingsDialog({
-  open,
-  onOpenChange,
-  projects,
-  sandboxCosts,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  projects: WorkspaceProject[] | undefined;
-  sandboxCosts: WorkspaceSandboxCost[] | undefined;
-}) {
-  const projectCount = projects?.length ?? 0;
-  const readyCount = projects?.filter((project) => project.sandboxStatus === "ready").length ?? 0;
-  const runningCount = projects?.filter((project) => project.sandboxRuntimeStatus === "started").length ?? 0;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(46rem,calc(100svh-2rem))] overflow-hidden p-0 sm:max-w-5xl">
-        <DialogHeader className="border-b border-border px-4 py-3">
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Project status, recent sandboxes, and billing history.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="minimal-scrollbar min-h-0 overflow-y-auto p-4">
-          <div className="flex flex-col gap-4">
-            <section className="grid gap-3 sm:grid-cols-3">
-              <div className="border border-border bg-card px-4 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  total
-                </p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{projectCount}</p>
-              </div>
-              <div className="border border-border bg-card px-4 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  ready
-                </p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{readyCount}</p>
-              </div>
-              <div className="border border-border bg-card px-4 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  running
-                </p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{runningCount}</p>
-              </div>
-            </section>
-
-            <section className="border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-4 py-2">
-                <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                  Recent projects
-                </h2>
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
-                  sidebar synced
-                </span>
-              </div>
-              {projects === undefined ? (
-                <div className="flex min-h-28 items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  Loading projects
-                </div>
-              ) : projects.length === 0 ? (
-                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No sandboxes yet.
-                </div>
-              ) : (
-                <div>
-                  {projects.slice(0, 8).map((project) => (
-                    <ProjectSummaryRow key={project.projectId} project={project} />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <BillingHistory rows={sandboxCosts} />
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function WorkspaceSidebar({
   projects,
@@ -463,7 +381,6 @@ function WorkspaceSidebar({
   activeProjectThreads,
   onCreateProject,
   onDeleteProject,
-  onOpenCodex,
   onOpenSettings,
 }: {
   projects: WorkspaceProject[] | undefined;
@@ -472,7 +389,6 @@ function WorkspaceSidebar({
   activeProjectThreads: WorkspaceThread[] | undefined;
   onCreateProject: () => void;
   onDeleteProject: (projectId: string) => void;
-  onOpenCodex: () => void;
   onOpenSettings: () => void;
 }) {
   const navigate = useNavigate();
@@ -482,6 +398,7 @@ function WorkspaceSidebar({
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<WorkspaceThread | undefined>();
   const [expandedProjectId, setExpandedProjectId] = useState<string | undefined>(activeProjectId);
+  const [showAllThreadsProjectIds, setShowAllThreadsProjectIds] = useState<Set<string>>(() => new Set());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const expandedProjectThreads = useQuery(
@@ -521,15 +438,27 @@ function WorkspaceSidebar({
 
   const SIDEBAR_MAX_THREADS = 6;
 
-  const getSidebarThreads = useCallback((sourceThreads: WorkspaceThread[] | undefined) => {
+  const getSidebarThreads = useCallback((projectId: string, sourceThreads: WorkspaceThread[] | undefined) => {
     if (!sourceThreads) return { visibleThreads: undefined, totalThreadCount: 0 };
     const threads = normalizedSearch
       ? sourceThreads.filter((thread) =>
         `${thread.title ?? ""} ${thread.threadId}`.toLowerCase().includes(normalizedSearch),
       )
       : sourceThreads;
-    return { visibleThreads: threads.slice(0, SIDEBAR_MAX_THREADS), totalThreadCount: threads.length };
-  }, [normalizedSearch]);
+    const visibleThreads = showAllThreadsProjectIds.has(projectId)
+      ? threads
+      : threads.slice(0, SIDEBAR_MAX_THREADS);
+
+    return { visibleThreads, totalThreadCount: threads.length };
+  }, [normalizedSearch, showAllThreadsProjectIds]);
+
+  function showAllProjectThreads(projectId: string) {
+    setShowAllThreadsProjectIds((current) => {
+      const next = new Set(current);
+      next.add(projectId);
+      return next;
+    });
+  }
 
   function handleProjectNewChat(event: MouseEvent<HTMLButtonElement>, projectId: string) {
     event.preventDefault();
@@ -650,7 +579,7 @@ function WorkspaceSidebar({
                     const expanded = project.projectId === expandedProjectId;
                     const projectThreads =
                       active ? activeProjectThreads : expanded ? expandedProjectThreads : undefined;
-                    const { visibleThreads, totalThreadCount } = getSidebarThreads(projectThreads);
+                    const { visibleThreads, totalThreadCount } = getSidebarThreads(project.projectId, projectThreads);
                     const { name } = projectParts(project.repoFullName);
                     return (
                       <SidebarMenuItem key={project.projectId} className="mb-1">
@@ -764,14 +693,14 @@ function WorkspaceSidebar({
                                     );
                                   })}
                                 </ul>
-                                {totalThreadCount > SIDEBAR_MAX_THREADS ? (
-                                  <Link
-                                    to="/project/$projectId"
-                                    params={{ projectId: project.projectId }}
+                                {totalThreadCount > SIDEBAR_MAX_THREADS && !showAllThreadsProjectIds.has(project.projectId) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => showAllProjectThreads(project.projectId)}
                                     className="block py-1.5 pl-8 text-[13px] text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/55"
                                   >
                                     See all ({totalThreadCount})
-                                  </Link>
+                                  </button>
                                 ) : null}
                               </>
                             )}
@@ -788,17 +717,6 @@ function WorkspaceSidebar({
 
         <SidebarFooter className="border-t border-sidebar-border/70 p-2">
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                type="button"
-                tooltip="Codex"
-                onClick={onOpenCodex}
-                className="h-8 gap-2 px-2 text-sidebar-foreground/75"
-              >
-                <CodexLogo className="size-4 text-sidebar-foreground/55" />
-                <span className="group-data-[collapsible=icon]:hidden">Codex</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
             <SidebarMenuItem>
               <div className="flex h-9 items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center">
                 <button
@@ -818,7 +736,13 @@ function WorkspaceSidebar({
                 >
                   <Settings className="size-4" aria-hidden="true" />
                 </button>
+                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden" />
                 <WorkOSUserButton className="size-8 group-data-[collapsible=icon]:hidden" />
+              </div>
+            </SidebarMenuItem>
+            <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
+              <div className="flex h-9 items-center justify-center">
+                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
               </div>
             </SidebarMenuItem>
             <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
@@ -886,7 +810,6 @@ export function WorkspaceShell({
   ) as WorkspaceSandboxCost[] | undefined;
   const removeProjectWithSandbox = useAction(api.projectActions.removeWithSandbox);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isCodexDialogOpen, setIsCodexDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
   const [isDeletingProject, setIsDeletingProject] = useState(false);
@@ -952,7 +875,6 @@ export function WorkspaceShell({
           activeProjectThreads={sidebarThreads}
           onCreateProject={() => setIsCreateDialogOpen(true)}
           onDeleteProject={(projectId) => setProjectIdToDelete(projectId)}
-          onOpenCodex={() => setIsCodexDialogOpen(true)}
           onOpenSettings={() => setIsSettingsDialogOpen(true)}
         />
         <SidebarInset className="min-w-0 overflow-hidden">
@@ -980,16 +902,12 @@ export function WorkspaceShell({
             {deleteError}
           </div>
         ) : null}
-        <CodexConnectDialog
-          open={isCodexDialogOpen}
-          status={codexStatusQuery.data}
-          onOpenChange={setIsCodexDialogOpen}
-          onStatusChange={() => void codexStatusQuery.refetch()}
-        />
-        <WorkspaceSettingsDialog
+        <SettingsDialog
           open={isSettingsDialogOpen}
           projects={projects}
           sandboxCosts={sandboxCosts}
+          codexStatus={codexStatusQuery.data}
+          onCodexStatusChange={() => void codexStatusQuery.refetch()}
           onOpenChange={setIsSettingsDialogOpen}
         />
       </SidebarProvider>

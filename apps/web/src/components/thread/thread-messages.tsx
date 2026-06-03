@@ -127,7 +127,7 @@ export function SandboxStatusBar({
   checking = false,
 }: {
   sandboxStatus?: "creating" | "ready" | "failed";
-  runtimeStatus?: "started" | "stopped" | "unknown";
+  runtimeStatus?: "started" | "stopped" | "archived" | "unknown";
   checking?: boolean;
 }) {
   const vmLabel = sandboxStatus === "ready" ? runtimeStatus ?? "unknown" : sandboxStatus ?? "unknown";
@@ -140,6 +140,8 @@ export function SandboxStatusBar({
           ? "bg-emerald-500"
           : runtimeStatus === "stopped"
             ? "bg-zinc-500"
+            : runtimeStatus === "archived"
+              ? "bg-sky-500"
             : "bg-muted-foreground/60";
 
   return (

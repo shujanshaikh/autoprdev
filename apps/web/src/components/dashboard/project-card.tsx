@@ -106,7 +106,13 @@ export function ProjectRow({
               <span
                 className={cn(
                   "absolute -bottom-1 h-0.5 w-3 rounded-full",
-                  runtimeStatus === "started" ? "bg-emerald-500" : runtimeStatus === "stopped" ? "bg-zinc-500" : styles.dot,
+                  runtimeStatus === "started"
+                    ? "bg-emerald-500"
+                    : runtimeStatus === "stopped"
+                      ? "bg-zinc-500"
+                      : runtimeStatus === "archived"
+                        ? "bg-sky-500"
+                        : styles.dot,
                   sandboxStatus === "creating" && "animate-pulse",
                 )}
               />

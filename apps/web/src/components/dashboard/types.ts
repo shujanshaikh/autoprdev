@@ -17,7 +17,7 @@ export type GithubBranch = {
 };
 
 export type SandboxStatus = "creating" | "ready" | "failed";
-export type SandboxRuntimeStatus = "started" | "stopped" | "unknown";
+export type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
 
 export function statusStyles(status: SandboxStatus) {
   if (status === "ready") {

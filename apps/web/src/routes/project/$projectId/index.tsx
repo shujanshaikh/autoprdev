@@ -28,6 +28,7 @@ import {
   Loader2,
   MessageSquare,
   MessageSquarePlus,
+  Archive,
   Play,
   Search,
   Square,
@@ -152,6 +153,7 @@ function ProjectOverviewPage() {
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
+  const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const startSandbox = useAction(api.projectActions.startSandbox);
   const stopSandbox = useAction(api.projectActions.stopSandbox);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
@@ -168,7 +170,8 @@ function ProjectOverviewPage() {
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
-  const [sandboxRuntimeStatus, setSandboxRuntimeStatus] = useState<"started" | "stopped" | "unknown" | undefined>();
+  const [sandboxRuntimeStatus, setSandboxRuntimeStatus] = useState<"started" | "stopped" | "archived" | "unknown" | undefined>();
+  const [isCheckingSandboxRuntime, setIsCheckingSandboxRuntime] = useState(false);
   const [isTogglingSandbox, setIsTogglingSandbox] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -226,6 +229,30 @@ function ProjectOverviewPage() {
   const displayedError = error ?? branchesError;
   const effectiveSandboxRuntimeStatus = sandboxRuntimeStatus ?? project?.sandboxRuntimeStatus;
   const isSandboxStarted = effectiveSandboxRuntimeStatus === "started";
+  const sandboxRuntimeButton = (() => {
+    if (isTogglingSandbox) {
+      return { icon: Loader2, label: "Updating Sandbox", variant: "outline" as const };
+    }
+
+    if (isCheckingSandboxRuntime) {
+      return { icon: Loader2, label: "Checking Sandbox", variant: "outline" as const };
+    }
+
+    if (effectiveSandboxRuntimeStatus === "started") {
+      return { icon: Square, label: "Stop Sandbox", variant: "outline" as const };
+    }
+
+    if (effectiveSandboxRuntimeStatus === "archived") {
+      return { icon: Archive, label: "Start Archived Sandbox", variant: "secondary" as const };
+    }
+
+    if (effectiveSandboxRuntimeStatus === "unknown") {
+      return { icon: Play, label: "Start Sandbox (Unknown)", variant: "default" as const };
+    }
+
+    return { icon: Play, label: "Start Sandbox", variant: "default" as const };
+  })();
+  const SandboxRuntimeButtonIcon = sandboxRuntimeButton.icon;
 
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
@@ -318,6 +345,33 @@ function ProjectOverviewPage() {
     setSelectedBranch(currentBranch);
     setSandboxRuntimeStatus(project.sandboxRuntimeStatus);
   }, [currentBranch, project]);
+
+  useEffect(() => {
+    if (!project || project.sandboxStatus !== "ready") return;
+    let cancelled = false;
+
+    setIsCheckingSandboxRuntime(true);
+    void getSandboxRuntimeStatus({ projectId, forceRefresh: true })
+      .then((result) => {
+        if (!cancelled) {
+          setSandboxRuntimeStatus(result.status);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSandboxRuntimeStatus("unknown");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCheckingSandboxRuntime(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getSandboxRuntimeStatus, project?.sandboxStatus, projectId]);
 
   useEffect(() => {
     if (!selectedReasoningEfforts.includes(selectedReasoningEffort)) {
@@ -509,20 +563,17 @@ function ProjectOverviewPage() {
                       <div className="mt-3 flex justify-center">
                         <Button
                           type="button"
-                          variant={isSandboxStarted ? "outline" : "default"}
+                          variant={sandboxRuntimeButton.variant}
                           size="sm"
                           onClick={() => void toggleSandboxRuntime()}
-                          disabled={project.sandboxStatus !== "ready" || isTogglingSandbox}
+                          disabled={project.sandboxStatus !== "ready" || isTogglingSandbox || isCheckingSandboxRuntime}
                           className="h-8 gap-2 font-mono text-[11px]"
                         >
-                          {isTogglingSandbox ? (
-                            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                          ) : isSandboxStarted ? (
-                            <Square className="size-3.5" aria-hidden="true" />
-                          ) : (
-                            <Play className="size-3.5" aria-hidden="true" />
-                          )}
-                          {isSandboxStarted ? "Stop Sandbox" : "Start Sandbox"}
+                          <SandboxRuntimeButtonIcon
+                            className={`size-3.5 ${isTogglingSandbox || isCheckingSandboxRuntime ? "animate-spin" : ""}`}
+                            aria-hidden="true"
+                          />
+                          {sandboxRuntimeButton.label}
                         </Button>
                       </div>
 

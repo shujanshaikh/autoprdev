@@ -67,7 +67,7 @@ interface PtyTerminalResult {
   cwd: string;
 }
 
-type SandboxRuntimeStatus = "started" | "stopped" | "unknown";
+type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
 
 interface SandboxRuntimeStatusResult {
   status: SandboxRuntimeStatus;
@@ -223,7 +223,8 @@ function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
   if (typeof state !== "string") return "unknown";
   const normalized = state.toLowerCase();
   if (normalized === "started" || normalized === "running") return "started";
-  if (normalized === "stopped" || normalized === "stopping" || normalized === "archived") return "stopped";
+  if (normalized === "archived") return "archived";
+  if (normalized === "stopped" || normalized === "stopping") return "stopped";
   return "unknown";
 }
 
@@ -457,9 +458,10 @@ export const listSandboxFiles = action({
 export const getSandboxRuntimeStatus = action({
   args: {
     projectId: v.string(),
+    forceRefresh: v.optional(v.boolean()),
   },
   returns: v.object({
-    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown")),
+    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("archived"), v.literal("unknown")),
     rawState: v.optional(v.string()),
     checkedAt: v.number(),
   }),
@@ -478,6 +480,7 @@ export const getSandboxRuntimeStatus = action({
 
     const now = Date.now();
     if (
+      !args.forceRefresh &&
       project.sandboxRuntimeStatus &&
       project.sandboxRuntimeCheckedAt &&
       now - project.sandboxRuntimeCheckedAt < SANDBOX_RUNTIME_STATUS_CACHE_MS
@@ -510,7 +513,7 @@ export const startSandbox = action({
     projectId: v.string(),
   },
   returns: v.object({
-    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("unknown")),
+    status: v.union(v.literal("started"), v.literal("stopped"), v.literal("archived"), v.literal("unknown")),
   }),
   handler: async (ctx, args): Promise<{ status: SandboxRuntimeStatus }> => {
     const identity = await ctx.auth.getUserIdentity();

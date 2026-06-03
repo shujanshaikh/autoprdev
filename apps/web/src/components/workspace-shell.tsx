@@ -398,6 +398,7 @@ function WorkspaceSidebar({
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<WorkspaceThread | undefined>();
   const [expandedProjectId, setExpandedProjectId] = useState<string | undefined>(activeProjectId);
+  const [showAllThreadsProjectIds, setShowAllThreadsProjectIds] = useState<Set<string>>(() => new Set());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const expandedProjectThreads = useQuery(
@@ -437,18 +438,26 @@ function WorkspaceSidebar({
 
   const SIDEBAR_MAX_THREADS = 6;
 
-  const getSidebarThreads = useCallback((sourceThreads: WorkspaceThread[] | undefined) => {
+  const getSidebarThreads = useCallback((projectId: string, sourceThreads: WorkspaceThread[] | undefined) => {
     if (!sourceThreads) return { visibleThreads: undefined, totalThreadCount: 0 };
     const threads = normalizedSearch
       ? sourceThreads.filter((thread) =>
         `${thread.title ?? ""} ${thread.threadId}`.toLowerCase().includes(normalizedSearch),
       )
       : sourceThreads;
-    return { visibleThreads: threads.slice(0, SIDEBAR_MAX_THREADS), totalThreadCount: threads.length };
-  }, [normalizedSearch]);
+    const visibleThreads = showAllThreadsProjectIds.has(projectId)
+      ? threads
+      : threads.slice(0, SIDEBAR_MAX_THREADS);
 
-  function scrollProjectThreadsIntoView() {
-    document.getElementById("project-threads")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return { visibleThreads, totalThreadCount: threads.length };
+  }, [normalizedSearch, showAllThreadsProjectIds]);
+
+  function showAllProjectThreads(projectId: string) {
+    setShowAllThreadsProjectIds((current) => {
+      const next = new Set(current);
+      next.add(projectId);
+      return next;
+    });
   }
 
   function handleProjectNewChat(event: MouseEvent<HTMLButtonElement>, projectId: string) {
@@ -570,7 +579,7 @@ function WorkspaceSidebar({
                     const expanded = project.projectId === expandedProjectId;
                     const projectThreads =
                       active ? activeProjectThreads : expanded ? expandedProjectThreads : undefined;
-                    const { visibleThreads, totalThreadCount } = getSidebarThreads(projectThreads);
+                    const { visibleThreads, totalThreadCount } = getSidebarThreads(project.projectId, projectThreads);
                     const { name } = projectParts(project.repoFullName);
                     return (
                       <SidebarMenuItem key={project.projectId} className="mb-1">
@@ -684,20 +693,14 @@ function WorkspaceSidebar({
                                     );
                                   })}
                                 </ul>
-                                {totalThreadCount > SIDEBAR_MAX_THREADS ? (
-                                  <Link
-                                    to="/project/$projectId"
-                                    params={{ projectId: project.projectId }}
-                                    hash="project-threads"
-                                    onClick={() => {
-                                      if (active) {
-                                        scrollProjectThreadsIntoView();
-                                      }
-                                    }}
+                                {totalThreadCount > SIDEBAR_MAX_THREADS && !showAllThreadsProjectIds.has(project.projectId) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => showAllProjectThreads(project.projectId)}
                                     className="block py-1.5 pl-8 text-[13px] text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/55"
                                   >
                                     See all ({totalThreadCount})
-                                  </Link>
+                                  </button>
                                 ) : null}
                               </>
                             )}

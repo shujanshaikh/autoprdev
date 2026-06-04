@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createReadStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { open, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -28,6 +28,14 @@ type DaytonaRecording = {
   sizeBytes?: number;
 };
 
+type ByteRange = {
+  start: number;
+  end: number;
+};
+
+const RECORDING_DOWNLOAD_ATTEMPTS = 4;
+const RECORDING_DOWNLOAD_RETRY_MS = 700;
+
 const postRequestSchema = z.object({
   action: z.literal("commit"),
   push: z.boolean().optional(),
@@ -38,6 +46,75 @@ function safeRecordingFilename(recordingId: string, fileName?: string) {
   return candidate.replace(/[^a-zA-Z0-9._-]/g, "_") || `${recordingId}.mp4`;
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function contentTypeFromFilename(filename: string) {
+  const lower = filename.toLowerCase();
+
+  if (lower.endsWith(".webm")) {
+    return "video/webm";
+  }
+
+  if (lower.endsWith(".mov")) {
+    return "video/quicktime";
+  }
+
+  return "video/mp4";
+}
+
+async function sniffRecordingContentType(tempPath: string, filename: string) {
+  const handle = await open(tempPath, "r");
+
+  try {
+    const header = Buffer.alloc(16);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    const bytes = header.subarray(0, bytesRead);
+
+    if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+      return "video/webm";
+    }
+
+    if (bytes.length >= 12 && bytes.toString("ascii", 4, 8) === "ftyp") {
+      return "video/mp4";
+    }
+  } finally {
+    await handle.close();
+  }
+
+  return contentTypeFromFilename(filename);
+}
+
+async function downloadRecordingWithRetry(recording: {
+  download: (recordingId: string, path: string) => Promise<unknown>;
+}, recordingId: string, tempPath: string) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= RECORDING_DOWNLOAD_ATTEMPTS; attempt++) {
+    try {
+      await recording.download(recordingId, tempPath);
+      const fileStat = await stat(tempPath);
+
+      if (fileStat.size > 0) {
+        return fileStat;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < RECORDING_DOWNLOAD_ATTEMPTS) {
+      await delay(RECORDING_DOWNLOAD_RETRY_MS);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error("Recording was downloaded as an empty file.");
+}
+
 async function createRecordingPreview(options: {
   sandboxId: string;
   recordingId: string;
@@ -45,7 +122,9 @@ async function createRecordingPreview(options: {
   recording: DaytonaRecording;
   filename: string;
   contentType: string;
-  stream: ReadableStream<Uint8Array>;
+  sizeBytes: number;
+  stream: (range?: ByteRange) => ReadableStream<Uint8Array>;
+  cleanup: () => Promise<void>;
 }> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const recording = await sandbox.computerUse.recording.get(options.recordingId) as DaytonaRecording;
@@ -53,27 +132,85 @@ async function createRecordingPreview(options: {
   const tempDir = await mkdtemp(join(tmpdir(), "autopr-recording-"));
   const tempPath = join(tempDir, filename);
 
-  await sandbox.computerUse.recording.download(options.recordingId, tempPath);
-
-  const nodeStream = createReadStream(tempPath);
-  const cleanup = () => {
-    void rm(tempDir, { recursive: true, force: true });
-  };
-
-  nodeStream.on("close", cleanup);
-  nodeStream.on("error", cleanup);
+  const fileStat = await downloadRecordingWithRetry(
+    sandbox.computerUse.recording,
+    options.recordingId,
+    tempPath,
+  );
+  const contentType = await sniffRecordingContentType(tempPath, filename);
 
   return {
     recording,
     filename,
-    contentType: "video/mp4",
-    stream: Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>,
+    contentType,
+    sizeBytes: fileStat.size,
+    stream: (range) => {
+      const nodeStream = createReadStream(tempPath, range);
+      const cleanup = () => {
+        void rm(tempDir, { recursive: true, force: true });
+      };
+
+      nodeStream.on("close", cleanup);
+      nodeStream.on("error", cleanup);
+
+      return Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
+    },
+    cleanup: () => rm(tempDir, { recursive: true, force: true }),
   };
 }
 
 function contentDisposition(filename: string) {
   const fallback = filename.replace(/["\\\r\n]/g, "_");
   return `inline; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+function parseRangeHeader(rangeHeader: string | null, sizeBytes: number): ByteRange | "invalid" | null {
+  if (!rangeHeader) {
+    return null;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+
+  if (!match) {
+    return "invalid";
+  }
+
+  const [, rawStart, rawEnd] = match;
+
+  if (!rawStart && !rawEnd) {
+    return "invalid";
+  }
+
+  if (!rawStart) {
+    const suffixLength = Number(rawEnd);
+
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+      return "invalid";
+    }
+
+    return {
+      start: Math.max(sizeBytes - suffixLength, 0),
+      end: sizeBytes - 1,
+    };
+  }
+
+  const start = Number(rawStart);
+  const end = rawEnd ? Number(rawEnd) : sizeBytes - 1;
+
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end < start ||
+    start >= sizeBytes
+  ) {
+    return "invalid";
+  }
+
+  return {
+    start,
+    end: Math.min(end, sizeBytes - 1),
+  };
 }
 
 function errorMessage(error: unknown) {
@@ -136,12 +273,45 @@ async function GET(
       sandboxId: project.sandboxId,
       recordingId,
     });
-    return new Response(preview.stream, {
+
+    const range = parseRangeHeader(req.headers.get("range"), preview.sizeBytes);
+
+    if (range === "invalid") {
+      await preview.cleanup();
+
+      return new Response(null, {
+        status: 416,
+        headers: {
+          "Accept-Ranges": "bytes",
+          "Content-Range": `bytes */${preview.sizeBytes}`,
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+
+    if (range) {
+      const contentLength = range.end - range.start + 1;
+
+      return new Response(preview.stream(range), {
+        status: 206,
+        headers: {
+          "Content-Type": preview.contentType,
+          "Content-Disposition": contentDisposition(preview.filename),
+          "Accept-Ranges": "bytes",
+          "Content-Range": `bytes ${range.start}-${range.end}/${preview.sizeBytes}`,
+          "Content-Length": String(contentLength),
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+
+    return new Response(preview.stream(), {
       headers: {
         "Content-Type": preview.contentType,
         "Content-Disposition": contentDisposition(preview.filename),
+        "Accept-Ranges": "bytes",
         "Cache-Control": "private, no-store",
-        ...(preview.recording.sizeBytes ? { "Content-Length": String(preview.recording.sizeBytes) } : {}),
+        "Content-Length": String(preview.sizeBytes),
       },
     });
   } catch (error) {

@@ -49,7 +49,7 @@
     "motion": "^12.38.0",
     "nanoid": "^5.1.9",
     "next-themes": "catalog:",
-    "nitro": "npm:nitro-nightly@latest",
+    "nitro": "3.0.260522-beta",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "shiki": "^4.0.2",

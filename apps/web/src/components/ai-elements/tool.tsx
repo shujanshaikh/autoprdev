@@ -423,14 +423,32 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
 }
 
 function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    setRetryCount(0);
+  }, [recording.url]);
+
+  const retryVideoLoad = useCallback(() => {
+    setRetryCount((current) => (current < 3 ? current + 1 : current));
+  }, []);
+
+  const src = retryCount > 0 && recording.url
+    ? `${recording.url}${recording.url.includes("?") ? "&" : "?"}retry=${retryCount}`
+    : recording.url;
+
   return (
     <div className="overflow-hidden border border-border/60 bg-card">
-      {recording.url ? (
+      {src ? (
         <video
+          key={src}
           className="aspect-video w-full bg-black"
           controls
-          preload="metadata"
-          src={recording.url}
+          onError={retryVideoLoad}
+          onStalled={retryVideoLoad}
+          playsInline
+          preload="auto"
+          src={src}
         />
       ) : (
         <div className="px-3 py-2 text-[11px] text-muted-foreground">
@@ -443,13 +461,27 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
 
 function demoRecordingsFromDetails(details: Record<string, unknown>) {
   const recordings: DemoRecordingMetadata[] = [];
+  const seenRecordingIds = new Set<string>();
+
+  const addRecording = (recording: DemoRecordingMetadata) => {
+    if (seenRecordingIds.has(recording.id)) {
+      return;
+    }
+
+    seenRecordingIds.add(recording.id);
+    recordings.push(recording);
+  };
 
   if (isDemoRecordingMetadata(details.recording)) {
-    recordings.push(details.recording);
+    addRecording(details.recording);
   }
 
   if (Array.isArray(details.recordings)) {
-    recordings.push(...details.recordings.filter(isDemoRecordingMetadata));
+    for (const recording of details.recordings) {
+      if (isDemoRecordingMetadata(recording)) {
+        addRecording(recording);
+      }
+    }
   }
 
   return recordings;

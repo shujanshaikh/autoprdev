@@ -14,7 +14,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -501,10 +500,6 @@ function WorkspaceSidebar({
 
         <SidebarContent className="minimal-scrollbar">
           <SidebarGroup className="min-h-0 flex-1 px-2 py-2">
-            <div className="mb-2 flex items-center gap-2 px-2 group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel className="h-7 flex-1 px-0">Projects</SidebarGroupLabel>
-            </div>
-
             <div className="mb-2 px-2 group-data-[collapsible=icon]:hidden">
               <button
                 type="button"

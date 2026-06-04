@@ -187,15 +187,22 @@ function normalizeComputerOutput(output: unknown): unknown {
   return computerContentOutputToContentDetails(output) ?? output;
 }
 
-function collectDemoRecordings(value: unknown, recordings: DemoRecordingMetadata[]) {
+function collectDemoRecordings(
+  value: unknown,
+  recordings: DemoRecordingMetadata[],
+  seenRecordingIds = new Set<string>(),
+) {
   if (isDemoRecordingMetadata(value)) {
-    recordings.push(value);
+    if (!seenRecordingIds.has(value.id)) {
+      seenRecordingIds.add(value.id);
+      recordings.push(value);
+    }
     return;
   }
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      collectDemoRecordings(item, recordings);
+      collectDemoRecordings(item, recordings, seenRecordingIds);
     }
     return;
   }
@@ -205,7 +212,7 @@ function collectDemoRecordings(value: unknown, recordings: DemoRecordingMetadata
   }
 
   for (const child of Object.values(value)) {
-    collectDemoRecordings(child, recordings);
+    collectDemoRecordings(child, recordings, seenRecordingIds);
   }
 }
 

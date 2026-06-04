@@ -33,4 +33,4 @@ export function isCodexReasoningEffortForModel(
 }
 
 export const DEFAULT_CODEX_MODEL: CodexModelId = "gpt-5.5";
-export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = "medium";
+export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = "low";

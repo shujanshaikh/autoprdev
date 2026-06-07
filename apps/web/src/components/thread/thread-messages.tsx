@@ -1,7 +1,13 @@
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
-import { Bot } from "lucide-react";
-import { useState } from "react";
+import { Bot, Check, Copy } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   Conversation,
@@ -45,6 +51,56 @@ function getToolState(part: object): ToolPart["state"] {
   return "output-available";
 }
 
+function getTextParts(parts: UIMessage["parts"]) {
+  return parts.reduce(
+    (text, part) => (isTextUIPart(part) ? text + part.text : text),
+    ""
+  );
+}
+
+function UserMessageCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<number>(0);
+
+  const copyMessage = useCallback(async () => {
+    if (!text || typeof window === "undefined" || !navigator.clipboard?.writeText) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = window.setTimeout(() => setCopied(false), 1600);
+  }, [text]);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(timeoutRef.current);
+    },
+    []
+  );
+
+  const Icon = copied ? Check : Copy;
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          type="button"
+          className="absolute -bottom-8 right-0 inline-flex size-6 items-center justify-center text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/user-message:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+          aria-label={copied ? "Copied message" : "Copy message"}
+          disabled={!text}
+          onClick={() => void copyMessage()}
+        >
+          <Icon className="size-3.5" aria-hidden="true" />
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" sideOffset={6}>
+          <p>{copied ? "Copied" : "Copy message"}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 function ExploreToolGroup({
   messageId,
@@ -99,8 +155,9 @@ function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
     <div className="message-enter-user">
       <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
-        <div className="rounded-none border border-border bg-card p-4 shadow-sm">
+        <div className="group/user-message relative rounded-none border border-border bg-card p-4 shadow-sm">
           <p className="text-[15px] leading-[1.7] text-foreground">{prompt}</p>
+          <UserMessageCopyButton text={prompt} />
         </div>
       </div>
     </div>
@@ -245,11 +302,12 @@ export function ThreadMessages({
       }
   
       const isUser = message.role === "user";
+      const messageText = isUser ? getTextParts(message.parts) : "";
   
       return (
         <div key={messageKey}>
           <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
-            <div className={cn(isUser && "rounded-none border border-border bg-card p-4 shadow-sm")}>
+            <div className={cn(isUser && "group/user-message relative rounded-none border border-border bg-card p-4 shadow-sm")}>
               <MessageContent>
                 {grouped.map((item) => {
                 if (item.kind === "explore-group") {
@@ -372,6 +430,7 @@ export function ThreadMessages({
                 );
               })}
               </MessageContent>
+              {isUser ? <UserMessageCopyButton text={messageText} /> : null}
             </div>
           </div>
         </div>

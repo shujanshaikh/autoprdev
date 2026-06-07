@@ -124,7 +124,7 @@ function ImageAttachmentPreview({
           <button
             type="button"
             className={cn(
-              "block overflow-hidden rounded-2xl border border-border/80 bg-muted/80 shadow-sm transition hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "block overflow-hidden rounded-none border border-border/80 bg-muted/80 shadow-sm transition hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               className
             )}
             aria-label="Open image preview"

@@ -12,6 +12,7 @@ import type * as codexAuth from "../codexAuth.js";
 import type * as commitMessages from "../commitMessages.js";
 import type * as crons from "../crons.js";
 import type * as healthCheck from "../healthCheck.js";
+import type * as imageUploads from "../imageUploads.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_github from "../lib/github.js";
 import type * as lib_github_oauth from "../lib/github_oauth.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   commitMessages: typeof commitMessages;
   crons: typeof crons;
   healthCheck: typeof healthCheck;
+  imageUploads: typeof imageUploads;
   "lib/auth": typeof lib_auth;
   "lib/github": typeof lib_github;
   "lib/github_oauth": typeof lib_github_oauth;
@@ -74,4 +76,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  r2: import("@convex-dev/r2/_generated/component.js").ComponentApi<"r2">;
+};

@@ -1,11 +1,17 @@
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@autopr/ui/components/dialog";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
-import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
+import { getToolName, isFileUIPart, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
 import { Bot, Check, Copy } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -99,6 +105,49 @@ function UserMessageCopyButton({ text }: { text: string }) {
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+function ImageAttachmentPreview({
+  alt,
+  className,
+  src,
+}: {
+  alt: string;
+  className?: string;
+  src: string;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              "block overflow-hidden rounded-2xl border border-border/80 bg-muted/80 shadow-sm transition hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              className
+            )}
+            aria-label="Open image preview"
+          />
+        }
+      >
+        <img
+          alt={alt}
+          className="h-20 w-28 object-cover sm:h-24 sm:w-36"
+          src={src}
+        />
+      </DialogTrigger>
+      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden border-border bg-background p-0 sm:max-w-[calc(100vw-2rem)]" showCloseButton>
+        <DialogTitle className="sr-only">{alt}</DialogTitle>
+        <div className="max-h-[calc(100vh-2rem)] overflow-auto bg-muted/30 p-2">
+          <img
+            alt={alt}
+            className="mx-auto max-h-[calc(100vh-3rem)] w-auto max-w-full object-contain"
+            src={src}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -303,13 +352,42 @@ export function ThreadMessages({
   
       const isUser = message.role === "user";
       const messageText = isUser ? getTextParts(message.parts) : "";
+      const isImageFileItem = (item: GroupedItem) =>
+        item.kind === "single" && isFileUIPart(item.part) && item.part.mediaType.startsWith("image/");
+      const imageFileItems = isUser ? grouped.filter(isImageFileItem) : [];
+      const displayGrouped = isUser
+        ? grouped.filter((item) => !isImageFileItem(item))
+        : grouped;
   
       return (
         <div key={messageKey}>
-          <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
+          <div
+            className={cn(
+              "relative mx-auto max-w-[680px] px-6 py-4 sm:px-8",
+              isUser && imageFileItems.length > 0 && "pt-28 sm:pt-32"
+            )}
+          >
+            {imageFileItems.length > 0 ? (
+              <div className="absolute right-8 top-4 z-10 flex max-w-[calc(100%-4rem)] flex-row-reverse flex-wrap gap-2 sm:right-10">
+                {imageFileItems.map((item) => {
+                  if (item.kind !== "single" || !isFileUIPart(item.part)) {
+                    return null;
+                  }
+
+                  return (
+                    <ImageAttachmentPreview
+                      key={`${message.id}-floating-file-${item.stableKey}`}
+                      alt={item.part.filename ?? "Attached image"}
+                      className="h-20 w-28 sm:h-24 sm:w-36"
+                      src={item.part.url}
+                    />
+                  );
+                })}
+              </div>
+            ) : null}
             <div className={cn(isUser && "group/user-message relative rounded-none border border-border bg-card p-4 shadow-sm")}>
               <MessageContent>
-                {grouped.map((item) => {
+                {displayGrouped.map((item) => {
                 if (item.kind === "explore-group") {
                   const { tools } = item;
                   const counts: Record<string, number> = {};
@@ -358,6 +436,31 @@ export function ThreadMessages({
                     <MessageResponse key={`${message.id}-text-${stableKey}`} isAnimating={partState === "streaming"}>
                       {part.text}
                     </MessageResponse>
+                  );
+                }
+
+                if (isFileUIPart(part)) {
+                  if (part.mediaType.startsWith("image/")) {
+                    return (
+                      <ImageAttachmentPreview
+                        key={`${message.id}-file-${stableKey}`}
+                        alt={part.filename ?? "Attached image"}
+                        className="ml-auto mt-3 h-20 w-28 sm:h-24 sm:w-36"
+                        src={part.url}
+                      />
+                    );
+                  }
+
+                  return (
+                    <a
+                      key={`${message.id}-file-${stableKey}`}
+                      className="w-fit max-w-full truncate border border-border bg-muted px-2.5 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground"
+                      href={part.url}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {part.filename ?? part.mediaType}
+                    </a>
                   );
                 }
   

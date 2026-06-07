@@ -22,6 +22,56 @@ const agentRequestSchema = z.object({
   }),
 });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getR2Key(part: UIMessage["parts"][number]) {
+  if (part.type !== "file" || !isRecord(part.providerMetadata)) {
+    return null;
+  }
+
+  const autoprMetadata = part.providerMetadata.autopr;
+
+  return isRecord(autoprMetadata) && typeof autoprMetadata.r2Key === "string"
+    ? autoprMetadata.r2Key
+    : null;
+}
+
+function stripAutoprProviderMetadata(part: UIMessage["parts"][number]) {
+  if (part.type !== "file" || !isRecord(part.providerMetadata)) {
+    return part;
+  }
+
+  const providerMetadata = { ...part.providerMetadata };
+  delete providerMetadata.autopr;
+
+  return {
+    ...part,
+    providerMetadata: Object.keys(providerMetadata).length > 0 ? providerMetadata : undefined,
+  };
+}
+
+async function refreshR2FileUrlsForModel(message: UIMessage): Promise<UIMessage> {
+  const parts = await Promise.all(message.parts.map(async (part) => {
+    const key = getR2Key(part);
+
+    if (!key || part.type !== "file") {
+      return stripAutoprProviderMetadata(part);
+    }
+
+    return stripAutoprProviderMetadata({
+      ...part,
+      url: await convexQuery(api.imageUploads.getUrl, { key }),
+    });
+  }));
+
+  return {
+    ...message,
+    parts,
+  };
+}
+
 async function POST(
   req: Request,
   { params }: { params: Promise<{ projectId: string; threadId: string }> },
@@ -83,8 +133,9 @@ async function POST(
         ? [uiMessage]
         : [];
     });
+    const messagesForModel = await Promise.all(uiMessages.map(refreshR2FileUrlsForModel));
     const modelMessages = await convertToModelMessages(
-      uiMessages
+      messagesForModel
         .map(sanitizeMessageForModelConversion)
         .filter((message) => message.id !== assistantMessageId || message.parts.length > 0),
     );

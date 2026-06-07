@@ -122,4 +122,14 @@ export default defineSchema({
     .index("by_thread", ["threadId"])
     .index("by_message_id", ["messageId"])
     .index("by_project", ["projectId"]),
+
+  uploadedImages: defineTable({
+    authorId: v.string(),
+    key: v.string(),
+    bucket: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_author", ["authorId"]),
 });

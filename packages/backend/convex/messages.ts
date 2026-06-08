@@ -1,8 +1,14 @@
 import { ConvexError, v } from "convex/values";
+import type { UIMessage } from "ai";
 
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { IMAGE_URL_EXPIRES_IN_SECONDS, r2 } from "./imageUploads";
 import { requireUserId } from "./lib/auth";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 async function requireOwnedThread(
   ctx: QueryCtx | MutationCtx,
@@ -28,6 +34,51 @@ async function requireOwnedThread(
   }
 
   return { thread, project };
+}
+
+function getR2Key(part: UIMessage["parts"][number]) {
+  if (part.type !== "file" || !isRecord(part.providerMetadata)) {
+    return null;
+  }
+
+  const autoprMetadata = part.providerMetadata.autopr;
+
+  return isRecord(autoprMetadata) && typeof autoprMetadata.r2Key === "string"
+    ? autoprMetadata.r2Key
+    : null;
+}
+
+async function getOwnedR2Url(ctx: QueryCtx, authorId: string, key: string) {
+  const upload = await ctx.db
+    .query("uploadedImages")
+    .withIndex("by_key", (q) => q.eq("key", key))
+    .unique();
+
+  if (!upload || upload.authorId !== authorId) {
+    return null;
+  }
+
+  return await r2.getUrl(key, {
+    expiresIn: IMAGE_URL_EXPIRES_IN_SECONDS,
+  });
+}
+
+async function refreshR2FilePartUrls(
+  ctx: QueryCtx,
+  authorId: string,
+  parts: UIMessage["parts"],
+): Promise<UIMessage["parts"]> {
+  return await Promise.all(parts.map(async (part) => {
+    const key = getR2Key(part);
+
+    if (!key || part.type !== "file") {
+      return part;
+    }
+
+    const url = await getOwnedR2Url(ctx, authorId, key);
+
+    return url ? { ...part, url } : part;
+  }));
 }
 
 export const listByThread = query({
@@ -58,11 +109,16 @@ export const listByThread = query({
       return [];
     }
 
-    return await ctx.db
+    const messages = await ctx.db
       .query("messages")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
       .order("asc")
       .collect();
+
+    return await Promise.all(messages.map(async (message) => ({
+      ...message,
+      parts: await refreshR2FilePartUrls(ctx, identity.subject, message.parts),
+    })));
   },
 });
 

@@ -7,7 +7,7 @@ import { query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 
-const IMAGE_URL_EXPIRES_IN_SECONDS = 60 * 60;
+export const IMAGE_URL_EXPIRES_IN_SECONDS = 60 * 60;
 
 export const r2 = new R2(components.r2);
 

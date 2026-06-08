@@ -562,7 +562,7 @@ export function ThreadChat({
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
-  const [selectedModel, setSelectedModel] = useState<CodexModelId>(initialModel ?? DEFAULT_CODEX_MODEL);
+  const selectedModel: CodexModelId = initialModel ?? DEFAULT_CODEX_MODEL;
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -955,21 +955,9 @@ export function ThreadChat({
                 <PromptInputFooter className="bg-transparent px-2 py-1.5">
                   <PromptInputTools className="min-w-0 flex-1">
                     <PromptImageUploadButton disabled={!ready} />
-                    <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as typeof selectedModel)}>
-                      <SelectTrigger
-                        size="sm"
-                        className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="start" className="min-w-52">
-                        {CODEX_MODELS.map((model) => (
-                          <SelectItem key={model.id} value={model.id}>
-                            {model.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                      {CODEX_MODELS[0].label}
+                    </span>
                     <Select
                       value={selectedReasoningEffort}
                       onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}

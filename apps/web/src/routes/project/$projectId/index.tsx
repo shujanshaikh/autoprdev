@@ -186,7 +186,7 @@ function ProjectOverviewPage() {
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [selectedBranch, setSelectedBranch] = useState("");
-  const [selectedModel, setSelectedModel] = useState<CodexModelId>(DEFAULT_CODEX_MODEL);
+  const selectedModel: CodexModelId = DEFAULT_CODEX_MODEL;
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -753,22 +753,9 @@ function ProjectOverviewPage() {
                               >
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
                               </button>
-                              <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as CodexModelId)}>
-                              <SelectTrigger
-                                size="sm"
-                                className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
-                                disabled={project.sandboxStatus !== "ready" || isCreatingThread}
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent align="start" className="min-w-52">
-                                {CODEX_MODELS.map((model) => (
-                                  <SelectItem key={model.id} value={model.id}>
-                                    {model.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                {CODEX_MODELS[0].label}
+                              </span>
                             <Select
                               value={selectedReasoningEffort}
                               onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}

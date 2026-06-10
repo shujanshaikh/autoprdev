@@ -874,6 +874,9 @@ export function WorkspaceShell({
           onOpenSettings={() => setIsSettingsDialogOpen(true)}
         />
         <SidebarInset className="min-w-0 overflow-hidden">
+          <div className="fixed left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-40 md:hidden">
+            <SidebarTrigger className="border border-border bg-background/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80" />
+          </div>
           <RouteTransition>{children}</RouteTransition>
         </SidebarInset>
 

@@ -63,8 +63,13 @@ function LandingHome() {
 
         <div className="relative z-10 mx-auto mt-12 flex w-full max-w-4xl justify-center">
           <img
-            src="https://pub-0423ac2cbe034b45b505d5c8dfd5f072.r2.dev/autopr/480bfbf5-70be-4c01-a98e-a56ef026a0e8%20Copy.JPG"
+            src="/images/autopr-product-screenshot.jpg"
             alt="Autopr product screenshot"
+            width={2940}
+            height={1846}
+            fetchPriority="high"
+            loading="eager"
+            decoding="async"
             className="w-full border border-border/40 shadow-lg"
           />
         </div>

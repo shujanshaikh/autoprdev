@@ -20,6 +20,10 @@ export function getCodexReasoningEfforts(modelId: string | undefined): readonly 
   return getCodexModel(modelId)?.reasoningEfforts ?? CODEX_REASONING_EFFORTS;
 }
 
+export function getCodexReasoningEffortLabel(value: CodexReasoningEffort) {
+  return value === "xhigh" ? "Extra high" : value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 export function isCodexReasoningEffortForModel(
   modelId: string | undefined,
   value: unknown,

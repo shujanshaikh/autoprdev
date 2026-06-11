@@ -52,6 +52,7 @@ import {
   CODEX_MODELS,
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
+  getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -772,16 +773,20 @@ function ProjectOverviewPage() {
                             >
                               <SelectTrigger
                                 size="sm"
-                                className="h-7 max-w-[170px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
                                 disabled={project.sandboxStatus !== "ready" || isCreatingThread}
                                 aria-label="Reasoning level"
                               >
-                                <SelectValue />
+                                <SelectValue>
+                                  {getCodexReasoningEffortLabel(selectedReasoningEffort)}
+                                </SelectValue>
                               </SelectTrigger>
-                              <SelectContent align="start" alignItemWithTrigger={false} side="top" className="min-w-44">
+                              <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-36 min-w-36 p-1">
                                 {selectedReasoningEfforts.map((effort) => (
-                                  <SelectItem key={effort} value={effort}>
-                                    {effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1)} reasoning
+                                  <SelectItem key={effort} value={effort} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                                    <span className="font-medium">
+                                      {getCodexReasoningEffortLabel(effort)}
+                                    </span>
                                   </SelectItem>
                                 ))}
                               </SelectContent>

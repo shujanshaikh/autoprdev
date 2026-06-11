@@ -627,7 +627,7 @@ function ProjectOverviewPage() {
                           <Select value={selectedBranch} onValueChange={(branch) => branch && void switchBranch(branch)}>
                             <SelectTrigger
                               size="sm"
-                              className="max-w-56"
+                              className="h-7 max-w-64 border-border/70 bg-background/35 px-2.5 font-mono text-[11px] text-muted-foreground/90 hover:border-border hover:bg-muted/35 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
                               disabled={
                                 project.sandboxStatus !== "ready" ||
                                 project.branchSwitchStatus === "switching" ||
@@ -639,14 +639,24 @@ function ProjectOverviewPage() {
                               <SelectValue placeholder={isLoadingBranches ? "Loading branches" : currentBranch} />
                             </SelectTrigger>
                             <SelectContent
-                              align="center"
-                              className="max-h-72 w-[min(calc(100vw-2rem),28rem)] min-w-72"
+                              align="start"
+                              alignItemWithTrigger={false}
+                              className="max-h-72 w-[min(calc(100vw-2rem),22rem)] min-w-64 p-1"
                             >
                               {branches.map((branch) => (
-                                <SelectItem key={branch.sha} value={branch.name}>
-                                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                                    <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
-                                    <span className="min-w-0 truncate font-mono">{branch.name}</span>
+                                <SelectItem
+                                  key={branch.sha}
+                                  value={branch.name}
+                                  className="rounded-sm py-1.5 pr-7 pl-2 text-[11px] [&>span:first-of-type]:min-w-0 [&>span:first-of-type]:shrink"
+                                >
+                                  <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                                    <GitBranch className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                    <span className="min-w-0 truncate font-mono text-foreground/90">{branch.name}</span>
+                                    {branch.protected ? (
+                                      <span className="shrink-0 rounded-[3px] border border-border/70 px-1 py-0.5 text-[10px] leading-none text-muted-foreground">
+                                        protected
+                                      </span>
+                                    ) : null}
                                   </span>
                                 </SelectItem>
                               ))}

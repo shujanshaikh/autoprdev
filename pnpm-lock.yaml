@@ -13,8 +13,8 @@ catalogs:
       specifier: ^19.2.3
       version: 19.2.3
     convex:
-      specifier: ^1.38.0
-      version: 1.38.0
+      specifier: ^1.41.0
+      version: 1.41.0
     dotenv:
       specifier: ^17.2.2
       version: 17.4.2
@@ -86,7 +86,7 @@ importers:
         version: link:../../packages/ui
       '@convex-dev/r2':
         specifier: ^0.10.1
-        version: 0.10.1(@standard-schema/spec@1.1.0)(convex@1.38.0(react@19.2.5))(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)
+        version: 0.10.1(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.5))(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)
       '@icons-pack/react-simple-icons':
         specifier: ^13.13.0
         version: 13.13.0(react@19.2.5)
@@ -164,7 +164,7 @@ importers:
         version: 1.0.0
       convex:
         specifier: 'catalog:'
-        version: 1.38.0(react@19.2.5)
+        version: 1.41.0(react@19.2.5)
       diff:
         specifier: ^8.0.2
         version: 8.0.4
@@ -283,7 +283,7 @@ importers:
     dependencies:
       '@convex-dev/r2':
         specifier: ^0.10.1
-        version: 0.10.1(@standard-schema/spec@1.1.0)(convex@1.38.0(react@19.2.5))(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)
+        version: 0.10.1(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.5))(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)
       '@daytona/sdk':
         specifier: ^0.164.0
         version: 0.164.0(ws@8.20.1)
@@ -292,7 +292,7 @@ importers:
         version: 6.0.168(zod@4.3.6)
       convex:
         specifier: 'catalog:'
-        version: 1.38.0(react@19.2.5)
+        version: 1.41.0(react@19.2.5)
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
@@ -4506,8 +4506,8 @@ packages:
       zod:
         optional: true
 
-  convex@1.38.0:
-    resolution: {integrity: sha512-122AC6y5lUS7mr39cluLw9+TOtRX5d/XxeivHhHObs/NTXoVvOnIgDzexVcxaz6Rk0oLFSoydSR1rDCltEz/0A==}
+  convex@1.41.0:
+    resolution: {integrity: sha512-euxVf6yfpB7/VGKOobkLgjpbJidsUgW+b0ezonEyCUPqlpHFwR4/yIiI1hjjErzraiw91GxrtxpXQClMLNqU+w==}
     engines: {node: '>=18.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
@@ -7797,18 +7797,6 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.18.0:
-    resolution: {integrity: sha512-8VbfWfHLbbwu3+N6OKsOMpBdT4kXPDDB9cJk2bJ6mh9ucxdlnNvH1e+roYkKmN9Nxw2yjz7VzeO9oOz2zJ04Pw==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   ws@8.20.1:
     resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
     engines: {node: '>=10.0.0'}
@@ -8769,17 +8757,17 @@ snapshots:
 
   '@chevrotain/utils@12.0.0': {}
 
-  '@convex-dev/action-retrier@0.3.0(convex@1.38.0(react@19.2.5))':
+  '@convex-dev/action-retrier@0.3.0(convex@1.41.0(react@19.2.5))':
     dependencies:
-      convex: 1.38.0(react@19.2.5)
+      convex: 1.41.0(react@19.2.5)
 
-  '@convex-dev/r2@0.10.1(@standard-schema/spec@1.1.0)(convex@1.38.0(react@19.2.5))(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)':
+  '@convex-dev/r2@0.10.1(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.5))(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)':
     dependencies:
       '@aws-sdk/client-s3': 3.1033.0
       '@aws-sdk/s3-request-presigner': 3.1063.0
-      '@convex-dev/action-retrier': 0.3.0(convex@1.38.0(react@19.2.5))
-      convex: 1.38.0(react@19.2.5)
-      convex-helpers: 0.1.118(@standard-schema/spec@1.1.0)(convex@1.38.0(react@19.2.5))(hono@4.12.14)(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)
+      '@convex-dev/action-retrier': 0.3.0(convex@1.41.0(react@19.2.5))
+      convex: 1.41.0(react@19.2.5)
+      convex-helpers: 0.1.118(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.5))(hono@4.12.14)(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)
       file-type: 21.3.4
       uuid: 13.0.2
     optionalDependencies:
@@ -12775,9 +12763,9 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex-helpers@0.1.118(@standard-schema/spec@1.1.0)(convex@1.38.0(react@19.2.5))(hono@4.12.14)(react@19.2.5)(typescript@6.0.3)(zod@4.3.6):
+  convex-helpers@0.1.118(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.5))(hono@4.12.14)(react@19.2.5)(typescript@6.0.3)(zod@4.3.6):
     dependencies:
-      convex: 1.38.0(react@19.2.5)
+      convex: 1.41.0(react@19.2.5)
     optionalDependencies:
       '@standard-schema/spec': 1.1.0
       hono: 4.12.14
@@ -12785,11 +12773,11 @@ snapshots:
       typescript: 6.0.3
       zod: 4.3.6
 
-  convex@1.38.0(react@19.2.5):
+  convex@1.41.0(react@19.2.5):
     dependencies:
       esbuild: 0.27.0
       prettier: 3.8.3
-      ws: 8.18.0
+      ws: 8.20.1
     optionalDependencies:
       react: 19.2.5
     transitivePeerDependencies:
@@ -16485,8 +16473,6 @@ snapshots:
       strip-ansi: 7.2.0
 
   wrappy@1.0.2: {}
-
-  ws@8.18.0: {}
 
   ws@8.20.1: {}
 

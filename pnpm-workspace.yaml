@@ -19,7 +19,7 @@ catalog:
   react: ^19.2.3
   react-dom: ^19.2.3
   sonner: ^2.0.5
-  convex: ^1.38.0
+  convex: ^1.41.0
   "@types/react": ^19.2.10
   "@types/react-dom": ^19.2.3
   tailwindcss: ^4.1.18

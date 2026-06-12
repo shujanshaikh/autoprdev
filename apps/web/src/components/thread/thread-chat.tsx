@@ -942,7 +942,7 @@ export function ThreadChat({
                 )}
                 accept="image/*"
                 multiple
-                onSubmit={(message) => void submitMessage(message)}
+                onSubmit={(message) => submitMessage(message)}
               >
                 <PromptInputHeader className="px-2.5 pt-2.5 pb-0">
                   <PromptImageAttachments

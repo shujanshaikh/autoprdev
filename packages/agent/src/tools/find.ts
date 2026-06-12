@@ -79,7 +79,8 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
 export function createDaytonaFindTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "find",
-    description: "Find files in the sandbox by glob pattern.",
+    description:
+      "Find files in the Daytona sandbox by glob pattern. Use for filename discovery, locating config/docs/tests, or narrowing a work area before reading. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
     inputSchema: findInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaFind(input, sandboxOptions),

@@ -137,7 +137,7 @@ export function createDaytonaEditTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "edit",
     description:
-      "Edit a single file using exact text replacements. Each oldText must match exactly once in the original file.",
+      "Edit one existing text file in the Daytona sandbox using exact text replacements. Use after reading the target file. Each oldText must match exactly once in the original file; combine nearby changes in one replacement and avoid overlapping edits. Mutates files, returns a diff, and should be retried only after inspecting any mismatch error.",
     inputSchema: editInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaEdit(input, sandboxOptions),

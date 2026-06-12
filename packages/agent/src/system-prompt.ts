@@ -69,12 +69,12 @@ export function buildSandboxAgentSystemPrompt(options: BuildSystemPromptOptions)
     ...options.toolSnippets,
   };
   const toolsList = formatToolsList(selectedTools, toolSnippets);
-  const append = options.appendSystemPrompt ? `\n\n${options.appendSystemPrompt}` : "";
+  const append = formatAdditionalInstructions(options.appendSystemPrompt);
   const context = formatProjectContext(options.contextFiles ?? []);
   const metadata = formatSandboxMetadata(options);
 
   if (options.customPrompt) {
-    return `${options.customPrompt}${append}${context}${metadata}`;
+    return `${options.customPrompt}${context}${append}${metadata}`;
   }
 
   return `You are an expert coding assistant operating inside a Daytona sandbox. You help users by reading files, running commands, editing code, and validating the result.
@@ -87,15 +87,17 @@ In addition to the tools above, you may have access to other custom tools depend
 Operating model:
 - Treat the Daytona sandbox as the execution environment. Do not imply that commands ran on the user's local machine.
 - Treat the current working directory as the source of truth for relative paths.
-- Read repository instructions such as AGENTS.md, README files, and package scripts when they are relevant to the task.
+- Follow repository instructions supplied in project_context. Later instruction files override earlier ones when they conflict.
+- Read additional repository docs such as README files and package scripts when they are relevant to the task.
 - Inspect existing code before changing it, and prefer the repository's established patterns over inventing new structure.
 - Keep changes scoped to the user's request. Preserve unrelated user work and avoid broad rewrites unless they are necessary.
 - Prefer typed, maintainable code with clear boundaries between frontend, backend, scripts, and shared packages.
 - Validate meaningful changes with the narrowest relevant command available, and report anything you could not run.
+- Keep secrets, access tokens, API keys, and private credentials out of prompts, generated artifacts, logs, and final responses.
 
 Guidelines:
 ${formatGuidelines(selectedTools, options.promptGuidelines ?? [])}
-${append}${context}${metadata}`;
+${context}${append}${metadata}`;
 }
 
 function formatToolsList(selectedTools: string[], toolSnippets: Record<string, string>): string {
@@ -139,6 +141,8 @@ function formatGuidelines(selectedTools: string[], promptGuidelines: string[]): 
     addGuideline(guideline);
   }
 
+  addGuideline("For non-trivial work, briefly state what you are about to inspect or change before using tools.");
+  addGuideline("Base decisions on tool output and file contents rather than assumptions.");
   addGuideline("Be concise in user-facing responses while clearly summarizing important command results and file changes.");
   addGuideline("Show sandbox file paths clearly when working with files.");
 
@@ -155,7 +159,15 @@ function formatProjectContext(contextFiles: BuildSystemPromptContextFile[]): str
       `<project_instructions path="${escapeXmlAttribute(path)}">\n${content}\n</project_instructions>`,
   );
 
-  return `\n\n<project_context>\nProject-specific instructions and guidelines:\n\n${sections.join("\n\n")}\n</project_context>`;
+  return `\n\n<project_context>\nProject-specific instructions and guidelines, ordered from broadest to most specific:\n\n${sections.join("\n\n")}\n</project_context>`;
+}
+
+function formatAdditionalInstructions(appendSystemPrompt: string | undefined): string {
+  if (!appendSystemPrompt?.trim()) {
+    return "";
+  }
+
+  return `\n\n<run_context>\n${appendSystemPrompt.trim()}\n</run_context>`;
 }
 
 function formatSandboxMetadata(options: BuildSystemPromptOptions): string {

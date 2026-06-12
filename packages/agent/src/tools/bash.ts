@@ -76,7 +76,8 @@ async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessi
 export function createDaytonaBashTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "bash",
-    description: "Run shell commands inside the Daytona sandbox.",
+    description:
+      "Run shell commands inside the Daytona sandbox. Use for package manager commands, tests, type checks, scripts, installs, git inspection, and operations better handled by a shell. Commands mutate state when the command does; use isBackground=true for dev servers, watchers, previews, and tailing logs. Do not retry a failed command unchanged without using the error output.",
     inputSchema: bashInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaBash(input, sandboxOptions),

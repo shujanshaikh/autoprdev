@@ -66,7 +66,8 @@ async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOp
 export function createDaytonaLsTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "ls",
-    description: "List files and directories in the Daytona sandbox.",
+    description:
+      "List files and directories in the Daytona sandbox. Use for quick directory inspection before broader searches or reads. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
     inputSchema: lsInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaLs(input, sandboxOptions),

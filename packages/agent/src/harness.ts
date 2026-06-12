@@ -1,4 +1,5 @@
 import { buildSandboxAgentSystemPrompt } from "./system-prompt";
+import { loadSandboxProjectInstructions } from "./project-instructions";
 import { createDaytonaTools, type DaytonaComputerToolOptions, type DaytonaTools } from "./tools";
 import { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
 import type { SandboxSessionOptions } from "./sandbox";
@@ -8,6 +9,9 @@ export type CodingHarnessPhase = "idle" | "preparing" | "running" | "settling";
 export interface CodingHarnessContext {
   sandbox: PreparedSandbox;
   tools: DaytonaTools;
+  toolNames: string[];
+  instructionFiles: Array<{ path: string; content: string }>;
+  unavailableSelectedTools: string[];
   instructions: string;
 }
 
@@ -23,6 +27,9 @@ export type CodingHarnessListener = (event: CodingHarnessEvent) => void | Promis
 export interface CodingHarnessOptions extends SandboxSessionOptions {
   appendSystemPrompt?: string;
   selectedTools?: string[];
+  includeProjectInstructions?: boolean;
+  projectInstructionFilenames?: string[];
+  projectInstructionMaxBytes?: number;
   computer?: false | DaytonaComputerToolOptions;
 }
 
@@ -73,16 +80,33 @@ export class CodingHarness {
       const tools = createDaytonaTools(this.options, {
         computer: this.options.computer,
       });
+      const toolSelection = selectTools(tools, this.options.selectedTools);
+      const instructionFiles = this.options.includeProjectInstructions === false
+        ? []
+        : await loadSandboxProjectInstructions(this.options, {
+            cwd: sandbox.workDir,
+            projectRoot: sandbox.workDir,
+            filenames: this.options.projectInstructionFilenames,
+            maxBytes: this.options.projectInstructionMaxBytes,
+          });
       const instructions = buildSandboxAgentSystemPrompt({
         cwd: sandbox.workDir,
         sandboxId: sandbox.sandboxId,
         sandboxName: sandbox.sandboxName,
         snapshot: sandbox.snapshot,
-        selectedTools: this.options.selectedTools ?? Object.keys(tools),
+        selectedTools: toolSelection.toolNames,
+        contextFiles: instructionFiles,
         appendSystemPrompt: this.options.appendSystemPrompt,
       });
 
-      const context = { sandbox, tools, instructions };
+      const context = {
+        sandbox,
+        tools: toolSelection.tools,
+        toolNames: toolSelection.toolNames,
+        instructionFiles,
+        unavailableSelectedTools: toolSelection.unavailableToolNames,
+        instructions,
+      };
       this.prepared = context;
       await this.emit({ type: "sandbox_prepared", context });
       return context;
@@ -133,4 +157,41 @@ export class CodingHarness {
       await listener(event);
     }
   }
+}
+
+function selectTools(
+  tools: DaytonaTools,
+  selectedTools: string[] | undefined,
+): { tools: DaytonaTools; toolNames: string[]; unavailableToolNames: string[] } {
+  const availableToolNames = Object.keys(tools);
+  const requestedToolNames = selectedTools ? dedupeToolNames(selectedTools) : availableToolNames;
+  const availableToolNameSet = new Set(availableToolNames);
+  const toolNames = requestedToolNames.filter((toolName) => availableToolNameSet.has(toolName));
+  const unavailableToolNames = requestedToolNames.filter((toolName) => !availableToolNameSet.has(toolName));
+
+  const selectedToolSet = new Set(toolNames);
+  const selectedToolEntries = Object.entries(tools).filter(([toolName]) => selectedToolSet.has(toolName));
+
+  return {
+    tools: Object.fromEntries(selectedToolEntries) as DaytonaTools,
+    toolNames,
+    unavailableToolNames,
+  };
+}
+
+function dedupeToolNames(toolNames: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const toolName of toolNames) {
+    const normalized = toolName.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    deduped.push(normalized);
+  }
+
+  return deduped;
 }

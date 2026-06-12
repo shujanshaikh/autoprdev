@@ -29,7 +29,8 @@ async function executeDaytonaSandboxInfo(sandboxOptions: SandboxSessionOptions) 
 export function createDaytonaSandboxInfoTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "sandboxInfo",
-    description: "Return the current Daytona sandbox id, name, snapshot, and working directory.",
+    description:
+      "Inspect the active Daytona sandbox metadata. Use when you need the sandbox id, name, snapshot, or working directory before choosing paths, commands, previews, or follow-up actions. Read-only and safe to retry.",
     inputSchema: sandboxInfoInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: () => executeDaytonaSandboxInfo(sandboxOptions),

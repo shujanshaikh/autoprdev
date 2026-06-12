@@ -7,6 +7,7 @@ import { createDaytonaLsTool } from "./ls";
 import { createDaytonaReadTool } from "./read";
 import { createDaytonaSandboxInfoTool } from "./sandbox-info";
 import { createDaytonaWriteTool } from "./write";
+import type { ToolSet } from "ai";
 import type { SandboxSessionOptions } from "../sandbox";
 
 export interface DaytonaToolsOptions {
@@ -16,8 +17,8 @@ export interface DaytonaToolsOptions {
 export function createDaytonaTools(
   sandboxOptions: SandboxSessionOptions,
   options: DaytonaToolsOptions = {},
-) {
-  const tools = {
+): DaytonaTools {
+  const tools: DaytonaTools = {
     sandboxInfo: createDaytonaSandboxInfoTool(sandboxOptions),
     read: createDaytonaReadTool(sandboxOptions),
     ls: createDaytonaLsTool(sandboxOptions),
@@ -32,11 +33,9 @@ export function createDaytonaTools(
     return tools;
   }
 
-  return {
-    ...tools,
-    computer: createDaytonaComputerTool(sandboxOptions, options.computer),
-  };
+  tools.computer = createDaytonaComputerTool(sandboxOptions, options.computer);
+  return tools;
 }
 
-export type DaytonaTools = ReturnType<typeof createDaytonaTools>;
+export type DaytonaTools = ToolSet;
 export type { DaytonaComputerToolOptions };

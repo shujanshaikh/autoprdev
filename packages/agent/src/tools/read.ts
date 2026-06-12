@@ -77,7 +77,8 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
 export function createDaytonaReadTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "read",
-    description: "Read a text file from the Daytona sandbox.",
+    description:
+      "Read a UTF-8 text file from the Daytona sandbox with optional line offset and limit. Use before editing or explaining code. Relative paths resolve from the sandbox workdir. Read-only and safe to retry; binary files are reported instead of displayed.",
     inputSchema: readInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaRead(input, sandboxOptions),

@@ -883,7 +883,7 @@ export function createDaytonaComputerTool(
   return tool({
     title: "computer",
     description:
-      "Inspect and operate the Daytona sandbox desktop. Execute one or more GUI/browser actions, then receive a fresh screenshot as image content when screen state is relevant.",
+      "Inspect and operate the Daytona sandbox desktop for browser previews, screenshots, GUI interaction, and demo recordings. Use after choosing a relevant app URL or desktop target. Accepts one or more GUI actions and returns a fresh screenshot as image content when screen state is relevant. Mutates GUI/recording state; keep action batches small and re-check screenshots before coordinate-sensitive actions.",
     inputSchema: computerInputSchema,
     execute: (input) => executeDaytonaComputer(input, sandboxOptions, computerOptions),
   });

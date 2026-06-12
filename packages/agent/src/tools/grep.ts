@@ -110,7 +110,8 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
 export function createDaytonaGrepTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "grep",
-    description: "Search file contents in the Daytona sandbox.",
+    description:
+      "Search file contents in the Daytona sandbox using ripgrep when available, with grep fallback. Use to locate symbols, behavior, errors, and existing patterns before editing. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
     inputSchema: grepInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaGrep(input, sandboxOptions),

@@ -57,7 +57,8 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
 export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "write",
-    description: "Create or fully overwrite a file in the Daytona sandbox.",
+    description:
+      "Create or fully overwrite a text file in the Daytona sandbox. Use for new files or complete rewrites when exact edit replacement is impractical. Mutates files and returns a diff; prefer edit for small changes to existing files.",
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaWrite(input, sandboxOptions),

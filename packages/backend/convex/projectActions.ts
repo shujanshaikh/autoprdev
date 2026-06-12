@@ -25,8 +25,9 @@ const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
-const DAYTONA_FS_READY_TIMEOUT_MS = 30_000;
-const DAYTONA_FS_READY_POLL_MS = 2_000;
+const SANDBOX_START_POLL_MS = 1_000;
+const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
+const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
 const MAX_FILE_SUGGESTION_FILES = 10_000;
 
@@ -94,6 +95,10 @@ function isSandboxNetworkNotReadyError(error: unknown) {
     message.includes("no ip address found") ||
     message.includes("is the sandbox started")
   );
+}
+
+function isSandboxStateChangeInProgressError(error: unknown) {
+  return errorMessage(error).toLowerCase().includes("state change in progress");
 }
 
 function createDaytonaClient() {
@@ -256,18 +261,59 @@ async function waitForDesktopReady(sandbox: { computerUse: { getStatus(): Promis
 
 async function ensureSandboxStarted(sandboxId: string) {
   const daytona = createDaytonaClient();
-  const sandbox = await daytona.get(sandboxId);
+  const deadline = Date.now() + SANDBOX_START_TIMEOUT_SECONDS * 1000;
+  let lastError: unknown;
 
-  if (sandbox.state && sandbox.state !== "started") {
-    await sandbox.start(SANDBOX_START_TIMEOUT_SECONDS);
+  while (Date.now() <= deadline) {
+    const sandbox = await daytona.get(sandboxId);
+
+    if (!sandbox.state || normalizeSandboxRuntimeStatus(sandbox.state) === "started") {
+      return sandbox;
+    }
+
+    try {
+      const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
+      await sandbox.start(timeoutSeconds);
+      return sandbox;
+    } catch (error) {
+      if (!isSandboxStateChangeInProgressError(error)) {
+        throw error;
+      }
+      lastError = error;
+      await sleep(SANDBOX_START_POLL_MS);
+    }
   }
 
-  return sandbox;
+  throw lastError instanceof Error ? lastError : new Error("Sandbox did not become ready before the timeout.");
 }
 
 async function startDaytonaSandbox(sandboxId: string) {
   await ensureSandboxStarted(sandboxId);
   return "started" as const;
+}
+
+async function runWithStartedSandboxRetry<T>(
+  sandboxId: string,
+  operation: (sandbox: DaytonaSandbox) => Promise<T>,
+): Promise<T> {
+  let sandbox = await ensureSandboxStarted(sandboxId);
+  const deadline = Date.now() + DAYTONA_OPERATION_READY_TIMEOUT_MS;
+  let lastError: unknown;
+
+  while (Date.now() <= deadline) {
+    try {
+      return await operation(sandbox);
+    } catch (error) {
+      if (!isSandboxNetworkNotReadyError(error) && !isSandboxStateChangeInProgressError(error)) {
+        throw error;
+      }
+      lastError = error;
+      await sleep(DAYTONA_OPERATION_READY_POLL_MS);
+      sandbox = await ensureSandboxStarted(sandboxId);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Sandbox did not become ready for this operation.");
 }
 
 async function stopDaytonaSandbox(sandboxId: string) {
@@ -286,7 +332,7 @@ async function runWithAlreadyStartedSandboxRetry<T>(
   operation: (sandbox: DaytonaSandbox) => Promise<T>,
 ): Promise<{ status: "started"; result: T } | { status: Exclude<SandboxRuntimeStatus, "started"> }> {
   const daytona = createDaytonaClient();
-  const deadline = Date.now() + DAYTONA_FS_READY_TIMEOUT_MS;
+  const deadline = Date.now() + DAYTONA_OPERATION_READY_TIMEOUT_MS;
   let lastError: unknown;
 
   while (Date.now() <= deadline) {
@@ -300,11 +346,11 @@ async function runWithAlreadyStartedSandboxRetry<T>(
     try {
       return { status, result: await operation(sandbox) };
     } catch (error) {
-      if (!isSandboxNetworkNotReadyError(error)) {
+      if (!isSandboxNetworkNotReadyError(error) && !isSandboxStateChangeInProgressError(error)) {
         throw error;
       }
       lastError = error;
-      await sleep(DAYTONA_FS_READY_POLL_MS);
+      await sleep(DAYTONA_OPERATION_READY_POLL_MS);
     }
   }
 
@@ -312,31 +358,32 @@ async function runWithAlreadyStartedSandboxRetry<T>(
 }
 
 async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
-  const sandbox = await ensureSandboxStarted(sandboxId);
+  return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    await sandbox.computerUse.start();
+    await waitForDesktopReady(sandbox);
 
-  await sandbox.computerUse.start();
-  await waitForDesktopReady(sandbox);
+    const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
+    const url = normalizePreviewUrl(preview.url);
 
-  const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
-  const url = normalizePreviewUrl(preview.url);
-
-  return {
-    url,
-    websocketUrl: desktopWebsocketUrl(url),
-    port: DAYTONA_NOVNC_PORT,
-    expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
-  };
+    return {
+      url,
+      websocketUrl: desktopWebsocketUrl(url),
+      port: DAYTONA_NOVNC_PORT,
+      expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
+    };
+  });
 }
 
 async function getDaytonaTerminalPreview(sandboxId: string): Promise<TerminalPreviewResult> {
-  const sandbox = await ensureSandboxStarted(sandboxId);
-  const preview = await sandbox.getSignedPreviewUrl(DAYTONA_WEB_TERMINAL_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
+  return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    const preview = await sandbox.getSignedPreviewUrl(DAYTONA_WEB_TERMINAL_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
 
-  return {
-    url: normalizePreviewUrl(preview.url),
-    port: DAYTONA_WEB_TERMINAL_PORT,
-    expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
-  };
+    return {
+      url: normalizePreviewUrl(preview.url),
+      port: DAYTONA_WEB_TERMINAL_PORT,
+      expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
+    };
+  });
 }
 
 function ptyWebsocketUrl(toolboxProxyUrl: string, sandboxId: string, sessionId: string, token: string): string {
@@ -348,32 +395,33 @@ function ptyWebsocketUrl(toolboxProxyUrl: string, sandboxId: string, sessionId: 
 }
 
 async function createDaytonaPtyTerminal(sandboxId: string, cols: number, rows: number): Promise<PtyTerminalResult> {
-  const sandbox = await ensureSandboxStarted(sandboxId);
-  const sessionId = `autopr-terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const handle = await sandbox.process.createPty({
-    id: sessionId,
-    cwd: DEFAULT_TERMINAL_CWD,
-    envs: {
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      LANG: "en_US.UTF-8",
-      LC_ALL: "en_US.UTF-8",
-      CLICOLOR: "1",
-      FORCE_COLOR: "1",
-    },
-    cols,
-    rows,
-    onData: () => undefined,
+  return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    const sessionId = `autopr-terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const handle = await sandbox.process.createPty({
+      id: sessionId,
+      cwd: DEFAULT_TERMINAL_CWD,
+      envs: {
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor",
+        LANG: "en_US.UTF-8",
+        LC_ALL: "en_US.UTF-8",
+        CLICOLOR: "1",
+        FORCE_COLOR: "1",
+      },
+      cols,
+      rows,
+      onData: () => undefined,
+    });
+    await handle.disconnect().catch(() => undefined);
+
+    const preview = await sandbox.getPreviewLink(1);
+
+    return {
+      sessionId,
+      websocketUrl: ptyWebsocketUrl(sandbox.toolboxProxyUrl, sandbox.id, sessionId, preview.token),
+      cwd: DEFAULT_TERMINAL_CWD,
+    };
   });
-  await handle.disconnect().catch(() => undefined);
-
-  const preview = await sandbox.getPreviewLink(1);
-
-  return {
-    sessionId,
-    websocketUrl: ptyWebsocketUrl(sandbox.toolboxProxyUrl, sandbox.id, sessionId, preview.token),
-    cwd: DEFAULT_TERMINAL_CWD,
-  };
 }
 
 async function bootstrapRepositorySandbox(options: {
@@ -681,8 +729,9 @@ export const resizePtyTerminal = action({
     });
 
     try {
-      const sandbox = await ensureSandboxStarted(project.sandboxId);
-      await sandbox.process.resizePtySession(args.sessionId, args.cols, args.rows);
+      await runWithStartedSandboxRetry(project.sandboxId, async (sandbox) => {
+        await sandbox.process.resizePtySession(args.sessionId, args.cols, args.rows);
+      });
       return null;
     } catch (error) {
       throw new ConvexError({

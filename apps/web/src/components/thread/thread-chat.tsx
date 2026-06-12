@@ -21,6 +21,7 @@ import { parsePatch } from "diff";
 import {
   getToolName,
   isToolUIPart,
+  type FileUIPart,
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
@@ -31,6 +32,8 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputFooter,
+  PromptInputHeader,
+  type PromptInputMessage,
   PromptInputProvider,
   PromptInputSubmit,
   PromptInputTextarea,
@@ -43,6 +46,11 @@ import {
   type ToolDiffPayload,
 } from "@/components/ai-elements/tool";
 import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dropdown";
+import {
+  PromptImageAttachments,
+  PromptImageUploadButton,
+  usePromptImageUploadManager,
+} from "#/components/thread/prompt-image-uploads";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import { useFileSuggestions } from "#/hooks/use-file-suggestions";
@@ -50,6 +58,7 @@ import {
   CODEX_MODELS,
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
+  getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -70,6 +79,48 @@ function isExpectedStreamAbort(error: unknown) {
     error instanceof Error &&
     (error.name === "AbortError" || error.message.includes("BodyStreamBuffer was aborted"))
   );
+}
+
+type ThreadPromptHandoff = {
+  text: string;
+  files: FileUIPart[];
+};
+
+const threadPromptHandoffKey = (threadId: string) => `thread-prompt-handoff:${threadId}`;
+
+function isHandoffFilePart(value: unknown): value is FileUIPart {
+  return (
+    isRecord(value) &&
+    value.type === "file" &&
+    typeof value.url === "string" &&
+    typeof value.mediaType === "string" &&
+    (value.filename === undefined || typeof value.filename === "string")
+  );
+}
+
+function readThreadPromptHandoff(threadId: string): ThreadPromptHandoff | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.sessionStorage.getItem(threadPromptHandoffKey(threadId));
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!isRecord(parsed)) {
+      return null;
+    }
+
+    const text = typeof parsed.text === "string" ? parsed.text : "";
+    const files = Array.isArray(parsed.files) ? parsed.files.filter(isHandoffFilePart) : [];
+
+    return text.trim() || files.length > 0 ? { text, files } : null;
+  } catch {
+    return null;
+  }
 }
 
 function findLastBy<T>(items: readonly T[], predicate: (item: T) => boolean): T | undefined {
@@ -512,12 +563,13 @@ export function ThreadChat({
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
-  const [selectedModel, setSelectedModel] = useState<CodexModelId>(initialModel ?? DEFAULT_CODEX_MODEL);
+  const selectedModel: CodexModelId = initialModel ?? DEFAULT_CODEX_MODEL;
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
   const [optimisticDemoEnabled, setOptimisticDemoEnabled] = useState(Boolean(thread?.demoEnabled));
   const [demoSaving, setDemoSaving] = useState(false);
+  const imageUploads = usePromptImageUploadManager();
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const { refresh: refreshWorkOSAccessToken } = useAccessToken();
@@ -784,9 +836,12 @@ export function ThreadChat({
     }
   }, [selectedReasoningEffort, selectedReasoningEfforts]);
 
-  const submitMessage = useCallback(async (text: string) => {
+  const submitMessage = useCallback(async (message: string | PromptInputMessage) => {
+    const text = typeof message === "string" ? message : message.text;
+    const files = typeof message === "string" ? [] : message.files;
     const nextMessage = text.trim();
-    if (!nextMessage || disabled) {
+
+    if ((!nextMessage && files.length === 0) || disabled) {
       return;
     }
 
@@ -799,11 +854,35 @@ export function ThreadChat({
     }
 
     clearError();
+    const hasFiles = files.length > 0;
+
+    const uploadedFiles = hasFiles ? await imageUploads.resolveMessageImages(files) : [];
+
+    if (uploadedFiles.length > 0) {
+      if (nextMessage) {
+        await sendMessage({ text: nextMessage, files: uploadedFiles });
+      } else {
+        await sendMessage({ files: uploadedFiles });
+      }
+      return;
+    }
+
+    if (!nextMessage) {
+      return;
+    }
+
     await sendMessage({ text: nextMessage });
-  }, [clearError, disabled, sendMessage, status]);
+  }, [clearError, disabled, imageUploads, sendMessage, status]);
 
   useEffect(() => {
-    if (!initialPrompt || hasAutoSubmittedInitialPromptRef.current || !ready) {
+    if (hasAutoSubmittedInitialPromptRef.current || !ready) {
+      return;
+    }
+
+    const handoff = readThreadPromptHandoff(threadId);
+    const fallbackPrompt = initialPrompt ?? "";
+
+    if (!handoff && !fallbackPrompt) {
       return;
     }
 
@@ -812,16 +891,28 @@ export function ThreadChat({
       return;
     }
 
-    const handoffKey = `thread-prompt-handoff:${threadId}:${initialPrompt}`;
-    if (sessionStorage.getItem(handoffKey) === "submitted") {
+    const submittedKey = handoff
+      ? `${threadPromptHandoffKey(threadId)}:submitted`
+      : `${threadPromptHandoffKey(threadId)}:${fallbackPrompt}`;
+
+    if (window.sessionStorage.getItem(submittedKey) === "submitted") {
       hasAutoSubmittedInitialPromptRef.current = true;
       return;
     }
 
     hasAutoSubmittedInitialPromptRef.current = true;
-    sessionStorage.setItem(handoffKey, "submitted");
+    window.sessionStorage.setItem(submittedKey, "submitted");
+    if (handoff) {
+      window.sessionStorage.removeItem(threadPromptHandoffKey(threadId));
+    }
     onInitialPromptConsumed?.();
-    void submitMessage(initialPrompt);
+    void submitMessage(
+      handoff
+        ? handoff.files.length > 0
+          ? { text: handoff.text, files: handoff.files }
+          : handoff.text
+        : fallbackPrompt,
+    );
   }, [initialPrompt, messages.length, onInitialPromptConsumed, ready, submitMessage, threadId]);
 
   return (
@@ -849,43 +940,44 @@ export function ThreadChat({
                   "overflow-visible border border-border bg-card shadow-none transition-colors",
                   "focus-within:border-primary/60",
                 )}
-                onSubmit={(message) => void submitMessage(message.text)}
+                accept="image/*"
+                multiple
+                onSubmit={(message) => submitMessage(message)}
               >
+                <PromptInputHeader className="px-2.5 pt-2.5 pb-0">
+                  <PromptImageAttachments
+                    disabled={!ready}
+                    manager={imageUploads}
+                  />
+                </PromptInputHeader>
                 <PromptInputBody>
                   <ThreadChatTextarea projectId={projectId} disabled={!ready} />
                 </PromptInputBody>
                 <PromptInputFooter className="bg-transparent px-2 py-1.5">
                   <PromptInputTools className="min-w-0 flex-1">
-                    <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as typeof selectedModel)}>
-                      <SelectTrigger
-                        size="sm"
-                        className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="start" className="min-w-52">
-                        {CODEX_MODELS.map((model) => (
-                          <SelectItem key={model.id} value={model.id}>
-                            {model.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <PromptImageUploadButton disabled={!ready} />
+                    <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                      {CODEX_MODELS[0].label}
+                    </span>
                     <Select
                       value={selectedReasoningEffort}
                       onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}
                     >
                       <SelectTrigger
                         size="sm"
-                        className="h-7 max-w-[170px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                        className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
                         aria-label="Reasoning level"
                       >
-                        <SelectValue />
+                        <SelectValue>
+                          {getCodexReasoningEffortLabel(selectedReasoningEffort)}
+                        </SelectValue>
                       </SelectTrigger>
-                      <SelectContent align="start" alignItemWithTrigger={false} side="top" className="min-w-44">
+                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-36 min-w-36 p-1">
                         {selectedReasoningEfforts.map((effort) => (
-                          <SelectItem key={effort} value={effort}>
-                            {effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1)} reasoning
+                          <SelectItem key={effort} value={effort} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                            <span className="font-medium">
+                              {getCodexReasoningEffortLabel(effort)}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>

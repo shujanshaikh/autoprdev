@@ -113,14 +113,7 @@ function extractAccountId(claims: CodexTokenClaims | undefined) {
 
 function normalizeCodexModel(model: string | undefined) {
   const selectedModel = model?.trim() || process.env.CODEX_MODEL || "gpt-5.5";
-  const supportedModels = new Set([
-    "gpt-5.5",
-    "gpt-5.2-codex",
-    "gpt-5.1-codex-max",
-    "gpt-5.1-codex",
-    "gpt-5.1-codex-mini",
-    "gpt-5-codex",
-  ]);
+  const supportedModels = new Set(["gpt-5.5"]);
 
   if (!supportedModels.has(selectedModel)) {
     throw new CodexConnectionError("Select a supported Codex model.", 400);

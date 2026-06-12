@@ -4,11 +4,6 @@ export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
 
 export const CODEX_MODELS = [
   { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 272_000, reasoningEfforts: CODEX_REASONING_EFFORTS },
-  { id: "gpt-5.2-codex", label: "GPT-5.2 Codex", contextLimit: 400_000, reasoningEfforts: CODEX_REASONING_EFFORTS },
-  { id: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max", contextLimit: 400_000, reasoningEfforts: CODEX_REASONING_EFFORTS },
-  { id: "gpt-5.1-codex", label: "GPT-5.1 Codex", contextLimit: 400_000, reasoningEfforts: ["low", "medium", "high"] },
-  { id: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini", contextLimit: 400_000, reasoningEfforts: ["low", "medium", "high"] },
-  { id: "gpt-5-codex", label: "GPT-5 Codex", contextLimit: 400_000, reasoningEfforts: ["low", "medium", "high"] },
 ] as const;
 
 export type CodexModelId = (typeof CODEX_MODELS)[number]["id"];
@@ -23,6 +18,10 @@ export function getCodexModel(value: string | undefined) {
 
 export function getCodexReasoningEfforts(modelId: string | undefined): readonly CodexReasoningEffort[] {
   return getCodexModel(modelId)?.reasoningEfforts ?? CODEX_REASONING_EFFORTS;
+}
+
+export function getCodexReasoningEffortLabel(value: CodexReasoningEffort) {
+  return value === "xhigh" ? "Extra high" : value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export function isCodexReasoningEffortForModel(

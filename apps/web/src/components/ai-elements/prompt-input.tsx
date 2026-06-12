@@ -95,6 +95,12 @@ const convertBlobUrlToDataUrl = async (url: string): Promise<string | null> => {
   }
 };
 
+const revokeObjectUrl = (url: string | undefined) => {
+  if (url?.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+};
+
 const captureScreenshot = async (): Promise<File | null> => {
   if (
     typeof navigator === "undefined" ||
@@ -179,6 +185,7 @@ const captureScreenshot = async (): Promise<File | null> => {
 export interface AttachmentsContext {
   files: (FileUIPart & { id: string })[];
   add: (files: File[] | FileList) => void;
+  update: (id: string, patch: Partial<FileUIPart>) => void;
   remove: (id: string) => void;
   clear: () => void;
   openFileDialog: () => void;
@@ -280,19 +287,35 @@ export const PromptInputProvider = ({
   const remove = useCallback((id: string) => {
     setAttachmentFiles((prev) => {
       const found = prev.find((f) => f.id === id);
-      if (found?.url) {
-        URL.revokeObjectURL(found.url);
-      }
+      revokeObjectUrl(found?.url);
       return prev.filter((f) => f.id !== id);
     });
+  }, []);
+
+  const update = useCallback((id: string, patch: Partial<FileUIPart>) => {
+    setAttachmentFiles((prev) =>
+      prev.map((file) => {
+        if (file.id !== id) {
+          return file;
+        }
+
+        if (patch.url && patch.url !== file.url) {
+          revokeObjectUrl(file.url);
+        }
+
+        return {
+          ...file,
+          ...patch,
+          id,
+        };
+      })
+    );
   }, []);
 
   const clear = useCallback(() => {
     setAttachmentFiles((prev) => {
       for (const f of prev) {
-        if (f.url) {
-          URL.revokeObjectURL(f.url);
-        }
+        revokeObjectUrl(f.url);
       }
       return [];
     });
@@ -309,9 +332,7 @@ export const PromptInputProvider = ({
   useEffect(
     () => () => {
       for (const f of attachmentsRef.current) {
-        if (f.url) {
-          URL.revokeObjectURL(f.url);
-        }
+        revokeObjectUrl(f.url);
       }
     },
     []
@@ -329,8 +350,9 @@ export const PromptInputProvider = ({
       files: attachmentFiles,
       openFileDialog,
       remove,
+      update,
     }),
-    [attachmentFiles, add, remove, clear, openFileDialog]
+    [attachmentFiles, add, remove, update, clear, openFileDialog]
   );
 
   const __registerFileInput = useCallback(
@@ -481,7 +503,7 @@ export const PromptInputActionAddScreenshot = ({
 
 export interface PromptInputMessage {
   text: string;
-  files: FileUIPart[];
+  files: (FileUIPart & { id?: string })[];
 }
 
 export type PromptInputProps = Omit<
@@ -630,13 +652,31 @@ export const PromptInput = ({
     (id: string) =>
       setItems((prev) => {
         const found = prev.find((file) => file.id === id);
-        if (found?.url) {
-          URL.revokeObjectURL(found.url);
-        }
+        revokeObjectUrl(found?.url);
         return prev.filter((file) => file.id !== id);
       }),
     []
   );
+
+  const updateLocal = useCallback((id: string, patch: Partial<FileUIPart>) => {
+    setItems((prev) =>
+      prev.map((file) => {
+        if (file.id !== id) {
+          return file;
+        }
+
+        if (patch.url && patch.url !== file.url) {
+          revokeObjectUrl(file.url);
+        }
+
+        return {
+          ...file,
+          ...patch,
+          id,
+        };
+      })
+    );
+  }, []);
 
   // Wrapper that validates files before calling provider's add
   const addWithProviderValidation = useCallback(
@@ -688,9 +728,7 @@ export const PromptInput = ({
         ? controller?.attachments.clear()
         : setItems((prev) => {
             for (const file of prev) {
-              if (file.url) {
-                URL.revokeObjectURL(file.url);
-              }
+              revokeObjectUrl(file.url);
             }
             return [];
           }),
@@ -704,6 +742,7 @@ export const PromptInput = ({
 
   const add = usingProvider ? addWithProviderValidation : addLocal;
   const remove = usingProvider ? controller.attachments.remove : removeLocal;
+  const update = usingProvider ? controller.attachments.update : updateLocal;
   const openFileDialog = usingProvider
     ? controller.attachments.openFileDialog
     : openFileDialogLocal;
@@ -791,9 +830,7 @@ export const PromptInput = ({
     () => () => {
       if (!usingProvider) {
         for (const f of filesRef.current) {
-          if (f.url) {
-            URL.revokeObjectURL(f.url);
-          }
+          revokeObjectUrl(f.url);
         }
       }
     },
@@ -819,8 +856,9 @@ export const PromptInput = ({
       files: files.map((item) => ({ ...item, id: item.id })),
       openFileDialog,
       remove,
+      update,
     }),
-    [files, add, remove, clearAttachments, openFileDialog]
+    [files, add, remove, update, clearAttachments, openFileDialog]
   );
 
   const refsCtx = useMemo<ReferencedSourcesContext>(
@@ -861,8 +899,8 @@ export const PromptInput = ({
 
       try {
         // Convert blob URLs to data URLs asynchronously
-        const convertedFiles: FileUIPart[] = await Promise.all(
-          files.map(async ({ id: _id, ...item }) => {
+        const convertedFiles: PromptInputMessage["files"] = await Promise.all(
+          files.map(async (item) => {
             if (item.url?.startsWith("blob:")) {
               const dataUrl = await convertBlobUrlToDataUrl(item.url);
               // If conversion failed, keep the original blob URL
@@ -1155,7 +1193,7 @@ export const PromptInputButton = ({
 
   return (
     <Tooltip>
-      <TooltipTrigger>{button}</TooltipTrigger>
+      <TooltipTrigger render={button} />
       <TooltipContent side={side}>
         {tooltipContent}
         {shortcut && (

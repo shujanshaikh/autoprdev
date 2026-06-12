@@ -17,6 +17,7 @@
     "@autopr/agent": "workspace:*",
     "@autopr/backend": "workspace:*",
     "@autopr/ui": "workspace:*",
+    "@convex-dev/r2": "^0.10.1",
     "@icons-pack/react-simple-icons": "^13.13.0",
     "@novnc/novnc": "^1.7.0",
     "@pierre/diffs": "^1.1.16",

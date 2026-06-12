@@ -9,6 +9,7 @@
     "dev:setup": "convex dev --configure --until-success"
   },
   "dependencies": {
+    "@convex-dev/r2": "^0.10.1",
     "@daytona/sdk": "^0.164.0",
     "ai": "^6.0.168",
     "convex": "catalog:",

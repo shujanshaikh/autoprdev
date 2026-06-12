@@ -438,17 +438,18 @@ function WorkspaceSidebar({
   const SIDEBAR_MAX_THREADS = 6;
 
   const getSidebarThreads = useCallback((projectId: string, sourceThreads: WorkspaceThread[] | undefined) => {
-    if (!sourceThreads) return { visibleThreads: undefined, totalThreadCount: 0 };
+    if (!sourceThreads) return { visibleThreads: undefined, hiddenThreadCount: 0 };
     const threads = normalizedSearch
       ? sourceThreads.filter((thread) =>
         `${thread.title ?? ""} ${thread.threadId}`.toLowerCase().includes(normalizedSearch),
       )
       : sourceThreads;
+    const hiddenThreadCount = Math.max(threads.length - SIDEBAR_MAX_THREADS, 0);
     const visibleThreads = showAllThreadsProjectIds.has(projectId)
       ? threads
       : threads.slice(0, SIDEBAR_MAX_THREADS);
 
-    return { visibleThreads, totalThreadCount: threads.length };
+    return { visibleThreads, hiddenThreadCount };
   }, [normalizedSearch, showAllThreadsProjectIds]);
 
   function showAllProjectThreads(projectId: string) {
@@ -574,7 +575,7 @@ function WorkspaceSidebar({
                     const expanded = project.projectId === expandedProjectId;
                     const projectThreads =
                       active ? activeProjectThreads : expanded ? expandedProjectThreads : undefined;
-                    const { visibleThreads, totalThreadCount } = getSidebarThreads(project.projectId, projectThreads);
+                    const { visibleThreads, hiddenThreadCount } = getSidebarThreads(project.projectId, projectThreads);
                     const { name } = projectParts(project.repoFullName);
                     return (
                       <SidebarMenuItem key={project.projectId} className="mb-1">
@@ -688,13 +689,13 @@ function WorkspaceSidebar({
                                     );
                                   })}
                                 </ul>
-                                {totalThreadCount > SIDEBAR_MAX_THREADS && !showAllThreadsProjectIds.has(project.projectId) ? (
+                                {hiddenThreadCount > 0 && !showAllThreadsProjectIds.has(project.projectId) ? (
                                   <button
                                     type="button"
                                     onClick={() => showAllProjectThreads(project.projectId)}
                                     className="block py-1.5 pl-8 text-[13px] text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/55"
                                   >
-                                    See all ({totalThreadCount})
+                                    See all ({hiddenThreadCount})
                                   </button>
                                 ) : null}
                               </>
@@ -873,6 +874,9 @@ export function WorkspaceShell({
           onOpenSettings={() => setIsSettingsDialogOpen(true)}
         />
         <SidebarInset className="min-w-0 overflow-hidden">
+          <div className="fixed left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-40 md:hidden">
+            <SidebarTrigger className="border border-border bg-background/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80" />
+          </div>
           <RouteTransition>{children}</RouteTransition>
         </SidebarInset>
 

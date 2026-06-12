@@ -21,10 +21,13 @@ import {
   useQuery as useReactQuery,
 } from "@tanstack/react-query";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import type { FileUIPart } from "ai";
 import {
   ArrowRight,
   ArrowUp,
+  CircleAlert,
   GitBranch,
+  ImagePlus,
   Loader2,
   MessageSquare,
   MessageSquarePlus,
@@ -34,15 +37,22 @@ import {
   Square,
   Trash2,
   Video,
+  X,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { nanoid } from "nanoid";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 
+import {
+  usePromptImageUploadManager,
+  type PromptImageUploadState,
+} from "#/components/thread/prompt-image-uploads";
 import {
   CODEX_MODELS,
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
+  getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -65,7 +75,23 @@ type GithubBranch = {
   protected: boolean;
 };
 
+type ProjectPromptImage = {
+  id: string;
+  filename: string;
+  mediaType: string;
+  previewUrl: string;
+  uploadState: PromptImageUploadState;
+};
+
 const EMPTY_BRANCHES: GithubBranch[] = [];
+
+const threadPromptHandoffKey = (threadId: string) => `thread-prompt-handoff:${threadId}`;
+
+const revokeObjectUrl = (url: string | undefined) => {
+  if (url?.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+};
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -161,7 +187,7 @@ function ProjectOverviewPage() {
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [selectedBranch, setSelectedBranch] = useState("");
-  const [selectedModel, setSelectedModel] = useState<CodexModelId>(DEFAULT_CODEX_MODEL);
+  const selectedModel: CodexModelId = DEFAULT_CODEX_MODEL;
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -174,6 +200,19 @@ function ProjectOverviewPage() {
   const [isCheckingSandboxRuntime, setIsCheckingSandboxRuntime] = useState(false);
   const [isTogglingSandbox, setIsTogglingSandbox] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const promptImageInputRef = useRef<HTMLInputElement>(null);
+  const promptImageUploadPromisesRef = useRef(new Map<string, Promise<FileUIPart>>());
+  const promptImagesRef = useRef<ProjectPromptImage[]>([]);
+  const imageUploads = usePromptImageUploadManager();
+  const [promptImages, setPromptImagesState] = useState<ProjectPromptImage[]>([]);
+
+  const setPromptImages = useCallback((updater: SetStateAction<ProjectPromptImage[]>) => {
+    const currentImages = promptImagesRef.current;
+    const nextImages = typeof updater === "function" ? updater(currentImages) : updater;
+
+    promptImagesRef.current = nextImages;
+    setPromptImagesState(nextImages);
+  }, []);
 
   const openThreads = threads?.filter((t) => t.isLive) ?? [];
   const currentBranch = project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch ?? "main";
@@ -254,23 +293,174 @@ function ProjectOverviewPage() {
   })();
   const SandboxRuntimeButtonIcon = sandboxRuntimeButton.icon;
 
+  const removePromptImage = useCallback((id: string) => {
+    setPromptImages((currentImages) => {
+      const image = currentImages.find((candidate) => candidate.id === id);
+      revokeObjectUrl(image?.previewUrl);
+
+      return currentImages.filter((candidate) => candidate.id !== id);
+    });
+    promptImageUploadPromisesRef.current.delete(id);
+  }, [setPromptImages]);
+
+  const addPromptImages = useCallback((files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+
+    if (imageFiles.length === 0) {
+      return;
+    }
+
+    for (const file of imageFiles) {
+      const id = nanoid();
+      const previewUrl = URL.createObjectURL(file);
+      const filename = file.name || "Pasted image";
+      const mediaType = file.type || "image/png";
+
+      setPromptImages((currentImages) => [
+        ...currentImages,
+        {
+          id,
+          filename,
+          mediaType,
+          previewUrl,
+          uploadState: { status: "uploading" },
+        },
+      ]);
+
+      const uploadPromise = imageUploads.uploadImageFile(file)
+        .then((part) => {
+          setPromptImages((currentImages) => currentImages.map((image) => {
+            if (image.id !== id) {
+              return image;
+            }
+
+            revokeObjectUrl(image.previewUrl);
+
+            return {
+              ...image,
+              previewUrl: part.url,
+              uploadState: { status: "uploaded", part },
+            };
+          }));
+
+          return part;
+        })
+        .catch((uploadError) => {
+          const message = uploadError instanceof Error ? uploadError.message : "Image upload failed.";
+          setPromptImages((currentImages) => currentImages.map((image) => (
+            image.id === id
+              ? {
+                  ...image,
+                  uploadState: { status: "error", error: message },
+                }
+              : image
+          )));
+          throw new Error(message);
+        });
+
+      promptImageUploadPromisesRef.current.set(id, uploadPromise);
+      void uploadPromise.catch(() => undefined).finally(() => {
+        promptImageUploadPromisesRef.current.delete(id);
+      });
+    }
+  }, [imageUploads, setPromptImages]);
+
+  const resolvePromptImages = useCallback(async () => {
+    const images = promptImagesRef.current;
+
+    return await Promise.all(images.map(async (image) => {
+      if (image.uploadState.status === "uploaded") {
+        return image.uploadState.part;
+      }
+
+      if (image.uploadState.status === "error") {
+        throw new Error(image.uploadState.error);
+      }
+
+      const pendingUpload = promptImageUploadPromisesRef.current.get(image.id);
+      if (pendingUpload) {
+        return await pendingUpload;
+      }
+
+      throw new Error(`Image upload did not finish for ${image.filename}.`);
+    }));
+  }, []);
+
+  const clearPromptImages = useCallback(() => {
+    for (const image of promptImagesRef.current) {
+      revokeObjectUrl(image.previewUrl);
+    }
+
+    promptImagesRef.current = [];
+    promptImageUploadPromisesRef.current.clear();
+    setPromptImagesState([]);
+  }, []);
+
+  const handlePromptImageInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    addPromptImages(Array.from(event.currentTarget.files ?? []));
+    event.currentTarget.value = "";
+  }, [addPromptImages]);
+
+  const handlePromptPaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file && file.type.startsWith("image/")));
+
+    if (files.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    addPromptImages(files);
+  }, [addPromptImages]);
+
+  useEffect(() => () => {
+    for (const image of promptImagesRef.current) {
+      revokeObjectUrl(image.previewUrl);
+    }
+
+    promptImagesRef.current = [];
+    promptImageUploadPromisesRef.current.clear();
+  }, []);
+
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
     const prompt = (initialPrompt ?? promptValue).trim();
     setIsCreatingThread(true);
     setError(undefined);
     try {
+      const uploadedImages = await resolvePromptImages();
       const threadId = await createThread({ projectId, title: prompt || "New thread", demoEnabled });
+      if (uploadedImages.length > 0) {
+        window.sessionStorage.setItem(
+          threadPromptHandoffKey(threadId),
+          JSON.stringify({ text: prompt, files: uploadedImages }),
+        );
+      }
       const search = prompt
         ? { prompt, model: selectedModel, reasoningEffort: selectedReasoningEffort }
         : { model: selectedModel, reasoningEffort: selectedReasoningEffort };
       await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
       navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
+      clearPromptImages();
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");
       setIsCreatingThread(false);
     }
-  }, [project, projectId, promptValue, demoEnabled, selectedModel, selectedReasoningEffort, createThread, router, navigate]);
+  }, [
+    clearPromptImages,
+    createThread,
+    demoEnabled,
+    navigate,
+    project,
+    projectId,
+    promptValue,
+    resolvePromptImages,
+    router,
+    selectedModel,
+    selectedReasoningEffort,
+  ]);
 
   const handlePromptSubmit = useCallback(
     (event: React.FormEvent) => {
@@ -438,7 +628,7 @@ function ProjectOverviewPage() {
                           <Select value={selectedBranch} onValueChange={(branch) => branch && void switchBranch(branch)}>
                             <SelectTrigger
                               size="sm"
-                              className="max-w-56"
+                              className="h-7 max-w-64 border-border/70 bg-background/35 px-2.5 font-mono text-[11px] text-muted-foreground/90 hover:border-border hover:bg-muted/35 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
                               disabled={
                                 project.sandboxStatus !== "ready" ||
                                 project.branchSwitchStatus === "switching" ||
@@ -450,14 +640,24 @@ function ProjectOverviewPage() {
                               <SelectValue placeholder={isLoadingBranches ? "Loading branches" : currentBranch} />
                             </SelectTrigger>
                             <SelectContent
-                              align="center"
-                              className="max-h-72 w-[min(calc(100vw-2rem),28rem)] min-w-72"
+                              align="start"
+                              alignItemWithTrigger={false}
+                              className="max-h-72 w-[min(calc(100vw-2rem),22rem)] min-w-64 p-1"
                             >
                               {branches.map((branch) => (
-                                <SelectItem key={branch.sha} value={branch.name}>
-                                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                                    <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
-                                    <span className="min-w-0 truncate font-mono">{branch.name}</span>
+                                <SelectItem
+                                  key={branch.sha}
+                                  value={branch.name}
+                                  className="rounded-sm py-1.5 pr-7 pl-2 text-[11px] [&>span:first-of-type]:min-w-0 [&>span:first-of-type]:shrink"
+                                >
+                                  <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                                    <GitBranch className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                    <span className="min-w-0 truncate font-mono text-foreground/90">{branch.name}</span>
+                                    {branch.protected ? (
+                                      <span className="shrink-0 rounded-[3px] border border-border/70 px-1 py-0.5 text-[10px] leading-none text-muted-foreground">
+                                        protected
+                                      </span>
+                                    ) : null}
                                   </span>
                                 </SelectItem>
                               ))}
@@ -470,17 +670,72 @@ function ProjectOverviewPage() {
                       </div>
 
                       <form onSubmit={handlePromptSubmit}>
+                        <input
+                          ref={promptImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                          onChange={handlePromptImageInputChange}
+                        />
                         <div
                           className={`border bg-background transition-shadow ${isFocused
                             ? "border-primary/40 shadow-[0_0_0_3px_oklch(0.90_0.15_115.6/0.08)]"
                             : "border-border hover:border-border/80"
                             }`}
                         >
-                          <div className="px-4 pt-3.5 pb-2">
+                          {promptImages.length > 0 ? (
+                            <div className="flex flex-wrap gap-2 px-3.5 pt-3.5">
+                              {promptImages.map((image) => (
+                                <div
+                                  key={image.id}
+                                  className="group/image relative size-16 overflow-hidden border border-border bg-muted"
+                                >
+                                  <img
+                                    alt={image.filename}
+                                    className="h-full w-full object-cover"
+                                    src={image.previewUrl}
+                                  />
+                                  {image.uploadState.status === "uploading" ? (
+                                    <div
+                                      aria-label="Image upload in progress"
+                                      className="absolute inset-0 grid place-items-center bg-background/70"
+                                      role="status"
+                                    >
+                                      <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
+                                    </div>
+                                  ) : null}
+                                  {image.uploadState.status === "error" ? (
+                                    <div
+                                      aria-label="Image upload failed"
+                                      className="absolute inset-0 grid place-items-center bg-destructive/15 text-destructive"
+                                      role="status"
+                                      title={image.uploadState.error}
+                                    >
+                                      <CircleAlert className="size-4" aria-hidden="true" />
+                                    </div>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    aria-label={`Remove ${image.filename}`}
+                                    className="absolute right-1 top-1 inline-flex size-5 items-center justify-center border border-border bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/image:opacity-100"
+                                    disabled={isCreatingThread}
+                                    onClick={() => removePromptImage(image.id)}
+                                  >
+                                    <X className="size-3" aria-hidden="true" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div className={`px-4 pb-2 ${promptImages.length > 0 ? "pt-2.5" : "pt-3.5"}`}>
                             <textarea
                               ref={textareaRef}
                               value={promptValue}
                               onChange={(e) => setPromptValue(e.target.value)}
+                              onPaste={handlePromptPaste}
                               onFocus={() => setIsFocused(true)}
                               onBlur={() => setIsFocused(false)}
                               placeholder={`Ask ${project.repoFullName?.split("/")[1] ?? "the agent"} anything…`}
@@ -499,38 +754,39 @@ function ProjectOverviewPage() {
 
                           <div className="flex items-center justify-between gap-2 px-3 py-2">
                             <div className="flex min-w-0 flex-wrap items-center gap-1">
-                              <Select value={selectedModel} onValueChange={(value) => value && setSelectedModel(value as CodexModelId)}>
-                              <SelectTrigger
-                                size="sm"
-                                className="h-7 max-w-[190px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                              <button
+                                type="button"
+                                aria-label="Add photos"
+                                title="Add photos"
+                                onClick={() => promptImageInputRef.current?.click()}
                                 disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                                className="inline-flex size-7 shrink-0 items-center justify-center border border-transparent bg-transparent text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                               >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent align="start" className="min-w-52">
-                                {CODEX_MODELS.map((model) => (
-                                  <SelectItem key={model.id} value={model.id}>
-                                    {model.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                <ImagePlus className="size-3.5" aria-hidden="true" />
+                              </button>
+                              <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                {CODEX_MODELS[0].label}
+                              </span>
                             <Select
                               value={selectedReasoningEffort}
                               onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}
                             >
                               <SelectTrigger
                                 size="sm"
-                                className="h-7 max-w-[170px] border-transparent bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
                                 disabled={project.sandboxStatus !== "ready" || isCreatingThread}
                                 aria-label="Reasoning level"
                               >
-                                <SelectValue />
+                                <SelectValue>
+                                  {getCodexReasoningEffortLabel(selectedReasoningEffort)}
+                                </SelectValue>
                               </SelectTrigger>
-                              <SelectContent align="start" alignItemWithTrigger={false} side="top" className="min-w-44">
+                              <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-36 min-w-36 p-1">
                                 {selectedReasoningEfforts.map((effort) => (
-                                  <SelectItem key={effort} value={effort}>
-                                    {effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1)} reasoning
+                                  <SelectItem key={effort} value={effort} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                                    <span className="font-medium">
+                                      {getCodexReasoningEffortLabel(effort)}
+                                    </span>
                                   </SelectItem>
                                 ))}
                               </SelectContent>

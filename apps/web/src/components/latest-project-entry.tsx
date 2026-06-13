@@ -1,21 +1,9 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 
 import { WorkspaceShell } from "#/components/workspace-shell";
-
-export function LoadingState({ label = "loading" }: { label?: string }) {
-  return (
-    <div className="grid min-h-svh place-items-center gap-2 text-sm text-muted-foreground">
-      <Loader2 className="size-5 animate-spin" aria-hidden="true" />
-      <span className="font-mono text-[10px] uppercase tracking-[0.24em]">
-        {label}
-      </span>
-    </div>
-  );
-}
 
 export function LatestProjectEntry() {
   const navigate = useNavigate();
@@ -32,7 +20,7 @@ export function LatestProjectEntry() {
   }, [latestProject, navigate]);
 
   if (latestProject === undefined || latestProject) {
-    return <LoadingState label="opening project" />;
+    return null;
   }
 
   return (

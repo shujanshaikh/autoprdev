@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { Authenticated, Unauthenticated } from "convex/react";
 import { useEffect } from "react";
 
-import { LatestProjectEntry, LoadingState } from "#/components/latest-project-entry";
+import { LatestProjectEntry } from "#/components/latest-project-entry";
 
 function SignInRedirect() {
   useEffect(() => {
@@ -22,10 +22,6 @@ function Dashboard() {
       <Unauthenticated>
         <SignInRedirect />
       </Unauthenticated>
-
-      <AuthLoading>
-        <LoadingState />
-      </AuthLoading>
     </>
   );
 }

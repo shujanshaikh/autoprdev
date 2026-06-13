@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { Authenticated, Unauthenticated } from "convex/react";
 
-import { LatestProjectEntry, LoadingState } from "#/components/latest-project-entry";
+import { LatestProjectEntry } from "#/components/latest-project-entry";
 import { CodexFloating } from "@/components/landing/codex-floating";
 
 export const metadata = {
@@ -101,10 +101,6 @@ function Home() {
       <Unauthenticated>
         <LandingHome />
       </Unauthenticated>
-
-      <AuthLoading>
-        <LoadingState />
-      </AuthLoading>
     </>
   );
 }

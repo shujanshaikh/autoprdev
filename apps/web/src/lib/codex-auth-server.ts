@@ -294,6 +294,7 @@ function createCodexResponsesModelFromCredential(
           instructions?: string;
           input?: Array<Record<string, unknown>>;
           prompt_cache_key?: string;
+          prompt_cache_retention?: unknown;
           reasoning?: Record<string, unknown>;
           store?: boolean;
           stream?: boolean;
@@ -302,6 +303,7 @@ function createCodexResponsesModelFromCredential(
         body.store = false;
         body.stream = true;
         body.prompt_cache_key = body.prompt_cache_key || options.promptCacheKey;
+        delete body.prompt_cache_retention;
         body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
 
         if (Array.isArray(body.input)) {

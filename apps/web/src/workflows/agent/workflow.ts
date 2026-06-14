@@ -384,7 +384,6 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
             instructions,
             parallelToolCalls: false,
             promptCacheKey: codexOptions.promptCacheKey,
-            promptCacheRetention: "24h",
             reasoningEffort: codexOptions.reasoningEffort,
             reasoningSummary: "auto",
             include: ["reasoning.encrypted_content"],

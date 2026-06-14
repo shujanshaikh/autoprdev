@@ -14,11 +14,11 @@ const MarkdownTable = ({
   children,
   ...props
 }: WithNode<ComponentProps<"table">>) => (
-  <div className="my-4 overflow-hidden border border-border bg-card">
+  <div className="my-3 overflow-x-auto">
     <div className="overflow-x-auto">
       <table
         className={cn(
-          "w-full border-collapse text-[14px] tabular-nums",
+          "w-full border-collapse text-[13px] leading-6 tabular-nums",
           className,
         )}
         {...props}
@@ -35,7 +35,7 @@ const MarkdownThead = ({
   ...props
 }: WithNode<ComponentProps<"thead">>) => (
   <thead
-    className={cn("border-b border-border bg-muted/40", className)}
+    className={cn("border-b border-border/50 text-muted-foreground", className)}
     {...props}
   />
 );
@@ -47,7 +47,7 @@ const MarkdownTbody = ({
 }: WithNode<ComponentProps<"tbody">>) => (
   <tbody
     className={cn(
-      "divide-y divide-border/70 [&>tr:hover]:bg-muted/30",
+      "divide-y divide-border/35",
       className,
     )}
     {...props}
@@ -69,9 +69,8 @@ const MarkdownTh = ({
 }: WithNode<ComponentProps<"th">>) => (
   <th
     className={cn(
-      "whitespace-nowrap border-r border-border/70 px-3.5 py-2 text-left align-middle",
-      "font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground",
-      "last:border-r-0",
+      "whitespace-nowrap px-2 py-1.5 text-left align-middle",
+      "font-mono text-[11px] font-medium text-muted-foreground",
       className,
     )}
     {...props}
@@ -85,8 +84,8 @@ const MarkdownTd = ({
 }: WithNode<ComponentProps<"td">>) => (
   <td
     className={cn(
-      "border-r border-border/55 px-3.5 py-2.5 align-top text-[14px] leading-relaxed",
-      "first:text-muted-foreground last:border-r-0",
+      "px-2 py-1.5 align-top text-[13px] text-foreground/85",
+      "first:text-muted-foreground",
       "[&_code]:rounded-none [&_code]:bg-transparent [&_code]:px-0 [&_code]:py-0 [&_code]:font-mono",
       className,
     )}
@@ -95,8 +94,8 @@ const MarkdownTd = ({
 );
 
 /**
- * Component overrides to pass to <Streamdown components={…} />. Replaces
- * the library's default table rendering with a boxy, dashboard-themed table.
+ * Component overrides to pass to <Streamdown components={…} />. Keeps
+ * generated markdown compact so chat output still feels like a coding harness.
  */
 export const markdownComponents: Record<string, ComponentType<any>> = {
   table: MarkdownTable,

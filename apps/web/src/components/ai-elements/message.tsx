@@ -13,10 +13,9 @@ import { cn } from "@autopr/ui/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import type { ComponentProps, HTMLAttributes, ReactElement, ReactNode } from "react";
+import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
 import {
   createContext,
   memo,
@@ -323,34 +322,36 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
-const streamdownPlugins = { cjk, code, math, mermaid };
+const streamdownPlugins = { cjk, code, math };
+
+function normalizeHarnessMarkdown(content: MessageResponseProps["children"]) {
+  if (typeof content !== "string") {
+    return content;
+  }
+
+  return content.replace(/```mermaid\b/gi, "```text");
+}
 
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, children, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
         "sd-render size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        "[&_[data-streamdown=code-block]]:my-3 [&_[data-streamdown=code-block]]:overflow-hidden",
-        "[&_[data-streamdown=code-block]]:rounded-none [&_[data-streamdown=code-block]]:border",
-        "[&_[data-streamdown=code-block]]:border-border/70 [&_[data-streamdown=code-block]]:bg-muted/40",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:min-h-0",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:border-border/60",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:border-b",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:bg-transparent",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:px-2.5",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:py-1.5",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:text-muted-foreground",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:text-[0.7rem]",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:leading-none",
-        "[&_[data-streamdown=code-block]_pre]:m-0 [&_[data-streamdown=code-block]_pre]:rounded-none",
+        "[&_[data-streamdown=code-block]]:my-2 [&_[data-streamdown=code-block]]:overflow-hidden",
+        "[&_[data-streamdown=code-block]]:rounded-sm [&_[data-streamdown=code-block]]:border-0",
+        "[&_[data-streamdown=code-block]]:bg-muted/25",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:hidden",
+        "[&_[data-streamdown=code-block]_pre]:m-0 [&_[data-streamdown=code-block]_pre]:rounded-sm",
         "[&_[data-streamdown=code-block]_pre]:border-0 [&_[data-streamdown=code-block]_pre]:bg-transparent",
-        "[&_pre]:rounded-none",
+        "[&_pre]:rounded-sm",
         className
       )}
       components={markdownComponents}
       plugins={streamdownPlugins}
       {...props}
-    />
+    >
+      {normalizeHarnessMarkdown(children)}
+    </Streamdown>
   ),
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&

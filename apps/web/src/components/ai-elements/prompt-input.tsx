@@ -529,6 +529,7 @@ export type PromptInputProps = Omit<
     message: PromptInputMessage,
     event: FormEvent<HTMLFormElement>
   ) => void | Promise<void>;
+  clearOnSubmit?: "success" | "submit";
 };
 
 export const PromptInput = ({
@@ -541,6 +542,7 @@ export const PromptInput = ({
   maxFileSize,
   onError,
   onSubmit,
+  clearOnSubmit = "success",
   children,
   ...props
 }: PromptInputProps) => {
@@ -914,30 +916,42 @@ export const PromptInput = ({
         );
 
         const result = onSubmit({ files: convertedFiles, text }, event);
+        const clearsImmediately = clearOnSubmit === "submit";
+
+        if (clearsImmediately) {
+          clear();
+          if (usingProvider) {
+            controller.textInput.clear();
+          }
+        }
 
         // Handle both sync and async onSubmit
         if (result instanceof Promise) {
           try {
             await result;
-            clear();
-            if (usingProvider) {
-              controller.textInput.clear();
+            if (!clearsImmediately) {
+              clear();
+              if (usingProvider) {
+                controller.textInput.clear();
+              }
             }
           } catch {
             // Don't clear on error - user may want to retry
           }
         } else {
           // Sync function completed without throwing, clear inputs
-          clear();
-          if (usingProvider) {
-            controller.textInput.clear();
+          if (!clearsImmediately) {
+            clear();
+            if (usingProvider) {
+              controller.textInput.clear();
+            }
           }
         }
       } catch {
         // Don't clear on error - user may want to retry
       }
     },
-    [usingProvider, controller, files, onSubmit, clear]
+    [usingProvider, controller, files, onSubmit, clear, clearOnSubmit]
   );
 
   // Render with or without local provider

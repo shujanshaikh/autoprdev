@@ -941,6 +941,7 @@ export function ThreadChat({
                   "focus-within:border-primary/60",
                 )}
                 accept="image/*"
+                clearOnSubmit="submit"
                 multiple
                 onSubmit={(message) => submitMessage(message)}
               >

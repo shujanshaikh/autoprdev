@@ -330,6 +330,21 @@ export const MessageResponse = memo(
     <Streamdown
       className={cn(
         "sd-render size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "[&_[data-streamdown=code-block]]:my-3 [&_[data-streamdown=code-block]]:overflow-hidden",
+        "[&_[data-streamdown=code-block]]:rounded-none [&_[data-streamdown=code-block]]:border",
+        "[&_[data-streamdown=code-block]]:border-border/70 [&_[data-streamdown=code-block]]:bg-muted/40",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:min-h-0",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:border-border/60",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:border-b",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:bg-transparent",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:px-2.5",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:py-1.5",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:text-muted-foreground",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:text-[0.7rem]",
+        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:leading-none",
+        "[&_[data-streamdown=code-block]_pre]:m-0 [&_[data-streamdown=code-block]_pre]:rounded-none",
+        "[&_[data-streamdown=code-block]_pre]:border-0 [&_[data-streamdown=code-block]_pre]:bg-transparent",
+        "[&_pre]:rounded-none",
         className
       )}
       components={markdownComponents}

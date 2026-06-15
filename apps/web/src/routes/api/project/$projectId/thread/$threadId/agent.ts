@@ -115,25 +115,34 @@ async function POST(
     }
 
     const userMessage = parsed.data.message as UIMessage;
-    const assistantMessageId = await convexMutation(api.messages.createTurn, {
-      projectId,
-      threadId,
-      userMessage: {
-        messageId: userMessage.id,
-        parts: userMessage.parts,
-        metadata: userMessage.metadata,
-      },
-      assistantMessageId: nanoid(),
-    });
-
-    const dbMessages = await convexQuery(api.messages.listByThread, { threadId });
+    const requestedAssistantMessageId = nanoid();
+    const [assistantMessageId, dbMessages] = await Promise.all([
+      convexMutation(api.messages.createTurn, {
+        projectId,
+        threadId,
+        userMessage: {
+          messageId: userMessage.id,
+          parts: userMessage.parts,
+          metadata: userMessage.metadata,
+        },
+        assistantMessageId: requestedAssistantMessageId,
+      }),
+      convexQuery(api.messages.listByThread, { threadId }),
+    ]);
     const uiMessages: UIMessage[] = dbMessages.flatMap((message) => {
       const uiMessage = toUIMessage(message);
       return uiMessage.role !== "assistant" || uiMessage.parts.length > 0 || uiMessage.id === assistantMessageId
         ? [uiMessage]
         : [];
     });
-    const messagesForModel = await Promise.all(uiMessages.map(refreshR2FileUrlsForModel));
+    const modelInputMessages = [
+      ...uiMessages,
+      ...(uiMessages.some((message) => message.id === userMessage.id) ? [] : [userMessage]),
+      ...(uiMessages.some((message) => message.id === assistantMessageId)
+        ? []
+        : [{ id: assistantMessageId, role: "assistant" as const, parts: [] }]),
+    ];
+    const messagesForModel = await Promise.all(modelInputMessages.map(refreshR2FileUrlsForModel));
     const modelMessages = await convertToModelMessages(
       messagesForModel
         .map(sanitizeMessageForModelConversion)

@@ -1,12 +1,13 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { getGithubAuthorizationUrl, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
+import { getSafeRedirectUrl } from "#/lib/safe-redirect";
 
 async function GET({ request }: { request: Request }) {
   try {
     const authState = await requireWorkOSAuth();
     const url = new URL(request.url);
-    const returnTo = url.searchParams.get("returnTo") ?? "/dashboard";
+    const returnTo = getSafeRedirectUrl(url.searchParams.get("returnTo"));
 
     if (!authState.organizationId) {
       return Response.json(

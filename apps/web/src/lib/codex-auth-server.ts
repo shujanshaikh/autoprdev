@@ -419,8 +419,16 @@ export async function startCodexDeviceAuthorization() {
 }
 
 export async function completeCodexDeviceAuthorization(deviceAuthId: string, userCode: string) {
-  const { userId, organizationId } = await requireCodexAuthContext();
+  const authContext = await requireCodexAuthContext();
 
+  return await completeCodexDeviceAuthorizationForContext(authContext, deviceAuthId, userCode);
+}
+
+async function completeCodexDeviceAuthorizationForContext(
+  { userId, organizationId }: Awaited<ReturnType<typeof requireCodexAuthContext>>,
+  deviceAuthId: string,
+  userCode: string,
+) {
   const deviceTokenResponse = await fetch(`${OPENAI_AUTH_ISSUER}/api/accounts/deviceauth/token`, {
     method: "POST",
     headers: {
@@ -442,21 +450,24 @@ export async function completeCodexDeviceAuthorization(deviceAuthId: string, use
   }
 
   const deviceToken = (await deviceTokenResponse.json()) as DeviceTokenResponse;
-  const tokens = await fetchJson<CodexTokenResponse>(
-    `${OPENAI_AUTH_ISSUER}/oauth/token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: deviceToken.authorization_code,
-        redirect_uri: `${OPENAI_AUTH_ISSUER}/deviceauth/callback`,
-        client_id: CODEX_CLIENT_ID,
-        code_verifier: deviceToken.code_verifier,
-      }).toString(),
-    },
-    "Could not exchange Codex authorization for tokens.",
-  );
+  const [tokens, status] = await Promise.all([
+    fetchJson<CodexTokenResponse>(
+      `${OPENAI_AUTH_ISSUER}/oauth/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: deviceToken.authorization_code,
+          redirect_uri: `${OPENAI_AUTH_ISSUER}/deviceauth/callback`,
+          client_id: CODEX_CLIENT_ID,
+          code_verifier: deviceToken.code_verifier,
+        }).toString(),
+      },
+      "Could not exchange Codex authorization for tokens.",
+    ),
+    convexQuery(api.codexAuth.status, {}),
+  ]);
 
   const claims = parseJwtClaims(tokens.id_token) ?? parseJwtClaims(tokens.access_token);
   const value = JSON.stringify({
@@ -468,7 +479,6 @@ export async function completeCodexDeviceAuthorization(deviceAuthId: string, use
     accountId: extractAccountId(claims),
     email: claims?.email,
   });
-  const status = await convexQuery(api.codexAuth.status, {});
   const existing = status.connected
     ? await convexQuery(api.codexAuth.getVaultReference, {})
     : undefined;
@@ -503,12 +513,24 @@ export async function disconnectCodex() {
   const status = await convexQuery(api.codexAuth.status, {});
 
   if (status.connected) {
-    const existing = await convexQuery(api.codexAuth.getVaultReference, {});
-    await getWorkOSVault().deleteObject({ id: existing.vaultObjectId });
-    await convexMutation(api.codexAuth.remove, {});
+    await disconnectConnectedCodex();
   }
 
   return { disconnected: true as const };
+}
+
+async function disconnectConnectedCodex() {
+  const existing = await convexQuery(api.codexAuth.getVaultReference, {});
+  await deleteCodexVaultObject(existing.vaultObjectId);
+  return removeCodexCredentialReference();
+}
+
+async function deleteCodexVaultObject(vaultObjectId: string) {
+  await getWorkOSVault().deleteObject({ id: vaultObjectId });
+}
+
+function removeCodexCredentialReference() {
+  return convexMutation(api.codexAuth.remove, {});
 }
 
 export function codexErrorResponse(error: unknown, fallback: string) {

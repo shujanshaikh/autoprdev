@@ -9,10 +9,12 @@ import { agentWorkflow } from "#/workflows/agent/workflow";
 
 async function POST(req: Request) {
   const { messages, model, reasoningEffort }: { messages: UIMessage[]; model?: string; reasoningEffort?: string } = await req.json();
-  const modelMessages = await convertToModelMessages(messages);
-  const codex = await getCodexAgentModelConfig(model, reasoningEffort).catch((error) =>
-    error instanceof Error ? error : new Error("Could not load Codex credentials."),
-  );
+  const [modelMessages, codex] = await Promise.all([
+    convertToModelMessages(messages),
+    getCodexAgentModelConfig(model, reasoningEffort).catch((error) =>
+      error instanceof Error ? error : new Error("Could not load Codex credentials."),
+    ),
+  ]);
 
   if (codex instanceof Error) {
     return Response.json({ error: codex.message }, { status: 401 });

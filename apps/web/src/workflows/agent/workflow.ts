@@ -382,7 +382,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
           openai: {
             store: false,
             instructions,
-            parallelToolCalls: false,
+            parallelToolCalls: true,
             promptCacheKey: codexOptions.promptCacheKey,
             reasoningEffort: codexOptions.reasoningEffort,
             reasoningSummary: "auto",

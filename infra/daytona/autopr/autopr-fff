@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v node >/dev/null 2>&1 && [ -f /usr/local/share/nvm/nvm.sh ]; then
+  # shellcheck disable=SC1091
+  source /usr/local/share/nvm/nvm.sh
+  nvm use default >/dev/null
+fi
+
+exec node /opt/autopr/fff/cli.mjs "$@"

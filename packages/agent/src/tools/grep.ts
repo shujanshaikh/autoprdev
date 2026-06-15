@@ -2,80 +2,65 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import { executeSandboxCommand, resolveSandboxPath, shellQuote } from "../sandbox/execute";
+import { resolveSandboxPath } from "../sandbox/execute";
+import { executeAutoprFff } from "./fff";
 import { clampLimit, MAX_FILE_OUTPUT_CHARS, toTextModelOutput, truncateText } from "./format";
 import { requireString } from "./validation";
 
 const DEFAULT_GREP_LIMIT = 100;
 const MAX_GREP_LIMIT = 500;
+const MAX_LINE_CHARS = 800;
 
 const grepInputSchema = z.object({
-  pattern: z.string().optional().describe("Required. Search pattern to look for. Treated as regex unless literal=true."),
-  path: z.string().optional().describe("File or directory to search. Relative paths resolve from the sandbox workdir."),
+  pattern: z.string().optional().describe("Required. Search pattern to look for. Auto-detects regex syntax; plain literal search is used otherwise."),
+  path: z
+    .string()
+    .optional()
+    .describe("Optional file, directory, or glob constraint. Relative paths resolve from the sandbox workdir."),
   glob: z.string().optional().describe("Optional glob filter for files, such as '*.ts'."),
-  ignoreCase: z.boolean().optional().describe("Whether the search should ignore case."),
-  literal: z.boolean().optional().describe("Whether to treat the pattern as a literal string instead of a regex."),
+  exclude: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .describe("Optional path exclusions, such as 'test/,*.min.js' or ['test/', '*.min.js']."),
+  mode: z.enum(["auto", "plain", "regex", "fuzzy"]).optional().describe("FFF grep mode. auto uses regex only when the pattern contains valid regex syntax."),
+  ignoreCase: z.boolean().optional().describe("Force case-insensitive matching."),
+  caseSensitive: z.boolean().optional().describe("Force case-sensitive matching. By default FFF smart-case is used."),
+  literal: z.boolean().optional().describe("Deprecated alias for mode='plain'."),
   context: z.number().min(0).optional().describe("Number of context lines to include around each match."),
   limit: z.number().min(1).optional().describe("Maximum number of matches to return."),
+  cursor: z.string().optional().describe("Opaque pagination cursor returned by a previous grep result."),
 });
 
 type GrepInput = z.infer<typeof grepInputSchema>;
 
-function buildGrepCommand(input: GrepInput & { pattern: string }, remotePath: string): string {
-  const limit = clampLimit(input.limit, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
-  const context = Math.max(0, input.context ?? 0);
-  const rgArgs = [
-    "rg",
-    "--line-number",
-    "--color=never",
-    "--hidden",
-    "--max-count",
-    String(limit),
-    "-g",
-    "!.git",
-    "-g",
-    "!node_modules",
-  ];
+interface FffGrepMatch {
+  relativePath: string;
+  gitStatus?: string;
+  lineNumber: number;
+  lineContent: string;
+  contextBefore?: string[];
+  contextAfter?: string[];
+  isDefinition?: boolean;
+}
 
-  if (input.ignoreCase) {
-    rgArgs.push("--ignore-case");
-  }
-
-  if (input.literal) {
-    rgArgs.push("--fixed-strings");
-  }
-
-  if (context > 0) {
-    rgArgs.push("-C", String(context));
-  }
-
-  if (input.glob) {
-    rgArgs.push("--glob", input.glob);
-  }
-
-  rgArgs.push(input.pattern, remotePath);
-
-  const grepArgs = ["grep", "-R", "-n"];
-  if (input.ignoreCase) {
-    grepArgs.push("-i");
-  }
-
-  if (context > 0) {
-    grepArgs.push("-C", String(context));
-  }
-
-  grepArgs.push("--exclude-dir=.git", "--exclude-dir=node_modules");
-
-  if (input.glob) {
-    grepArgs.push(`--include=${input.glob}`);
-  }
-
-  grepArgs.push(input.literal ? "-F" : "-E", input.pattern, remotePath);
-
-  const rgCommand = rgArgs.map(shellQuote).join(" ");
-  const grepCommand = `${grepArgs.map(shellQuote).join(" ")} | head -n ${shellQuote(String(limit))}`;
-
-  return `if command -v rg >/dev/null 2>&1; then ${rgCommand}; else ${grepCommand}; fi`;
+interface FffGrepResult {
+  pattern?: string;
+  query?: string;
+  glob?: string;
+  mode?: string;
+  ignoreCase?: boolean;
+  items?: FffGrepMatch[];
+  totalMatched?: number;
+  totalFiles?: number;
+  totalFilesSearched?: number;
+  filteredFileCount?: number;
+  regexFallbackError?: string;
+  nextCursor?: string | null;
+  fallback?: {
+    type?: "auto-broaden" | "fuzzy";
+    from?: string;
+    to?: string;
+  };
 }
 
 async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessionOptions) {
@@ -83,35 +68,178 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
 
   const pattern = requireString(input.pattern, "pattern", "grep");
   const context = await getSandboxContext(sandboxOptions);
-  const remotePath = resolveSandboxPath(input.path, context.workDir);
-  const result = await executeSandboxCommand(buildGrepCommand({ ...input, pattern }, remotePath), {
-    cwd: context.workDir,
-    sandboxOptions,
-  });
+  const remotePath = context.workDir;
+  const scopePath = input.path ? resolveSandboxPath(input.path, context.workDir) : undefined;
+  const limit = clampLimit(input.limit, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
+  const contextLines = Math.max(0, input.context ?? 0);
+  const mode = input.mode ?? (input.literal ? "plain" : "auto");
+  const result = await executeAutoprFff<FffGrepResult>("grep", {
+    cwd: remotePath,
+    pattern,
+    path: scopePath,
+    glob: input.glob,
+    exclude: formatExcludeFlag(input.exclude),
+    mode,
+    "ignore-case": input.ignoreCase,
+    "case-sensitive": input.caseSensitive,
+    context: contextLines,
+    limit,
+    cursor: input.cursor,
+    "max-matches-per-file": Math.min(limit, 50),
+  }, sandboxOptions);
 
-  const output = (result.stdout ?? "").trim() || (result.stderr ?? "").trim();
+  if (!result.ok) {
+    return {
+      content:
+        `Search engine: fff\n` +
+        `Search root: ${remotePath}\n` +
+        (scopePath ? `Scope: ${scopePath}\n` : "") +
+        `Pattern: ${pattern}\n` +
+        `Mode: ${mode}\n` +
+        `Exit code: ${result.exitCode ?? "unknown"}\n\n` +
+        result.error,
+      details: {
+        engine: "fff",
+        path: remotePath,
+        scope: scopePath,
+        pattern,
+        mode,
+        exitCode: result.exitCode,
+        error: result.error,
+        truncated: false,
+      },
+    };
+  }
+
+  const output = formatFffGrepOutput(result.value);
   const body = truncateText(output || "No matches found.", MAX_FILE_OUTPUT_CHARS);
+  const notices = formatGrepNotices(result.value);
 
   return {
     content:
+      `Search engine: fff\n` +
       `Search root: ${remotePath}\n` +
+      (scopePath ? `Scope: ${scopePath}\n` : "") +
       `Pattern: ${pattern}\n` +
-      `Exit code: ${result.exitCode ?? "unknown"}\n\n` +
-      body.text,
+      `Mode: ${result.value.mode ?? mode}${input.glob ? `\nGlob: ${input.glob}` : ""}\n` +
+      `Matches shown: ${result.value.items?.length ?? 0}\n\n` +
+      body.text +
+      notices,
     details: {
+      engine: "fff",
       path: remotePath,
+      scope: scopePath,
       pattern,
-      exitCode: result.exitCode ?? null,
+      query: result.value.query,
+      glob: input.glob,
+      mode: result.value.mode ?? mode,
+      totalMatched: result.value.totalMatched ?? result.value.items?.length ?? 0,
+      totalFiles: result.value.totalFiles,
+      totalFilesSearched: result.value.totalFilesSearched,
+      filteredFileCount: result.value.filteredFileCount,
+      hasMore: Boolean(result.value.nextCursor),
+      nextCursor: result.value.nextCursor,
+      fallback: result.value.fallback,
+      regexFallbackError: result.value.regexFallbackError,
+      exitCode: result.exitCode,
       truncated: body.truncated,
     },
   };
+}
+
+function formatFffGrepOutput(result: FffGrepResult): string {
+  const matches = result.items ?? [];
+  if (matches.length === 0) {
+    return "No matches found.";
+  }
+
+  const lines: string[] = [];
+  let currentFile = "";
+
+  for (const match of matches) {
+    if (match.relativePath !== currentFile) {
+      if (lines.length > 0) {
+        lines.push("");
+      }
+
+      currentFile = match.relativePath;
+      lines.push(`${currentFile}${formatGitStatus(match.gitStatus)}`);
+    }
+
+    for (const [index, line] of (match.contextBefore ?? []).entries()) {
+      const lineNumber = match.lineNumber - (match.contextBefore?.length ?? 0) + index;
+      lines.push(`${lineNumber}- ${truncateLine(line)}`);
+    }
+
+    lines.push(`${match.lineNumber}: ${truncateLine(match.lineContent)}${match.isDefinition ? " [definition]" : ""}`);
+
+    for (const [index, line] of (match.contextAfter ?? []).entries()) {
+      lines.push(`${match.lineNumber + index + 1}- ${truncateLine(line)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function formatGitStatus(status: string | undefined): string {
+  if (!status || status === "clean" || status === "unknown") {
+    return "";
+  }
+
+  return ` [${status}]`;
+}
+
+function truncateLine(line: string): string {
+  if (line.length <= MAX_LINE_CHARS) {
+    return line;
+  }
+
+  return `${line.slice(0, MAX_LINE_CHARS)} ...`;
+}
+
+function formatGrepNotices(result: FffGrepResult): string {
+  const notices: string[] = [];
+
+  if (result.regexFallbackError) {
+    notices.push(`Invalid regex: ${result.regexFallbackError}; fff used literal matching.`);
+  }
+
+  if (result.fallback?.type === "auto-broaden" && result.fallback.from && result.fallback.to) {
+    notices.push(`0 matches for "${result.fallback.from}"; fff broadened to "${result.fallback.to}".`);
+  }
+
+  if (result.fallback?.type === "fuzzy" && result.fallback.from && result.fallback.to) {
+    notices.push(`0 exact matches for "${result.fallback.from}"; fff returned fuzzy matches for "${result.fallback.to}".`);
+  }
+
+  if (result.nextCursor) {
+    notices.push(`More matches are available. Continue with cursor="${result.nextCursor}".`);
+  }
+
+  if (notices.length === 0) {
+    return "";
+  }
+
+  return `\n\n[${notices.join(" ")}]`;
+}
+
+function formatExcludeFlag(exclude: GrepInput["exclude"]): string | undefined {
+  if (!exclude) {
+    return undefined;
+  }
+
+  if (Array.isArray(exclude)) {
+    return exclude.join(",");
+  }
+
+  return exclude;
 }
 
 export function createDaytonaGrepTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "grep",
     description:
-      "Search file contents in the Daytona sandbox using ripgrep when available, with grep fallback. Use to locate symbols, behavior, errors, and existing patterns before editing. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
+      "Search file contents in the Daytona sandbox using fff indexed grep. Use to locate symbols, behavior, errors, and existing patterns before editing. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
     inputSchema: grepInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaGrep(input, sandboxOptions),

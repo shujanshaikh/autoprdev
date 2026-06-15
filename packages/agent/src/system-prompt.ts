@@ -2,8 +2,8 @@ const DEFAULT_TOOL_SNIPPETS: Record<string, string> = {
   sandboxInfo: "Inspect the current Daytona sandbox id, snapshot, and working directory",
   read: "Read file contents with line offsets",
   ls: "List directory contents",
-  find: "Find files by glob pattern",
-  grep: "Search file contents for patterns",
+  find: "Find files using fff fuzzy search or glob filtering",
+  grep: "Search file contents using fff indexed grep",
   edit: "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
   write: "Create or overwrite files",
   bash: "Execute shell commands inside the Daytona sandbox",
@@ -18,8 +18,12 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
     "Use read to examine file contents before editing; use offset and limit to continue large files.",
   ],
   ls: ["Use ls for quick directory inspection before broader searches."],
-  find: ["Use find for filename and glob discovery instead of shelling out when possible."],
-  grep: ["Use grep for code and text search before making assumptions about existing behavior."],
+  find: [
+    "Use find for fuzzy filename, directory, and glob discovery. It is backed by FFF and should be the first choice for path discovery.",
+  ],
+  grep: [
+    "Use grep for code and text search before making assumptions about existing behavior. It is backed by FFF indexed grep with smart-case search.",
+  ],
   edit: [
     "Use edit for precise changes. Each edits[].oldText must match exactly once.",
     "When changing multiple separate locations in one file, use one edit call with multiple entries.",
@@ -127,9 +131,24 @@ function formatGuidelines(selectedTools: string[], promptGuidelines: string[]): 
 
   if (fileTools.length > 0) {
     addGuideline(`Prefer ${fileTools.join("/")} tools over bash for file exploration.`);
+    addGuideline(
+      `Call independent ${fileTools.join("/")} tools in parallel when gathering context from unrelated files, directories, or search queries.`,
+    );
+    if (selectedTools.includes("find") || selectedTools.includes("grep")) {
+      addGuideline(
+        "Do not use bash search commands such as rg, grep, find, fd, or ag for file or content search while find/grep tools are available; those searches must go through the FFF-backed tools.",
+      );
+    }
   } else if (hasBash) {
     addGuideline("Use bash for file operations like ls, rg, find, cat, and sed.");
   }
+
+  addGuideline(
+    "Parallelize independent tool calls when their inputs do not depend on each other and they will not mutate the same files, commands, or sandbox state.",
+  );
+  addGuideline(
+    "Keep dependent or state-changing tool calls sequential, including edits, writes, installs, tests, long-running commands, and commands that rely on prior output.",
+  );
 
   for (const toolName of selectedTools) {
     for (const guideline of TOOL_PROMPT_GUIDELINES[toolName] ?? []) {

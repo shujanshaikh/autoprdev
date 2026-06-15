@@ -13,7 +13,7 @@ const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready")
 type SandboxStatus = "creating" | "ready" | "failed";
 
 
-const DEFAULT_DAYTONA_SNAPSHOT = "daytona-large";
+const DEFAULT_DAYTONA_SNAPSHOT = "autopr";
 const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;

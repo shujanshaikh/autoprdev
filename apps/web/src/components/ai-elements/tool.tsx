@@ -5,7 +5,7 @@ import {
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
@@ -342,20 +342,27 @@ export function isComputerRecordingTool(
   state: ToolPart["state"],
 ): boolean {
   const actionTypes = computerActionTypes(input);
+  const startsRecording = actionTypes.includes("start_recording");
+  const stopsRecording = actionTypes.includes("stop_recording");
+
+  if (startsRecording && !stopsRecording) {
+    return state !== "output-available";
+  }
 
   return (
-    (actionTypes.includes("start_recording") && state !== "output-available") ||
-    actionTypes.includes("stop_recording") ||
+    stopsRecording ||
     outputHasDemoRecording(output)
   );
 }
 
 function computerRecordingLabel(input: unknown, output: unknown, state: ToolPart["state"]): string {
   const actionTypes = computerActionTypes(input);
+  const startsRecording = actionTypes.includes("start_recording");
+  const stopsRecording = actionTypes.includes("stop_recording");
 
   if (
     state === "output-available" &&
-    (actionTypes.includes("stop_recording") || outputHasDemoRecording(output))
+    (stopsRecording || (!startsRecording && outputHasDemoRecording(output)))
   ) {
     return "Screen recorded";
   }
@@ -422,34 +429,146 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
   );
 }
 
+const RECORDING_PREPARE_RETRY_LIMIT = 18;
+const RECORDING_PREPARE_RETRY_MIN_MS = 1_500;
+const RECORDING_PREPARE_RETRY_MAX_MS = 7_000;
+
+type RecordingLoadState = "preparing" | "ready" | "error";
+
+function appendSearchParams(url: string, params: Record<string, string>) {
+  const hashIndex = url.indexOf("#");
+  const baseUrl = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
+  const separator = baseUrl.includes("?") ? "&" : "?";
+
+  return `${baseUrl}${separator}${new URLSearchParams(params).toString()}${hash}`;
+}
+
+function recordingPrepareDelay(attempt: number) {
+  return Math.min(
+    RECORDING_PREPARE_RETRY_MIN_MS + attempt * 1_000,
+    RECORDING_PREPARE_RETRY_MAX_MS,
+  );
+}
+
 function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
-  const [retryCount, setRetryCount] = useState(0);
+  const [prepareAttempt, setPrepareAttempt] = useState(0);
+  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<RecordingLoadState>("preparing");
 
   useEffect(() => {
-    setRetryCount(0);
-  }, [recording.url]);
+    if (!recording.url) {
+      setPlaybackUrl(null);
+      setLoadState("error");
+      return;
+    }
+
+    const recordingUrl = recording.url;
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+
+    const prepareRecording = async (attempt: number) => {
+      setPlaybackUrl(null);
+      setLoadState("preparing");
+
+      try {
+        const response = await fetch(
+          appendSearchParams(recordingUrl, {
+            prepare: "1",
+            retry: String(prepareAttempt),
+            attempt: String(attempt),
+          }),
+          {
+            cache: "no-store",
+            credentials: "same-origin",
+            signal: controller.signal,
+          },
+        );
+        const data = await response.json().catch(() => null);
+        const error = isRecord(data) && typeof data.error === "string"
+          ? data.error
+          : "Recording is still preparing.";
+        const nextPlaybackUrl = isRecord(data) && typeof data.url === "string"
+          ? data.url.trim()
+          : "";
+
+        if (!response.ok || !nextPlaybackUrl) {
+          throw new Error(error);
+        }
+
+        if (!cancelled) {
+          setPlaybackUrl(nextPlaybackUrl);
+          setLoadState("preparing");
+        }
+      } catch {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+
+        if (attempt < RECORDING_PREPARE_RETRY_LIMIT) {
+          retryTimeout = setTimeout(() => {
+            void prepareRecording(attempt + 1);
+          }, recordingPrepareDelay(attempt));
+          return;
+        }
+
+        setLoadState("error");
+      }
+    };
+
+    void prepareRecording(0);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
+    };
+  }, [prepareAttempt, recording.url]);
 
   const retryVideoLoad = useCallback(() => {
-    setRetryCount((current) => (current < 3 ? current + 1 : current));
+    setPlaybackUrl(null);
+    setLoadState("preparing");
+    setPrepareAttempt((current) => current + 1);
   }, []);
 
-  const src = retryCount > 0 && recording.url
-    ? `${recording.url}${recording.url.includes("?") ? "&" : "?"}retry=${retryCount}`
-    : recording.url;
+  const markVideoReady = useCallback(() => {
+    setLoadState("ready");
+  }, []);
 
   return (
     <div className="overflow-hidden border border-border/60 bg-card">
-      {src ? (
-        <video
-          key={src}
-          className="aspect-video w-full bg-black"
-          controls
-          onError={retryVideoLoad}
-          onStalled={retryVideoLoad}
-          playsInline
-          preload="auto"
-          src={src}
-        />
+      {recording.url ? (
+        <div className="relative aspect-video w-full bg-black">
+          {playbackUrl ? (
+            <video
+              key={playbackUrl}
+              className="size-full bg-black"
+              controls
+              onCanPlay={markVideoReady}
+              onError={retryVideoLoad}
+              onLoadedMetadata={markVideoReady}
+              playsInline
+              preload="auto"
+              src={playbackUrl}
+            />
+          ) : null}
+          {loadState !== "ready" ? (
+            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-black/70 px-3 py-2 font-sans text-[11px] text-white/80">
+              {loadState === "preparing" ? (
+                <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+              ) : null}
+              <span>
+                {loadState === "error"
+                  ? "Recording is still preparing..."
+                  : "Preparing recording..."}
+              </span>
+            </div>
+          ) : null}
+        </div>
       ) : (
         <div className="px-3 py-2 text-[11px] text-muted-foreground">
           Recording metadata is available, but no playback URL was attached.

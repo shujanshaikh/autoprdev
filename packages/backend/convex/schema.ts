@@ -132,4 +132,24 @@ export default defineSchema({
   })
     .index("by_key", ["key"])
     .index("by_author", ["authorId"]),
+
+  recordingArtifacts: defineTable({
+    authorId: v.string(),
+    projectId: v.string(),
+    threadId: v.string(),
+    recordingId: v.string(),
+    r2Key: v.optional(v.string()),
+    sourceFileName: v.optional(v.string()),
+    contentType: v.optional(v.string()),
+    sizeBytes: v.optional(v.number()),
+    durationSeconds: v.optional(v.number()),
+    status: v.union(v.literal("uploading"), v.literal("uploaded"), v.literal("failed")),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    uploadedAt: v.optional(v.number()),
+  })
+    .index("by_thread_recording", ["threadId", "recordingId"])
+    .index("by_project", ["projectId"])
+    .index("by_author", ["authorId"]),
 });

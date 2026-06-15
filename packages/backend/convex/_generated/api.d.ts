@@ -21,6 +21,8 @@ import type * as messages from "../messages.js";
 import type * as privateData from "../privateData.js";
 import type * as projectActions from "../projectActions.js";
 import type * as projects from "../projects.js";
+import type * as recordingArtifactActions from "../recordingArtifactActions.js";
+import type * as recordingArtifacts from "../recordingArtifacts.js";
 import type * as sandboxCostActions from "../sandboxCostActions.js";
 import type * as sandboxCosts from "../sandboxCosts.js";
 import type * as threads from "../threads.js";
@@ -45,6 +47,8 @@ declare const fullApi: ApiFromModules<{
   privateData: typeof privateData;
   projectActions: typeof projectActions;
   projects: typeof projects;
+  recordingArtifactActions: typeof recordingArtifactActions;
+  recordingArtifacts: typeof recordingArtifacts;
   sandboxCostActions: typeof sandboxCostActions;
   sandboxCosts: typeof sandboxCosts;
   threads: typeof threads;

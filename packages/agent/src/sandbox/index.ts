@@ -13,6 +13,7 @@ export interface DaytonaSandbox {
   start(timeout?: number): Promise<void>;
   setAutoArchiveInterval(interval: number): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
+  getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
   computerUse: {
     start(): Promise<unknown>;
     stop(): Promise<unknown>;

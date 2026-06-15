@@ -525,36 +525,6 @@ export const updateSandboxRuntimeStatusInternal = internalMutation({
   },
 });
 
-export const getProjectSandboxFilesInternal = internalQuery({
-  args: {
-    authorId: v.string(),
-    projectId: v.string(),
-  },
-  returns: v.object({
-    sandboxId: v.string(),
-    sandboxWorkDir: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    const project = await ctx.db
-      .query("projects")
-      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
-      .unique();
-
-    if (!project || project.authorId !== args.authorId) {
-      throw new ConvexError({ code: "UNAUTHORIZED" });
-    }
-
-    if (project.sandboxStatus !== "ready" || !project.sandboxId) {
-      throw new ConvexError({ code: "PROJECT_SANDBOX_NOT_READY" });
-    }
-
-    return {
-      sandboxId: project.sandboxId,
-      sandboxWorkDir: project.sandboxWorkDir,
-    };
-  },
-});
-
 export const getDesktopSandboxInternal = internalQuery({
   args: {
     authorId: v.string(),

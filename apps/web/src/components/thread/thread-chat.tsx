@@ -16,7 +16,7 @@ import {
 import { cn } from "@autopr/ui/lib/utils";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
-import { useAction, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { parsePatch } from "diff";
 import {
   getToolName,
@@ -38,14 +38,12 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
-  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import {
   isToolDiffPayload,
   toolSlugFromPart,
   type ToolDiffPayload,
 } from "@/components/ai-elements/tool";
-import { FileSuggestionsDropdown } from "#/components/thread/file-suggestions-dropdown";
 import {
   PromptImageAttachments,
   PromptImageUploadButton,
@@ -53,7 +51,6 @@ import {
 } from "#/components/thread/prompt-image-uploads";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
-import { useFileSuggestions } from "#/hooks/use-file-suggestions";
 import {
   CODEX_MODELS,
   DEFAULT_CODEX_MODEL,
@@ -65,7 +62,6 @@ import {
 } from "#/lib/codex-models";
 export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
 export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
-import type { FileSuggestion } from "#/lib/file-suggestions";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -234,113 +230,16 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
   return entries;
 }
 
-function ThreadChatTextarea({
-  projectId,
-  disabled,
-}: {
-  projectId: string;
-  disabled: boolean;
-}) {
-  const { textInput } = usePromptInputController();
+function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [cursorPosition, setCursorPosition] = useState(0);
-  const [files, setFiles] = useState<FileSuggestion[] | null>(null);
-  const [filesLoading, setFilesLoading] = useState(false);
-  const listSandboxFiles = useAction(api.projectActions.listSandboxFiles);
-
-  const filesRequestProjectRef = useRef<string | null>(null);
-  const filesMountedRef = useRef(true);
-
-  useEffect(() => () => {
-    filesMountedRef.current = false;
-  }, []);
-
-  useEffect(() => {
-    filesRequestProjectRef.current = null;
-    setFiles(null);
-    setFilesLoading(false);
-  }, [projectId]);
-
-  const insertFileMention = useCallback((value: string, mentionStart: number, cursorPos: number) => {
-    const beforeMention = textInput.value.slice(0, mentionStart);
-    const afterCursor = textInput.value.slice(cursorPos);
-    const inserted = `@${value} `;
-    const nextValue = `${beforeMention}${inserted}${afterCursor}`;
-    const nextCursor = beforeMention.length + inserted.length;
-
-    textInput.setInput(nextValue);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
-      setCursorPosition(nextCursor);
-    });
-  }, [textInput]);
-
-  const fileSuggestions = useFileSuggestions({
-    inputValue: textInput.value,
-    cursorPosition,
-    files,
-    onSelect: insertFileMention,
-  });
-
-  const hasFileMention = fileSuggestions.mentionInfo !== null;
-
-  useEffect(() => {
-    if (!hasFileMention || filesRequestProjectRef.current === projectId) {
-      return;
-    }
-
-    filesRequestProjectRef.current = projectId;
-    setFilesLoading(true);
-
-    void listSandboxFiles({ projectId })
-      .then((result) => {
-        if (filesMountedRef.current && filesRequestProjectRef.current === projectId) setFiles(result);
-      })
-      .catch(() => {
-        if (filesMountedRef.current && filesRequestProjectRef.current === projectId) setFiles([]);
-      })
-      .finally(() => {
-        if (filesMountedRef.current && filesRequestProjectRef.current === projectId) setFilesLoading(false);
-      });
-  }, [hasFileMention, listSandboxFiles, projectId]);
-
-  const updateCursorPosition = useCallback((element: HTMLTextAreaElement) => {
-    setCursorPosition(element.selectionStart);
-  }, []);
-
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    setCursorPosition(textarea?.selectionStart ?? textInput.value.length);
-  }, [textInput.value]);
 
   return (
     <div className="relative w-full min-w-0">
-      <FileSuggestionsDropdown
-        suggestions={fileSuggestions.suggestions}
-        selectedIndex={fileSuggestions.selectedIndex}
-        isLoading={filesLoading && fileSuggestions.mentionInfo !== null}
-        isOpen={fileSuggestions.mentionInfo !== null}
-        onSelect={(suggestion) => {
-          if (!fileSuggestions.mentionInfo) return;
-          insertFileMention(suggestion.value, fileSuggestions.mentionInfo.mentionStart, cursorPosition);
-        }}
-      />
       <PromptInputTextarea
         ref={textareaRef}
         disabled={disabled}
-        placeholder="Message this thread… use @ to tag files"
+        placeholder="Message this thread..."
         className="max-h-40 min-h-14 resize-none px-3.5 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/55"
-        onBlur={(event) => updateCursorPosition(event.currentTarget)}
-        onClick={(event) => updateCursorPosition(event.currentTarget)}
-        onChange={(event) => updateCursorPosition(event.currentTarget)}
-        onInput={(event) => updateCursorPosition(event.currentTarget)}
-        onKeyDown={(event) => {
-          if (fileSuggestions.handleKeyDown(event)) return;
-          updateCursorPosition(event.currentTarget);
-        }}
-        onKeyUp={(event) => updateCursorPosition(event.currentTarget)}
-        onSelect={(event) => updateCursorPosition(event.currentTarget)}
       />
     </div>
   );
@@ -952,7 +851,7 @@ export function ThreadChat({
                   />
                 </PromptInputHeader>
                 <PromptInputBody>
-                  <ThreadChatTextarea projectId={projectId} disabled={!ready} />
+                  <ThreadChatTextarea disabled={!ready} />
                 </PromptInputBody>
                 <PromptInputFooter className="bg-transparent px-2 py-1.5">
                   <PromptInputTools className="min-w-0 flex-1">

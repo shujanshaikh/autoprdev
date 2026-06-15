@@ -323,6 +323,11 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math };
+const minimalHarnessControls = {
+  code: false,
+  mermaid: false,
+  table: false,
+} as const;
 
 function normalizeHarnessMarkdown(content: MessageResponseProps["children"]) {
   if (typeof content !== "string") {
@@ -336,17 +341,23 @@ export const MessageResponse = memo(
   ({ className, children, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
-        "sd-render size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        "[&_[data-streamdown=code-block]]:my-2 [&_[data-streamdown=code-block]]:overflow-hidden",
-        "[&_[data-streamdown=code-block]]:rounded-sm [&_[data-streamdown=code-block]]:border-0",
-        "[&_[data-streamdown=code-block]]:bg-muted/25",
-        "[&_[data-streamdown=code-block]>div:first-child:not(:only-child)]:hidden",
-        "[&_[data-streamdown=code-block]_pre]:m-0 [&_[data-streamdown=code-block]_pre]:rounded-sm",
-        "[&_[data-streamdown=code-block]_pre]:border-0 [&_[data-streamdown=code-block]_pre]:bg-transparent",
-        "[&_pre]:rounded-sm",
+        "sd-render size-full !text-[14px] !leading-[1.65] [&>*+*]:!mt-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "[&_p]:!my-2 [&_li]:!my-1 [&_ul]:!my-2 [&_ol]:!my-2",
+        "[&_code]:!rounded-[3px] [&_code]:!bg-muted/55 [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!text-[0.86em]",
+        "[&_[data-streamdown=inline-code]]:!text-[0.86em]",
+        "[&_[data-streamdown=code-block]]:!my-3 [&_[data-streamdown=code-block]]:!gap-0 [&_[data-streamdown=code-block]]:!overflow-hidden",
+        "[&_[data-streamdown=code-block]]:!rounded-none [&_[data-streamdown=code-block]]:!border-0 [&_[data-streamdown=code-block]]:!bg-transparent [&_[data-streamdown=code-block]]:!p-0",
+        "[&_[data-streamdown=code-block-header]]:hidden [&_[data-streamdown=code-block-actions]]:hidden",
+        "[&_[data-streamdown=code-block-body]]:!rounded-none [&_[data-streamdown=code-block-body]]:!border-0",
+        "[&_[data-streamdown=code-block-body]]:!bg-muted/25 [&_[data-streamdown=code-block-body]]:!p-0 [&_[data-streamdown=code-block-body]]:!text-[12px] sm:[&_[data-streamdown=code-block-body]]:!text-[13px]",
+        "[&_[data-streamdown=code-block-body]_pre]:!m-0 [&_[data-streamdown=code-block-body]_pre]:!rounded-none",
+        "[&_[data-streamdown=code-block-body]_pre]:!border-0 [&_[data-streamdown=code-block-body]_pre]:!bg-transparent [&_[data-streamdown=code-block-body]_pre]:!p-3",
+        "[&_[data-streamdown=code-block-body]_code]:!text-[inherit] [&_[data-streamdown=code-block-body]_code]:!leading-[1.55]",
         className
       )}
       components={markdownComponents}
+      controls={minimalHarnessControls}
+      lineNumbers={false}
       plugins={streamdownPlugins}
       {...props}
     >

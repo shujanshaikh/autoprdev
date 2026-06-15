@@ -56,6 +56,7 @@ type AssistantTokenUsageMetadata = {
   outputTokens: number;
   totalTokens: number;
   cachedInputTokens: number;
+  cacheWriteTokens: number;
 };
 
 interface AssistantUsageMetadata {
@@ -91,15 +92,27 @@ function emptyTokenUsage(): AssistantTokenUsageMetadata {
     outputTokens: 0,
     totalTokens: 0,
     cachedInputTokens: 0,
+    cacheWriteTokens: 0,
   };
 }
 
-function tokenUsageFromStep(step: { usage: Partial<AssistantTokenUsageMetadata> }): AssistantTokenUsageMetadata {
+function tokenUsageFromStep(step: {
+  usage: Partial<AssistantTokenUsageMetadata> & {
+    inputTokenDetails?: {
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+    };
+  };
+}): AssistantTokenUsageMetadata {
+  const cachedInputTokens =
+    step.usage.inputTokenDetails?.cacheReadTokens ?? step.usage.cachedInputTokens ?? 0;
+
   return {
     inputTokens: step.usage.inputTokens ?? 0,
     outputTokens: step.usage.outputTokens ?? 0,
     totalTokens: step.usage.totalTokens ?? 0,
-    cachedInputTokens: step.usage.cachedInputTokens ?? 0,
+    cachedInputTokens,
+    cacheWriteTokens: step.usage.inputTokenDetails?.cacheWriteTokens ?? step.usage.cacheWriteTokens ?? 0,
   };
 }
 
@@ -112,6 +125,7 @@ function addTokenUsage(
     outputTokens: total.outputTokens + usage.outputTokens,
     totalTokens: total.totalTokens + usage.totalTokens,
     cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
+    cacheWriteTokens: total.cacheWriteTokens + usage.cacheWriteTokens,
   };
 }
 

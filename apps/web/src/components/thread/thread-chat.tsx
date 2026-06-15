@@ -255,6 +255,7 @@ type TokenUsageMetadata = {
   outputTokens?: unknown;
   totalTokens?: unknown;
   cachedInputTokens?: unknown;
+  cacheWriteTokens?: unknown;
 };
 
 type TokenUsage = {
@@ -262,6 +263,7 @@ type TokenUsage = {
   outputTokens: number;
   totalTokens: number;
   cachedInputTokens: number;
+  cacheWriteTokens: number;
 };
 
 type WorkflowIssue = {
@@ -285,7 +287,7 @@ function readTokenUsage(value: unknown): TokenUsage | null {
     return null;
   }
 
-  const hasTokenUsage = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens"].some(
+  const hasTokenUsage = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens"].some(
     (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
   );
 
@@ -298,6 +300,7 @@ function readTokenUsage(value: unknown): TokenUsage | null {
     outputTokens: asFiniteNumber(value.outputTokens),
     totalTokens: asFiniteNumber(value.totalTokens),
     cachedInputTokens: asFiniteNumber(value.cachedInputTokens),
+    cacheWriteTokens: asFiniteNumber(value.cacheWriteTokens),
   };
 }
 
@@ -411,6 +414,10 @@ function ThreadContextRemainingIndicator({
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Cached input</span>
             <span>{formatTokens(usage.cachedInputTokens)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Cache write</span>
+            <span>{formatTokens(usage.cacheWriteTokens)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Uncached input</span>
@@ -724,6 +731,7 @@ export function ThreadChat({
       outputTokens: 0,
       totalTokens: 0,
       cachedInputTokens: 0,
+      cacheWriteTokens: 0,
     };
   }, [messages]);
   const selectedModelContextLimit =

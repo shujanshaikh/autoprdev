@@ -540,7 +540,23 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
   }, []);
 
   return (
-    <div className="overflow-hidden border border-border/60 bg-card">
+    <div className="overflow-hidden border border-border/70 bg-card/80">
+      <div className="flex items-center justify-between gap-3 border-b border-border/50 bg-muted/20 px-3 py-2 font-sans">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-red-500/80 shadow-[0_0_0_3px_hsl(var(--destructive)/0.08)]"
+            aria-hidden="true"
+          />
+          <span className="truncate text-[11px] font-medium leading-none text-foreground/72">
+            Demo recording
+          </span>
+        </div>
+        {typeof recording.durationSeconds === "number" ? (
+          <span className="shrink-0 tabular-nums text-[10px] leading-none text-muted-foreground/70">
+            {Math.max(1, Math.round(recording.durationSeconds))}s
+          </span>
+        ) : null}
+      </div>
       {recording.url ? (
         <div className="relative aspect-video w-full bg-black">
           {playbackUrl ? (
@@ -557,7 +573,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
             />
           ) : null}
           {loadState !== "ready" ? (
-            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-black/70 px-3 py-2 font-sans text-[11px] text-white/80">
+            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-black/45 px-3 py-2 font-sans text-[11px] text-white/75">
               {loadState === "preparing" ? (
                 <Loader2 className="size-3 animate-spin" aria-hidden="true" />
               ) : null}
@@ -742,6 +758,7 @@ export const ToolHeader = ({
     : title ? fallbackName : displayToolLabel(slug);
   const summary = slug === "bash" ? "" : formatToolSummaryLine(slug, input);
   const streaming = isToolStreamingState(state);
+  const recordingHeader = slug === "computer";
   const lineText = [label, summary].filter(Boolean).join(" ");
   const status = <ToolStatusText state={state} />;
 
@@ -780,19 +797,44 @@ export const ToolHeader = ({
   return (
     <CollapsibleTrigger
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "flex w-full cursor-pointer items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        recordingHeader
+          ? "border-l border-red-500/35 bg-muted/15 px-3 py-2 transition-colors hover:bg-muted/25"
+          : "py-0.5",
         className
       )}
       {...props}
     >
       <span className="min-w-0 flex-1 overflow-hidden text-left">
         {streaming ? (
-          <Shimmer as="span" className="block max-w-full truncate align-baseline text-[11px]" duration={2} spread={2}>
+          <Shimmer
+            as="span"
+            className={cn(
+              "block max-w-full truncate align-baseline text-[11px]",
+              recordingHeader && "font-sans text-[12px]"
+            )}
+            duration={2}
+            spread={2}
+          >
             {lineText || label}
           </Shimmer>
         ) : (
-          <span className="flex min-w-0 items-baseline gap-1.5">
-            <span className="shrink-0 font-medium text-muted-foreground">{label}</span>
+          <span className={cn(
+            "flex min-w-0 gap-1.5",
+            recordingHeader ? "items-center font-sans" : "items-baseline"
+          )}>
+            {recordingHeader ? (
+              <span
+                className="size-1.5 shrink-0 rounded-full bg-red-500/75"
+                aria-hidden="true"
+              />
+            ) : null}
+            <span className={cn(
+              "shrink-0 font-medium text-muted-foreground",
+              recordingHeader && "text-[12px] text-foreground/75"
+            )}>
+              {label}
+            </span>
             {summary ? (
               <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground/70">{summary}</span>
             ) : null}

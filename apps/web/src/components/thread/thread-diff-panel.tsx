@@ -33,6 +33,8 @@ export type ThreadDiffPanelProps = {
 
 const MIN_PANEL_WIDTH = 380;
 const MAX_PANEL_WIDTH_RATIO = 0.8;
+const MAX_PANEL_WIDTH = 720;
+const DOCKED_MAIN_MIN_WIDTH = 420;
 const DEFAULT_PANEL_WIDTH = 640;
 const THREAD_DIFF_PANEL_TABS_STORAGE_KEY = "autopr.threadDiffPanel.tabs.v1";
 
@@ -108,7 +110,14 @@ function readStoredVisibleTabs(): ThreadDiffPanelVisibleTab[] {
 
 function getMaxPanelWidth() {
   if (typeof window === "undefined") return DEFAULT_PANEL_WIDTH;
-  return Math.max(MIN_PANEL_WIDTH, Math.floor(window.innerWidth * MAX_PANEL_WIDTH_RATIO));
+  return Math.max(
+    MIN_PANEL_WIDTH,
+    Math.min(
+      MAX_PANEL_WIDTH,
+      Math.floor(window.innerWidth * MAX_PANEL_WIDTH_RATIO),
+      window.innerWidth - DOCKED_MAIN_MIN_WIDTH,
+    ),
+  );
 }
 
 function autoprBranchName(value: string) {
@@ -379,7 +388,7 @@ export function ThreadDiffPanel({
           "fixed inset-y-0 right-0 z-40 flex h-full max-h-full w-[min(96vw,720px)] min-w-0 flex-col border-l border-border/50 bg-background transition-transform duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] lg:static lg:z-auto lg:w-[var(--thread-diff-width)] lg:shrink-0",
           open ? "translate-x-0" : "translate-x-full lg:hidden",
         )}
-        style={{ "--thread-diff-width": `min(${panelWidth}px, 80vw)` } as CSSProperties & Record<"--thread-diff-width", string>}
+        style={{ "--thread-diff-width": `min(${panelWidth}px, ${MAX_PANEL_WIDTH}px, 80vw, calc(100vw - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-px bg-gradient-to-b from-transparent via-border/60 to-transparent" />
 

@@ -8,9 +8,9 @@ export function ThreadDiffEmptyState() {
         <span aria-hidden="true" className="absolute inset-1 border border-dashed border-border/30 opacity-40" />
         <FileDiff className="size-5 text-muted-foreground/50" aria-hidden="true" />
       </div>
-      <div className="space-y-1.5">
+      <div className="w-full max-w-[280px] space-y-1.5">
         <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-muted-foreground/70">Awaiting changes</p>
-        <p className="max-w-[240px] font-mono text-[11px] leading-relaxed text-muted-foreground/50">File edits from the agent will surface here as they happen.</p>
+        <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/50">File edits from the agent will surface here as they happen.</p>
       </div>
     </div>
   );

@@ -823,7 +823,7 @@ export function ThreadChat({
   }, [initialPrompt, messages.length, onInitialPromptConsumed, ready, submitMessage, threadId]);
 
   return (
-    <section className="grid h-full min-h-0 w-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_auto]">
+    <section className="grid h-full min-h-0 w-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(420px,1fr)_auto]">
       <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
         <div className="relative min-h-0 min-w-0 overflow-hidden">
           <ThreadMessages

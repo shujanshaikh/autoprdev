@@ -71,7 +71,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
         const RFB = module.default as RfbConstructor;
         const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
         rfb.scaleViewport = true;
-        rfb.resizeSession = true;
+        rfb.resizeSession = false;
         rfb.background = "#000000";
 
         rfb.addEventListener("connect", handleConnect);

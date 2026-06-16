@@ -794,7 +794,7 @@ export function WorkspaceShell({
   activeProjectId?: string;
   activeThreadId?: string;
   activeProjectThreads?: WorkspaceThread[] | undefined;
-  children: ReactNode;
+  children: ReactNode | ((props: { openCreateProject: () => void }) => ReactNode);
 }) {
   const navigate = useNavigate();
   const router = useRouter();
@@ -810,6 +810,9 @@ export function WorkspaceShell({
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
+  const openCreateProject = useCallback(() => {
+    setIsCreateDialogOpen(true);
+  }, []);
 
   const cachedThreads = activeProjectId ? sidebarThreadCache.get(activeProjectId) : undefined;
   const sidebarThreads = activeProjectThreads ?? cachedThreads;
@@ -869,7 +872,7 @@ export function WorkspaceShell({
           activeProjectId={activeProjectId}
           activeThreadId={activeThreadId}
           activeProjectThreads={sidebarThreads}
-          onCreateProject={() => setIsCreateDialogOpen(true)}
+          onCreateProject={openCreateProject}
           onDeleteProject={(projectId) => setProjectIdToDelete(projectId)}
           onOpenSettings={() => setIsSettingsDialogOpen(true)}
         />
@@ -877,7 +880,11 @@ export function WorkspaceShell({
           <div className="fixed left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-40 md:hidden">
             <SidebarTrigger className="border border-border bg-background/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80" />
           </div>
-          <RouteTransition>{children}</RouteTransition>
+          <RouteTransition>
+            {typeof children === "function"
+              ? children({ openCreateProject })
+              : children}
+          </RouteTransition>
         </SidebarInset>
 
         <WorkspaceCreateSandboxDialog

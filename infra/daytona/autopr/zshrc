@@ -18,6 +18,9 @@ setopt inc_append_history
 setopt interactive_comments
 setopt prompt_subst
 setopt share_history
+unsetopt prompt_sp
+
+PROMPT_EOL_MARK=""
 
 mkdir -p "${STARSHIP_CACHE}" "${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
 

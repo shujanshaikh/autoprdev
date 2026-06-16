@@ -1,6 +1,7 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
 import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, X } from "lucide-react";
@@ -29,6 +30,8 @@ export type ThreadDiffPanelProps = {
   pullRequestNumber?: number;
   pullRequestBranch?: string;
   pullRequestError?: string;
+  maximized?: boolean;
+  onMaximizedChange?: (maximized: boolean) => void;
 };
 
 const MIN_PANEL_WIDTH = 380;
@@ -123,13 +126,14 @@ export function ThreadDiffPanel({
   pullRequestNumber,
   pullRequestBranch,
   pullRequestError,
+  maximized = false,
+  onMaximizedChange,
 }: ThreadDiffPanelProps) {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
   const [visibleTabs, setVisibleTabs] = useState<ThreadDiffPanelVisibleTab[]>(DEFAULT_VISIBLE_TABS);
   const [activeTabId, setActiveTabId] = useState("");
   const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
-  const [desktopUrl, setDesktopUrl] = useState<string | undefined>();
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [desktopStatusLoading, setDesktopStatusLoading] = useState(false);
@@ -231,6 +235,7 @@ export function ThreadDiffPanel({
   const creating = effectiveStatus === "creating";
   const requestedBranch = autoprBranchName(branchName);
   const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0 && requestedBranch.length > 0;
+  const panelMaximized = open && maximized;
 
   const refreshDesktopStatus = useCallback(async () => {
     setDesktopStatusLoading(true);
@@ -300,7 +305,6 @@ export function ThreadDiffPanel({
 
     try {
       const data = await getDesktopPreview({ projectId });
-      setDesktopUrl(data.url);
       setDesktopWebsocketUrl(data.websocketUrl);
       setDesktopRuntimeStatus("started");
       setDesktopRawState("started");
@@ -355,7 +359,10 @@ export function ThreadDiffPanel({
         id="thread-changes-panel"
         aria-hidden={!open}
         className={cn(
-          "fixed inset-y-0 right-0 z-40 flex h-full max-h-full w-[min(96vw,720px)] min-w-0 flex-col border-l border-border/50 bg-background transition-transform duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] lg:static lg:z-auto lg:w-[var(--thread-diff-width)] lg:shrink-0",
+          "fixed inset-y-0 right-0 z-40 flex h-full max-h-full min-w-0 flex-col overflow-hidden border-l border-border/50 bg-background transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:static lg:z-auto lg:shrink-0 lg:will-change-[width]",
+          panelMaximized
+            ? "inset-x-0 w-full lg:w-full"
+            : "w-[min(96vw,720px)] lg:w-[var(--thread-diff-width)] lg:shrink-0",
           open ? "translate-x-0" : "translate-x-full lg:hidden",
         )}
         style={{ "--thread-diff-width": `min(${panelWidth}px, ${MAX_PANEL_WIDTH}px, 80vw, calc(100vw - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
@@ -365,7 +372,10 @@ export function ThreadDiffPanel({
         <button
           type="button"
           aria-label="Resize changes panel"
-          className="group/resize absolute inset-y-0 left-0 z-10 hidden w-2.5 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none lg:flex"
+          className={cn(
+            "group/resize absolute inset-y-0 left-0 z-10 hidden w-2.5 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none lg:flex",
+            panelMaximized && "lg:hidden",
+          )}
           onPointerDown={startResize}
         >
           <span className="block h-12 w-0.5 rounded-full bg-border/50 transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-primary/50 group-focus-visible/resize:bg-primary" />
@@ -429,9 +439,36 @@ export function ThreadDiffPanel({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button type="button" variant="ghost" size="icon" className="ml-auto size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close panel">
-              <X className="size-3.5" aria-hidden="true" />
-            </Button>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className={cn("size-7", panelMaximized && "bg-muted text-foreground")}
+                      onClick={() => onMaximizedChange?.(!panelMaximized)}
+                      aria-pressed={panelMaximized}
+                      aria-label={panelMaximized ? "Restore surface panel size" : "Maximize surface panel"}
+                    >
+                      {panelMaximized ? (
+                        <Minimize2 className="size-3.5" aria-hidden="true" />
+                      ) : (
+                        <Maximize2 className="size-3.5" aria-hidden="true" />
+                      )}
+                    </Button>
+                  }
+                />
+                <TooltipContent side="bottom" sideOffset={8}>
+                  {panelMaximized ? "Restore Surface" : "Maximize Surface"}
+                </TooltipContent>
+              </Tooltip>
+
+              <Button type="button" variant="ghost" size="icon" className="size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close panel">
+                <X className="size-3.5" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
 
           {activeTab === "diff" ? (
@@ -795,11 +832,12 @@ export function ThreadDiffPanel({
             <div role="listbox" aria-label="Changed files" className="flex min-h-0 flex-col gap-1.5">
               {entries.map((entry) => {
                 const expanded = expandedEntryId === entry.id;
+                const active = selectedEntryId === entry.id || expanded;
                 return (
                   <div key={entry.id} className="overflow-hidden rounded-md border border-border/45 bg-background/60">
                     <ThreadDiffFileRow
                       entry={entry}
-                      active={expanded}
+                      active={active}
                       expanded={expanded}
                       showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1}
                       onSelect={() => {

@@ -469,6 +469,7 @@ export function ThreadChat({
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
+  const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const selectedModel: CodexModelId = initialModel ?? DEFAULT_CODEX_MODEL;
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
@@ -607,6 +608,12 @@ export function ThreadChat({
   useEffect(() => {
     onDiffCountChange(diffEntries.length);
   }, [diffEntries.length, onDiffCountChange]);
+
+  useEffect(() => {
+    if (!diffPanelOpen) {
+      setDiffPanelMaximized(false);
+    }
+  }, [diffPanelOpen]);
 
   useEffect(() => {
     if (diffEntries.length === 0) {
@@ -822,9 +829,19 @@ export function ThreadChat({
     );
   }, [initialPrompt, messages.length, onInitialPromptConsumed, ready, submitMessage, threadId]);
 
+  const showMaximizedDiffPanel = diffPanelOpen && diffPanelMaximized;
+
   return (
-    <section className="grid h-full min-h-0 w-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(420px,1fr)_auto]">
-      <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
+    <section
+      className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden lg:flex-row"
+    >
+      <div
+        className={cn(
+          "grid h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden transition-opacity duration-200 ease-out motion-reduce:transition-none",
+          showMaximizedDiffPanel && "lg:pointer-events-none lg:opacity-0",
+        )}
+        aria-hidden={showMaximizedDiffPanel || undefined}
+      >
         <div className="relative min-h-0 min-w-0 overflow-hidden">
           <ThreadMessages
             keyedMessages={keyedMessages}
@@ -949,6 +966,8 @@ export function ThreadChat({
         pullRequestNumber={thread?.pullRequestNumber}
         pullRequestBranch={thread?.pullRequestBranch}
         pullRequestError={thread?.pullRequestError}
+        maximized={diffPanelMaximized}
+        onMaximizedChange={setDiffPanelMaximized}
       />
     </section>
   );

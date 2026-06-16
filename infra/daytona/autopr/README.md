@@ -25,6 +25,8 @@ The snapshot installs zsh and Starship, sets the `daytona` user's login shell to
 
 Daytona's web terminal is exposed on port `22222`, and AutoPR's embedded terminal creates Daytona PTY sessions for the same sandbox user. Both paths pick up this shell profile when the sandbox is created from the `autopr` snapshot.
 
+AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr` snapshot when the terminal profile needs to change.
+
 ## Build
 
 From the AutoPR repo root:

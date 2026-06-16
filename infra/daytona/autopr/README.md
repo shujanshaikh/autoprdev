@@ -1,6 +1,6 @@
 # AutoPR Daytona Snapshot
 
-This snapshot extends the Daytona sandbox image with the FFF runtime used by AutoPR search tools.
+This snapshot extends the Daytona sandbox image with the FFF runtime used by AutoPR search tools, plus the zsh/starship terminal profile used by the hosted Daytona web terminal and AutoPR's embedded PTY terminal.
 
 Create a Daytona snapshot named `autopr` from this Dockerfile, then AutoPR will use it by default. The application still honors `DAYTONA_SNAPSHOT` when you need to override the default.
 
@@ -13,6 +13,17 @@ daytonaio/sandbox:0.8.0
 ```
 
 If your current `daytona-large` snapshot is backed by a different Daytona sandbox image or digest, pass it as `DAYTONA_BASE_IMAGE` when creating the snapshot.
+
+## Terminal Profile
+
+The snapshot installs zsh and Starship, sets the `daytona` user's login shell to zsh, and writes:
+
+```text
+/home/daytona/.zshrc
+/home/daytona/.config/starship.toml
+```
+
+Daytona's web terminal is exposed on port `22222`, and AutoPR's embedded terminal creates Daytona PTY sessions for the same sandbox user. Both paths pick up this shell profile when the sandbox is created from the `autopr` snapshot.
 
 ## Build
 
@@ -39,6 +50,9 @@ daytona snapshot list
 After creating a sandbox from the `autopr` snapshot and cloning a repo into `/home/daytona/repo`, run:
 
 ```bash
+echo "$SHELL"
+zsh --version
+starship --version
 autopr-fff health --cwd /home/daytona/repo
 autopr-fff find --cwd /home/daytona/repo --query thread --limit 10
 autopr-fff find --cwd /home/daytona/repo --path "src/**/*.ts" --query thread --exclude "test/,node_modules/" --limit 10

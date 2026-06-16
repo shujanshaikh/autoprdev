@@ -29,6 +29,72 @@ const SANDBOX_START_POLL_MS = 1_000;
 const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
 const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
+const TERMINAL_PROFILE_SYNC_TIMEOUT_SECONDS = 5;
+
+const MINIMAL_STARSHIP_CONFIG = `"$schema" = "https://starship.rs/config-schema.json"
+
+add_newline = false
+command_timeout = 700
+palette = "autopr"
+right_format = "$cmd_duration"
+scan_timeout = 20
+
+format = """
+$directory\\
+$git_branch\\
+$git_status\\
+$status\\
+$character"""
+
+[palettes.autopr]
+accent = "#C4B5FD"
+amber = "#D6B35F"
+dim = "#5C5C5C"
+ink = "#D8D8D8"
+muted = "#8C8C8C"
+red = "#FF7B7B"
+
+[character]
+error_symbol = " [>](fg:red) "
+success_symbol = " [>](fg:accent) "
+vimcmd_symbol = " [<](fg:accent) "
+
+[cmd_duration]
+format = "[$duration](fg:dim)"
+min_time = 2000
+show_milliseconds = false
+
+[directory]
+fish_style_pwd_dir_length = 1
+format = "[$path](fg:ink)"
+home_symbol = "~"
+read_only = " ro"
+truncate_to_repo = false
+truncation_length = 3
+truncation_symbol = "../"
+
+[git_branch]
+format = " [$branch](fg:muted)"
+truncation_length = 28
+truncation_symbol = "..."
+
+[git_status]
+ahead = ">"
+behind = "<"
+conflicted = "x"
+deleted = "-"
+diverged = "<>"
+format = " [$all_status$ahead_behind](fg:amber)"
+modified = "!"
+renamed = "r"
+staged = "+"
+stashed = "$"
+untracked = "?"
+
+[status]
+disabled = false
+format = " [$status](fg:red)"
+`;
 
 interface EnsureProjectResult {
   projectId: string;
@@ -134,6 +200,27 @@ function computerUseStatus(value: unknown): string | undefined {
   if (!value || typeof value !== "object") return undefined;
   const status = (value as { status?: unknown }).status;
   return typeof status === "string" ? status : undefined;
+}
+
+function terminalProfileSyncCommand(): string {
+  return `mkdir -p /home/daytona/.config /home/daytona/.cache/starship /home/daytona/.cache/zsh
+cat > /home/daytona/.config/starship.toml <<'AUTOPR_STARSHIP'
+${MINIMAL_STARSHIP_CONFIG}
+AUTOPR_STARSHIP
+`;
+}
+
+async function syncDaytonaTerminalProfile(sandbox: DaytonaSandbox): Promise<void> {
+  const result = await sandbox.process.executeCommand(
+    terminalProfileSyncCommand(),
+    "/home/daytona",
+    undefined,
+    TERMINAL_PROFILE_SYNC_TIMEOUT_SECONDS,
+  );
+
+  if (result.exitCode !== undefined && result.exitCode !== 0) {
+    throw new Error(`Could not update Daytona terminal profile: ${result.result || `exit ${result.exitCode}`}`);
+  }
 }
 
 function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
@@ -287,6 +374,7 @@ async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPrevi
 
 async function getDaytonaTerminalPreview(sandboxId: string): Promise<TerminalPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    await syncDaytonaTerminalProfile(sandbox);
     const preview = await sandbox.getSignedPreviewUrl(DAYTONA_WEB_TERMINAL_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
 
     return {
@@ -307,6 +395,7 @@ function ptyWebsocketUrl(toolboxProxyUrl: string, sandboxId: string, sessionId: 
 
 async function createDaytonaPtyTerminal(sandboxId: string, cols: number, rows: number): Promise<PtyTerminalResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    await syncDaytonaTerminalProfile(sandbox);
     const sessionId = `autopr-terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const handle = await sandbox.process.createPty({
       id: sessionId,
@@ -318,6 +407,10 @@ async function createDaytonaPtyTerminal(sandboxId: string, cols: number, rows: n
         LC_ALL: "en_US.UTF-8",
         CLICOLOR: "1",
         FORCE_COLOR: "1",
+        SHELL: "/usr/bin/zsh",
+        STARSHIP_CONFIG: "/home/daytona/.config/starship.toml",
+        STARSHIP_CACHE: "/home/daytona/.cache/starship",
+        ZDOTDIR: "/home/daytona",
       },
       cols,
       rows,

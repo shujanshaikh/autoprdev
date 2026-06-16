@@ -36,7 +36,7 @@
 }
 
 .autopr-terminal {
-  --autopr-terminal-bg: #1b1b1b;
+  --autopr-terminal-bg: #111111;
 }
 
 .autopr-terminal,
@@ -51,7 +51,7 @@
 
 .autopr-terminal .xterm {
   height: 100% !important;
-  padding-bottom: 0 !important;
+  padding: 14px 16px !important;
 }
 
 .autopr-terminal .xterm-screen canvas {

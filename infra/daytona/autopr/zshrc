@@ -1,0 +1,34 @@
+# AutoPR Daytona terminal profile.
+
+export SHELL="/usr/bin/zsh"
+export STARSHIP_CONFIG="${STARSHIP_CONFIG:-$HOME/.config/starship.toml}"
+export STARSHIP_CACHE="${STARSHIP_CACHE:-$HOME/.cache/starship}"
+export TERM="${TERM:-xterm-256color}"
+export COLORTERM="${COLORTERM:-truecolor}"
+export CLICOLOR=1
+export FORCE_COLOR=1
+
+HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
+HISTSIZE=10000
+SAVEHIST=10000
+
+setopt auto_cd
+setopt hist_ignore_dups
+setopt inc_append_history
+setopt interactive_comments
+setopt prompt_subst
+setopt share_history
+
+mkdir -p "${STARSHIP_CACHE}" "${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
+
+autoload -Uz compinit
+compinit -i -d "${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump"
+
+alias gs="git status --short --branch"
+alias ll="ls -lah --color=auto"
+
+if command -v starship >/dev/null 2>&1; then
+  eval "$(starship init zsh)"
+else
+  PROMPT="%F{cyan}%n@%m%f %F{green}%~%f %# "
+fi

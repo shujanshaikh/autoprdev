@@ -5,30 +5,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
-const TERMINAL_BACKGROUND = "#1B1B1B";
+const TERMINAL_BACKGROUND = "#111111";
 
 const TERMINAL_THEME = {
   background: TERMINAL_BACKGROUND,
-  foreground: "#fafafa",
-  cursor: "#caabff",
+  foreground: "#E2E2E2",
+  cursor: "#C4B5FD",
   cursorAccent: TERMINAL_BACKGROUND,
-  selectionBackground: "#34343a",
-  black: "#171717",
-  brightBlack: "#737373",
-  red: "#ef4444",
-  brightRed: "#f87171",
-  green: "#22c55e",
-  brightGreen: "#4ade80",
-  yellow: "#eab308",
-  brightYellow: "#facc15",
-  blue: "#60a5fa",
-  brightBlue: "#93c5fd",
-  magenta: "#c084fc",
-  brightMagenta: "#d8b4fe",
-  cyan: "#22d3ee",
-  brightCyan: "#67e8f9",
-  white: "#d4d4d4",
-  brightWhite: "#ffffff",
+  selectionBackground: "#2B2B2B",
+  black: "#111111",
+  brightBlack: "#666666",
+  red: "#FF7B7B",
+  brightRed: "#FFA6A6",
+  green: "#8FD19E",
+  brightGreen: "#B7E4C3",
+  yellow: "#D6B35F",
+  brightYellow: "#E6C978",
+  blue: "#9DB8FF",
+  brightBlue: "#C2D0FF",
+  magenta: "#C4B5FD",
+  brightMagenta: "#DDD6FE",
+  cyan: "#8BD3DD",
+  brightCyan: "#B8E4EA",
+  white: "#D8D8D8",
+  brightWhite: "#FFFFFF",
 } as const;
 
 type DaytonaTerminalViewProps = {
@@ -81,7 +81,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
         convertEol: true,
         fontFamily: cssVar("--font-mono") || '"SFMono-Regular", Menlo, Consolas, monospace',
         fontSize: 13,
-        lineHeight: 1.25,
+        lineHeight: 1.28,
         scrollback: 3000,
         theme: TERMINAL_THEME,
       });
@@ -163,13 +163,13 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   }, [connect]);
 
   return (
-    <div className="autopr-terminal relative flex h-full min-h-0 flex-1 overflow-hidden bg-[#1B1B1B]">
+    <div className="autopr-terminal relative flex h-full min-h-0 flex-1 overflow-hidden bg-[var(--autopr-terminal-bg)]">
       <div
         ref={containerRef}
-        className="min-h-0 flex-1 bg-[#1B1B1B] [&_.xterm-helper-textarea]:opacity-0 [&_.xterm-helper-textarea]:focus-visible:outline-none [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar]:w-1.5"
+        className="min-h-0 flex-1 bg-[var(--autopr-terminal-bg)] [&_.xterm-helper-textarea]:opacity-0 [&_.xterm-helper-textarea]:focus-visible:outline-none [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-white/20 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar]:w-1.5"
       />
       {loading ? (
-        <div className="pointer-events-none absolute right-2 top-2 flex items-center border border-border/40 bg-card/90 px-1.5 py-1 font-mono text-[10px] text-muted-foreground">
+        <div className="pointer-events-none absolute right-2 top-2 flex items-center border border-border/40 bg-background/90 px-1.5 py-1 font-mono text-[10px] text-muted-foreground">
           <Loader2 className="mr-1 size-3 animate-spin" aria-hidden="true" />
           connecting
         </div>

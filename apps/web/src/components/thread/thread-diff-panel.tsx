@@ -4,7 +4,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
 import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import { DaytonaTerminalView } from "./daytona-terminal-view";
@@ -143,6 +143,7 @@ export function ThreadDiffPanel({
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
+  const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
@@ -176,14 +177,19 @@ export function ThreadDiffPanel({
   const startResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
+      resizeCleanupRef.current?.();
 
       const pointerId = event.pointerId;
       const startX = event.clientX;
       const startWidth = panelWidth;
       const target = event.currentTarget;
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      let resizing = true;
 
       target.setPointerCapture(pointerId);
-      document.body.style.cssText += "; cursor: col-resize; user-select: none;";
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const nextWidth = Math.min(getMaxPanelWidth(), Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
@@ -191,19 +197,29 @@ export function ThreadDiffPanel({
       };
 
       const stopResize = () => {
-        target.releasePointerCapture(pointerId);
-        document.body.style.cssText += "; cursor: ; user-select: ;";
+        if (!resizing) return;
+        resizing = false;
+
+        if (target.hasPointerCapture(pointerId)) {
+          target.releasePointerCapture(pointerId);
+        }
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", stopResize);
         window.removeEventListener("pointercancel", stopResize);
+        resizeCleanupRef.current = undefined;
       };
 
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", stopResize);
       window.addEventListener("pointercancel", stopResize);
+      resizeCleanupRef.current = stopResize;
     },
     [panelWidth],
   );
+
+  useEffect(() => () => resizeCleanupRef.current?.(), []);
 
   const showLoadingList = isLoading && entries.length === 0;
   const showEmpty = !isLoading && entries.length === 0;
@@ -349,7 +365,7 @@ export function ThreadDiffPanel({
         <button
           type="button"
           aria-label="Resize changes panel"
-          className="group/resize absolute inset-y-0 left-0 z-10 hidden w-2.5 -translate-x-1.5 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none lg:flex"
+          className="group/resize absolute inset-y-0 left-0 z-10 hidden w-2.5 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none lg:flex"
           onPointerDown={startResize}
         >
           <span className="block h-12 w-0.5 rounded-full bg-border/50 transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-primary/50 group-focus-visible/resize:bg-primary" />

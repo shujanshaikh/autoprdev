@@ -41,9 +41,6 @@ function ProjectThreadPageContent() {
 
   const handleDiffCountChange = useCallback((count: number) => {
     setDiffCount(count);
-    if (count === 0) {
-      setDiffPanelOpen(false);
-    }
   }, []);
 
   const handleInitialPromptConsumed = useCallback(() => {

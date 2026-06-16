@@ -57,6 +57,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   const websocketRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | undefined>(undefined);
   const resizeTimerRef = useRef<number | undefined>(undefined);
+  const wakeTimerRef = useRef<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const getPtyTerminal = useAction(api.projectActions.getPtyTerminal);
@@ -70,6 +71,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
     setError(undefined);
     container.innerHTML = "";
     websocketRef.current?.close();
+    window.clearTimeout(wakeTimerRef.current);
 
     try {
       const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
@@ -97,6 +99,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       const socket = new WebSocket(terminalInfo.websocketUrl, "X-Daytona-SDK-Version~");
       socket.binaryType = "arraybuffer";
       websocketRef.current = socket;
+      let receivedOutput = false;
 
       const inputDisposable = terminal.onData((data) => {
         if (socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(data));
@@ -105,15 +108,28 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       socket.addEventListener("open", () => {
         terminal.focus();
         setLoading(false);
+        wakeTimerRef.current = window.setTimeout(() => {
+          if (!receivedOutput && socket.readyState === WebSocket.OPEN) {
+            socket.send(new TextEncoder().encode("\r"));
+          }
+        }, 250);
       });
 
       socket.addEventListener("message", async (event) => {
         const text = await decodeTerminalData(event.data);
-        if (text) terminal.write(text);
+        if (text) {
+          receivedOutput = true;
+          window.clearTimeout(wakeTimerRef.current);
+          terminal.write(text);
+        }
       });
 
-      socket.addEventListener("close", () => inputDisposable.dispose());
+      socket.addEventListener("close", () => {
+        window.clearTimeout(wakeTimerRef.current);
+        inputDisposable.dispose();
+      });
       socket.addEventListener("error", () => {
+        window.clearTimeout(wakeTimerRef.current);
         setError("Terminal connection failed.");
         setLoading(false);
       });
@@ -130,6 +146,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       resizeObserver.observe(container);
 
       return () => {
+        window.clearTimeout(wakeTimerRef.current);
         resizeObserver.disconnect();
         inputDisposable.dispose();
         terminal.dispose();
@@ -158,6 +175,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       websocketRef.current?.close();
       websocketRef.current = null;
       window.clearTimeout(resizeTimerRef.current);
+      window.clearTimeout(wakeTimerRef.current);
       if (containerRef.current) containerRef.current.innerHTML = "";
     };
   }, [connect]);

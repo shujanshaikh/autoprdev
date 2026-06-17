@@ -42,7 +42,8 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
     "Demo mode gives you permission to run a dev or preview process inside Daytona when useful; do not assume a hard-coded command or URL.",
     "Use the computer tool with actions[] for small batches of desktop actions; it returns the latest screenshot as image content after relevant screen actions.",
     "For browser tasks, prefer computer open_url after choosing the right localhost URL. Coordinates are absolute screen pixels.",
-    "Start recording once the app is ready and the demonstration path is clear; stop recording promptly and mention the recording metadata.",
+    "Start recording once the app is ready and the demonstration path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video.",
+    "Stop recording promptly and mention the recording metadata.",
     "Skip recording only when no meaningful browser preview is possible, and briefly explain the concrete blocker.",
   ],
 };

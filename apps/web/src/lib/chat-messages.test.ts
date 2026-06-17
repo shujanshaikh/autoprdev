@@ -28,6 +28,7 @@ describe("chat message persistence helpers", () => {
             recording: {
               type: "daytona_recording",
               id: "rec-123",
+              title: "Signup Vault Setup Demo",
               fileName: "demo.mp4",
               url: "/api/project/p/thread/t?recordingId=rec-123",
             },
@@ -48,6 +49,7 @@ describe("chat message persistence helpers", () => {
     expect(output.details.recording).toEqual({
       type: "daytona_recording",
       id: "rec-123",
+      title: "Signup Vault Setup Demo",
       fileName: "demo.mp4",
       url: "/api/project/p/thread/t?recordingId=rec-123",
     });
@@ -80,6 +82,7 @@ describe("chat message persistence helpers", () => {
       recording: {
         type: "daytona_recording",
         id: "rec-456",
+        title: "Gallery Walkthrough",
         fileName: "flow.mp4",
       },
     };
@@ -107,6 +110,6 @@ describe("chat message persistence helpers", () => {
       base64Length: screenshotPayload.length,
     });
     expect(output.details.screenshot.payloadStripped).toBe(true);
-    expect(findDemoRecordingMetadataInParts(sanitized, "rec-456")?.fileName).toBe("flow.mp4");
+    expect(findDemoRecordingMetadataInParts(sanitized, "rec-456")?.title).toBe("Gallery Walkthrough");
   });
 });

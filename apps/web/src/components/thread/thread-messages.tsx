@@ -478,7 +478,10 @@ export function ThreadMessages({
                   ) {
                     return null;
                   }
-  
+                  const defaultToolOpen =
+                    partState !== "output-available" ||
+                    (toolSlug === "computer" && isComputerRecordingTool(input, output, partState));
+
                   return (
                     <Tool
                       key={`${message.id}-tool-${stableKey}`}
@@ -487,7 +490,7 @@ export function ThreadMessages({
                           "my-1.5 rounded-none border border-border bg-card text-muted-foreground shadow-none"
                       )}
                       data-tool={toolSlug}
-                      defaultOpen={partState !== "output-available"}
+                      defaultOpen={defaultToolOpen}
                     >
                       {part.type === "dynamic-tool" ? (
                         <ToolHeader

@@ -130,11 +130,12 @@ const computerActionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("start_recording").describe("Start a desktop recording."),
-    label: z.string().optional(),
+    title: z.string().trim().min(3).max(120).describe("Required concise title for the recording, shown above the embedded playback UI."),
   }),
   z.object({
     type: z.literal("stop_recording").describe("Stop a desktop recording by ID."),
     recordingId: z.string().min(1),
+    title: z.string().trim().min(3).max(120).describe("Required concise title for the completed recording, shown above the embedded playback UI."),
   }),
   z.object({
     type: z.literal("get_recording").describe("Get metadata for one desktop recording."),
@@ -171,6 +172,7 @@ const legacyActionSchema = z.object({
   modifiers: z.array(modifierSchema).optional(),
   keys: z.string().min(1).optional(),
   label: z.string().optional(),
+  title: z.string().optional(),
   recordingId: z.string().min(1).optional(),
 });
 
@@ -222,6 +224,9 @@ export interface DaytonaComputerToolOptions {
 
 type DaytonaRecording = {
   id?: unknown;
+  title?: unknown;
+  label?: unknown;
+  name?: unknown;
   fileName?: unknown;
   filePath?: unknown;
   status?: unknown;
@@ -321,14 +326,55 @@ function recordingUrl(options: DaytonaComputerToolOptions, recordingId: string):
   return options.recordingBasePath ? appendQuery(options.recordingBasePath, "recordingId", recordingId) : undefined;
 }
 
-function compactRecording(recording: DaytonaRecording, options: DaytonaComputerToolOptions) {
+function cleanRecordingTitle(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const title = value.replace(/\s+/g, " ").trim();
+  return title.length > 0 ? title : undefined;
+}
+
+function recordingTitleFromFileName(fileName: string | undefined): string | undefined {
+  if (!fileName) {
+    return undefined;
+  }
+
+  const baseName = fileName.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
+  const words = baseName.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+  if (!words || /^[a-f0-9]{8,}$/i.test(words.replace(/\s+/g, ""))) {
+    return undefined;
+  }
+
+  return words.replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
+}
+
+function recordingTitle(recording: DaytonaRecording, fileName: string | undefined, titleHint?: string) {
+  return (
+    cleanRecordingTitle(recording.title) ??
+    cleanRecordingTitle(recording.label) ??
+    cleanRecordingTitle(recording.name) ??
+    cleanRecordingTitle(titleHint) ??
+    recordingTitleFromFileName(fileName) ??
+    "Demo Walkthrough"
+  );
+}
+
+function compactRecording(
+  recording: DaytonaRecording,
+  options: DaytonaComputerToolOptions,
+  titleHint?: string,
+) {
   const id = typeof recording.id === "string" ? recording.id : "";
   const url = id ? recordingUrl(options, id) : undefined;
+  const fileName = typeof recording.fileName === "string" ? recording.fileName : undefined;
 
   return {
     type: "daytona_recording",
     id,
-    fileName: typeof recording.fileName === "string" ? recording.fileName : undefined,
+    title: recordingTitle(recording, fileName, titleHint),
+    fileName,
     filePath: typeof recording.filePath === "string" ? recording.filePath : undefined,
     status: typeof recording.status === "string" ? recording.status : undefined,
     startTime: typeof recording.startTime === "string" ? recording.startTime : undefined,
@@ -341,7 +387,7 @@ function compactRecording(recording: DaytonaRecording, options: DaytonaComputerT
 }
 
 function recordingSummary(recording: ReturnType<typeof compactRecording>) {
-  const parts = [`Recording ${recording.id || "unknown"}`];
+  const parts = [`Recording "${recording.title}"`];
   if (recording.status) {
     parts.push(recording.status);
   }
@@ -553,8 +599,9 @@ function summarizeAction(action: ComputerAction) {
     case "hotkey":
       return `hotkey(${action.keys})`;
     case "start_recording":
-      return `start_recording(${action.label ?? "default"})`;
+      return `start_recording(${action.title})`;
     case "stop_recording":
+      return `${action.type}(${action.recordingId}, ${action.title})`;
     case "get_recording":
       return `${action.type}(${action.recordingId})`;
   }
@@ -627,9 +674,9 @@ function legacyToAction(input: z.infer<typeof legacyActionSchema>): unknown {
     case "hotkey":
       return { type: "hotkey", keys: input.keys };
     case "start_recording":
-      return { type: "start_recording", label: input.label };
+      return { type: "start_recording", title: input.title ?? input.label };
     case "stop_recording":
-      return { type: "stop_recording", recordingId: input.recordingId };
+      return { type: "stop_recording", recordingId: input.recordingId, title: input.title ?? input.label };
     case "get_recording":
       return { type: "get_recording", recordingId: input.recordingId };
     default:
@@ -773,8 +820,9 @@ async function runOneAction(
     }
     case "start_recording": {
       const recording = compactRecording(
-        await computerUse.recording.start(action.label) as DaytonaRecording,
+        await computerUse.recording.start(action.title) as DaytonaRecording,
         computerOptions,
+        action.title,
       );
       return { recording, recordings: [recording] };
     }
@@ -782,6 +830,7 @@ async function runOneAction(
       const recording = compactRecording(
         await computerUse.recording.stop(action.recordingId) as DaytonaRecording,
         computerOptions,
+        action.title,
       );
       return { recording, recordings: [recording] };
     }

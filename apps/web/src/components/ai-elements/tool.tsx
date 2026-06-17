@@ -451,10 +451,62 @@ function recordingPrepareDelay(attempt: number) {
   );
 }
 
+function cleanRecordingText(value: string | undefined): string | undefined {
+  const text = value?.replace(/\s+/g, " ").trim();
+  return text ? text : undefined;
+}
+
+function titleFromRecordingFileName(fileName: string | undefined): string | undefined {
+  const baseName = fileName?.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
+  const words = baseName.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+  if (!words || /^[a-f0-9]{8,}$/i.test(words.replace(/\s+/g, ""))) {
+    return undefined;
+  }
+
+  return words.replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
+}
+
+function recordingDisplayTitle(recording: DemoRecordingMetadata) {
+  return (
+    cleanRecordingText(recording.title) ??
+    titleFromRecordingFileName(recording.fileName) ??
+    "Demo Walkthrough"
+  );
+}
+
+function formatRecordingDuration(seconds: number) {
+  const roundedSeconds = Math.max(1, Math.round(seconds));
+  const minutes = Math.floor(roundedSeconds / 60);
+  const remainingSeconds = roundedSeconds % 60;
+
+  if (minutes === 0) {
+    return `${remainingSeconds}s`;
+  }
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function recordingMetaLine(recording: DemoRecordingMetadata) {
+  const details: string[] = [];
+
+  if (typeof recording.durationSeconds === "number") {
+    details.push(formatRecordingDuration(recording.durationSeconds));
+  }
+
+  if (recording.status && recording.status !== "completed") {
+    details.push(recording.status);
+  }
+
+  return details.length > 0 ? details.join(" - ") : null;
+}
+
 function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
   const [prepareAttempt, setPrepareAttempt] = useState(0);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<RecordingLoadState>("preparing");
+  const title = recordingDisplayTitle(recording);
+  const metaLine = recordingMetaLine(recording);
 
   useEffect(() => {
     if (!recording.url) {
@@ -540,30 +592,16 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
   }, []);
 
   return (
-    <div className="overflow-hidden border border-border/70 bg-card/80">
-      <div className="flex items-center justify-between gap-3 border-b border-border/50 bg-muted/20 px-3 py-2 font-sans">
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className="size-1.5 shrink-0 rounded-full bg-red-500/80 shadow-[0_0_0_3px_hsl(var(--destructive)/0.08)]"
-            aria-hidden="true"
-          />
-          <span className="truncate text-[11px] font-medium leading-none text-foreground/72">
-            Demo recording
-          </span>
-        </div>
-        {typeof recording.durationSeconds === "number" ? (
-          <span className="shrink-0 tabular-nums text-[10px] leading-none text-muted-foreground/70">
-            {Math.max(1, Math.round(recording.durationSeconds))}s
-          </span>
-        ) : null}
-      </div>
+    <article className="overflow-hidden rounded-md border border-border/60 bg-background">
       {recording.url ? (
-        <div className="relative aspect-video w-full bg-black">
+        <div className="relative aspect-video w-full overflow-hidden bg-black">
           {playbackUrl ? (
             <video
               key={playbackUrl}
-              className="size-full bg-black"
+              aria-label={title}
+              className="size-full bg-black object-contain"
               controls
+              controlsList="nodownload"
               onCanPlay={markVideoReady}
               onError={retryVideoLoad}
               onLoadedMetadata={markVideoReady}
@@ -572,25 +610,37 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
               src={playbackUrl}
             />
           ) : null}
+          <div className="pointer-events-none absolute left-3 right-3 top-3 z-10">
+            <h4 className="w-fit max-w-full truncate rounded bg-black/55 px-2 py-1 text-[12px] font-medium leading-none text-white/90 backdrop-blur-sm">
+              {title}
+            </h4>
+          </div>
           {loadState !== "ready" ? (
-            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-black/45 px-3 py-2 font-sans text-[11px] text-white/75">
-              {loadState === "preparing" ? (
-                <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-              ) : null}
-              <span>
-                {loadState === "error"
-                  ? "Recording is still preparing..."
-                  : "Preparing recording..."}
-              </span>
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25 px-4 pt-10 font-sans">
+              <div className="flex items-center gap-2 rounded bg-black/55 px-2.5 py-1.5 text-[11px] text-white/75">
+                {loadState === "preparing" ? (
+                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                ) : null}
+                <span>
+                  {loadState === "error"
+                    ? "Recording is still preparing..."
+                    : "Preparing recording..."}
+                </span>
+              </div>
             </div>
           ) : null}
         </div>
       ) : (
-        <div className="px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="px-3 py-2 font-sans text-[12px] leading-relaxed text-muted-foreground">
           Recording metadata is available, but no playback URL was attached.
         </div>
       )}
-    </div>
+      {metaLine ? (
+        <p className="border-t border-border/50 px-3 py-2 font-sans text-[12px] leading-none text-muted-foreground/80">
+          {metaLine}
+        </p>
+      ) : null}
+    </article>
   );
 }
 
@@ -647,11 +697,14 @@ function ContentDetailsBody({
     }
 
     return (
-      <div className="space-y-2">
+      <section className="space-y-1.5 font-sans">
+        <h3 className="text-[13px] font-medium leading-tight text-muted-foreground">
+          Walkthrough
+        </h3>
         {demoRecordings.map((recording) => (
           <DemoRecordingCard key={recording.id} recording={recording} />
         ))}
-      </div>
+      </section>
     );
   }
 

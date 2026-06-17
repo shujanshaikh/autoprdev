@@ -354,7 +354,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
       demoRecordingBasePath
-        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; stop recording promptly and include the recording metadata in your response. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly and include the recording metadata in your response. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
         : undefined,
     ]
       .filter(Boolean)

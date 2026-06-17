@@ -78,6 +78,7 @@ function sanitizeScreenshotPayloads(value: unknown, isScreenshotContext = false)
 export interface DemoRecordingMetadata {
   type: "daytona_recording";
   id: string;
+  title?: string;
   fileName?: string;
   filePath?: string;
   status?: string;

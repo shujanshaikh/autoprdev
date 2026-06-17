@@ -4,12 +4,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@autopr/ui/components/dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { getToolName, isFileUIPart, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
 import { Bot, Check, Copy } from "lucide-react";
@@ -21,7 +15,7 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { MessageAction, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import {
   Tool,
@@ -58,10 +52,41 @@ function getToolState(part: object): ToolPart["state"] {
 }
 
 function getTextParts(parts: UIMessage["parts"]) {
-  return parts.reduce(
-    (text, part) => (isTextUIPart(part) ? text + part.text : text),
-    ""
-  );
+  return parts
+    .filter(isTextUIPart)
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function writeClipboardText(text: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall back to the selection API below for browsers that reject async clipboard writes.
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function UserMessageCopyButton({ text }: { text: string }) {
@@ -69,11 +94,15 @@ function UserMessageCopyButton({ text }: { text: string }) {
   const timeoutRef = useRef<number>(0);
 
   const copyMessage = useCallback(async () => {
-    if (!text || typeof window === "undefined" || !navigator.clipboard?.writeText) {
+    if (!text) {
       return;
     }
 
-    await navigator.clipboard.writeText(text);
+    const didCopy = await writeClipboardText(text);
+    if (!didCopy) {
+      return;
+    }
+
     setCopied(true);
     window.clearTimeout(timeoutRef.current);
     timeoutRef.current = window.setTimeout(() => setCopied(false), 1600);
@@ -89,22 +118,18 @@ function UserMessageCopyButton({ text }: { text: string }) {
   const Icon = copied ? Check : Copy;
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger
-          type="button"
-          className="absolute -bottom-8 right-0 inline-flex size-6 items-center justify-center text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/user-message:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label={copied ? "Copied message" : "Copy message"}
-          disabled={!text}
-          onClick={() => void copyMessage()}
-        >
-          <Icon className="size-3.5" aria-hidden="true" />
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="end" sideOffset={6}>
-          <p>{copied ? "Copied" : "Copy message"}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <MessageActions className="absolute -bottom-8 right-0 opacity-0 transition group-hover/user-message:opacity-100 focus-within:opacity-100">
+      <MessageAction
+        aria-label={copied ? "Copied message" : "Copy message"}
+        className="size-6 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+        disabled={!text}
+        label={copied ? "Copied message" : "Copy message"}
+        onClick={() => void copyMessage()}
+        tooltip={copied ? "Copied" : "Copy message"}
+      >
+        <Icon className="size-3.5" aria-hidden="true" />
+      </MessageAction>
+    </MessageActions>
   );
 }
 

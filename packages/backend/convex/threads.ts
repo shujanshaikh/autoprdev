@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
+import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
@@ -26,6 +27,10 @@ export const create = mutation({
 
     if (project.sandboxStatus !== "ready") {
       throw new ConvexError({ code: "PROJECT_NOT_READY" });
+    }
+
+    if (args.demoEnabled) {
+      await requireDemoRecordingExperimentEnabled(ctx, authorId);
     }
 
     const now = Date.now();
@@ -229,6 +234,10 @@ export const setDemoEnabled = mutation({
   },
   handler: async (ctx, args) => {
     const thread = await requireThreadForAuthor(ctx, args.threadId);
+
+    if (args.demoEnabled) {
+      await requireDemoRecordingExperimentEnabled(ctx, thread.authorId);
+    }
 
     await ctx.db.patch(thread._id, {
       demoEnabled: args.demoEnabled,

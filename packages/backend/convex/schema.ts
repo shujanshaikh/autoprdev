@@ -73,6 +73,13 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_author", ["authorId"]),
 
+  userSettings: defineTable({
+    authorId: v.string(),
+    demoRecordingExperimentEnabled: v.optional(v.boolean()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_author", ["authorId"]),
+
   threads: defineTable({
     threadId: v.string(),
     projectId: v.string(),

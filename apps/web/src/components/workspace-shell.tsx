@@ -64,7 +64,7 @@ import {
 } from "react";
 
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
-import { SettingsDialog } from "#/components/settings/settings-dialog";
+import { SettingsDialog, type WorkspaceUserSettings } from "#/components/settings/settings-dialog";
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import { ModeToggle } from "#/components/mode-toggle";
@@ -804,12 +804,21 @@ export function WorkspaceShell({
     api.sandboxCosts.listForCurrentUser,
     isAuthenticated ? {} : "skip",
   ) as WorkspaceSandboxCost[] | undefined;
+  const userSettings = useQuery(
+    api.userSettings.get,
+    isAuthenticated ? {} : "skip",
+  ) as WorkspaceUserSettings | undefined;
   const removeProjectWithSandbox = useAction(api.projectActions.removeWithSandbox);
+  const setDemoRecordingExperimentEnabled = useConvexMutation(
+    api.userSettings.setDemoRecordingExperimentEnabled,
+  );
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
+  const [userSettingsSaving, setUserSettingsSaving] = useState(false);
+  const [userSettingsError, setUserSettingsError] = useState<string | undefined>();
   const openCreateProject = useCallback(() => {
     setIsCreateDialogOpen(true);
   }, []);
@@ -860,6 +869,19 @@ export function WorkspaceShell({
       setIsDeletingProject(false);
     }
   }
+
+  const updateDemoRecordingExperimentEnabled = useCallback(async (enabled: boolean) => {
+    setUserSettingsSaving(true);
+    setUserSettingsError(undefined);
+
+    try {
+      await setDemoRecordingExperimentEnabled({ enabled });
+    } catch (err) {
+      setUserSettingsError(err instanceof Error ? err.message : "Could not update settings.");
+    } finally {
+      setUserSettingsSaving(false);
+    }
+  }, [setDemoRecordingExperimentEnabled]);
 
   return (
     <TooltipProvider>
@@ -912,6 +934,10 @@ export function WorkspaceShell({
           open={isSettingsDialogOpen}
           projects={projects}
           sandboxCosts={sandboxCosts}
+          userSettings={userSettings}
+          userSettingsSaving={userSettingsSaving}
+          userSettingsError={userSettingsError}
+          onDemoRecordingExperimentEnabledChange={updateDemoRecordingExperimentEnabled}
           codexStatus={codexStatusQuery.data}
           onCodexStatusChange={() => void codexStatusQuery.refetch()}
           onOpenChange={setIsSettingsDialogOpen}

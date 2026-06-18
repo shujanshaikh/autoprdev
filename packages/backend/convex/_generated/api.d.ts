@@ -16,6 +16,7 @@ import type * as imageUploads from "../imageUploads.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_github from "../lib/github.js";
 import type * as lib_github_oauth from "../lib/github_oauth.js";
+import type * as lib_userSettings from "../lib/userSettings.js";
 import type * as lib_uuid from "../lib/uuid.js";
 import type * as messages from "../messages.js";
 import type * as privateData from "../privateData.js";
@@ -26,6 +27,7 @@ import type * as recordingArtifacts from "../recordingArtifacts.js";
 import type * as sandboxCostActions from "../sandboxCostActions.js";
 import type * as sandboxCosts from "../sandboxCosts.js";
 import type * as threads from "../threads.js";
+import type * as userSettings from "../userSettings.js";
 
 import type {
   ApiFromModules,
@@ -42,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/github": typeof lib_github;
   "lib/github_oauth": typeof lib_github_oauth;
+  "lib/userSettings": typeof lib_userSettings;
   "lib/uuid": typeof lib_uuid;
   messages: typeof messages;
   privateData: typeof privateData;
@@ -52,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   sandboxCostActions: typeof sandboxCostActions;
   sandboxCosts: typeof sandboxCosts;
   threads: typeof threads;
+  userSettings: typeof userSettings;
 }>;
 
 /**

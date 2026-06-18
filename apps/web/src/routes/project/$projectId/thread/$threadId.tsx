@@ -25,6 +25,7 @@ function ProjectThreadPageContent() {
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
+  const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [diffCount, setDiffCount] = useState(0);
 
@@ -33,6 +34,7 @@ function ProjectThreadPageContent() {
   const loading = project === undefined || thread === undefined || dbMessages === undefined;
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
+  const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
 
   useEffect(() => {
     setDiffCount(0);
@@ -143,6 +145,7 @@ function ProjectThreadPageContent() {
                   initialReasoningEffort={initialReasoningEffort}
                   disabled={disabled}
                   diffPanelOpen={diffPanelOpen}
+                  demoRecordingExperimentEnabled={demoRecordingExperimentEnabled}
                   onDiffPanelOpenChange={setDiffPanelOpen}
                   onDiffCountChange={handleDiffCountChange}
                   onInitialPromptConsumed={handleInitialPromptConsumed}

@@ -7,13 +7,14 @@ import {
   DialogTitle,
 } from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
-import { LayoutDashboard, Receipt } from "lucide-react";
+import { FlaskConical, LayoutDashboard, Receipt } from "lucide-react";
 import { CodexConnectPanel, type CodexStatus } from "#/components/dashboard/codex-connect-dialog";
 import { CodexLogo } from "#/components/icons/codex-logo";
 import type { SandboxStatus, SandboxRuntimeStatus } from "#/components/dashboard/types";
 import { SettingsStats } from "./settings-stats";
 import { SettingsProjects } from "./settings-projects";
 import { SettingsBilling } from "./settings-billing";
+import { SettingsLabs } from "./settings-labs";
 
 export interface WorkspaceProject {
   projectId: string;
@@ -40,7 +41,11 @@ export interface WorkspaceSandboxCost {
   deletedAt?: number;
 }
 
-type SettingsTab = "overview" | "codex" | "billing";
+export interface WorkspaceUserSettings {
+  demoRecordingExperimentEnabled: boolean;
+}
+
+type SettingsTab = "overview" | "codex" | "labs" | "billing";
 
 const tabs: {
   id: SettingsTab;
@@ -49,6 +54,7 @@ const tabs: {
 }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "codex", label: "Codex", icon: CodexLogo },
+  { id: "labs", label: "Labs", icon: FlaskConical },
   { id: "billing", label: "Billing", icon: Receipt },
 ];
 
@@ -57,6 +63,10 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   projects: WorkspaceProject[] | undefined;
   sandboxCosts: WorkspaceSandboxCost[] | undefined;
+  userSettings: WorkspaceUserSettings | undefined;
+  userSettingsSaving: boolean;
+  userSettingsError?: string;
+  onDemoRecordingExperimentEnabledChange: (enabled: boolean) => void | Promise<void>;
   codexStatus?: CodexStatus;
   onCodexStatusChange: () => void;
 }
@@ -66,6 +76,10 @@ export function SettingsDialog({
   onOpenChange,
   projects,
   sandboxCosts,
+  userSettings,
+  userSettingsSaving,
+  userSettingsError,
+  onDemoRecordingExperimentEnabledChange,
   codexStatus,
   onCodexStatusChange,
 }: SettingsDialogProps) {
@@ -82,7 +96,7 @@ export function SettingsDialog({
             <DialogHeader className="px-4 pb-3 pr-12 pt-4 sm:pr-4">
               <DialogTitle>Settings</DialogTitle>
               <DialogDescription className="text-xs">
-                Projects, Codex &amp; billing.
+                Projects, Codex, labs &amp; billing.
               </DialogDescription>
             </DialogHeader>
 
@@ -150,6 +164,19 @@ export function SettingsDialog({
                     onStatusChange={onCodexStatusChange}
                   />
                 </div>
+              </div>
+            ) : activeTab === "labs" ? (
+              <div
+                id="settings-panel-labs"
+                role="tabpanel"
+                aria-labelledby="settings-tab-labs"
+              >
+                <SettingsLabs
+                  userSettings={userSettings}
+                  saving={userSettingsSaving}
+                  error={userSettingsError}
+                  onDemoRecordingExperimentEnabledChange={onDemoRecordingExperimentEnabledChange}
+                />
               </div>
             ) : (
               <div

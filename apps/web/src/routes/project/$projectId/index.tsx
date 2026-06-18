@@ -177,6 +177,7 @@ function ProjectOverviewPage() {
   const { isAuthenticated } = useConvexAuth();
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
+  const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
@@ -192,6 +193,7 @@ function ProjectOverviewPage() {
     DEFAULT_CODEX_REASONING_EFFORT,
   );
   const [demoEnabled, setDemoEnabled] = useState(false);
+  const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -424,6 +426,12 @@ function ProjectOverviewPage() {
     promptImageUploadPromisesRef.current.clear();
   }, []);
 
+  useEffect(() => {
+    if (!demoRecordingExperimentEnabled && demoEnabled) {
+      setDemoEnabled(false);
+    }
+  }, [demoEnabled, demoRecordingExperimentEnabled]);
+
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
     const prompt = (initialPrompt ?? promptValue).trim();
@@ -431,7 +439,11 @@ function ProjectOverviewPage() {
     setError(undefined);
     try {
       const uploadedImages = await resolvePromptImages();
-      const threadId = await createThread({ projectId, title: prompt || "New thread", demoEnabled });
+      const threadId = await createThread({
+        projectId,
+        title: prompt || "New thread",
+        demoEnabled: demoRecordingExperimentEnabled && demoEnabled,
+      });
       if (uploadedImages.length > 0) {
         window.sessionStorage.setItem(
           threadPromptHandoffKey(threadId),
@@ -452,6 +464,7 @@ function ProjectOverviewPage() {
     clearPromptImages,
     createThread,
     demoEnabled,
+    demoRecordingExperimentEnabled,
     navigate,
     project,
     projectId,
@@ -791,22 +804,32 @@ function ProjectOverviewPage() {
                                 ))}
                               </SelectContent>
                             </Select>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={demoEnabled}
-                              onClick={() => setDemoEnabled((enabled) => !enabled)}
-                              disabled={project.sandboxStatus !== "ready" || isCreatingThread}
-                              title={demoEnabled ? "Demo enabled for new threads" : "Allow the agent to record a demo for new threads"}
-                              className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                                demoEnabled
-                                  ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
-                                  : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
-                              }`}
-                            >
-                              <Video className="size-3.5" aria-hidden="true" />
-                              <span>Demo</span>
-                            </button>
+                            {demoRecordingExperimentEnabled ? (
+                              <>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={demoEnabled}
+                                  onClick={() => setDemoEnabled((enabled) => !enabled)}
+                                  disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                                  title={demoEnabled ? "Experimental demo recording enabled for new threads" : "Allow the agent to record an experimental demo for new threads"}
+                                  className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                    demoEnabled
+                                      ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
+                                      : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                                  }`}
+                                >
+                                  <Video className="size-3.5" aria-hidden="true" />
+                                  <span>Demo</span>
+                                </button>
+                                {demoEnabled ? (
+                                  <span className="inline-flex min-h-7 max-w-full items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
+                                    <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+                                    <span>Experimental, can fail</span>
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : null}
                             </div>
                             <button
                               type="submit"

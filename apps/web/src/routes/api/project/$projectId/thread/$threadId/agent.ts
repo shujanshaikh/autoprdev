@@ -90,7 +90,8 @@ async function POST(
   return Promise.all([
     convexQuery(api.projects.get, { projectId }),
     convexQuery(api.threads.get, { threadId }),
-  ]).then(async ([project, thread]) => {
+    convexQuery(api.userSettings.get, {}),
+  ]).then(async ([project, thread, userSettings]) => {
     if (!project || !thread || thread.projectId !== projectId) {
       return Response.json({ error: "Project or thread not found." }, { status: 404 });
     }
@@ -159,7 +160,7 @@ async function POST(
         repoUrl: project.cloneUrl,
         repoBranch: project.repoBranch,
         assistantMessageId,
-        demoEnabled: Boolean(thread.demoEnabled),
+        demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
         convexAuth: workOSSession,
         codex,
       },

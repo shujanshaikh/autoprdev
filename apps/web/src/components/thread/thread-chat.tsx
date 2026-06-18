@@ -25,7 +25,7 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
-import { Video } from "lucide-react";
+import { CircleAlert, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -443,6 +443,7 @@ export function ThreadChat({
   initialReasoningEffort,
   disabled,
   diffPanelOpen,
+  demoRecordingExperimentEnabled,
   onDiffPanelOpenChange,
   onDiffCountChange,
   onInitialPromptConsumed,
@@ -458,6 +459,7 @@ export function ThreadChat({
   initialReasoningEffort?: CodexReasoningEffort;
   disabled: boolean;
   diffPanelOpen: boolean;
+  demoRecordingExperimentEnabled: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
   onDiffCountChange: (count: number) => void;
   onInitialPromptConsumed?: () => void;
@@ -700,6 +702,10 @@ export function ThreadChat({
     pendingStopRef.current = stopPromise;
   }, [clearError, getRunApi, messages, stop]);
   const toggleDemoEnabled = useCallback(async () => {
+    if (!demoRecordingExperimentEnabled && !optimisticDemoEnabled) {
+      return;
+    }
+
     const nextDemoEnabled = !optimisticDemoEnabled;
     setOptimisticDemoEnabled(nextDemoEnabled);
     setDemoSaving(true);
@@ -712,7 +718,7 @@ export function ThreadChat({
     } finally {
       setDemoSaving(false);
     }
-  }, [optimisticDemoEnabled, setDemoEnabled, threadId]);
+  }, [demoRecordingExperimentEnabled, optimisticDemoEnabled, setDemoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
   const keyedMessages = useMemo(() => {
@@ -907,32 +913,42 @@ export function ThreadChat({
                         ))}
                       </SelectContent>
                     </Select>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={optimisticDemoEnabled}
-                            disabled={demoSaving}
-                            onClick={() => void toggleDemoEnabled()}
-                            className={cn(
-                              "inline-flex h-7 shrink-0 items-center gap-1.5 border border-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition",
-                              "hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
-                              optimisticDemoEnabled && "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                            )}
-                          >
-                            <Video className="size-3.5" aria-hidden />
-                            <span>Demo</span>
-                          </button>
-                        }
-                      />
-                      <TooltipContent side="top" align="start" className="max-w-64 rounded-none">
-                        {optimisticDemoEnabled
-                          ? "Future runs in this thread will record a Daytona browser demo."
-                          : "Allow future runs to record a Daytona browser demo."}
-                      </TooltipContent>
-                    </Tooltip>
+                    {demoRecordingExperimentEnabled ? (
+                      <>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={optimisticDemoEnabled}
+                                disabled={demoSaving}
+                                onClick={() => void toggleDemoEnabled()}
+                                className={cn(
+                                  "inline-flex h-7 shrink-0 items-center gap-1.5 border border-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition",
+                                  "hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                                  optimisticDemoEnabled && "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                                )}
+                              >
+                                <Video className="size-3.5" aria-hidden />
+                                <span>Demo</span>
+                              </button>
+                            }
+                          />
+                          <TooltipContent side="top" align="start" className="max-w-64 rounded-none">
+                            {optimisticDemoEnabled
+                              ? "Experimental: future runs in this thread will record a Daytona browser demo and may fail."
+                              : "Allow future runs to record an experimental Daytona browser demo."}
+                          </TooltipContent>
+                        </Tooltip>
+                        {optimisticDemoEnabled ? (
+                          <span className="inline-flex min-h-7 max-w-full items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
+                            <CircleAlert className="size-3.5 shrink-0" aria-hidden />
+                            <span>Experimental, can fail</span>
+                          </span>
+                        ) : null}
+                      </>
+                    ) : null}
                     <ThreadContextRemainingIndicator
                       usage={currentContextUsage}
                       contextLimit={selectedModelContextLimit}

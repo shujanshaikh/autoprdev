@@ -1,3 +1,16 @@
+import {
+  DEFAULT_SANDBOX_WORKDIR,
+  sandboxRepositoryDirectoryName,
+  sandboxRepositoryPath,
+} from "./repo-path";
+
+export {
+  DEFAULT_SANDBOX_WORKDIR,
+  sandboxRelativeRepositoryPath,
+  sandboxRepositoryDirectoryName,
+  sandboxRepositoryPath,
+} from "./repo-path";
+
 export interface SandboxContext {
   sandbox: DaytonaSandbox;
   workDir: string;
@@ -105,15 +118,15 @@ export interface SandboxSessionOptions {
   snapshot?: string;
   repoUrl?: string;
   repoBranch?: string;
+  repoName?: string;
+  workDir?: string;
 }
 
 // Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
 const DEFAULT_DAYTONA_SNAPSHOT = "autopr";
-const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
-const REPO_PATH = "repo";
 
 const sandboxContextPromises = new Map<string, Promise<SandboxContext>>();
 
@@ -123,6 +136,8 @@ interface ResolvedSandboxSessionOptions {
   snapshot: string;
   repoUrl?: string;
   repoBranch?: string;
+  repoName?: string;
+  workDir?: string;
 }
 
 function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSandboxSessionOptions {
@@ -130,6 +145,8 @@ function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSan
   const snapshot = options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT;
   const repoUrl = options.repoUrl ?? process.env.DAYTONA_REPO_URL;
   const repoBranch = options.repoBranch ?? process.env.DAYTONA_REPO_BRANCH;
+  const repoName = options.repoName ?? process.env.DAYTONA_REPO_NAME;
+  const workDir = options.workDir ?? process.env.DAYTONA_WORKDIR;
   const cacheKey = options.cacheKey ?? (sandboxId ? `sandbox:${sandboxId}` : `snapshot:${snapshot}`);
 
   return {
@@ -138,12 +155,19 @@ function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSan
     snapshot,
     repoUrl,
     repoBranch,
+    repoName,
+    workDir,
   };
 }
 
-async function resolveSandboxRepoPath(sandbox: DaytonaSandbox): Promise<string> {
-  const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
-  return `${sandboxWorkDir}/${REPO_PATH}`;
+async function resolveSandboxRepoPath(
+  _sandbox: DaytonaSandbox,
+  options: { repoName?: string; repoUrl?: string },
+): Promise<{ repoPath: string }> {
+  const repoDir = sandboxRepositoryDirectoryName(options);
+  return {
+    repoPath: sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir),
+  };
 }
 
 async function ensureSandboxStarted(sandbox: DaytonaSandbox): Promise<DaytonaSandbox> {
@@ -166,18 +190,19 @@ async function ensureRepoCloned(
   sandbox: DaytonaSandbox,
   repoUrl: string | undefined,
   repoBranch: string | undefined,
+  repoName: string | undefined,
 ): Promise<string | undefined> {
   if (!repoUrl) {
     return undefined;
   }
 
-  const repoPath = await resolveSandboxRepoPath(sandbox);
+  const { repoPath } = await resolveSandboxRepoPath(sandbox, { repoName, repoUrl });
 
   try {
-    await sandbox.git.status(REPO_PATH);
+    await sandbox.git.status(repoPath);
     return repoPath;
   } catch {
-    await sandbox.git.clone(repoUrl, REPO_PATH, repoBranch);
+    await sandbox.git.clone(repoUrl, repoPath, repoBranch);
     return repoPath;
   }
 }
@@ -236,11 +261,18 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
   }
 
   const createdContext = createSandbox(resolved).then(async (sandbox) => {
-    const clonedRepoPath = await ensureRepoCloned(sandbox, resolved.repoUrl, resolved.repoBranch);
+    if (resolved.workDir) {
+      return {
+        sandbox,
+        workDir: resolved.workDir,
+      };
+    }
+
+    const clonedRepoPath = await ensureRepoCloned(sandbox, resolved.repoUrl, resolved.repoBranch, resolved.repoName);
 
     return {
       sandbox,
-      workDir: clonedRepoPath ?? (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR,
+      workDir: clonedRepoPath ?? DEFAULT_SANDBOX_WORKDIR,
     };
   });
 
@@ -252,6 +284,7 @@ export interface BootstrapRepositorySandboxOptions {
   cacheKey: string;
   repoUrl: string;
   repoBranch?: string;
+  repoName?: string;
   snapshot?: string;
 }
 
@@ -269,6 +302,7 @@ export async function bootstrapRepositorySandbox(
     cacheKey: options.cacheKey,
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
+    repoName: options.repoName,
     snapshot: options.snapshot,
   });
 

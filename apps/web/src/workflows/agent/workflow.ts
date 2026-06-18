@@ -19,8 +19,10 @@ export interface AgentWorkflowOptions {
   threadId?: string;
   sandboxCacheKey: string;
   sandboxId?: string;
+  sandboxWorkDir?: string;
   repoUrl?: string;
   repoBranch?: string;
+  repoName?: string;
   assistantMessageId?: string;
   demoEnabled?: boolean;
   convexAuth?: WorkOSWorkflowAuth;
@@ -335,8 +337,10 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
   const sandboxOptions: SandboxSessionOptions = {
     cacheKey: options.sandboxCacheKey,
     sandboxId: options.sandboxId,
+    workDir: options.sandboxWorkDir,
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
+    repoName: options.repoName,
   };
   const demoRecordingBasePath = options.demoEnabled && options.projectId && options.threadId
     ? `/api/project/${encodeURIComponent(options.projectId)}` +
@@ -351,10 +355,11 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
+      options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
       demoRecordingBasePath
-        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly and include the recording metadata in your response. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview in Google Chrome and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly and include the recording metadata in your response. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
         : undefined,
     ]
       .filter(Boolean)

@@ -532,6 +532,8 @@ export const getDesktopSandboxInternal = internalQuery({
   },
   returns: v.object({
     sandboxId: v.string(),
+    repoName: v.string(),
+    sandboxWorkDir: v.optional(v.string()),
     sandboxRuntimeStatus: v.optional(sandboxRuntimeStatusValidator),
     sandboxRuntimeCheckedAt: v.optional(v.number()),
   }),
@@ -551,6 +553,8 @@ export const getDesktopSandboxInternal = internalQuery({
 
     return {
       sandboxId: project.sandboxId,
+      repoName: project.repoName,
+      sandboxWorkDir: project.sandboxWorkDir,
       sandboxRuntimeStatus: project.sandboxRuntimeStatus,
       sandboxRuntimeCheckedAt: project.sandboxRuntimeCheckedAt,
     };

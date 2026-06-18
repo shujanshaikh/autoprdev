@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="theme" type="string" value="Default"/>
+    <property name="title_font" type="string" value="Sans Bold 9"/>
+    <property name="button_layout" type="string" value="O|HMC"/>
+    <property name="box_move" type="bool" value="false"/>
+    <property name="box_resize" type="bool" value="false"/>
+    <property name="click_to_focus" type="bool" value="true"/>
+    <property name="cycle_minimum" type="bool" value="true"/>
+    <property name="focus_delay" type="int" value="0"/>
+    <property name="raise_on_click" type="bool" value="true"/>
+    <property name="show_frame_shadow" type="bool" value="false"/>
+    <property name="show_popup_shadow" type="bool" value="false"/>
+    <property name="sync_to_vblank" type="bool" value="false"/>
+    <property name="use_compositing" type="bool" value="false"/>
+    <property name="workspace_count" type="int" value="1"/>
+  </property>
+</channel>

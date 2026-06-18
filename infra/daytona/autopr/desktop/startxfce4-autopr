@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -u
+
+(
+  for delay in 1 2 4 8; do
+    sleep "$delay"
+    /opt/autopr/desktop/autopr-desktop-session >>/tmp/autopr-desktop-session.log 2>&1 || true
+  done
+) &
+
+exec /usr/bin/startxfce4.autopr-original "$@"

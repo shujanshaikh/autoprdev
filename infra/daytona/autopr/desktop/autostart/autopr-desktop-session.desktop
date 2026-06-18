@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=AutoPR Desktop Setup
+Exec=/opt/autopr/desktop/autopr-desktop-session
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

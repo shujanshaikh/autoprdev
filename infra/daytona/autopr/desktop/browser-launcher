@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -e
+
+exec /usr/bin/google-chrome-stable \
+  --no-first-run \
+  --no-default-browser-check \
+  --disable-default-apps \
+  --disable-background-networking \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-client-side-phishing-detection \
+  --disable-component-update \
+  --disable-dev-shm-usage \
+  --disable-extensions \
+  --disable-features=Translate,PasswordManagerOnboarding \
+  --disable-renderer-backgrounding \
+  --disable-sync \
+  --metrics-recording-only \
+  --password-store=basic \
+  --use-mock-keychain \
+  "$@"

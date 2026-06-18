@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Google Chrome
+GenericName=Web Browser
+Comment=Access the Internet
+Exec=/opt/autopr/bin/google-chrome %U
+Terminal=false
+Icon=google-chrome
+Type=Application
+Categories=X-XFCE;X-Xfce-Toplevel;
+MimeType=text/html;text/xml;application/xhtml+xml;application/xml;application/rss+xml;application/rdf+xml;image/gif;image/jpeg;image/png;image/webp;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+StartupWMClass=Google-chrome

@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -u
+
+WALLPAPER="/usr/share/backgrounds/autopr/wallpaper.png"
+CURSOR_THEME="Adwaita"
+CURSOR_SIZE="24"
+VNC_RESOLUTION="${VNC_RESOLUTION:-1920x1080}"
+
+export DISPLAY="${DISPLAY:-:1}"
+export XCURSOR_THEME="$CURSOR_THEME"
+export XCURSOR_SIZE="$CURSOR_SIZE"
+
+wait_for_xfconf() {
+  for _ in $(seq 1 40); do
+    if command -v xfconf-query >/dev/null 2>&1 && xfconf-query -c xfce4-desktop -l >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
+set_xfconf() {
+  local channel="$1"
+  local property="$2"
+  local type="$3"
+  local value="$4"
+
+  if ! command -v xfconf-query >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if xfconf-query -c "$channel" -p "$property" >/dev/null 2>&1; then
+    xfconf-query -c "$channel" -p "$property" -s "$value" >/dev/null 2>&1 || true
+  else
+    xfconf-query -c "$channel" -p "$property" -n -t "$type" -s "$value" >/dev/null 2>&1 || true
+  fi
+}
+
+ensure_xfdesktop() {
+  if ! command -v xfdesktop >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v pgrep >/dev/null 2>&1 && pgrep -u "$(id -u)" -x xfdesktop >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v pidof >/dev/null 2>&1 && pidof xfdesktop >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [ -z "${XFCE_DESKTOP_STARTED_BY_AUTOPR:-}" ]; then
+    export XFCE_DESKTOP_STARTED_BY_AUTOPR=1
+    xfdesktop >/tmp/autopr-xfdesktop.log 2>&1 &
+    sleep 0.5
+  fi
+}
+
+apply_display_resolution() {
+  if ! command -v xrandr >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [[ ! "$VNC_RESOLUTION" =~ ^[0-9]+x[0-9]+$ ]]; then
+    return 0
+  fi
+
+  while IFS= read -r output_name; do
+    if [ -n "$output_name" ]; then
+      xrandr --output "$output_name" --mode "$VNC_RESOLUTION" >/dev/null 2>&1 || true
+    fi
+  done < <(xrandr --query 2>/dev/null | awk '/ connected/{print $1}')
+
+  xrandr --fb "$VNC_RESOLUTION" >/dev/null 2>&1 || true
+}
+
+apply_wallpaper_to_workspace() {
+  local base="$1"
+
+  set_xfconf xfce4-desktop "$base/image-path" string "$WALLPAPER"
+  set_xfconf xfce4-desktop "$base/last-image" string "$WALLPAPER"
+  set_xfconf xfce4-desktop "$base/last-single-image" string "$WALLPAPER"
+  set_xfconf xfce4-desktop "$base/image-style" int "5"
+  set_xfconf xfce4-desktop "$base/color-style" int "0"
+}
+
+apply_display_resolution
+ensure_xfdesktop
+
+if wait_for_xfconf; then
+  ensure_xfdesktop
+
+  set_xfconf xsettings /Gtk/CursorThemeName string "$CURSOR_THEME"
+  set_xfconf xsettings /Gtk/CursorThemeSize int "$CURSOR_SIZE"
+  set_xfconf xsettings /Gtk/EnableAnimations bool "false"
+  set_xfconf xfce4-desktop /backdrop/single-workspace-mode bool "true"
+  set_xfconf xfce4-desktop /desktop-icons/style int "0"
+
+  monitors=(
+    monitor0
+    monitor1
+    monitorDefault
+    monitorVNC-0
+    monitorVNC-1
+    monitorVirtual-0
+    monitorVirtual-1
+    monitorVirtual0
+    monitorVirtual1
+    monitorXvfb-0
+    monitorXvfb-1
+    monitorx11vnc
+    monitorscreen
+    monitorScreen0
+  )
+
+  if command -v xrandr >/dev/null 2>&1; then
+    while IFS= read -r output_name; do
+      [ -n "$output_name" ] && monitors+=("monitor${output_name}")
+    done < <(xrandr --query 2>/dev/null | awk '/ connected/{print $1}')
+  fi
+
+  while IFS= read -r workspace_path; do
+    [ -n "$workspace_path" ] && apply_wallpaper_to_workspace "$workspace_path"
+  done < <(
+    xfconf-query -c xfce4-desktop -l 2>/dev/null \
+      | sed -n 's#^\(/backdrop/screen[0-9]*/monitor[^/]*/workspace[0-9]*\)/.*#\1#p' \
+      | sort -u
+  )
+
+  for monitor in "${monitors[@]}"; do
+    for workspace in workspace0 workspace1 workspace2 workspace3; do
+      apply_wallpaper_to_workspace "/backdrop/screen0/$monitor/$workspace"
+    done
+  done
+fi
+
+if command -v xsetroot >/dev/null 2>&1; then
+  xsetroot -cursor_name left_ptr >/dev/null 2>&1 || true
+fi
+
+for dir in Desktop Documents Downloads Music Pictures Public Templates Videos; do
+  rmdir "$HOME/$dir" >/dev/null 2>&1 || true
+done
+
+if command -v xfdesktop >/dev/null 2>&1; then
+  ensure_xfdesktop
+  xfdesktop --reload >/dev/null 2>&1 || true
+fi

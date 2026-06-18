@@ -1,6 +1,10 @@
 import { cn } from "@autopr/ui/lib/utils";
 import { Loader2, Monitor } from "lucide-react";
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
+
+const DESKTOP_WIDTH = 1920;
+const DESKTOP_HEIGHT = 1080;
+const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
 
 type DaytonaDesktopViewProps = {
   websocketUrl?: string;
@@ -11,6 +15,7 @@ type DaytonaDesktopViewProps = {
 type RfbInstance = {
   scaleViewport: boolean;
   resizeSession: boolean;
+  clipViewport: boolean;
   background: string;
   focus: () => void;
   disconnect: () => void;
@@ -24,9 +29,17 @@ type RfbConstructor = new (
   options?: { shared?: boolean; credentials?: Record<string, string> },
 ) => RfbInstance;
 
+function applyFixedDesktopMode(rfb: RfbInstance) {
+  rfb.clipViewport = false;
+  rfb.scaleViewport = true;
+  rfb.resizeSession = false;
+}
+
 export function DaytonaDesktopView({ websocketUrl, loading = false, className }: DaytonaDesktopViewProps) {
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RfbInstance | null>(null);
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>();
   const [connection, updateConnection] = useReducer(
     (
       _state: { state: "idle" | "connecting" | "connected" | "disconnected" | "error"; error?: string },
@@ -34,6 +47,50 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
     ) => next,
     { state: "idle" },
   );
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+
+    const updateFrameSize = () => {
+      const { width: availableWidth, height: availableHeight } = shell.getBoundingClientRect();
+      if (availableWidth <= 0 || availableHeight <= 0) return;
+
+      let width = availableWidth;
+      let height = width / DESKTOP_ASPECT_RATIO;
+
+      if (height > availableHeight) {
+        height = availableHeight;
+        width = height * DESKTOP_ASPECT_RATIO;
+      }
+
+      const next = {
+        width: Math.max(1, Math.floor(width)),
+        height: Math.max(1, Math.floor(height)),
+      };
+
+      setFrameSize((current) => (
+        current?.width === next.width && current.height === next.height ? current : next
+      ));
+    };
+
+    updateFrameSize();
+
+    const resizeObserver = new ResizeObserver(updateFrameSize);
+    resizeObserver.observe(shell);
+    window.addEventListener("resize", updateFrameSize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateFrameSize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!rfbRef.current || !frameSize) return;
+    const resizeEvent = new Event("resize");
+    window.requestAnimationFrame(() => window.dispatchEvent(resizeEvent));
+  }, [frameSize]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -44,7 +101,11 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
     let disposed = false;
     const handleConnect: EventListener = () => {
       updateConnection({ state: "connected" });
-      requestAnimationFrame(() => rfbRef.current?.focus());
+      const rfb = rfbRef.current;
+      if (rfb) {
+        applyFixedDesktopMode(rfb);
+      }
+      window.requestAnimationFrame(() => rfbRef.current?.focus());
     };
     const handleDisconnect: EventListener = (event) => {
       const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
@@ -70,8 +131,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
 
         const RFB = module.default as RfbConstructor;
         const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
-        rfb.scaleViewport = true;
-        rfb.resizeSession = false;
+        applyFixedDesktopMode(rfb);
         rfb.background = "#000000";
 
         rfb.addEventListener("connect", handleConnect);
@@ -103,14 +163,21 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
 
   const { state, error } = connection;
   const showOverlay = loading || !websocketUrl || state === "connecting" || state === "error";
+  const frameStyle = frameSize
+    ? { width: `${frameSize.width}px`, height: `${frameSize.height}px` }
+    : { width: "100%", aspectRatio: `${DESKTOP_WIDTH} / ${DESKTOP_HEIGHT}` };
 
   return (
-    <div className={cn("relative h-full w-full overflow-hidden bg-zinc-950", className)}>
+    <div
+      ref={shellRef}
+      className={cn("relative flex h-full w-full items-center justify-center overflow-hidden bg-black", className)}
+    >
       <div
         ref={containerRef}
         role="application"
         aria-label="Remote desktop"
-        className="h-full w-full [&_canvas]:outline-none"
+        className="shrink-0 overflow-hidden bg-black [&>div]:!h-full [&>div]:!w-full [&>div]:!overflow-hidden [&_canvas]:outline-none"
+        style={frameStyle}
         onMouseDown={() => rfbRef.current?.focus()}
       />
 

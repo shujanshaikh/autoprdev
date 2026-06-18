@@ -44,7 +44,12 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
     await convexMutation(api.projects.markBranchSwitching, { projectId, repoBranch: branch });
 
     try {
-      await switchProjectSandboxBranch({ sandboxId: project.sandboxId, branch });
+      await switchProjectSandboxBranch({
+        sandboxId: project.sandboxId,
+        branch,
+        repoName: project.repoName,
+        sandboxWorkDir: project.sandboxWorkDir,
+      });
       await convexMutation(api.projects.markBranchSwitchReady, { projectId, repoBranch: branch });
 
       return Response.json({ projectId, branch, status: "ready" });

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import path from "node:path";
+import fs from "node:fs";
 import { FileFinder, findBinary } from "@ff-labs/fff-node";
 
-const DEFAULT_CWD = "/home/daytona/repo";
+const DEFAULT_HOME = "/home";
 const DEFAULT_LIMIT = 50;
 const DEFAULT_INDEX_TIMEOUT_MS = 10_000;
 const FIND_WEAK_SAMPLE_SIZE = 5;
@@ -70,6 +71,24 @@ function readBooleanFlag(parsed, name, fallback) {
   }
 
   return fallback;
+}
+
+function defaultCwd() {
+  if (process.env.DAYTONA_WORKDIR) {
+    return process.env.DAYTONA_WORKDIR;
+  }
+
+  try {
+    const repoDir = fs
+      .readdirSync(DEFAULT_HOME, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => path.join(DEFAULT_HOME, entry.name))
+      .find((candidate) => fs.existsSync(path.join(candidate, ".git")));
+
+    return repoDir ?? DEFAULT_HOME;
+  } catch {
+    return DEFAULT_HOME;
+  }
 }
 
 function encodeCursor(value) {
@@ -320,7 +339,7 @@ async function withFinder(cwd, parsed, callback) {
 async function main() {
   const parsed = parseArgs(process.argv);
   const { command, positionals } = parsed;
-  const cwd = readFlag(parsed, "--cwd", process.cwd() === "/" ? DEFAULT_CWD : process.cwd());
+  const cwd = readFlag(parsed, "--cwd", process.cwd() === "/" ? defaultCwd() : process.cwd());
 
   if (command === "health") {
     const binary = findBinary();

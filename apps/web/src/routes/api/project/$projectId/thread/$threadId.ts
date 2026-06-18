@@ -319,7 +319,11 @@ async function POST(
       githubUsername = githubIdentity.username;
     }
 
-    const prepared = await prepareProjectSandboxCommit({ sandboxId: project.sandboxId });
+    const prepared = await prepareProjectSandboxCommit({
+      sandboxId: project.sandboxId,
+      repoName: project.repoName,
+      sandboxWorkDir: project.sandboxWorkDir,
+    });
     const commitMessage = await convexAction(api.commitMessages.generate, {
       projectId,
       branch: prepared.branch,
@@ -334,6 +338,8 @@ async function POST(
       push: parsed.data.push,
       githubUsername,
       githubToken,
+      repoName: project.repoName,
+      sandboxWorkDir: project.sandboxWorkDir,
     });
     const status = result.pushed ? "pushed" : "committed";
 

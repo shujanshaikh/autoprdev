@@ -104,6 +104,8 @@ async function POST(
             branch,
             baseBranch,
             commitMessage: title,
+            repoName: project.repoName,
+            sandboxWorkDir: project.sandboxWorkDir,
           });
         } catch (error) {
           if (!(error instanceof SandboxNoChangesError && existingFailedBranch === branch)) {

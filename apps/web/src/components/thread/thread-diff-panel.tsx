@@ -583,8 +583,8 @@ export function ThreadDiffPanel({
             ) : (
               <div
                 className={cn(
-                  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950",
-                  desktopFullscreen && "fixed inset-0 z-[100]", 
+                  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-black",
+                  desktopFullscreen && "fixed inset-0 z-[100]",
                 )}
               >
                 {desktopFullscreen ? (

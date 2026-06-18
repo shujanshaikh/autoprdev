@@ -13,13 +13,11 @@ const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready")
 type SandboxStatus = "creating" | "ready" | "failed";
 
 const DEFAULT_DAYTONA_SNAPSHOT = "autopr";
-const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
+const DEFAULT_SANDBOX_WORKDIR = "/home";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
-const REPO_PATH = "repo";
 const DAYTONA_NOVNC_PORT = 6080;
 const DAYTONA_WEB_TERMINAL_PORT = 22222;
-const DEFAULT_TERMINAL_CWD = "/home/daytona/repo";
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
@@ -71,6 +69,51 @@ interface SandboxRuntimeStatusResult {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+function repoNameFromUrl(repoUrl?: string): string | undefined {
+  if (!repoUrl) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(repoUrl);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const segment = segments[segments.length - 1];
+    return segment?.replace(/\.git$/i, "");
+  } catch {
+    const segments = repoUrl.split(/[/:]/).filter(Boolean);
+    const segment = segments[segments.length - 1];
+    return segment?.replace(/\.git$/i, "");
+  }
+}
+
+function sandboxRepositoryDirectoryName(options: {
+  repoName?: string;
+  repoUrl?: string;
+}): string {
+  const candidate = options.repoName ?? repoNameFromUrl(options.repoUrl);
+
+  if (!candidate?.trim()) {
+    throw new Error("Repository name or URL is required to resolve the sandbox repository path.");
+  }
+
+  const cleaned = candidate
+    .trim()
+    .replace(/\.git$/i, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "")
+    .slice(0, 120);
+
+  if (!cleaned) {
+    throw new Error("Repository name resolved to an empty sandbox directory.");
+  }
+
+  return cleaned;
+}
+
+function sandboxRepositoryPath(sandboxWorkDir: string, repoDirectoryName: string): string {
+  return `${sandboxWorkDir.replace(/\/+$/, "")}/${repoDirectoryName}`;
 }
 
 function isSandboxNotFoundError(error: unknown) {
@@ -304,12 +347,12 @@ function ptyWebsocketUrl(toolboxProxyUrl: string, sandboxId: string, sessionId: 
   return url.toString();
 }
 
-async function createDaytonaPtyTerminal(sandboxId: string, cols: number, rows: number): Promise<PtyTerminalResult> {
+async function createDaytonaPtyTerminal(sandboxId: string, cwd: string, cols: number, rows: number): Promise<PtyTerminalResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
     const sessionId = `autopr-terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const handle = await sandbox.process.createPty({
       id: sessionId,
-      cwd: DEFAULT_TERMINAL_CWD,
+      cwd,
       envs: {
         TERM: "xterm-256color",
         COLORTERM: "truecolor",
@@ -329,7 +372,7 @@ async function createDaytonaPtyTerminal(sandboxId: string, cols: number, rows: n
     return {
       sessionId,
       websocketUrl: ptyWebsocketUrl(sandbox.toolboxProxyUrl, sandbox.id, sessionId, preview.token),
-      cwd: DEFAULT_TERMINAL_CWD,
+      cwd,
     };
   });
 }
@@ -338,6 +381,7 @@ async function bootstrapRepositorySandbox(options: {
   cacheKey: string;
   repoUrl: string;
   repoBranch?: string;
+  repoName?: string;
   snapshot?: string;
 }) {
   const daytona = createDaytonaClient();
@@ -346,13 +390,16 @@ async function bootstrapRepositorySandbox(options: {
     autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
     autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
   });
-  const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
-  const repoPath = `${sandboxWorkDir}/${REPO_PATH}`;
+  const repoDir = sandboxRepositoryDirectoryName({
+    repoName: options.repoName,
+    repoUrl: options.repoUrl,
+  });
+  const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
 
   try {
-    await sandbox.git.status(REPO_PATH);
+    await sandbox.git.status(repoPath);
   } catch {
-    await sandbox.git.clone(options.repoUrl, REPO_PATH, options.repoBranch);
+    await sandbox.git.clone(options.repoUrl, repoPath, options.repoBranch);
   }
 
   return {
@@ -545,13 +592,17 @@ export const getPtyTerminal = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+    const project: { sandboxId: string; repoName: string; sandboxWorkDir?: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
+    const cwd = project.sandboxWorkDir ?? sandboxRepositoryPath(
+      DEFAULT_SANDBOX_WORKDIR,
+      sandboxRepositoryDirectoryName({ repoName: project.repoName }),
+    );
 
     try {
-      const terminal = await createDaytonaPtyTerminal(project.sandboxId, args.cols ?? 100, args.rows ?? 30);
+      const terminal = await createDaytonaPtyTerminal(project.sandboxId, cwd, args.cols ?? 100, args.rows ?? 30);
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
@@ -731,6 +782,7 @@ export const ensureForGithubRepo = action({
         cacheKey: project.projectId,
         repoUrl: repo.cloneUrl,
         repoBranch: repo.repoBranch,
+        repoName: repo.repoName,
       });
 
       await ctx.runMutation(internal.projects.markSandboxReadyInternal, {

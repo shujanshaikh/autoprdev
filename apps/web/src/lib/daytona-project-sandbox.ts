@@ -1,9 +1,13 @@
 import "@tanstack/react-start/server-only";
 
-import { createSandbox, deleteSandbox, type DaytonaSandbox } from "@autopr/agent/sandbox";
-
-const DEFAULT_SANDBOX_WORKDIR = "/home/daytona";
-const REPO_PATH = "repo";
+import {
+  createSandbox,
+  deleteSandbox,
+  DEFAULT_SANDBOX_WORKDIR,
+  sandboxRepositoryDirectoryName,
+  sandboxRepositoryPath,
+  type DaytonaSandbox,
+} from "@autopr/agent/sandbox";
 
 export class SandboxGitConflictError extends Error {
   constructor(message = "Could not switch branches because the sandbox has uncommitted changes.") {
@@ -53,9 +57,39 @@ async function runSandboxCommand(sandbox: DaytonaSandbox, command: string) {
   }
 }
 
+async function resolveProjectRepoLocation(
+  _sandbox: DaytonaSandbox,
+  options: {
+    repoName?: string;
+    repoUrl?: string;
+    sandboxWorkDir?: string;
+  } = {},
+) {
+  const explicitRepoPath = options.sandboxWorkDir?.trim();
+
+  if (explicitRepoPath) {
+    return {
+      repoPath: explicitRepoPath,
+      repoGitPath: explicitRepoPath,
+    };
+  }
+
+  const repoDir = sandboxRepositoryDirectoryName({
+    repoName: options.repoName,
+    repoUrl: options.repoUrl,
+  });
+  const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
+
+  return {
+    repoPath,
+    repoGitPath: repoPath,
+  };
+}
+
 export async function createProjectSandbox(options: {
   authenticatedCloneUrl: string;
   branch: string;
+  repoName: string;
 }): Promise<{
   sandboxId: string;
   sandboxName?: string;
@@ -63,10 +97,13 @@ export async function createProjectSandbox(options: {
   sandboxWorkDir: string;
 }> {
   const sandbox = await createSandbox();
-  const sandboxWorkDir = (await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR;
-  const repoPath = `${sandboxWorkDir}/${REPO_PATH}`;
+  const repoDir = sandboxRepositoryDirectoryName({
+    repoName: options.repoName,
+    repoUrl: options.authenticatedCloneUrl,
+  });
+  const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
 
-  await sandbox.git.clone(options.authenticatedCloneUrl, REPO_PATH, options.branch);
+  await sandbox.git.clone(options.authenticatedCloneUrl, repoPath, options.branch);
 
   return {
     sandboxId: sandbox.id,
@@ -83,10 +120,13 @@ export async function deleteProjectSandbox(sandboxId: string): Promise<void> {
 export async function switchProjectSandboxBranch(options: {
   sandboxId: string;
   branch: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
 }): Promise<void> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedBranch = shellEscape(options.branch);
-  const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
+  const quotedRepoPath = shellEscape(repoPath);
 
   await runSandboxCommand(
     sandbox,
@@ -114,9 +154,12 @@ export interface PreparedProjectSandboxCommit {
 
 export async function prepareProjectSandboxCommit(options: {
   sandboxId: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
 }): Promise<PreparedProjectSandboxCommit> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
+  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
 
   const status = commandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`),
@@ -126,7 +169,7 @@ export async function prepareProjectSandboxCommit(options: {
     throw new SandboxNoChangesError("There are no sandbox changes to commit.");
   }
 
-  await sandbox.git.add(REPO_PATH, ["."]);
+  await sandbox.git.add(repoGitPath, ["."]);
 
   const branch = commandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
@@ -158,9 +201,12 @@ export async function commitPreparedProjectSandboxChanges(options: {
   push?: boolean;
   githubUsername?: string;
   githubToken?: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
 }): Promise<{ branch: string; commitSha: string; pushed: boolean }> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
+  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
   const branch = commandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
   ).trim();
@@ -178,7 +224,7 @@ export async function commitPreparedProjectSandboxChanges(options: {
   }
 
   const commit = await sandbox.git.commit(
-    REPO_PATH,
+    repoGitPath,
     options.commitMessage,
     options.authorName,
     options.authorEmail,
@@ -190,7 +236,7 @@ export async function commitPreparedProjectSandboxChanges(options: {
     }
 
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git config push.autoSetupRemote true`);
-    await sandbox.git.push(REPO_PATH, options.githubUsername, options.githubToken);
+    await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken);
   }
 
   return { branch, commitSha: commit.sha, pushed: Boolean(options.push) };
@@ -205,9 +251,12 @@ export async function commitAndPushProjectSandboxChanges(options: {
   branch: string;
   baseBranch: string;
   commitMessage: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
 }): Promise<{ branch: string; commitSha: string }> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const quotedRepoPath = shellEscape(`${(await sandbox.getWorkDir()) ?? DEFAULT_SANDBOX_WORKDIR}/${REPO_PATH}`);
+  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
   const quotedBranch = shellEscape(options.branch);
   const quotedBaseBranch = shellEscape(options.baseBranch);
 
@@ -225,17 +274,17 @@ export async function commitAndPushProjectSandboxChanges(options: {
       "git config push.autoSetupRemote true",
     ].join(" && "),
   )
-    .then(() => sandbox.git.add(REPO_PATH, ["."]))
+    .then(() => sandbox.git.add(repoGitPath, ["."]))
     .then(() =>
       sandbox.git.commit(
-        REPO_PATH,
+        repoGitPath,
         options.commitMessage,
         options.authorName,
         options.authorEmail,
       ),
     )
     .then(async (createdCommit) => {
-      await sandbox.git.push(REPO_PATH, options.githubUsername, options.githubToken);
+      await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken);
       return createdCommit;
     });
 

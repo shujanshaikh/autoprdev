@@ -78,7 +78,12 @@ async function POST(req: Request) {
         ]);
 
         try {
-          await switchProjectSandboxBranch({ sandboxId: project.sandboxId, branch: existingBranch });
+          await switchProjectSandboxBranch({
+            sandboxId: project.sandboxId,
+            branch: existingBranch,
+            repoName: verifiedRepo.name,
+            sandboxWorkDir: project.sandboxWorkDir,
+          });
           await convexMutation(api.projects.markBranchSwitchReady, {
             projectId: project.projectId,
             repoBranch: existingBranch,
@@ -105,6 +110,7 @@ async function POST(req: Request) {
       const sandbox = await createProjectSandbox({
         authenticatedCloneUrl: authenticatedGithubCloneUrl(token, verifiedRepo.owner, verifiedRepo.name),
         branch,
+        repoName: verifiedRepo.name,
       });
 
       await convexMutation(api.projects.markSandboxReady, {

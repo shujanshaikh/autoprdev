@@ -1,0 +1,14 @@
+[Configuration]
+DefaultView=ThunarIconView
+LastLocationBar=ThunarLocationEntry
+LastMenubarVisible=true
+LastSeparatorPosition=170
+LastShowHidden=false
+LastSidePane=ThunarShortcutsPane
+MiscFullPathInTitle=true
+MiscMiddleClickInTab=false
+MiscOpenNewWindowAsTab=false
+MiscShowDeleteAction=true
+MiscSingleClick=false
+MiscTextBesideIcons=false
+ShortcutsIconSize=THUNAR_ICON_SIZE_SMALLER

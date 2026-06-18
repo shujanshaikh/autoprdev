@@ -31,6 +31,10 @@ export interface DaytonaSandbox {
     start(): Promise<unknown>;
     stop(): Promise<unknown>;
     getStatus(): Promise<unknown>;
+    getProcessStatus?(processName: string): Promise<unknown>;
+    restartProcess?(processName: string): Promise<unknown>;
+    getProcessLogs?(processName: string): Promise<unknown>;
+    getProcessErrors?(processName: string): Promise<unknown>;
     mouse: {
       getPosition(): Promise<unknown>;
       move(x: number, y: number): Promise<unknown>;

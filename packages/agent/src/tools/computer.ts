@@ -8,10 +8,13 @@ export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
 
 const COMPUTER_READY_TIMEOUT_MS = 30_000;
 const COMPUTER_READY_POLL_MS = 1_000;
+const COMPUTER_RECOVERY_DELAY_MS = 1_000;
+const MAX_COMPUTER_DIAGNOSTIC_LENGTH = 400;
 const DEFAULT_DISPLAY = ":1";
 const DEFAULT_SCREENSHOT_FORMAT = "png";
 const DEFAULT_SCREENSHOT_QUALITY = 100;
 const DEFAULT_SCREENSHOT_SCALE = 1;
+const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["ctrl", "alt", "meta", "cmd", "shift"]);
@@ -268,16 +271,27 @@ type ComputerOutputDetails = {
   recordings?: Array<ReturnType<typeof compactRecording>>;
 };
 
+type ComputerUseProcessName = (typeof COMPUTER_USE_PROCESS_NAMES)[number];
+
+type ComputerUseDiagnostics = {
+  processName: ComputerUseProcessName;
+  status?: string;
+  running?: boolean;
+  errors?: string;
+  logs?: string;
+  diagnosticError?: string;
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function statusValue(value: unknown): string | undefined {
-  if (!value || typeof value !== "object") {
+  if (!isRecord(value)) {
     return undefined;
   }
-  const status = (value as { status?: unknown }).status;
-  return typeof status === "string" ? status : undefined;
+  const status = value.status;
+  return typeof status === "string" ? status.toLowerCase() : undefined;
 }
 
 async function waitForComputerReady(computerUse: { getStatus(): Promise<unknown> }) {
@@ -297,7 +311,12 @@ async function waitForComputerReady(computerUse: { getStatus(): Promise<unknown>
 
 type ComputerUseLifecycle = {
   start(): Promise<unknown>;
+  stop(): Promise<unknown>;
   getStatus(): Promise<unknown>;
+  getProcessStatus?(processName: string): Promise<unknown>;
+  restartProcess?(processName: string): Promise<unknown>;
+  getProcessLogs?(processName: string): Promise<unknown>;
+  getProcessErrors?(processName: string): Promise<unknown>;
 };
 
 async function readComputerStatus(computerUse: Pick<ComputerUseLifecycle, "getStatus">): Promise<string | undefined> {
@@ -308,13 +327,173 @@ async function readComputerStatus(computerUse: Pick<ComputerUseLifecycle, "getSt
   }
 }
 
-async function ensureComputerReady(computerUse: ComputerUseLifecycle) {
-  const currentStatus = await readComputerStatus(computerUse);
-  if (currentStatus !== "active") {
-    await computerUse.start();
+function compactDiagnostic(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+
+  let raw: string;
+  try {
+    raw = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+  } catch {
+    raw = String(value);
   }
 
-  await waitForComputerReady(computerUse);
+  const normalized = raw.trim().replace(/\s+/g, " ");
+  return normalized.length > MAX_COMPUTER_DIAGNOSTIC_LENGTH
+    ? `${normalized.slice(0, MAX_COMPUTER_DIAGNOSTIC_LENGTH)}...`
+    : normalized;
+}
+
+function responseField(value: unknown, field: string): unknown {
+  return isRecord(value) ? value[field] : undefined;
+}
+
+function processNamesFromComputerUseError(error: unknown): ComputerUseProcessName[] {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  const matched = COMPUTER_USE_PROCESS_NAMES.filter((processName) => message.includes(processName));
+  return matched.length > 0 ? matched : [...COMPUTER_USE_PROCESS_NAMES];
+}
+
+async function restartComputerUseProcesses(
+  computerUse: ComputerUseLifecycle,
+  processNames: ComputerUseProcessName[],
+  errors: unknown[],
+) {
+  if (!computerUse.restartProcess) {
+    errors.push(new Error("Daytona SDK does not expose computerUse.restartProcess."));
+    return;
+  }
+
+  for (const processName of processNames) {
+    try {
+      await computerUse.restartProcess(processName);
+    } catch (error) {
+      errors.push(new Error(`restart ${processName}: ${error instanceof Error ? error.message : String(error)}`));
+    }
+  }
+}
+
+async function collectComputerUseDiagnostics(
+  computerUse: ComputerUseLifecycle,
+  processNames: ComputerUseProcessName[],
+): Promise<ComputerUseDiagnostics[]> {
+  const diagnostics: ComputerUseDiagnostics[] = [];
+
+  for (const processName of processNames) {
+    const diagnostic: ComputerUseDiagnostics = { processName };
+
+    try {
+      const status = await computerUse.getProcessStatus?.(processName);
+      const running = responseField(status, "running");
+      const processStatus = responseField(status, "status");
+      diagnostic.running = typeof running === "boolean" ? running : undefined;
+      diagnostic.status = typeof processStatus === "string" ? processStatus : undefined;
+    } catch (error) {
+      diagnostic.diagnosticError = compactDiagnostic(`status: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+      const errors = await computerUse.getProcessErrors?.(processName);
+      diagnostic.errors = compactDiagnostic(responseField(errors, "errors"));
+    } catch (error) {
+      diagnostic.diagnosticError = compactDiagnostic(
+        [diagnostic.diagnosticError, `errors: ${error instanceof Error ? error.message : String(error)}`].filter(Boolean).join("; "),
+      );
+    }
+
+    if (!diagnostic.errors) {
+      try {
+        const logs = await computerUse.getProcessLogs?.(processName);
+        diagnostic.logs = compactDiagnostic(responseField(logs, "logs"));
+      } catch (error) {
+        diagnostic.diagnosticError = compactDiagnostic(
+          [diagnostic.diagnosticError, `logs: ${error instanceof Error ? error.message : String(error)}`].filter(Boolean).join("; "),
+        );
+      }
+    }
+
+    diagnostics.push(diagnostic);
+  }
+
+  return diagnostics;
+}
+
+function formatComputerUseFailure(errors: unknown[], diagnostics: ComputerUseDiagnostics[]) {
+  const attempts = Array.from(
+    new Set(errors.map((error) => error instanceof Error ? error.message : String(error)).filter(Boolean)),
+  ).slice(0, 4);
+  const processDetails = diagnostics
+    .map((diagnostic) => {
+      const parts = [
+        diagnostic.processName,
+        diagnostic.running === undefined ? undefined : `running=${diagnostic.running}`,
+        diagnostic.status ? `status=${diagnostic.status}` : undefined,
+        diagnostic.errors ? `errors=${diagnostic.errors}` : undefined,
+        !diagnostic.errors && diagnostic.logs ? `logs=${diagnostic.logs}` : undefined,
+        diagnostic.diagnosticError ? `diagnostic=${diagnostic.diagnosticError}` : undefined,
+      ].filter(Boolean);
+      return parts.join(" ");
+    })
+    .join("; ");
+
+  return [
+    "Failed to start Daytona desktop after recovery.",
+    attempts.length > 0 ? `attempts: ${attempts.join(" | ")}` : undefined,
+    processDetails ? `processes: ${processDetails}` : undefined,
+  ].filter(Boolean).join(" ");
+}
+
+async function recoverComputerUse(computerUse: ComputerUseLifecycle, cause: unknown) {
+  const errors: unknown[] = [cause];
+  const processNames = processNamesFromComputerUseError(cause);
+
+  await computerUse.stop().catch((error) => {
+    errors.push(new Error(`stop: ${error instanceof Error ? error.message : String(error)}`));
+  });
+  await sleep(COMPUTER_RECOVERY_DELAY_MS);
+
+  try {
+    await computerUse.start();
+  } catch (error) {
+    errors.push(error);
+    await restartComputerUseProcesses(computerUse, processNames, errors);
+  }
+
+  try {
+    await waitForComputerReady(computerUse);
+  } catch (error) {
+    errors.push(error);
+    const diagnostics = await collectComputerUseDiagnostics(computerUse, processNames);
+    throw new Error(formatComputerUseFailure(errors, diagnostics));
+  }
+}
+
+async function ensureComputerReady(computerUse: ComputerUseLifecycle) {
+  const currentStatus = await readComputerStatus(computerUse);
+
+  if (currentStatus === "active") {
+    return;
+  }
+
+  if (currentStatus === "partial" || currentStatus === "error") {
+    await recoverComputerUse(computerUse, new Error(`Daytona desktop status is ${currentStatus}.`));
+    return;
+  }
+
+  try {
+    await computerUse.start();
+  } catch (error) {
+    if (await readComputerStatus(computerUse) === "active") {
+      return;
+    }
+    await recoverComputerUse(computerUse, error);
+    return;
+  }
+
+  try {
+    await waitForComputerReady(computerUse);
+  } catch (error) {
+    await recoverComputerUse(computerUse, error);
+  }
 }
 
 function appendQuery(url: string, key: string, value: string): string {

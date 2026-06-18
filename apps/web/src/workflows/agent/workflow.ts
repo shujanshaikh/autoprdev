@@ -342,15 +342,10 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     repoBranch: options.repoBranch,
     repoName: options.repoName,
   };
-  const demoRecordingBasePath = options.demoEnabled && options.projectId && options.threadId
-    ? `/api/project/${encodeURIComponent(options.projectId)}` +
-      `/thread/${encodeURIComponent(options.threadId)}`
-    : undefined;
+  const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
   const harness = new CodingHarness({
     ...sandboxOptions,
-    computer: demoRecordingBasePath
-      ? { recordingBasePath: demoRecordingBasePath }
-      : false,
+    computer: demoRecordingEnabled ? {} : false,
     appendSystemPrompt: [
       "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
@@ -358,8 +353,8 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
-      demoRecordingBasePath
-        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview in Google Chrome and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly and include the recording metadata in your response. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+      demoRecordingEnabled
+        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview in Google Chrome and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly. The chat UI embeds the recording automatically from tool output; do not print raw recording URLs, IDs, file paths, or metadata unless the user explicitly asks for them. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
         : undefined,
     ]
       .filter(Boolean)

@@ -221,7 +221,6 @@ type ComputerAction = z.infer<typeof computerActionSchema>;
 type ComputerInput = z.infer<typeof computerInputSchema>;
 
 export interface DaytonaComputerToolOptions {
-  recordingBasePath?: string;
   display?: string;
 }
 
@@ -496,15 +495,6 @@ async function ensureComputerReady(computerUse: ComputerUseLifecycle) {
   }
 }
 
-function appendQuery(url: string, key: string, value: string): string {
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-}
-
-function recordingUrl(options: DaytonaComputerToolOptions, recordingId: string): string | undefined {
-  return options.recordingBasePath ? appendQuery(options.recordingBasePath, "recordingId", recordingId) : undefined;
-}
-
 function cleanRecordingTitle(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -542,11 +532,9 @@ function recordingTitle(recording: DaytonaRecording, fileName: string | undefine
 
 function compactRecording(
   recording: DaytonaRecording,
-  options: DaytonaComputerToolOptions,
   titleHint?: string,
 ) {
   const id = typeof recording.id === "string" ? recording.id : "";
-  const url = id ? recordingUrl(options, id) : undefined;
   const fileName = typeof recording.fileName === "string" ? recording.fileName : undefined;
 
   return {
@@ -560,7 +548,6 @@ function compactRecording(
     endTime: typeof recording.endTime === "string" ? recording.endTime : undefined,
     durationSeconds: typeof recording.durationSeconds === "number" ? recording.durationSeconds : undefined,
     sizeBytes: typeof recording.sizeBytes === "number" ? recording.sizeBytes : undefined,
-    url,
     contentType: "video/mp4",
   };
 }
@@ -999,7 +986,6 @@ async function runOneAction(
     case "start_recording": {
       const recording = compactRecording(
         await computerUse.recording.start(action.title) as DaytonaRecording,
-        computerOptions,
         action.title,
       );
       return { recording, recordings: [recording] };
@@ -1007,7 +993,6 @@ async function runOneAction(
     case "stop_recording": {
       const recording = compactRecording(
         await computerUse.recording.stop(action.recordingId) as DaytonaRecording,
-        computerOptions,
         action.title,
       );
       return { recording, recordings: [recording] };
@@ -1015,14 +1000,13 @@ async function runOneAction(
     case "get_recording": {
       const recording = compactRecording(
         await computerUse.recording.get(action.recordingId) as DaytonaRecording,
-        computerOptions,
       );
       return { recording, recordings: [recording] };
     }
     case "list_recordings": {
       const result = await computerUse.recording.list();
       const recordings = isRecord(result) && Array.isArray(result.recordings)
-        ? result.recordings.map((recording) => compactRecording(recording as DaytonaRecording, computerOptions))
+        ? result.recordings.map((recording) => compactRecording(recording as DaytonaRecording))
         : [];
       return { recordings };
     }

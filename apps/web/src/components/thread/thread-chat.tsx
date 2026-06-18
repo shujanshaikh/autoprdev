@@ -836,6 +836,9 @@ export function ThreadChat({
   }, [initialPrompt, messages.length, onInitialPromptConsumed, ready, submitMessage, threadId]);
 
   const showMaximizedDiffPanel = diffPanelOpen && diffPanelMaximized;
+  const recordingPlaybackBasePath =
+    `/api/project/${encodeURIComponent(projectId)}` +
+    `/thread/${encodeURIComponent(threadId)}`;
 
   return (
     <section
@@ -856,6 +859,7 @@ export function ThreadChat({
             showingInitialPromptHandoff={showingInitialPromptHandoff}
             initialPrompt={initialPrompt}
             awaitingAgentResponse={awaitingAgentResponse}
+            recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
           />
         </div>

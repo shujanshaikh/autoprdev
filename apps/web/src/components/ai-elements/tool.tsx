@@ -499,21 +499,43 @@ function recordingMetaLine(recording: DemoRecordingMetadata) {
   return details.length > 0 ? details.join(" - ") : null;
 }
 
-function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
+function recordingPlaybackUrl(recording: DemoRecordingMetadata, recordingPlaybackBasePath?: string) {
+  const explicitUrl = cleanRecordingText(recording.url);
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  const recordingId = cleanRecordingText(recording.id);
+  if (!recordingId || !recordingPlaybackBasePath) {
+    return undefined;
+  }
+
+  return appendSearchParams(recordingPlaybackBasePath, {
+    recordingId,
+  });
+}
+
+function DemoRecordingCard({
+  recording,
+  recordingPlaybackBasePath,
+}: {
+  recording: DemoRecordingMetadata;
+  recordingPlaybackBasePath?: string;
+}) {
   const [prepareAttempt, setPrepareAttempt] = useState(0);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [prepareFailed, setPrepareFailed] = useState(false);
   const title = recordingDisplayTitle(recording);
   const metaLine = recordingMetaLine(recording);
+  const previewEndpoint = recordingPlaybackUrl(recording, recordingPlaybackBasePath);
 
   useEffect(() => {
-    if (!recording.url) {
+    if (!previewEndpoint) {
       setPlaybackUrl(null);
       setPrepareFailed(true);
       return;
     }
 
-    const recordingUrl = recording.url;
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
@@ -524,7 +546,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
 
       try {
         const response = await fetch(
-          appendSearchParams(recordingUrl, {
+          appendSearchParams(previewEndpoint, {
             prepare: "1",
             retry: String(prepareAttempt),
             attempt: String(attempt),
@@ -577,7 +599,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
         clearTimeout(retryTimeout);
       }
     };
-  }, [prepareAttempt, recording.url]);
+  }, [prepareAttempt, previewEndpoint]);
 
   const retryVideoLoad = useCallback(() => {
     setPlaybackUrl(null);
@@ -587,7 +609,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
 
   return (
     <article className="overflow-hidden rounded-md border border-border/60 bg-background">
-      {recording.url ? (
+      {previewEndpoint ? (
         <div className="relative aspect-video w-full overflow-hidden bg-black">
           {playbackUrl ? (
             <video
@@ -666,10 +688,12 @@ function ContentDetailsBody({
   slug,
   content,
   details,
+  recordingPlaybackBasePath,
 }: {
   slug: string;
   content: string;
   details: Record<string, unknown>;
+  recordingPlaybackBasePath?: string;
 }) {
   const meta = formatDetailsMetaLine(slug, details);
   const pathLine =
@@ -692,7 +716,11 @@ function ContentDetailsBody({
           Walkthrough
         </h3>
         {demoRecordings.map((recording) => (
-          <DemoRecordingCard key={recording.id} recording={recording} />
+          <DemoRecordingCard
+            key={recording.id}
+            recording={recording}
+            recordingPlaybackBasePath={recordingPlaybackBasePath}
+          />
         ))}
       </section>
     );
@@ -969,6 +997,7 @@ export type ToolOutputProps = ComponentProps<"div"> & {
   errorText: ToolPart["errorText"];
   toolType?: string;
   toolName?: string;
+  recordingPlaybackBasePath?: string;
 };
 
 export const ToolOutput = ({
@@ -977,6 +1006,7 @@ export const ToolOutput = ({
   errorText,
   toolType = "",
   toolName,
+  recordingPlaybackBasePath,
   ...props
 }: ToolOutputProps) => {
   if (!(output || errorText)) {
@@ -1001,10 +1031,18 @@ export const ToolOutput = ({
         slug={slug}
         content={computerContentDetails.content}
         details={computerContentDetails.details}
+        recordingPlaybackBasePath={recordingPlaybackBasePath}
       />
     );
   } else if (isContentDetailsOutput(output)) {
-    body = <ContentDetailsBody slug={slug} content={output.content} details={output.details} />;
+    body = (
+      <ContentDetailsBody
+        slug={slug}
+        content={output.content}
+        details={output.details}
+        recordingPlaybackBasePath={recordingPlaybackBasePath}
+      />
+    );
   } else if (typeof output === "object" && !isValidElement(output)) {
     body = (
       <div className="[&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent">

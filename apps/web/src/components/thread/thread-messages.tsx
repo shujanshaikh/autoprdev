@@ -295,6 +295,7 @@ export function ThreadMessages({
   showingInitialPromptHandoff,
   initialPrompt,
   awaitingAgentResponse,
+  recordingPlaybackBasePath,
   onSubmitMessage,
 }: {
   keyedMessages: KeyedMessage[];
@@ -303,6 +304,7 @@ export function ThreadMessages({
   showingInitialPromptHandoff: boolean;
   initialPrompt?: string;
   awaitingAgentResponse: boolean;
+  recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
 }) {
   return (
@@ -539,6 +541,7 @@ export function ThreadMessages({
                         <ToolOutput
                           errorText={errorText}
                           output={output}
+                          recordingPlaybackBasePath={recordingPlaybackBasePath}
                           toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
                           toolType={part.type}
                         />

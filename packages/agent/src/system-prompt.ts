@@ -43,7 +43,7 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
     "Use the computer tool with actions[] for small batches of desktop actions; it returns the latest screenshot as image content after relevant screen actions.",
     "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available. Coordinates are absolute screen pixels.",
     "Start recording once the app is ready and the demonstration path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video.",
-    "Stop recording promptly and mention the recording metadata.",
+    "Stop recording promptly. The chat UI embeds recordings from tool output automatically; do not print raw recording URLs, IDs, file paths, or metadata unless the user explicitly asks for them.",
     "Skip recording only when no meaningful browser preview is possible, and briefly explain the concrete blocker.",
   ],
 };

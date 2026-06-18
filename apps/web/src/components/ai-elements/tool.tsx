@@ -5,7 +5,7 @@ import {
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
@@ -433,8 +433,6 @@ const RECORDING_PREPARE_RETRY_LIMIT = 18;
 const RECORDING_PREPARE_RETRY_MIN_MS = 1_500;
 const RECORDING_PREPARE_RETRY_MAX_MS = 7_000;
 
-type RecordingLoadState = "preparing" | "ready" | "error";
-
 function appendSearchParams(url: string, params: Record<string, string>) {
   const hashIndex = url.indexOf("#");
   const baseUrl = hashIndex === -1 ? url : url.slice(0, hashIndex);
@@ -504,14 +502,14 @@ function recordingMetaLine(recording: DemoRecordingMetadata) {
 function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) {
   const [prepareAttempt, setPrepareAttempt] = useState(0);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
-  const [loadState, setLoadState] = useState<RecordingLoadState>("preparing");
+  const [prepareFailed, setPrepareFailed] = useState(false);
   const title = recordingDisplayTitle(recording);
   const metaLine = recordingMetaLine(recording);
 
   useEffect(() => {
     if (!recording.url) {
       setPlaybackUrl(null);
-      setLoadState("error");
+      setPrepareFailed(true);
       return;
     }
 
@@ -522,7 +520,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
 
     const prepareRecording = async (attempt: number) => {
       setPlaybackUrl(null);
-      setLoadState("preparing");
+      setPrepareFailed(false);
 
       try {
         const response = await fetch(
@@ -551,7 +549,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
 
         if (!cancelled) {
           setPlaybackUrl(nextPlaybackUrl);
-          setLoadState("preparing");
+          setPrepareFailed(false);
         }
       } catch {
         if (cancelled || controller.signal.aborted) {
@@ -565,7 +563,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
           return;
         }
 
-        setLoadState("error");
+        setPrepareFailed(true);
       }
     };
 
@@ -583,12 +581,8 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
 
   const retryVideoLoad = useCallback(() => {
     setPlaybackUrl(null);
-    setLoadState("preparing");
+    setPrepareFailed(false);
     setPrepareAttempt((current) => current + 1);
-  }, []);
-
-  const markVideoReady = useCallback(() => {
-    setLoadState("ready");
   }, []);
 
   return (
@@ -602,9 +596,7 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
               className="size-full bg-black object-contain"
               controls
               controlsList="nodownload"
-              onCanPlay={markVideoReady}
               onError={retryVideoLoad}
-              onLoadedMetadata={markVideoReady}
               playsInline
               preload="auto"
               src={playbackUrl}
@@ -615,19 +607,17 @@ function DemoRecordingCard({ recording }: { recording: DemoRecordingMetadata }) 
               {title}
             </h4>
           </div>
-          {loadState !== "ready" ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25 px-4 pt-10 font-sans">
-              <div className="flex items-center gap-2 rounded bg-black/55 px-2.5 py-1.5 text-[11px] text-white/75">
-                {loadState === "preparing" ? (
-                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                ) : null}
-                <span>
-                  {loadState === "error"
-                    ? "Recording is still preparing..."
-                    : "Preparing recording..."}
-                </span>
-              </div>
-            </div>
+          {!playbackUrl ? (
+            <span className="sr-only">Preparing recording preview.</span>
+          ) : null}
+          {prepareFailed ? (
+            <button
+              type="button"
+              className="absolute bottom-3 right-3 z-10 rounded bg-black/55 px-2 py-1 font-sans text-[11px] leading-none text-white/75 backdrop-blur-sm transition-colors hover:bg-black/70 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/70"
+              onClick={retryVideoLoad}
+            >
+              Retry preview
+            </button>
           ) : null}
         </div>
       ) : (

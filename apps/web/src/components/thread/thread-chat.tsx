@@ -55,6 +55,9 @@ import {
   CODEX_MODELS,
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
+  addCodexUsageCosts,
+  calculateCodexUsageCost,
+  emptyCodexUsageCost,
   getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
   type CodexModelId,
@@ -65,9 +68,13 @@ export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
 import {
   contextTokensFromUsage,
+  formatRunCost,
   formatTokens,
   getAssistantContextUsage,
+  getAssistantRunCost,
+  getAssistantRunUsage,
   withAssistantRunMetadata,
+  type TokenCost,
   type TokenUsage,
 } from "#/lib/assistant-message-metadata";
 
@@ -297,9 +304,11 @@ function WorkflowIssuePanel({ issue }: { issue: WorkflowIssue | undefined }) {
 
 function ThreadContextRemainingIndicator({
   usage,
+  threadCost,
   contextLimit,
 }: {
   usage: TokenUsage;
+  threadCost?: TokenCost | null;
   contextLimit: number;
 }) {
   if (contextLimit <= 0) {
@@ -310,6 +319,7 @@ function ThreadContextRemainingIndicator({
   const remainingTokens = Math.max(0, contextLimit - contextTokens);
   const percentageUsed = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
   const uncachedInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
+  const hasThreadCost = threadCost !== null && threadCost !== undefined && threadCost.total > 0;
 
   return (
     <Tooltip>
@@ -321,9 +331,15 @@ function ThreadContextRemainingIndicator({
           <span className="text-foreground/85 tabular-nums">{formatTokens(remainingTokens)}</span>
           <span aria-hidden="true" className="h-3 w-px bg-border/70" />
           <span className="text-muted-foreground/70 tabular-nums">{percentageUsed}%</span>
+          {hasThreadCost ? (
+            <>
+              <span aria-hidden="true" className="h-3 w-px bg-border/70" />
+              <span className="text-foreground/85 tabular-nums">{formatRunCost(threadCost.total)}</span>
+            </>
+          ) : null}
         </Badge>
       </TooltipTrigger>
-      <TooltipContent side="top" align="start" className="min-w-[220px] rounded-none">
+      <TooltipContent side="top" align="start" className="min-w-[240px] rounded-none">
         <div className="space-y-1.5 font-mono text-[11px]">
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Remaining</span>
@@ -355,6 +371,27 @@ function ThreadContextRemainingIndicator({
             <span className="text-muted-foreground">Output</span>
             <span>{formatTokens(usage.outputTokens)}</span>
           </div>
+          {hasThreadCost ? (
+            <>
+              <div className="my-2 h-px bg-border/70" />
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Thread cost</span>
+                <span>{formatRunCost(threadCost.total)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Input cost</span>
+                <span>{formatRunCost(threadCost.input)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Cached cost</span>
+                <span>{formatRunCost(threadCost.cacheRead)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Output cost</span>
+                <span>{formatRunCost(threadCost.output)}</span>
+              </div>
+            </>
+          ) : null}
         </div>
       </TooltipContent>
     </Tooltip>
@@ -725,6 +762,21 @@ export function ThreadChat({
       cacheWriteTokens: 0,
     };
   }, [messages]);
+  const threadTotalCost = useMemo(() => {
+    return messages.reduce((total, message) => {
+      if (message.role !== "assistant") {
+        return total;
+      }
+
+      const savedCost = getAssistantRunCost(message.metadata);
+      if (savedCost) {
+        return addCodexUsageCosts(total, savedCost);
+      }
+
+      const runUsage = getAssistantRunUsage(message.metadata);
+      return runUsage ? addCodexUsageCosts(total, calculateCodexUsageCost(selectedModel, runUsage)) : total;
+    }, emptyCodexUsageCost());
+  }, [messages, selectedModel]);
   const selectedModelContextLimit =
     CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
 
@@ -839,6 +891,7 @@ export function ThreadChat({
             awaitingAgentResponse={awaitingAgentResponse}
             activeAssistantMessageId={activeAssistantMessageId}
             activeRunStartedAt={activeRunStartedAt}
+            modelId={selectedModel}
             recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
           />
@@ -935,6 +988,7 @@ export function ThreadChat({
                     ) : null}
                     <ThreadContextRemainingIndicator
                       usage={currentContextUsage}
+                      threadCost={threadTotalCost}
                       contextLimit={selectedModelContextLimit}
                     />
                   </PromptInputTools>

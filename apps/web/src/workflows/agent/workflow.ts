@@ -11,6 +11,12 @@ import { fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
+import {
+  addCodexUsageCosts,
+  calculateCodexUsageCost,
+  emptyCodexUsageCost,
+  type CodexUsageCost,
+} from "#/lib/codex-models";
 import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import type { Impersonator, User } from "@workos-inc/node";
 
@@ -59,6 +65,7 @@ type AssistantTokenUsageMetadata = {
   totalTokens: number;
   cachedInputTokens: number;
   cacheWriteTokens: number;
+  cost: CodexUsageCost;
 };
 
 interface AssistantUsageMetadata {
@@ -100,26 +107,34 @@ function emptyTokenUsage(): AssistantTokenUsageMetadata {
     totalTokens: 0,
     cachedInputTokens: 0,
     cacheWriteTokens: 0,
+    cost: emptyCodexUsageCost(),
   };
 }
 
-function tokenUsageFromStep(step: {
-  usage: Partial<AssistantTokenUsageMetadata> & {
-    inputTokenDetails?: {
-      cacheReadTokens?: number;
-      cacheWriteTokens?: number;
+function tokenUsageFromStep(
+  step: {
+    usage: Omit<Partial<AssistantTokenUsageMetadata>, "cost"> & {
+      inputTokenDetails?: {
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+      };
     };
-  };
-}): AssistantTokenUsageMetadata {
+  },
+  modelId: string,
+): AssistantTokenUsageMetadata {
   const cachedInputTokens =
     step.usage.inputTokenDetails?.cacheReadTokens ?? step.usage.cachedInputTokens ?? 0;
-
-  return {
+  const usage = {
     inputTokens: step.usage.inputTokens ?? 0,
     outputTokens: step.usage.outputTokens ?? 0,
     totalTokens: step.usage.totalTokens ?? 0,
     cachedInputTokens,
     cacheWriteTokens: step.usage.inputTokenDetails?.cacheWriteTokens ?? step.usage.cacheWriteTokens ?? 0,
+  };
+
+  return {
+    ...usage,
+    cost: calculateCodexUsageCost(modelId, usage),
   };
 }
 
@@ -133,6 +148,7 @@ function addTokenUsage(
     totalTokens: total.totalTokens + usage.totalTokens,
     cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
     cacheWriteTokens: total.cacheWriteTokens + usage.cacheWriteTokens,
+    cost: addCodexUsageCosts(total.cost, usage.cost),
   };
 }
 
@@ -414,7 +430,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
             return;
           }
 
-          const stepUsages = steps.map(tokenUsageFromStep);
+          const stepUsages = steps.map((step) => tokenUsageFromStep(step, codexOptions.modelId));
           const runCompletedAt = Date.now();
           const usageMetadata: AssistantUsageMetadata = {
             usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),

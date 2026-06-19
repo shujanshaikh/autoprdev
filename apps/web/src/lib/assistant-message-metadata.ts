@@ -6,12 +6,29 @@ export type TokenUsage = {
   cacheWriteTokens: number;
 };
 
+export type TokenCost = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+};
+
 type TokenUsageMetadata = {
   inputTokens?: unknown;
   outputTokens?: unknown;
   totalTokens?: unknown;
   cachedInputTokens?: unknown;
   cacheWriteTokens?: unknown;
+  cost?: unknown;
+};
+
+type TokenCostMetadata = {
+  input?: unknown;
+  output?: unknown;
+  cacheRead?: unknown;
+  cacheWrite?: unknown;
+  total?: unknown;
 };
 
 type AssistantUsageMetadata = {
@@ -73,6 +90,30 @@ function readTokenUsage(value: unknown): TokenUsage | null {
   };
 }
 
+function readTokenCost(value: unknown): TokenCost | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const hasTokenCost = ["input", "output", "cacheRead", "cacheWrite", "total"].some(
+    (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
+  );
+
+  if (!hasTokenCost) {
+    return null;
+  }
+
+  const cost = value as TokenCostMetadata;
+
+  return {
+    input: asTokenNumber(cost.input),
+    output: asTokenNumber(cost.output),
+    cacheRead: asTokenNumber(cost.cacheRead),
+    cacheWrite: asTokenNumber(cost.cacheWrite),
+    total: asTokenNumber(cost.total),
+  };
+}
+
 export function getAssistantContextUsage(metadata: unknown): TokenUsage | null {
   if (!isAssistantUsageMetadata(metadata)) {
     return null;
@@ -87,6 +128,14 @@ export function getAssistantRunUsage(metadata: unknown): TokenUsage | null {
   }
 
   return readTokenUsage(metadata.usage) ?? readTokenUsage(metadata.contextUsage);
+}
+
+export function getAssistantRunCost(metadata: unknown): TokenCost | null {
+  if (!isAssistantUsageMetadata(metadata)) {
+    return null;
+  }
+
+  return readTokenCost(metadata.usage?.cost) ?? readTokenCost(metadata.contextUsage?.cost);
 }
 
 export function readAssistantRunMetadata(metadata: unknown): AssistantRunMetadata | null {
@@ -138,6 +187,26 @@ export function formatTokens(value: number) {
   }
 
   return `${value}`;
+}
+
+export function formatRunCost(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "$0.0000";
+  }
+
+  if (value < 0.0001) {
+    return "<$0.0001";
+  }
+
+  if (value < 1) {
+    return `$${value.toFixed(4)}`;
+  }
+
+  if (value < 10) {
+    return `$${value.toFixed(3)}`;
+  }
+
+  return `$${value.toFixed(2)}`;
 }
 
 export function formatRunDuration(totalSeconds: number) {

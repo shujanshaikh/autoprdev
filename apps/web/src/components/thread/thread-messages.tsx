@@ -19,11 +19,14 @@ import { MessageAction, MessageActions, MessageContent, MessageResponse } from "
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import {
   contextTokensFromUsage,
+  formatRunCost,
   formatTokens,
   formatRunDuration,
+  getAssistantRunCost,
   getAssistantRunUsage,
   readAssistantRunMetadata,
 } from "#/lib/assistant-message-metadata";
+import { calculateCodexUsageCost } from "#/lib/codex-models";
 import {
   Tool,
   ToolContent,
@@ -288,10 +291,12 @@ function AwaitingAgentIndicator({ startedAt }: { startedAt?: number }) {
 function AssistantRunTimerRow({
   active,
   metadata,
+  modelId,
   startedAt,
 }: {
   active: boolean;
   metadata: unknown;
+  modelId: string;
   startedAt?: number;
 }) {
   const elapsedSeconds = useElapsedSeconds(active ? startedAt : undefined);
@@ -299,6 +304,7 @@ function AssistantRunTimerRow({
   const durationSeconds = active ? elapsedSeconds : persistedRun?.durationSeconds;
   const tokenUsage = getAssistantRunUsage(metadata);
   const tokenCount = tokenUsage ? contextTokensFromUsage(tokenUsage) : undefined;
+  const runCost = getAssistantRunCost(metadata) ?? (tokenUsage ? calculateCodexUsageCost(modelId, tokenUsage) : null);
 
   if (durationSeconds === undefined) {
     return null;
@@ -313,6 +319,12 @@ function AssistantRunTimerRow({
         <>
           <span aria-hidden="true" className="h-3 w-px bg-border/70" />
           <span className="tabular-nums">{formatTokens(tokenCount)} tokens</span>
+        </>
+      ) : null}
+      {runCost && runCost.total > 0 ? (
+        <>
+          <span aria-hidden="true" className="h-3 w-px bg-border/70" />
+          <span className="tabular-nums">{formatRunCost(runCost.total)}</span>
         </>
       ) : null}
     </div>
@@ -364,6 +376,7 @@ export function ThreadMessages({
   awaitingAgentResponse,
   activeAssistantMessageId,
   activeRunStartedAt,
+  modelId,
   recordingPlaybackBasePath,
   onSubmitMessage,
 }: {
@@ -375,6 +388,7 @@ export function ThreadMessages({
   awaitingAgentResponse: boolean;
   activeAssistantMessageId?: string;
   activeRunStartedAt?: number;
+  modelId: string;
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
 }) {
@@ -488,6 +502,7 @@ export function ThreadMessages({
                 <AssistantRunTimerRow
                   active={message.id === activeAssistantMessageId}
                   metadata={message.metadata}
+                  modelId={modelId}
                   startedAt={activeRunStartedAt}
                 />
               ) : null}

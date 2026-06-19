@@ -18,7 +18,10 @@ import {
 import { MessageAction, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import {
+  contextTokensFromUsage,
+  formatTokens,
   formatRunDuration,
+  getAssistantRunUsage,
   readAssistantRunMetadata,
 } from "#/lib/assistant-message-metadata";
 import {
@@ -294,16 +297,24 @@ function AssistantRunTimerRow({
   const elapsedSeconds = useElapsedSeconds(active ? startedAt : undefined);
   const persistedRun = readAssistantRunMetadata(metadata);
   const durationSeconds = active ? elapsedSeconds : persistedRun?.durationSeconds;
+  const tokenUsage = getAssistantRunUsage(metadata);
+  const tokenCount = tokenUsage ? contextTokensFromUsage(tokenUsage) : undefined;
 
   if (durationSeconds === undefined) {
     return null;
   }
 
   return (
-    <div className="mb-3 flex w-full items-center border-b border-border/60 pb-3 text-sm font-medium text-muted-foreground/80">
+    <div className="mb-3 flex w-full flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 pb-3 text-sm font-medium text-muted-foreground/80">
       <span className="tabular-nums">
         {active ? "Working" : "Worked"} for {formatRunDuration(durationSeconds)}
       </span>
+      {tokenCount !== undefined ? (
+        <>
+          <span aria-hidden="true" className="h-3 w-px bg-border/70" />
+          <span className="tabular-nums">{formatTokens(tokenCount)} tokens</span>
+        </>
+      ) : null}
     </div>
   );
 }

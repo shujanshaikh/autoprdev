@@ -81,6 +81,14 @@ export function getAssistantContextUsage(metadata: unknown): TokenUsage | null {
   return readTokenUsage(metadata.contextUsage) ?? readTokenUsage(metadata.usage);
 }
 
+export function getAssistantRunUsage(metadata: unknown): TokenUsage | null {
+  if (!isAssistantUsageMetadata(metadata)) {
+    return null;
+  }
+
+  return readTokenUsage(metadata.usage) ?? readTokenUsage(metadata.contextUsage);
+}
+
 export function readAssistantRunMetadata(metadata: unknown): AssistantRunMetadata | null {
   if (!isAssistantUsageMetadata(metadata) || !metadata.run) {
     return null;

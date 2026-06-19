@@ -300,8 +300,26 @@ function AssistantRunTimerRow({
   startedAt?: number;
 }) {
   const elapsedSeconds = useElapsedSeconds(active ? startedAt : undefined);
+  const clientStartedAtRef = useRef<number | undefined>(undefined);
+  const clientDurationSecondsRef = useRef<number | undefined>(undefined);
+  const wasActiveRef = useRef(false);
+
+  if (active && startedAt !== undefined) {
+    clientStartedAtRef.current = startedAt;
+  }
+
+  if (elapsedSeconds !== undefined) {
+    clientDurationSecondsRef.current = elapsedSeconds;
+  }
+
+  if (!active && wasActiveRef.current && clientStartedAtRef.current !== undefined) {
+    clientDurationSecondsRef.current = Math.max(0, Math.round((Date.now() - clientStartedAtRef.current) / 1000));
+  }
+
+  wasActiveRef.current = active;
+
   const persistedRun = readAssistantRunMetadata(metadata);
-  const durationSeconds = active ? elapsedSeconds : persistedRun?.durationSeconds;
+  const durationSeconds = active ? elapsedSeconds : persistedRun?.durationSeconds ?? clientDurationSecondsRef.current;
   const tokenUsage = getAssistantRunUsage(metadata);
   const tokenCount = tokenUsage ? contextTokensFromUsage(tokenUsage) : undefined;
   const runCost = getAssistantRunCost(metadata) ?? (tokenUsage ? calculateCodexUsageCost(modelId, tokenUsage) : null);

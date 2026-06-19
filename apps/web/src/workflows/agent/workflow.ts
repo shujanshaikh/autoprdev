@@ -64,6 +64,11 @@ type AssistantTokenUsageMetadata = {
 interface AssistantUsageMetadata {
   usage: AssistantTokenUsageMetadata;
   contextUsage: AssistantTokenUsageMetadata;
+  run: {
+    startedAt: number;
+    completedAt: number;
+    durationSeconds: number;
+  };
 }
 
 type WorkflowIssue = {
@@ -372,6 +377,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
 
   const writable = getWritable<UIMessageChunk>();
   let persistenceFinished = false;
+  const runStartedAt = Date.now();
 
   if (options.assistantMessageId) {
     await writeAssistantStartChunk(writable, options.assistantMessageId);
@@ -409,9 +415,15 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
           }
 
           const stepUsages = steps.map(tokenUsageFromStep);
+          const runCompletedAt = Date.now();
           const usageMetadata: AssistantUsageMetadata = {
             usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),
             contextUsage: stepUsages.at(-1) ?? emptyTokenUsage(),
+            run: {
+              startedAt: runStartedAt,
+              completedAt: runCompletedAt,
+              durationSeconds: Math.max(0, Math.round((runCompletedAt - runStartedAt) / 1000)),
+            },
           };
 
           try {

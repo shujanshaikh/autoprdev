@@ -63,6 +63,13 @@ import {
 export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
 export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
 import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
+import {
+  contextTokensFromUsage,
+  formatTokens,
+  getAssistantContextUsage,
+  withAssistantRunMetadata,
+  type TokenUsage,
+} from "#/lib/assistant-message-metadata";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -245,88 +252,9 @@ function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   );
 }
 
-interface AssistantUsageMetadata {
-  usage?: TokenUsageMetadata;
-  contextUsage?: TokenUsageMetadata;
-}
-
-type TokenUsageMetadata = {
-  inputTokens?: unknown;
-  outputTokens?: unknown;
-  totalTokens?: unknown;
-  cachedInputTokens?: unknown;
-  cacheWriteTokens?: unknown;
-};
-
-type TokenUsage = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  cachedInputTokens: number;
-  cacheWriteTokens: number;
-};
-
 type WorkflowIssue = {
   message?: unknown;
 };
-
-function asFiniteNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function isAssistantUsageMetadata(value: unknown): value is AssistantUsageMetadata {
-  return (
-    isRecord(value) &&
-    (value.usage === undefined || isRecord(value.usage)) &&
-    (value.contextUsage === undefined || isRecord(value.contextUsage))
-  );
-}
-
-function readTokenUsage(value: unknown): TokenUsage | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const hasTokenUsage = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens"].some(
-    (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
-  );
-
-  if (!hasTokenUsage) {
-    return null;
-  }
-
-  return {
-    inputTokens: asFiniteNumber(value.inputTokens),
-    outputTokens: asFiniteNumber(value.outputTokens),
-    totalTokens: asFiniteNumber(value.totalTokens),
-    cachedInputTokens: asFiniteNumber(value.cachedInputTokens),
-    cacheWriteTokens: asFiniteNumber(value.cacheWriteTokens),
-  };
-}
-
-function contextTokensFromUsage(usage: TokenUsage) {
-  return usage.totalTokens > 0 ? usage.totalTokens : usage.inputTokens + usage.outputTokens;
-}
-
-function getAssistantContextUsage(metadata: unknown): TokenUsage | null {
-  if (!isAssistantUsageMetadata(metadata)) {
-    return null;
-  }
-
-  return readTokenUsage(metadata.contextUsage) ?? readTokenUsage(metadata.usage);
-}
-
-function formatTokens(value: number) {
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
-  }
-
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
-  }
-
-  return `${value}`;
-}
 
 function parseEmbeddedErrorMessage(message: string) {
   const jsonStart = message.indexOf("{");
@@ -467,9 +395,11 @@ export function ThreadChat({
   thread?: any;
 }) {
   const activeRunIdRef = useRef(currentRunId);
+  const activeRunStartedAtRef = useRef<number | undefined>(undefined);
   const resumedRunIdsRef = useRef(new Set<string>());
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
+  const [activeRunStartedAt, setActiveRunStartedAt] = useState<number | undefined>();
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const selectedModel: CodexModelId = initialModel ?? DEFAULT_CODEX_MODEL;
@@ -486,6 +416,11 @@ export function ThreadChat({
   useEffect(() => {
     if (currentRunId) {
       activeRunIdRef.current = currentRunId;
+      if (!activeRunStartedAtRef.current) {
+        const startedAt = Date.now();
+        activeRunStartedAtRef.current = startedAt;
+        setActiveRunStartedAt(startedAt);
+      }
     }
   }, [currentRunId]);
 
@@ -510,11 +445,18 @@ export function ThreadChat({
     if (workflowRunId) {
       activeRunIdRef.current = workflowRunId;
       resumedRunIdsRef.current.add(workflowRunId);
+      if (!activeRunStartedAtRef.current) {
+        const startedAt = Date.now();
+        activeRunStartedAtRef.current = startedAt;
+        setActiveRunStartedAt(startedAt);
+      }
     }
   }, []);
 
   const handleChatEnd = useCallback(() => {
     activeRunIdRef.current = undefined;
+    activeRunStartedAtRef.current = undefined;
+    setActiveRunStartedAt(undefined);
   }, []);
 
   const prepareReconnectToStreamRequest = useCallback<PrepareReconnectToStreamRequest>(
@@ -650,9 +592,32 @@ export function ThreadChat({
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
+  useEffect(() => {
+    if (busy && !activeRunStartedAtRef.current) {
+      const startedAt = Date.now();
+      activeRunStartedAtRef.current = startedAt;
+      setActiveRunStartedAt(startedAt);
+    }
+
+    if (!busy && !activeRunIdRef.current && activeRunStartedAtRef.current) {
+      activeRunStartedAtRef.current = undefined;
+      setActiveRunStartedAt(undefined);
+    }
+  }, [busy]);
+
   const stopGeneration = useCallback(() => {
     const runId = activeRunIdRef.current;
     const assistantMessage = findLastBy(messages, (message) => message.role === "assistant");
+    const runStartedAt = activeRunStartedAtRef.current;
+    const runCompletedAt = Date.now();
+    const assistantMetadata =
+      assistantMessage && runStartedAt !== undefined
+        ? withAssistantRunMetadata(assistantMessage.metadata, {
+            startedAt: runStartedAt,
+            completedAt: runCompletedAt,
+            durationSeconds: Math.max(0, Math.round((runCompletedAt - runStartedAt) / 1000)),
+          })
+        : assistantMessage?.metadata;
 
     try {
       stop();
@@ -663,6 +628,18 @@ export function ThreadChat({
     }
 
     clearError();
+    activeRunStartedAtRef.current = undefined;
+    setActiveRunStartedAt(undefined);
+
+    if (assistantMessage && assistantMetadata !== assistantMessage.metadata) {
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === assistantMessage.id
+            ? { ...message, metadata: assistantMetadata }
+            : message
+        )
+      );
+    }
 
     if (!runId) {
       return;
@@ -680,7 +657,7 @@ export function ThreadChat({
           ? {
               id: assistantMessage.id,
               parts: assistantMessage.parts,
-              metadata: assistantMessage.metadata,
+              metadata: assistantMetadata,
             }
           : undefined,
       }),
@@ -700,7 +677,7 @@ export function ThreadChat({
       });
 
     pendingStopRef.current = stopPromise;
-  }, [clearError, getRunApi, messages, stop]);
+  }, [clearError, getRunApi, messages, setMessages, stop]);
   const toggleDemoEnabled = useCallback(async () => {
     if (!demoRecordingExperimentEnabled && !optimisticDemoEnabled) {
       return;
@@ -721,6 +698,7 @@ export function ThreadChat({
   }, [demoRecordingExperimentEnabled, optimisticDemoEnabled, setDemoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
+  const activeAssistantMessageId = busy && lastMessage?.role === "assistant" ? lastMessage.id : undefined;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
 
@@ -859,6 +837,8 @@ export function ThreadChat({
             showingInitialPromptHandoff={showingInitialPromptHandoff}
             initialPrompt={initialPrompt}
             awaitingAgentResponse={awaitingAgentResponse}
+            activeAssistantMessageId={activeAssistantMessageId}
+            activeRunStartedAt={activeRunStartedAt}
             recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
           />

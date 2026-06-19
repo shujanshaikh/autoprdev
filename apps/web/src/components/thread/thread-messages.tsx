@@ -18,6 +18,10 @@ import {
 import { MessageAction, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import {
+  formatRunDuration,
+  readAssistantRunMetadata,
+} from "#/lib/assistant-message-metadata";
+import {
   Tool,
   ToolContent,
   ToolHeader,
@@ -57,6 +61,25 @@ function getTextParts(parts: UIMessage["parts"]) {
     .map((part) => part.text.trim())
     .filter(Boolean)
     .join("\n\n");
+}
+
+function useElapsedSeconds(startedAt: number | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (startedAt === undefined) {
+      return;
+    }
+
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+
+    return () => window.clearInterval(interval);
+  }, [startedAt]);
+
+  return startedAt === undefined
+    ? undefined
+    : Math.max(0, Math.floor((now - startedAt) / 1000));
 }
 
 async function writeClipboardText(text: string) {
@@ -238,7 +261,9 @@ function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   );
 }
 
-function AwaitingAgentIndicator() {
+function AwaitingAgentIndicator({ startedAt }: { startedAt?: number }) {
+  const elapsedSeconds = useElapsedSeconds(startedAt);
+
   return (
     <div role="status" aria-live="polite" aria-label="Agent is thinking">
       <div className="mx-auto max-w-[680px] px-6 py-2 sm:px-8">
@@ -246,8 +271,39 @@ function AwaitingAgentIndicator() {
           <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.2s]" />
           <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.1s]" />
           <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite]" />
+          {elapsedSeconds !== undefined ? (
+            <span className="ml-2 font-mono text-[11px] text-muted-foreground/70 tabular-nums">
+              Working for {formatRunDuration(elapsedSeconds)}
+            </span>
+          ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AssistantRunTimerRow({
+  active,
+  metadata,
+  startedAt,
+}: {
+  active: boolean;
+  metadata: unknown;
+  startedAt?: number;
+}) {
+  const elapsedSeconds = useElapsedSeconds(active ? startedAt : undefined);
+  const persistedRun = readAssistantRunMetadata(metadata);
+  const durationSeconds = active ? elapsedSeconds : persistedRun?.durationSeconds;
+
+  if (durationSeconds === undefined) {
+    return null;
+  }
+
+  return (
+    <div className="mb-3 flex w-full items-center border-b border-border/60 pb-3 text-sm font-medium text-muted-foreground/80">
+      <span className="tabular-nums">
+        {active ? "Working" : "Worked"} for {formatRunDuration(durationSeconds)}
+      </span>
     </div>
   );
 }
@@ -295,6 +351,8 @@ export function ThreadMessages({
   showingInitialPromptHandoff,
   initialPrompt,
   awaitingAgentResponse,
+  activeAssistantMessageId,
+  activeRunStartedAt,
   recordingPlaybackBasePath,
   onSubmitMessage,
 }: {
@@ -304,6 +362,8 @@ export function ThreadMessages({
   showingInitialPromptHandoff: boolean;
   initialPrompt?: string;
   awaitingAgentResponse: boolean;
+  activeAssistantMessageId?: string;
+  activeRunStartedAt?: number;
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
 }) {
@@ -413,6 +473,13 @@ export function ThreadMessages({
               </div>
             ) : null}
             <div className={cn(isUser && "group/user-message relative rounded-none border border-border bg-card p-4 shadow-sm")}>
+              {!isUser ? (
+                <AssistantRunTimerRow
+                  active={message.id === activeAssistantMessageId}
+                  metadata={message.metadata}
+                  startedAt={activeRunStartedAt}
+                />
+              ) : null}
               <MessageContent>
                 {displayGrouped.map((item) => {
                 if (item.kind === "explore-group") {
@@ -580,7 +647,7 @@ export function ThreadMessages({
     ) : null}
   
     {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
-    {awaitingAgentResponse ? <AwaitingAgentIndicator /> : null}
+    {awaitingAgentResponse ? <AwaitingAgentIndicator startedAt={activeRunStartedAt} /> : null}
     </ConversationContent>
     <div className="h-8" />
     <ConversationScrollButton className="bottom-4" />

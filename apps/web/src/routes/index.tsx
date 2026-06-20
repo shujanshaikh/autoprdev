@@ -35,6 +35,7 @@ function LandingHome() {
             </Link>
           </li>
           <li>
+            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- This intentionally navigates to the auth API endpoint. */}
             <a
               href="/api/auth/sign-in?returnTo=%2Fdashboard"
               className="pointer-events-auto transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"

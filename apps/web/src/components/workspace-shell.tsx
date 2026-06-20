@@ -145,8 +145,10 @@ function WorkspaceCreateSandboxDialog({
 }) {
   const navigate = useNavigate();
   const { isAuthenticated } = useConvexAuth();
-  const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
-  const [selectedBranch, setSelectedBranch] = useState("");
+  const [selectedRepoFullNameOverride, setSelectedRepoFullNameOverride] = useState<string | undefined>();
+  const [selectedBranchOverride, setSelectedBranchOverride] = useState<
+    { repoFullName: string; branchName: string } | undefined
+  >();
   const [repoSearch, setRepoSearch] = useState("");
   const [isConnectingGithub, setIsConnectingGithub] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -173,6 +175,11 @@ function WorkspaceCreateSandboxDialog({
         ? "Could not load GitHub repositories."
         : undefined;
 
+  const selectedRepoFullName =
+    selectedRepoFullNameOverride &&
+    repositories.some((repo) => repo.fullName === selectedRepoFullNameOverride)
+      ? selectedRepoFullNameOverride
+      : repositories[0]?.fullName ?? "";
   const selectedRepo = useMemo(
     () => repositories.find((r) => r.fullName === selectedRepoFullName),
     [repositories, selectedRepoFullName],
@@ -201,6 +208,15 @@ function WorkspaceCreateSandboxDialog({
   });
 
   const branches = branchesQuery.data?.branches ?? EMPTY_BRANCHES;
+  const defaultBranchName =
+    selectedRepo && branches.some((branch) => branch.name === selectedRepo.defaultBranch)
+      ? selectedRepo.defaultBranch
+      : branches[0]?.name ?? "";
+  const selectedBranch =
+    selectedBranchOverride?.repoFullName === selectedRepoFullName &&
+    branches.some((branch) => branch.name === selectedBranchOverride.branchName)
+      ? selectedBranchOverride.branchName
+      : defaultBranchName;
   const isLoadingBranches = branchesQuery.isPending && Boolean(selectedRepo);
   const branchesError =
     branchesQuery.error instanceof Error
@@ -248,38 +264,6 @@ function WorkspaceCreateSandboxDialog({
 
   const isCreating = createProjectMutation.isPending;
 
-  useEffect(() => {
-    if (!repositories.length) {
-      setSelectedRepoFullName("");
-      return;
-    }
-
-    if (
-      !selectedRepoFullName ||
-      !repositories.some((repo) => repo.fullName === selectedRepoFullName)
-    ) {
-      setSelectedRepoFullName(repositories[0].fullName);
-    }
-  }, [repositories, selectedRepoFullName]);
-
-  useEffect(() => {
-    if (!selectedRepo) {
-      setSelectedBranch("");
-      return;
-    }
-
-    if (!branches.length) {
-      setSelectedBranch("");
-      return;
-    }
-
-    setSelectedBranch(
-      branches.some((branch) => branch.name === selectedRepo.defaultBranch)
-        ? selectedRepo.defaultBranch
-        : branches[0]?.name ?? "",
-    );
-  }, [branches, selectedRepo]);
-
   const refreshRepositories = useCallback(async () => {
     setError(undefined);
     await refetchRepositories();
@@ -319,8 +303,10 @@ function WorkspaceCreateSandboxDialog({
             onConnectGithub={connectGithub}
             onRefreshRepos={refreshRepositories}
             onRepoSearchChange={setRepoSearch}
-            onRepoChange={setSelectedRepoFullName}
-            onBranchChange={setSelectedBranch}
+            onRepoChange={setSelectedRepoFullNameOverride}
+            onBranchChange={(branchName) =>
+              setSelectedBranchOverride({ repoFullName: selectedRepoFullName, branchName })
+            }
             onCreate={() => createProjectMutation.mutate()}
           />
         </div>

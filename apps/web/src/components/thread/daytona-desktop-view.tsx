@@ -39,6 +39,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RfbInstance | null>(null);
+  // react-doctor-disable-next-line react-doctor/no-initialize-state -- Frame size depends on measured DOM layout after mount.
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>();
   const [connection, updateConnection] = useReducer(
     (
@@ -74,6 +75,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
       ));
     };
 
+    // react-doctor-disable-next-line react-doctor/no-initialize-state -- Initial desktop sizing needs the mounted shell dimensions.
     updateFrameSize();
 
     const resizeObserver = new ResizeObserver(updateFrameSize);
@@ -86,8 +88,9 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
     };
   }, []);
 
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps -- This effect owns the active RFB instance and clears the shared focus ref on teardown.
   useEffect(() => {
-    if (!rfbRef.current || !frameSize) return;
+    if (!frameSize) return;
     const resizeEvent = new Event("resize");
     window.requestAnimationFrame(() => window.dispatchEvent(resizeEvent));
   }, [frameSize]);
@@ -99,13 +102,13 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
     }
 
     let disposed = false;
+    let activeRfb: RfbInstance | null = null;
     const handleConnect: EventListener = () => {
       updateConnection({ state: "connected" });
-      const rfb = rfbRef.current;
-      if (rfb) {
-        applyFixedDesktopMode(rfb);
+      if (activeRfb) {
+        applyFixedDesktopMode(activeRfb);
       }
-      window.requestAnimationFrame(() => rfbRef.current?.focus());
+      window.requestAnimationFrame(() => activeRfb?.focus());
     };
     const handleDisconnect: EventListener = (event) => {
       const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
@@ -138,6 +141,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
         rfb.addEventListener("disconnect", handleDisconnect);
         rfb.addEventListener("securityfailure", handleSecurityFailure);
         rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
+        activeRfb = rfb;
         rfbRef.current = rfb;
       })
       .catch((err) => {
@@ -150,12 +154,13 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
 
     return () => {
       disposed = true;
-      const rfb = rfbRef.current;
+      const rfb = activeRfb;
       rfb?.removeEventListener("connect", handleConnect);
       rfb?.removeEventListener("disconnect", handleDisconnect);
       rfb?.removeEventListener("securityfailure", handleSecurityFailure);
       rfb?.removeEventListener("credentialsrequired", handleCredentialsRequired);
       rfbRef.current = null;
+      activeRfb = null;
       rfb?.disconnect();
       container.replaceChildren();
     };

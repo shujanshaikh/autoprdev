@@ -62,11 +62,18 @@ function getToolState(part: object): ToolPart["state"] {
 }
 
 function getTextParts(parts: UIMessage["parts"]) {
-  return parts
-    .filter(isTextUIPart)
-    .map((part) => part.text.trim())
-    .filter(Boolean)
-    .join("\n\n");
+  const textParts: string[] = [];
+  for (const part of parts) {
+    if (!isTextUIPart(part)) {
+      continue;
+    }
+
+    const text = part.text.trim();
+    if (text) {
+      textParts.push(text);
+    }
+  }
+  return textParts.join("\n\n");
 }
 
 function useElapsedSeconds(startedAt: number | undefined) {
@@ -77,7 +84,6 @@ function useElapsedSeconds(startedAt: number | undefined) {
       return;
     }
 
-    setNow(Date.now());
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
 
     return () => window.clearInterval(interval);
@@ -271,7 +277,7 @@ function AwaitingAgentIndicator({ startedAt }: { startedAt?: number }) {
   const elapsedSeconds = useElapsedSeconds(startedAt);
 
   return (
-    <div role="status" aria-live="polite" aria-label="Agent is thinking">
+    <output aria-live="polite" aria-label="Agent is thinking">
       <div className="mx-auto max-w-[680px] px-6 py-2 sm:px-8">
         <div className="flex items-center gap-1.5">
           <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.2s]" />
@@ -284,7 +290,7 @@ function AwaitingAgentIndicator({ startedAt }: { startedAt?: number }) {
           ) : null}
         </div>
       </div>
-    </div>
+    </output>
   );
 }
 
@@ -349,7 +355,7 @@ function AssistantRunTimerRow({
   );
 }
 
-export function SandboxStatusBar({
+function SandboxStatusBar({
   sandboxStatus,
   runtimeStatus,
   checking = false,

@@ -292,21 +292,51 @@ function RepoColumn({
   selectedFullName: string;
   onSelect: (v: string) => void;
 }) {
+  return (
+    <RepoColumnPager
+      key={search}
+      isLoading={isLoading}
+      isRefreshing={isRefreshing}
+      isDisabled={isDisabled}
+      search={search}
+      onSearchChange={onSearchChange}
+      repositories={repositories}
+      allCount={allCount}
+      selectedFullName={selectedFullName}
+      onSelect={onSelect}
+    />
+  );
+}
+
+function RepoColumnPager({
+  isLoading,
+  isRefreshing,
+  isDisabled,
+  search,
+  onSearchChange,
+  repositories,
+  allCount,
+  selectedFullName,
+  onSelect,
+}: {
+  isLoading: boolean;
+  isRefreshing: boolean;
+  isDisabled: boolean;
+  search: string;
+  onSearchChange: (v: string) => void;
+  repositories: GithubRepository[];
+  allCount: number;
+  selectedFullName: string;
+  onSelect: (v: string) => void;
+}) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(repositories.length / REPOS_PER_PAGE));
-
-  useEffect(() => {
-    setPage(1);
-  }, [search]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  const currentPage = Math.min(page, totalPages);
 
   const pageRepos = useMemo(() => {
-    const start = (page - 1) * REPOS_PER_PAGE;
+    const start = (currentPage - 1) * REPOS_PER_PAGE;
     return repositories.slice(start, start + REPOS_PER_PAGE);
-  }, [repositories, page]);
+  }, [repositories, currentPage]);
 
   return (
     <div className="flex h-[22rem] flex-col border-b border-border lg:border-b-0 lg:border-r">
@@ -324,6 +354,7 @@ function RepoColumn({
         <div className="flex items-center gap-2 border border-border bg-background px-2 focus-within:border-ring">
           <Search className="size-3.5 text-muted-foreground" aria-hidden="true" />
           <input
+            aria-label="Search repositories"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="search…"
@@ -412,7 +443,7 @@ function RepoColumn({
 
       {!isLoading && repositories.length > REPOS_PER_PAGE ? (
         <RepoPagination
-          page={page}
+          page={currentPage}
           totalPages={totalPages}
           onChange={setPage}
         />

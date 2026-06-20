@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
+import { useQuery as useReactQuery } from "@tanstack/react-query";
 import { cn } from "@autopr/ui/lib/utils";
 import { Check, Copy, ExternalLink, Loader2, Unplug } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -34,7 +35,7 @@ interface CodexConnectDialogProps {
   onStatusChange: () => void;
 }
 
-export function CodexConnectDialog({
+function CodexConnectDialog({
   open,
   status,
   onOpenChange,
@@ -65,27 +66,29 @@ export function CodexConnectPanel({
   status?: CodexStatus;
   onStatusChange: () => void;
 }) {
-  const [device, setDevice] = useState<DeviceStartResponse>();
-  const [isStarting, setIsStarting] = useState(false);
+  const [deviceStartNonce, setDeviceStartNonce] = useState(0);
   const [isPolling, setIsPolling] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string>();
+  const [flowError, setFlowError] = useState<string>();
 
-  useEffect(() => {
-    if (!active || status?.connected) return;
-    if (device || isStarting) return;
-
-    setIsStarting(true);
-    setError(undefined);
-    fetch("/api/codex/device/start", { method: "POST" })
-      .then((response) => readJson<DeviceStartResponse>(response))
-      .then(setDevice)
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "Could not start Codex authorization."),
-      )
-      .finally(() => setIsStarting(false));
-  }, [active, device, isStarting, status?.connected]);
+  const deviceStartQuery = useReactQuery({
+    queryKey: ["codex", "device-start", deviceStartNonce],
+    enabled: active && !status?.connected,
+    retry: false,
+    queryFn: async () => readJson<DeviceStartResponse>(
+      await fetch("/api/codex/device/start", { method: "POST" }),
+    ),
+  });
+  const device = deviceStartQuery.data;
+  const isStarting = active && !status?.connected && deviceStartQuery.isPending;
+  const error =
+    flowError ??
+    (deviceStartQuery.error instanceof Error
+      ? deviceStartQuery.error.message
+      : deviceStartQuery.isError
+        ? "Could not start Codex authorization."
+        : undefined);
 
   useEffect(() => {
     if (!active || !device || status?.connected) return;
@@ -118,7 +121,7 @@ export function CodexConnectPanel({
         timeout = setTimeout(poll, activeDevice.intervalMs);
       } catch (err) {
         if (!cancelled) {
-          setError(
+          setFlowError(
             err instanceof Error ? err.message : "Could not complete Codex authorization.",
           );
         }
@@ -144,13 +147,13 @@ export function CodexConnectPanel({
 
   async function disconnect() {
     setIsDisconnecting(true);
-    setError(undefined);
+    setFlowError(undefined);
     try {
       await readJson(await fetch("/api/codex/disconnect", { method: "POST" }));
-      setDevice(undefined);
+      setDeviceStartNonce((current) => current + 1);
       onStatusChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not disconnect Codex.");
+      setFlowError(err instanceof Error ? err.message : "Could not disconnect Codex.");
     } finally {
       setIsDisconnecting(false);
     }

@@ -3,6 +3,7 @@ import * as React from "react";
 
 function Label({ className, ...props }: React.ComponentProps<"label">) {
   return (
+    // react-doctor-disable-next-line react-doctor/label-has-associated-control -- Label is a primitive; consumers provide htmlFor or wrap controls.
     <label
       data-slot="label"
       className={cn(

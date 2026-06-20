@@ -19,7 +19,12 @@ export const Route = createFileRoute("/github-connect")({
 function GithubConnect() {
   const { returnTo } = Route.useSearch();
   const { loading, organizationId, user } = useAuth();
-  const widgetTokenQuery = useQuery({
+  const {
+    data: widgetToken,
+    error: widgetTokenError,
+    isError: isWidgetTokenError,
+    isPending: isWidgetTokenPending,
+  } = useQuery({
     queryKey: ["workos", "widgets", "pipes-token"],
     enabled: Boolean(user),
     retry: false,
@@ -102,23 +107,23 @@ function GithubConnect() {
                   <GithubConnectError
                     message="Your WorkOS session does not include an organization. Create a WorkOS organization, add your user as a member, then sign out and sign in again."
                   />
-                ) : widgetTokenQuery.isPending ? (
+                ) : isWidgetTokenPending ? (
                   <div className="flex min-h-28 items-center justify-center text-sm text-muted-foreground">
                     <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
                     Loading GitHub connection...
                   </div>
-                ) : widgetTokenQuery.isError ? (
+                ) : isWidgetTokenError ? (
                   <GithubConnectError
                     message={
-                      widgetTokenQuery.error instanceof Error
-                        ? widgetTokenQuery.error.message
+                      widgetTokenError instanceof Error
+                        ? widgetTokenError.message
                         : "Could not load the WorkOS Pipes widget."
                     }
                   />
                 ) : (
                   <div className="github-pipes-frame">
                     <WorkOsWidgets>
-                      <Pipes authToken={widgetTokenQuery.data} />
+                      <Pipes authToken={widgetToken} />
                     </WorkOsWidgets>
                   </div>
                 )}

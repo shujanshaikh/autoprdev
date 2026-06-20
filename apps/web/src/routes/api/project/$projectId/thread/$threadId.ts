@@ -88,6 +88,7 @@ async function getPlayableRecordingWithRetry(recording: RecordingService, record
 
   for (let attempt = 1; attempt <= RECORDING_READY_ATTEMPTS; attempt++) {
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Recording readiness checks must be sequential retries with delay.
       latest = normalizeRecording(await recording.get(recordingId));
 
       if (isPlayableRecording(latest)) {
@@ -184,10 +185,17 @@ async function GET(
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
 
-  const recordingMetadata = messages
-    .filter((message) => message.role === "assistant")
-    .map((message) => findDemoRecordingMetadataInParts(message.parts, recordingId))
-    .find(Boolean);
+  let recordingMetadata: ReturnType<typeof findDemoRecordingMetadataInParts> = null;
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    recordingMetadata = findDemoRecordingMetadataInParts(message.parts, recordingId);
+    if (recordingMetadata) {
+      break;
+    }
+  }
 
   if (!recordingMetadata) {
     return Response.json({ error: "Recording not found on this thread." }, { status: 404 });

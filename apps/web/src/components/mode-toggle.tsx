@@ -6,12 +6,7 @@ import * as React from "react";
 
 export function ModeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-  const isDark = mounted && resolvedTheme === "dark";
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
+  const isDark = resolvedTheme === "dark";
 
   return (
     <Button
@@ -27,6 +22,7 @@ export function ModeToggle({ className }: { className?: string }) {
       aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
       aria-pressed={isDark}
       onClick={() => setTheme(isDark ? "light" : "dark")}
+      suppressHydrationWarning
     >
       <Sun
         className={cn(

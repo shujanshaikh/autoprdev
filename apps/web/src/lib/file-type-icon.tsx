@@ -43,7 +43,7 @@ export type IconEntry = {
   color: string;
 };
 
-export const iconMap = {
+const iconMap = {
   ts: { component: SiTypescript, color: "#3178C6" },
   tsx: { component: SiReact, color: "#149ECA" },
   js: { component: SiJavascript, color: "#F7DF1E" },
@@ -113,13 +113,13 @@ export function pathParts(path: string): { name: string; dir: string } {
   };
 }
 
-export function getFileExtension(filename: string): string {
+function getFileExtension(filename: string): string {
   const name = filename.split("/").pop() || filename;
   const lastDot = name.lastIndexOf(".");
   return lastDot === -1 ? "" : name.slice(lastDot + 1).toLowerCase();
 }
 
-export function getFileTypeIconEntry(filename: string): IconEntry | undefined {
+function getFileTypeIconEntry(filename: string): IconEntry | undefined {
   const baseName = (filename.split("/").pop() || filename).toLowerCase();
   if (baseName === "dockerfile") return iconMap.docker;
   if (baseName === "nginx.conf") return iconMap.nginx;

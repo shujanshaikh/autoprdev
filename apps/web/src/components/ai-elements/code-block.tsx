@@ -179,7 +179,7 @@ const createRawTokens = (code: string): TokenizedCode => ({
 });
 
 // Synchronous highlight with callback for async results
-export const highlightCode = (
+const highlightCode = (
   code: string,
   language: BundledLanguage,
   // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-callbacks)
@@ -299,7 +299,7 @@ const CodeBlockBody = memo(
 
 CodeBlockBody.displayName = "CodeBlockBody";
 
-export const CodeBlockContainer = ({
+const CodeBlockContainer = ({
   className,
   language,
   style,
@@ -320,7 +320,7 @@ export const CodeBlockContainer = ({
   />
 );
 
-export const CodeBlockHeader = ({
+const CodeBlockHeader = ({
   children,
   className,
   ...props
@@ -336,7 +336,7 @@ export const CodeBlockHeader = ({
   </div>
 );
 
-export const CodeBlockTitle = ({
+const CodeBlockTitle = ({
   children,
   className,
   ...props
@@ -346,7 +346,7 @@ export const CodeBlockTitle = ({
   </div>
 );
 
-export const CodeBlockFilename = ({
+const CodeBlockFilename = ({
   children,
   className,
   ...props
@@ -356,7 +356,7 @@ export const CodeBlockFilename = ({
   </span>
 );
 
-export const CodeBlockActions = ({
+const CodeBlockActions = ({
   children,
   className,
   ...props
@@ -369,7 +369,7 @@ export const CodeBlockActions = ({
   </div>
 );
 
-export const CodeBlockContent = ({
+const CodeBlockContent = ({
   code,
   language,
   showLineNumbers = false,
@@ -387,25 +387,18 @@ export const CodeBlockContent = ({
     [code, language, rawTokens]
   );
 
-  // Async highlighting result (populated after shiki loads)
-  const [asyncTokens, setAsyncTokens] = useState<TokenizedCode | null>(null);
-  const asyncKeyRef = useRef({ code, language });
-
-  // Invalidate stale async tokens synchronously during render
-  if (
-    asyncKeyRef.current.code !== code ||
-    asyncKeyRef.current.language !== language
-  ) {
-    asyncKeyRef.current = { code, language };
-    setAsyncTokens(null);
-  }
+  const [asyncResult, setAsyncResult] = useState<{
+    code: string;
+    language: BundledLanguage;
+    tokens: TokenizedCode;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     highlightCode(code, language, (result) => {
       if (!cancelled) {
-        setAsyncTokens(result);
+        setAsyncResult({ code, language, tokens: result });
       }
     });
 
@@ -414,6 +407,10 @@ export const CodeBlockContent = ({
     };
   }, [code, language]);
 
+  const asyncTokens =
+    asyncResult?.code === code && asyncResult.language === language
+      ? asyncResult.tokens
+      : null;
   const tokenized = asyncTokens ?? syncTokens;
 
   return (
@@ -453,7 +450,7 @@ export type CodeBlockCopyButtonProps = ComponentProps<typeof Button> & {
   timeout?: number;
 };
 
-export const CodeBlockCopyButton = ({
+const CodeBlockCopyButton = ({
   onCopy,
   onError,
   timeout = 2000,
@@ -493,8 +490,6 @@ export const CodeBlockCopyButton = ({
     []
   );
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
-
   return (
     <Button
       className={cn("shrink-0", className)}
@@ -503,14 +498,14 @@ export const CodeBlockCopyButton = ({
       variant="ghost"
       {...props}
     >
-      {children ?? <Icon size={14} />}
+      {children ?? (isCopied ? <CheckIcon size={14} /> : <CopyIcon size={14} />)}
     </Button>
   );
 };
 
 export type CodeBlockLanguageSelectorProps = ComponentProps<typeof Select>;
 
-export const CodeBlockLanguageSelector = (
+const CodeBlockLanguageSelector = (
   props: CodeBlockLanguageSelectorProps
 ) => <Select {...props} />;
 
@@ -518,7 +513,7 @@ export type CodeBlockLanguageSelectorTriggerProps = ComponentProps<
   typeof SelectTrigger
 >;
 
-export const CodeBlockLanguageSelectorTrigger = ({
+const CodeBlockLanguageSelectorTrigger = ({
   className,
   ...props
 }: CodeBlockLanguageSelectorTriggerProps) => (
@@ -536,7 +531,7 @@ export type CodeBlockLanguageSelectorValueProps = ComponentProps<
   typeof SelectValue
 >;
 
-export const CodeBlockLanguageSelectorValue = (
+const CodeBlockLanguageSelectorValue = (
   props: CodeBlockLanguageSelectorValueProps
 ) => <SelectValue {...props} />;
 
@@ -544,7 +539,7 @@ export type CodeBlockLanguageSelectorContentProps = ComponentProps<
   typeof SelectContent
 >;
 
-export const CodeBlockLanguageSelectorContent = ({
+const CodeBlockLanguageSelectorContent = ({
   align = "end",
   ...props
 }: CodeBlockLanguageSelectorContentProps) => (
@@ -555,6 +550,6 @@ export type CodeBlockLanguageSelectorItemProps = ComponentProps<
   typeof SelectItem
 >;
 
-export const CodeBlockLanguageSelectorItem = (
+const CodeBlockLanguageSelectorItem = (
   props: CodeBlockLanguageSelectorItemProps
 ) => <SelectItem {...props} />;

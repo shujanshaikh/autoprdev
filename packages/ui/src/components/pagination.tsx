@@ -7,7 +7,6 @@ import { ChevronLeftIcon, ChevronRightIcon, MoreHorizontalIcon } from "lucide-re
 function Pagination({ className, ...props }: React.ComponentProps<"nav">) {
   return (
     <nav
-      role="navigation"
       aria-label="pagination"
       data-slot="pagination"
       className={cn("mx-auto flex w-full justify-center", className)}
@@ -51,6 +50,7 @@ function PaginationLink({
       className={cn(className)}
       nativeButton={false}
       render={
+        // react-doctor-disable-next-line react-doctor/anchor-has-content -- PaginationLink is a primitive; callers provide children or an aria-label.
         <a
           aria-current={isActive ? "page" : undefined}
           data-slot="pagination-link"
@@ -75,7 +75,9 @@ function PaginationPrevious({
       {...props}
     >
       <ChevronLeftIcon data-icon="inline-start" />
-      <span className="hidden sm:block">{text}</span>
+      <span className={text ? "hidden sm:block" : "sr-only"}>
+        {text || "Previous"}
+      </span>
     </PaginationLink>
   )
 }
@@ -92,7 +94,9 @@ function PaginationNext({
       className={cn("pr-1.5!", className)}
       {...props}
     >
-      <span className="hidden sm:block">{text}</span>
+      <span className={text ? "hidden sm:block" : "sr-only"}>
+        {text || "Next"}
+      </span>
       <ChevronRightIcon data-icon="inline-end" />
     </PaginationLink>
   )

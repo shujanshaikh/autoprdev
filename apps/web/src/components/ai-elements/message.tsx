@@ -35,7 +35,7 @@ export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
 };
 
-export const Message = ({ className, from, ...props }: MessageProps) => (
+const Message = ({ className, from, ...props }: MessageProps) => (
   <MessageRoleContext.Provider value={from}>
     <div
       className={cn(
@@ -146,7 +146,7 @@ export type MessageBranchProps = HTMLAttributes<HTMLDivElement> & {
   onBranchChange?: (branchIndex: number) => void;
 };
 
-export const MessageBranch = ({
+const MessageBranch = ({
   defaultBranch = 0,
   onBranchChange,
   className,
@@ -199,7 +199,7 @@ export const MessageBranch = ({
 
 export type MessageBranchContentProps = HTMLAttributes<HTMLDivElement>;
 
-export const MessageBranchContent = ({
+const MessageBranchContent = ({
   children,
   ...props
 }: MessageBranchContentProps) => {
@@ -231,7 +231,7 @@ export const MessageBranchContent = ({
 
 export type MessageBranchSelectorProps = ComponentProps<typeof ButtonGroup>;
 
-export const MessageBranchSelector = ({
+const MessageBranchSelector = ({
   className,
   ...props
 }: MessageBranchSelectorProps) => {
@@ -255,7 +255,7 @@ export const MessageBranchSelector = ({
 
 export type MessageBranchPreviousProps = ComponentProps<typeof Button>;
 
-export const MessageBranchPrevious = ({
+const MessageBranchPrevious = ({
   children,
   ...props
 }: MessageBranchPreviousProps) => {
@@ -278,7 +278,7 @@ export const MessageBranchPrevious = ({
 
 export type MessageBranchNextProps = ComponentProps<typeof Button>;
 
-export const MessageBranchNext = ({
+const MessageBranchNext = ({
   children,
   ...props
 }: MessageBranchNextProps) => {
@@ -301,7 +301,7 @@ export const MessageBranchNext = ({
 
 export type MessageBranchPageProps = HTMLAttributes<HTMLSpanElement>;
 
-export const MessageBranchPage = ({
+const MessageBranchPage = ({
   className,
   ...props
 }: MessageBranchPageProps) => {
@@ -373,7 +373,7 @@ MessageResponse.displayName = "MessageResponse";
 
 export type MessageToolbarProps = ComponentProps<"div">;
 
-export const MessageToolbar = ({
+const MessageToolbar = ({
   className,
   children,
   ...props

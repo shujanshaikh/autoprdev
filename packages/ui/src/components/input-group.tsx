@@ -10,6 +10,7 @@ import { Textarea } from "@autopr/ui/components/textarea"
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role -- InputGroup is a reusable grouping primitive, not an address/content landmark.
     <div
       data-slot="input-group"
       role="group"
@@ -49,6 +50,7 @@ function InputGroupAddon({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
   return (
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role -- InputGroupAddon is a reusable grouping primitive, not an address/content landmark.
     <div
       role="group"
       data-slot="input-group-addon"
@@ -58,6 +60,16 @@ function InputGroupAddon({
         if ((e.target as HTMLElement).closest("button")) {
           return
         }
+        e.currentTarget.parentElement?.querySelector("input")?.focus()
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") {
+          return
+        }
+        if ((e.target as HTMLElement).closest("button")) {
+          return
+        }
+        e.preventDefault()
         e.currentTarget.parentElement?.querySelector("input")?.focus()
       }}
       {...props}

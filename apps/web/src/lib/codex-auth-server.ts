@@ -246,18 +246,15 @@ function responseInputContentToText(content: unknown) {
     return typeof content === "string" ? content : "";
   }
 
-  return content
-    .map((part) => {
-      if (typeof part === "string") {
-        return part;
-      }
-      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-        return part.text;
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
+  const textParts: string[] = [];
+  for (const part of content) {
+    if (typeof part === "string") {
+      textParts.push(part);
+    } else if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+      textParts.push(part.text);
+    }
+  }
+  return textParts.join("\n");
 }
 
 function createCodexResponsesModelFromCredential(
@@ -307,11 +304,18 @@ function createCodexResponsesModelFromCredential(
         body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
 
         if (Array.isArray(body.input)) {
-          const instructions = body.input
-            .filter((item) => item.role === "system" || item.role === "developer")
-            .map((item) => responseInputContentToText(item.content))
-            .filter(Boolean)
-            .join("\n");
+          const instructionParts: string[] = [];
+          for (const item of body.input) {
+            if (item.role !== "system" && item.role !== "developer") {
+              continue;
+            }
+
+            const text = responseInputContentToText(item.content);
+            if (text) {
+              instructionParts.push(text);
+            }
+          }
+          const instructions = instructionParts.join("\n");
 
           body.input = body.input.filter((item) => item.type !== "item_reference");
 
@@ -367,7 +371,7 @@ export async function createCodexResponsesModel(options: {
   return createCodexResponsesModelFromCredential(credential, options);
 }
 
-export async function createAuthenticatedCodexResponsesModel(options: {
+async function createAuthenticatedCodexResponsesModel(options: {
   modelId: string;
   reasoningEffort: string;
   promptCacheKey?: string;

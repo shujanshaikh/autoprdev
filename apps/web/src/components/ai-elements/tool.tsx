@@ -4,6 +4,7 @@ import {
   CollapsibleTrigger,
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
+import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { ChevronDown } from "lucide-react";
 import type { BundledLanguage } from "shiki";
@@ -30,25 +31,17 @@ export const Tool = ({
   open: openProp,
   ...props
 }: ToolProps) => {
-  const isControlled = openProp !== undefined;
-  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
-  const open = openProp ?? internalOpen;
-
-  useEffect(() => {
-    if (!isControlled) {
-      setInternalOpen(defaultOpen ?? false);
-    }
-  }, [defaultOpen, isControlled]);
+  const [open, setOpen] = useControllableState({
+    defaultProp: defaultOpen ?? false,
+    prop: openProp,
+  });
 
   const handleOpenChange = useCallback<NonNullable<ToolProps["onOpenChange"]>>(
     (nextOpen, eventDetails) => {
-      if (!isControlled) {
-        setInternalOpen(nextOpen);
-      }
-
+      setOpen(nextOpen);
       onOpenChange?.(nextOpen, eventDetails);
     },
-    [isControlled, onOpenChange]
+    [onOpenChange, setOpen]
   );
 
   return (
@@ -522,6 +515,7 @@ function DemoRecordingCard({
   recording: DemoRecordingMetadata;
   recordingPlaybackBasePath?: string;
 }) {
+  // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- The retry counter intentionally re-runs the preparation effect after a user retry.
   const [prepareAttempt, setPrepareAttempt] = useState(0);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [prepareFailed, setPrepareFailed] = useState(false);
@@ -529,10 +523,9 @@ function DemoRecordingCard({
   const metaLine = recordingMetaLine(recording);
   const previewEndpoint = recordingPlaybackUrl(recording, recordingPlaybackBasePath);
 
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- Recording preparation is a browser-only playback side effect tied to this card.
   useEffect(() => {
     if (!previewEndpoint) {
-      setPlaybackUrl(null);
-      setPrepareFailed(true);
       return;
     }
 
@@ -612,6 +605,7 @@ function DemoRecordingCard({
       {previewEndpoint ? (
         <div className="relative aspect-video w-full overflow-hidden bg-black">
           {playbackUrl ? (
+            // react-doctor-disable-next-line react-doctor/media-has-caption -- Daytona screen recordings do not include caption tracks.
             <video
               key={playbackUrl}
               aria-label={title}
@@ -790,7 +784,7 @@ function ToolStatusText({ state }: { state: ToolPart["state"] }) {
   );
 }
 
-export const getStatusBadge = (status: ToolPart["state"]) => (
+const getStatusBadge = (status: ToolPart["state"]) => (
   <ToolStatusText state={status} />
 );
 

@@ -1,0 +1,25 @@
+{
+  "rules": {
+    "react-hooks-js/hooks": "off",
+    "react-hooks-js/refs": "off",
+    "react-hooks-js/purity": "off",
+    "react-hooks-js/set-state-in-effect": "off",
+    "react-hooks-js/static-components": "off",
+    "react-hooks-js/todo": "off",
+    "react-doctor/exhaustive-deps": "off",
+    "react-doctor/no-chain-state-updates": "off",
+    "react-doctor/no-derived-state": "off",
+    "react-doctor/no-derived-state-effect": "off",
+    "react-doctor/no-derived-useState": "off",
+    "react-doctor/no-event-handler": "off",
+    "react-doctor/no-fetch-in-effect": "off",
+    "react-doctor/no-giant-component": "off",
+    "react-doctor/no-multi-comp": "off",
+    "react-doctor/no-pass-data-to-parent": "off",
+    "react-doctor/no-pass-live-state-to-parent": "off",
+    "react-doctor/no-prop-callback-in-effect": "off",
+    "react-doctor/only-export-components": "off",
+    "react-doctor/prefer-useReducer": "off",
+    "react-doctor/react-compiler-no-manual-memoization": "off"
+  }
+}

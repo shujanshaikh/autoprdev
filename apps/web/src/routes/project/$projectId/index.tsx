@@ -75,6 +75,8 @@ type GithubBranch = {
   protected: boolean;
 };
 
+type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
+
 type ProjectPromptImage = {
   id: string;
   filename: string;
@@ -187,23 +189,30 @@ function ProjectOverviewPage() {
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
-  const [selectedBranch, setSelectedBranch] = useState("");
+  const [selectedBranchOverride, setSelectedBranchOverride] = useState<{ projectId: string; branch: string } | undefined>();
   const selectedModel: CodexModelId = DEFAULT_CODEX_MODEL;
-  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
+  const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
   const [demoEnabled, setDemoEnabled] = useState(false);
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
+  const selectedReasoningEffort = selectedReasoningEfforts.includes(selectedReasoningEffortChoice)
+    ? selectedReasoningEffortChoice
+    : DEFAULT_CODEX_REASONING_EFFORT;
+  const effectiveDemoEnabled = demoRecordingExperimentEnabled && demoEnabled;
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
-  const [sandboxRuntimeStatus, setSandboxRuntimeStatus] = useState<"started" | "stopped" | "archived" | "unknown" | undefined>();
-  const [isCheckingSandboxRuntime, setIsCheckingSandboxRuntime] = useState(false);
+  const [sandboxRuntimeStatusOverride, setSandboxRuntimeStatusOverride] = useState<{
+    projectId: string;
+    status: SandboxRuntimeStatus;
+  } | undefined>();
   const [isTogglingSandbox, setIsTogglingSandbox] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptImageInputRef = useRef<HTMLInputElement>(null);
-  const promptImageUploadPromisesRef = useRef(new Map<string, Promise<FileUIPart>>());
+  const promptImageUploadPromisesRef = useRef<Map<string, Promise<FileUIPart>>>(null!);
+  promptImageUploadPromisesRef.current ??= new Map<string, Promise<FileUIPart>>();
   const promptImagesRef = useRef<ProjectPromptImage[]>([]);
   const imageUploads = usePromptImageUploadManager();
   const [promptImages, setPromptImagesState] = useState<ProjectPromptImage[]>([]);
@@ -218,6 +227,10 @@ function ProjectOverviewPage() {
 
   const openThreads = threads?.filter((t) => t.isLive) ?? [];
   const currentBranch = project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch ?? "main";
+  const selectedBranch =
+    selectedBranchOverride?.projectId === projectId && selectedBranchOverride.branch !== currentBranch
+      ? selectedBranchOverride.branch
+      : currentBranch;
   const filteredThreads = threads?.filter((t) =>
     searchQuery ? t.title.toLowerCase().includes(searchQuery.toLowerCase()) : true,
   );
@@ -246,6 +259,11 @@ function ProjectOverviewPage() {
       : branchesQuery.isError
         ? "Could not load branches."
         : undefined;
+  const sandboxRuntimeStatusQuery = useReactQuery({
+    queryKey: ["sandbox-runtime-status", projectId, project?.sandboxStatus],
+    enabled: Boolean(project && project.sandboxStatus === "ready"),
+    queryFn: () => getSandboxRuntimeStatus({ projectId, forceRefresh: true }),
+  });
 
   const switchBranchMutation = useReactMutation({
     mutationFn: async (branch: string) =>
@@ -260,7 +278,7 @@ function ProjectOverviewPage() {
       setError(undefined);
     },
     onError: (branchError) => {
-      setSelectedBranch(currentBranch);
+      setSelectedBranchOverride(undefined);
       setError(branchError instanceof Error ? branchError.message : "Could not switch branches.");
     },
   });
@@ -268,7 +286,14 @@ function ProjectOverviewPage() {
   const isSwitchingBranch = switchBranchMutation.isPending;
   const mutateSwitchBranch = switchBranchMutation.mutate;
   const displayedError = error ?? branchesError;
-  const effectiveSandboxRuntimeStatus = sandboxRuntimeStatus ?? project?.sandboxRuntimeStatus;
+  const refreshedSandboxRuntimeStatus = sandboxRuntimeStatusQuery.isError
+    ? "unknown"
+    : sandboxRuntimeStatusQuery.data?.status;
+  const effectiveSandboxRuntimeStatus =
+    sandboxRuntimeStatusOverride?.projectId === projectId
+      ? sandboxRuntimeStatusOverride.status
+      : refreshedSandboxRuntimeStatus ?? project?.sandboxRuntimeStatus;
+  const isCheckingSandboxRuntime = sandboxRuntimeStatusQuery.isFetching;
   const isSandboxStarted = effectiveSandboxRuntimeStatus === "started";
   const sandboxRuntimeButton = (() => {
     if (isTogglingSandbox) {
@@ -404,10 +429,17 @@ function ProjectOverviewPage() {
   }, [addPromptImages]);
 
   const handlePromptPaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(event.clipboardData.items)
-      .filter((item) => item.kind === "file")
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => Boolean(file && file.type.startsWith("image/")));
+    const files: File[] = [];
+    for (const item of event.clipboardData.items) {
+      if (item.kind !== "file") {
+        continue;
+      }
+
+      const file = item.getAsFile();
+      if (file?.type.startsWith("image/")) {
+        files.push(file);
+      }
+    }
 
     if (files.length === 0) {
       return;
@@ -426,12 +458,6 @@ function ProjectOverviewPage() {
     promptImageUploadPromisesRef.current.clear();
   }, []);
 
-  useEffect(() => {
-    if (!demoRecordingExperimentEnabled && demoEnabled) {
-      setDemoEnabled(false);
-    }
-  }, [demoEnabled, demoRecordingExperimentEnabled]);
-
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || project.sandboxStatus !== "ready") return;
     const prompt = (initialPrompt ?? promptValue).trim();
@@ -442,7 +468,7 @@ function ProjectOverviewPage() {
       const threadId = await createThread({
         projectId,
         title: prompt || "New thread",
-        demoEnabled: demoRecordingExperimentEnabled && demoEnabled,
+        demoEnabled: effectiveDemoEnabled,
       });
       if (uploadedImages.length > 0) {
         window.sessionStorage.setItem(
@@ -463,8 +489,7 @@ function ProjectOverviewPage() {
   }, [
     clearPromptImages,
     createThread,
-    demoEnabled,
-    demoRecordingExperimentEnabled,
+    effectiveDemoEnabled,
     navigate,
     project,
     projectId,
@@ -494,7 +519,7 @@ function ProjectOverviewPage() {
       const result = isSandboxStarted
         ? await stopSandbox({ projectId })
         : await startSandbox({ projectId });
-      setSandboxRuntimeStatus(result.status);
+      setSandboxRuntimeStatusOverride({ projectId, status: result.status });
     } catch (sandboxError) {
       setError(sandboxError instanceof Error ? sandboxError.message : "Could not update the sandbox.");
     } finally {
@@ -543,62 +568,23 @@ function ProjectOverviewPage() {
     el.style.cssText += `; height: auto; height: ${Math.min(el.scrollHeight, 160)}px;`;
   }, [promptValue]);
 
-  useEffect(() => {
-    if (!project) return;
-    setSelectedBranch(currentBranch);
-    setSandboxRuntimeStatus(project.sandboxRuntimeStatus);
-  }, [currentBranch, project]);
-
-  useEffect(() => {
-    if (!project || project.sandboxStatus !== "ready") return;
-    let cancelled = false;
-
-    setIsCheckingSandboxRuntime(true);
-    void getSandboxRuntimeStatus({ projectId, forceRefresh: true })
-      .then((result) => {
-        if (!cancelled) {
-          setSandboxRuntimeStatus(result.status);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSandboxRuntimeStatus("unknown");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsCheckingSandboxRuntime(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getSandboxRuntimeStatus, project?.sandboxStatus, projectId]);
-
-  useEffect(() => {
-    if (!selectedReasoningEfforts.includes(selectedReasoningEffort)) {
-      setSelectedReasoningEffort(DEFAULT_CODEX_REASONING_EFFORT);
-    }
-  }, [selectedReasoningEffort, selectedReasoningEfforts]);
-
   const switchBranch = useCallback(async (branch: string) => {
     if (!project || branch === currentBranch) {
-      setSelectedBranch(branch);
+      setSelectedBranchOverride(undefined);
       return;
     }
 
     if (openThreads.length > 0) {
       const confirmed = window.confirm("Switching branch affects the sandbox used by new and existing threads.");
       if (!confirmed) {
-        setSelectedBranch(currentBranch);
+        setSelectedBranchOverride(undefined);
         return;
       }
     }
 
-    setSelectedBranch(branch);
+    setSelectedBranchOverride({ projectId, branch });
     mutateSwitchBranch(branch);
-  }, [currentBranch, openThreads.length, project, mutateSwitchBranch]);
+  }, [currentBranch, openThreads.length, project, projectId, mutateSwitchBranch]);
 
   const quickActions = [
     "Summarize latest changes",
@@ -684,6 +670,7 @@ function ProjectOverviewPage() {
 
                       <form onSubmit={handlePromptSubmit}>
                         <input
+                          aria-label="Attach prompt images"
                           ref={promptImageInputRef}
                           type="file"
                           accept="image/*"
@@ -711,23 +698,21 @@ function ProjectOverviewPage() {
                                     src={image.previewUrl}
                                   />
                                   {image.uploadState.status === "uploading" ? (
-                                    <div
+                                    <output
                                       aria-label="Image upload in progress"
                                       className="absolute inset-0 grid place-items-center bg-background/70"
-                                      role="status"
                                     >
                                       <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
-                                    </div>
+                                    </output>
                                   ) : null}
                                   {image.uploadState.status === "error" ? (
-                                    <div
+                                    <output
                                       aria-label="Image upload failed"
                                       className="absolute inset-0 grid place-items-center bg-destructive/15 text-destructive"
-                                      role="status"
                                       title={image.uploadState.error}
                                     >
                                       <CircleAlert className="size-4" aria-hidden="true" />
-                                    </div>
+                                    </output>
                                   ) : null}
                                   <button
                                     type="button"
@@ -745,6 +730,7 @@ function ProjectOverviewPage() {
 
                           <div className={`px-4 pb-2 ${promptImages.length > 0 ? "pt-2.5" : "pt-3.5"}`}>
                             <textarea
+                              aria-label="Thread prompt"
                               ref={textareaRef}
                               value={promptValue}
                               onChange={(e) => setPromptValue(e.target.value)}
@@ -782,7 +768,7 @@ function ProjectOverviewPage() {
                               </span>
                             <Select
                               value={selectedReasoningEffort}
-                              onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}
+                              onValueChange={(value) => value && setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
                             >
                               <SelectTrigger
                                 size="sm"
@@ -809,12 +795,12 @@ function ProjectOverviewPage() {
                                 <button
                                   type="button"
                                   role="switch"
-                                  aria-checked={demoEnabled}
+                                  aria-checked={effectiveDemoEnabled}
                                   onClick={() => setDemoEnabled((enabled) => !enabled)}
                                   disabled={project.sandboxStatus !== "ready" || isCreatingThread}
-                                  title={demoEnabled ? "Experimental demo recording enabled for new threads" : "Allow the agent to record an experimental demo for new threads"}
+                                  title={effectiveDemoEnabled ? "Experimental demo recording enabled for new threads" : "Allow the agent to record an experimental demo for new threads"}
                                   className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                                    demoEnabled
+                                    effectiveDemoEnabled
                                       ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
                                       : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
                                   }`}
@@ -822,7 +808,7 @@ function ProjectOverviewPage() {
                                   <Video className="size-3.5" aria-hidden="true" />
                                   <span>Demo</span>
                                 </button>
-                                {demoEnabled ? (
+                                {effectiveDemoEnabled ? (
                                   <span className="inline-flex min-h-7 max-w-full items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
                                     <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
                                     <span>Experimental, can fail</span>

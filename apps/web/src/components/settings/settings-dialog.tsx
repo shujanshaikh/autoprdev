@@ -100,7 +100,7 @@ export function SettingsDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <nav
+            <div
               className="flex gap-0 px-2 pb-2 sm:flex-col sm:pb-4"
               role="tablist"
               aria-label="Settings sections"
@@ -135,7 +135,7 @@ export function SettingsDialog({
                   </button>
                 );
               })}
-            </nav>
+            </div>
           </aside>
           <div className="minimal-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto p-4 pt-12">
             {activeTab === "overview" ? (

@@ -4,10 +4,13 @@ import { getGithubAuthorizationUrl, GithubConnectionError, requireWorkOSAuth, sa
 import { getSafeRedirectUrl } from "#/lib/safe-redirect";
 
 async function GET({ request }: { request: Request }) {
+  let authState: Awaited<ReturnType<typeof requireWorkOSAuth>>;
+  let returnTo: string;
+
   try {
-    const authState = await requireWorkOSAuth();
+    authState = await requireWorkOSAuth();
     const url = new URL(request.url);
-    const returnTo = getSafeRedirectUrl(url.searchParams.get("returnTo"));
+    returnTo = getSafeRedirectUrl(url.searchParams.get("returnTo"));
 
     if (!authState.organizationId) {
       return Response.json(
@@ -18,14 +21,6 @@ async function GET({ request }: { request: Request }) {
         { status: 400 },
       );
     }
-
-    throw redirect({
-      href: await getGithubAuthorizationUrl({
-        userId: authState.user.id,
-        organizationId: authState.organizationId,
-        returnTo,
-      }),
-    });
   } catch (error) {
     if (error instanceof Response) {
       throw error;
@@ -36,6 +31,22 @@ async function GET({ request }: { request: Request }) {
       { status: error instanceof GithubConnectionError ? 400 : 500 },
     );
   }
+
+  let href: string;
+  try {
+    href = await getGithubAuthorizationUrl({
+      userId: authState.user.id,
+      organizationId: authState.organizationId,
+      returnTo,
+    });
+  } catch (error) {
+    return Response.json(
+      { error: safeErrorMessage(error, "Could not start GitHub authorization.") },
+      { status: error instanceof GithubConnectionError ? 400 : 500 },
+    );
+  }
+
+  throw redirect({ href });
 }
 
 export const Route = createFileRoute("/api/github/connect")({

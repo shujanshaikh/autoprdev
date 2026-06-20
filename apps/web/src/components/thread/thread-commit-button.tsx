@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@autopr/ui/components/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowUpRight, GitCommitHorizontal, GitBranch, Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -50,6 +50,7 @@ export function ThreadCommitButton({
   thread,
 }: ThreadCommitButtonProps & { thread?: ThreadCommitState | null }) {
   const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
   const commitMutation = useMutation<CommitResponse, Error, CommitVariables>({
     mutationKey: ["thread", projectId, threadId, "commit"],
     mutationFn: async ({ action }) => {
@@ -68,6 +69,9 @@ export function ThreadCommitButton({
       }
 
       return body;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["thread", projectId, threadId] });
     },
   });
   const savedResult: CommitResponse | null = thread?.commitStatus

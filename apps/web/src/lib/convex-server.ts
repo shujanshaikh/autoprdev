@@ -18,7 +18,7 @@ export class ConvexAuthConfigurationError extends Error {
   }
 }
 
-export class ConvexUnauthorizedError extends Error {
+class ConvexUnauthorizedError extends Error {
   constructor(message = "Unauthorized") {
     super(message);
     this.name = "ConvexUnauthorizedError";
@@ -33,7 +33,7 @@ function getConvexUrl() {
   return url;
 }
 
-export async function getConvexAuthToken() {
+async function getConvexAuthToken() {
   const authState = await getAuth();
 
   if (!authState.user) {

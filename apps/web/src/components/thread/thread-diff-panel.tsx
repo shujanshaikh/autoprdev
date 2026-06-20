@@ -253,15 +253,6 @@ export function ThreadDiffPanel({
     }
   }, [getSandboxRuntimeStatus, projectId]);
 
-  useEffect(() => {
-    if (activeTab !== "desktop") return;
-
-    setHasOpenedDesktop(true);
-    if (!desktopRuntimeStatus && !desktopStatusLoading) {
-      void refreshDesktopStatus();
-    }
-  }, [activeTab, desktopRuntimeStatus, desktopStatusLoading, refreshDesktopStatus]);
-
   const openPanelTab = useCallback(
     (kind: ThreadDiffPanelTabKind) => {
       if (kind === "terminal") {
@@ -276,6 +267,20 @@ export function ThreadDiffPanel({
       setActiveTabId(tabId);
 
       if (kind === "desktop") {
+        setHasOpenedDesktop(true);
+        if (!desktopRuntimeStatus && !desktopStatusLoading) {
+          void refreshDesktopStatus();
+        }
+      }
+    },
+    [desktopRuntimeStatus, desktopStatusLoading, refreshDesktopStatus],
+  );
+
+  const selectPanelTab = useCallback(
+    (tab: ThreadDiffPanelVisibleTab) => {
+      setActiveTabId(tab.id);
+
+      if (tab.kind === "desktop") {
         setHasOpenedDesktop(true);
         if (!desktopRuntimeStatus && !desktopStatusLoading) {
           void refreshDesktopStatus();
@@ -399,7 +404,7 @@ export function ThreadDiffPanel({
                     activeTabId === visibleTab.id ? "border-border/60 bg-muted/50 text-foreground" : "border-transparent text-muted-foreground hover:bg-muted/35 hover:text-foreground",
                   )}
                 >
-                  <button type="button" onClick={() => setActiveTabId(visibleTab.id)} className="inline-flex h-full items-center gap-1.5 px-2.5">
+                  <button type="button" onClick={() => selectPanelTab(visibleTab)} className="inline-flex h-full items-center gap-1.5 px-2.5">
                     <Icon className="size-3.5" aria-hidden="true" />
                     {label}
                     {visibleTab.kind === "pull-request" && effectiveStatus === "created" ? (
@@ -829,7 +834,7 @@ export function ThreadDiffPanel({
           <ThreadDiffLoadingList />
         ) : (
           <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-muted/5 p-2">
-            <div role="listbox" aria-label="Changed files" className="flex min-h-0 flex-col gap-1.5">
+            <div aria-label="Changed files" className="flex min-h-0 flex-col gap-1.5">
               {entries.map((entry) => {
                 const expanded = expandedEntryId === entry.id;
                 const active = selectedEntryId === entry.id || expanded;

@@ -228,10 +228,11 @@ export function findDemoRecordingMetadataInParts(
 
     const recordings: DemoRecordingMetadata[] = [];
     collectDemoRecordings(normalizeComputerOutput(part.output), recordings);
-    const match = recordings.find((recording) => recording.id === recordingId);
 
-    if (match) {
-      return match;
+    for (const recording of recordings) {
+      if (recording.id === recordingId) {
+        return recording;
+      }
     }
   }
 

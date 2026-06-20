@@ -144,11 +144,14 @@ async function POST(
         : [{ id: assistantMessageId, role: "assistant" as const, parts: [] }]),
     ];
     const messagesForModel = await Promise.all(modelInputMessages.map(refreshR2FileUrlsForModel));
-    const modelMessages = await convertToModelMessages(
-      messagesForModel
-        .map(sanitizeMessageForModelConversion)
-        .filter((message) => message.id !== assistantMessageId || message.parts.length > 0),
-    );
+    const sanitizedMessagesForModel = [];
+    for (const message of messagesForModel) {
+      const sanitizedMessage = sanitizeMessageForModelConversion(message);
+      if (sanitizedMessage.id !== assistantMessageId || sanitizedMessage.parts.length > 0) {
+        sanitizedMessagesForModel.push(sanitizedMessage);
+      }
+    }
+    const modelMessages = await convertToModelMessages(sanitizedMessagesForModel);
 
     const run = await start(agentWorkflow, [
       modelMessages,

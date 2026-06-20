@@ -56,8 +56,6 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | undefined>(undefined);
-  const resizeTimerRef = useRef<number | undefined>(undefined);
-  const wakeTimerRef = useRef<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const getPtyTerminal = useAction(api.projectActions.getPtyTerminal);
@@ -71,7 +69,6 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
     setError(undefined);
     container.innerHTML = "";
     websocketRef.current?.close();
-    window.clearTimeout(wakeTimerRef.current);
 
     try {
       const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
@@ -100,6 +97,8 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       socket.binaryType = "arraybuffer";
       websocketRef.current = socket;
       let receivedOutput = false;
+      let resizeTimer: number | undefined;
+      let wakeTimer: number | undefined;
 
       const inputDisposable = terminal.onData((data) => {
         if (socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(data));
@@ -108,7 +107,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       socket.addEventListener("open", () => {
         terminal.focus();
         setLoading(false);
-        wakeTimerRef.current = window.setTimeout(() => {
+        wakeTimer = window.setTimeout(() => {
           if (!receivedOutput && socket.readyState === WebSocket.OPEN) {
             socket.send(new TextEncoder().encode("\r"));
           }
@@ -119,17 +118,17 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
         const text = await decodeTerminalData(event.data);
         if (text) {
           receivedOutput = true;
-          window.clearTimeout(wakeTimerRef.current);
+          window.clearTimeout(wakeTimer);
           terminal.write(text);
         }
       });
 
       socket.addEventListener("close", () => {
-        window.clearTimeout(wakeTimerRef.current);
+        window.clearTimeout(wakeTimer);
         inputDisposable.dispose();
       });
       socket.addEventListener("error", () => {
-        window.clearTimeout(wakeTimerRef.current);
+        window.clearTimeout(wakeTimer);
         setError("Terminal connection failed.");
         setLoading(false);
       });
@@ -138,17 +137,22 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
         fitAddon.fit();
         const sessionId = sessionIdRef.current;
         if (!sessionId) return;
-        window.clearTimeout(resizeTimerRef.current);
-        resizeTimerRef.current = window.setTimeout(() => {
+        window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
           void resizePtyTerminal({ projectId, sessionId, cols: terminal.cols, rows: terminal.rows });
         }, 150);
       });
       resizeObserver.observe(container);
 
       return () => {
-        window.clearTimeout(wakeTimerRef.current);
+        window.clearTimeout(wakeTimer);
+        window.clearTimeout(resizeTimer);
         resizeObserver.disconnect();
         inputDisposable.dispose();
+        if (websocketRef.current === socket) {
+          websocketRef.current = null;
+        }
+        socket.close();
         terminal.dispose();
       };
     } catch (err) {
@@ -158,6 +162,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   }, [getPtyTerminal, projectId, resizePtyTerminal]);
 
   useEffect(() => {
+    const container = containerRef.current;
     let disposed = false;
     let cleanup: (() => void) | undefined;
 
@@ -172,11 +177,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
     return () => {
       disposed = true;
       cleanup?.();
-      websocketRef.current?.close();
-      websocketRef.current = null;
-      window.clearTimeout(resizeTimerRef.current);
-      window.clearTimeout(wakeTimerRef.current);
-      if (containerRef.current) containerRef.current.innerHTML = "";
+      if (container) container.innerHTML = "";
     };
   }, [connect]);
 

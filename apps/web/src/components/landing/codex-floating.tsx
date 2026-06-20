@@ -23,9 +23,8 @@ export function CodexFloating() {
         <span className="sr-only">Codex subscription support: bring your own Codex, no API bills</span>
       </button>
 
-      <div
+      <section
         id={panelId}
-        role="region"
         aria-label="Codex integration"
         className={cn(
           "absolute bottom-[calc(100%+14px)] left-0 w-[min(calc(100vw-2rem),280px)] border border-border/80 bg-background/95 p-4 shadow-2xl backdrop-blur-md transition duration-200 ease-out",
@@ -42,7 +41,7 @@ export function CodexFloating() {
         <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
           No API bills from Autopr: we never tax your token usage.
         </p>
-      </div>
+      </section>
     </div>
   );
 }

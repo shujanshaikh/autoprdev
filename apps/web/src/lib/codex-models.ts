@@ -1,4 +1,4 @@
-export const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 
 export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
 
@@ -38,7 +38,7 @@ export function isCodexModelId(value: unknown): value is CodexModelId {
   return typeof value === "string" && CODEX_MODELS.some((model) => model.id === value);
 }
 
-export function getCodexModel(value: string | undefined) {
+function getCodexModel(value: string | undefined) {
   return CODEX_MODELS.find((model) => model.id === value);
 }
 

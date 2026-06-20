@@ -433,37 +433,26 @@ export function ThreadChat({
 }) {
   const activeRunIdRef = useRef(currentRunId);
   const activeRunStartedAtRef = useRef<number | undefined>(undefined);
-  const resumedRunIdsRef = useRef(new Set<string>());
+  const resumedRunIdsRef = useRef<Set<string>>(null!);
+  resumedRunIdsRef.current ??= new Set<string>();
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
-  const [activeRunStartedAt, setActiveRunStartedAt] = useState<number | undefined>();
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const selectedModel: CodexModelId = initialModel ?? DEFAULT_CODEX_MODEL;
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
-  const [optimisticDemoEnabled, setOptimisticDemoEnabled] = useState(Boolean(thread?.demoEnabled));
+  const [pendingDemoEnabled, setPendingDemoEnabled] = useState<boolean | undefined>();
   const [demoSaving, setDemoSaving] = useState(false);
   const imageUploads = usePromptImageUploadManager();
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const { refresh: refreshWorkOSAccessToken } = useAccessToken();
 
-  useEffect(() => {
-    if (currentRunId) {
-      activeRunIdRef.current = currentRunId;
-      if (!activeRunStartedAtRef.current) {
-        const startedAt = Date.now();
-        activeRunStartedAtRef.current = startedAt;
-        setActiveRunStartedAt(startedAt);
-      }
-    }
-  }, [currentRunId]);
-
-  useEffect(() => {
-    setOptimisticDemoEnabled(Boolean(thread?.demoEnabled));
-  }, [thread?.demoEnabled]);
+  if (currentRunId) {
+    activeRunIdRef.current = currentRunId;
+  }
 
   const agentApi = `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`;
 
@@ -485,7 +474,6 @@ export function ThreadChat({
       if (!activeRunStartedAtRef.current) {
         const startedAt = Date.now();
         activeRunStartedAtRef.current = startedAt;
-        setActiveRunStartedAt(startedAt);
       }
     }
   }, []);
@@ -493,7 +481,6 @@ export function ThreadChat({
   const handleChatEnd = useCallback(() => {
     activeRunIdRef.current = undefined;
     activeRunStartedAtRef.current = undefined;
-    setActiveRunStartedAt(undefined);
   }, []);
 
   const prepareReconnectToStreamRequest = useCallback<PrepareReconnectToStreamRequest>(
@@ -585,29 +572,14 @@ export function ThreadChat({
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
   const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
+  const selectedDiffEntry = selectedDiffEntryId
+    ? diffEntries.find((entry) => entry.id === selectedDiffEntryId)
+    : undefined;
+  const effectiveSelectedDiffEntryId = selectedDiffEntry?.id ?? diffEntries.at(-1)?.id;
 
   useEffect(() => {
     onDiffCountChange(diffEntries.length);
   }, [diffEntries.length, onDiffCountChange]);
-
-  useEffect(() => {
-    if (!diffPanelOpen) {
-      setDiffPanelMaximized(false);
-    }
-  }, [diffPanelOpen]);
-
-  useEffect(() => {
-    if (diffEntries.length === 0) {
-      setSelectedDiffEntryId(undefined);
-      return;
-    }
-
-    if (selectedDiffEntryId && diffEntries.some((entry) => entry.id === selectedDiffEntryId)) {
-      return;
-    }
-
-    setSelectedDiffEntryId(diffEntries.at(-1)?.id);
-  }, [diffEntries, selectedDiffEntryId]);
 
   useEffect(() => {
     if (!currentRunId || status !== "ready" || resumedRunIdsRef.current.has(currentRunId)) {
@@ -629,18 +601,13 @@ export function ThreadChat({
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled;
-  useEffect(() => {
-    if (busy && !activeRunStartedAtRef.current) {
-      const startedAt = Date.now();
-      activeRunStartedAtRef.current = startedAt;
-      setActiveRunStartedAt(startedAt);
-    }
-
-    if (!busy && !activeRunIdRef.current && activeRunStartedAtRef.current) {
-      activeRunStartedAtRef.current = undefined;
-      setActiveRunStartedAt(undefined);
-    }
-  }, [busy]);
+  if ((currentRunId || busy) && !activeRunStartedAtRef.current) {
+    activeRunStartedAtRef.current = Date.now();
+  }
+  if (!busy && !activeRunIdRef.current && activeRunStartedAtRef.current) {
+    activeRunStartedAtRef.current = undefined;
+  }
+  const activeRunStartedAt = activeRunStartedAtRef.current;
 
   const stopGeneration = useCallback(() => {
     const runId = activeRunIdRef.current;
@@ -666,7 +633,6 @@ export function ThreadChat({
 
     clearError();
     activeRunStartedAtRef.current = undefined;
-    setActiveRunStartedAt(undefined);
 
     if (assistantMessage && assistantMetadata !== assistantMessage.metadata) {
       setMessages((currentMessages) =>
@@ -716,23 +682,25 @@ export function ThreadChat({
     pendingStopRef.current = stopPromise;
   }, [clearError, getRunApi, messages, setMessages, stop]);
   const toggleDemoEnabled = useCallback(async () => {
+    const optimisticDemoEnabled = pendingDemoEnabled ?? Boolean(thread?.demoEnabled);
+
     if (!demoRecordingExperimentEnabled && !optimisticDemoEnabled) {
       return;
     }
 
     const nextDemoEnabled = !optimisticDemoEnabled;
-    setOptimisticDemoEnabled(nextDemoEnabled);
+    setPendingDemoEnabled(nextDemoEnabled);
     setDemoSaving(true);
 
     try {
       await setDemoEnabled({ threadId, demoEnabled: nextDemoEnabled });
     } catch (toggleError) {
-      setOptimisticDemoEnabled(!nextDemoEnabled);
+      setPendingDemoEnabled(undefined);
       console.error("Failed to update demo mode", toggleError);
     } finally {
       setDemoSaving(false);
     }
-  }, [demoRecordingExperimentEnabled, optimisticDemoEnabled, setDemoEnabled, threadId]);
+  }, [demoRecordingExperimentEnabled, pendingDemoEnabled, setDemoEnabled, thread?.demoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
   const activeAssistantMessageId = busy && lastMessage?.role === "assistant" ? lastMessage.id : undefined;
@@ -865,6 +833,7 @@ export function ThreadChat({
     );
   }, [initialPrompt, messages.length, onInitialPromptConsumed, ready, submitMessage, threadId]);
 
+  const optimisticDemoEnabled = pendingDemoEnabled ?? Boolean(thread?.demoEnabled);
   const showMaximizedDiffPanel = diffPanelOpen && diffPanelMaximized;
   const recordingPlaybackBasePath =
     `/api/project/${encodeURIComponent(projectId)}` +
@@ -1006,7 +975,7 @@ export function ThreadChat({
       </div>
       <ThreadDiffPanel
         entries={diffEntries}
-        selectedEntryId={selectedDiffEntryId}
+        selectedEntryId={effectiveSelectedDiffEntryId}
         onSelectEntry={setSelectedDiffEntryId}
         open={diffPanelOpen}
         onOpenChange={onDiffPanelOpenChange}
@@ -1020,7 +989,7 @@ export function ThreadChat({
         pullRequestNumber={thread?.pullRequestNumber}
         pullRequestBranch={thread?.pullRequestBranch}
         pullRequestError={thread?.pullRequestError}
-        maximized={diffPanelMaximized}
+        maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
       />
     </section>

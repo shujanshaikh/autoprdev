@@ -43,7 +43,7 @@ function filePartWithoutAttachmentId(file: PromptAttachmentFile): FileUIPart {
   return part;
 }
 
-export function getR2KeyFromFilePart(part: FileUIPart) {
+function getR2KeyFromFilePart(part: FileUIPart) {
   if (!isRecord(part.providerMetadata)) {
     return null;
   }
@@ -70,7 +70,7 @@ async function filePartToFile(part: FileUIPart) {
   });
 }
 
-export function withR2ProviderMetadata(part: FileUIPart, key: string): FileUIPart {
+function withR2ProviderMetadata(part: FileUIPart, key: string): FileUIPart {
   const autoprMetadata = isRecord(part.providerMetadata?.autopr)
     ? part.providerMetadata.autopr
     : {};
@@ -90,7 +90,8 @@ export function withR2ProviderMetadata(part: FileUIPart, key: string): FileUIPar
 export function usePromptImageUploadManager(): PromptImageUploadManager {
   const [imageUploadStates, setImageUploadStates] = useState<Record<string, PromptImageUploadState>>({});
   const imageUploadStatesRef = useRef<Record<string, PromptImageUploadState>>({});
-  const uploadPromisesRef = useRef(new Map<string, Promise<void>>());
+  const uploadPromisesRef = useRef<Map<string, Promise<void>>>(null!);
+  uploadPromisesRef.current ??= new Map<string, Promise<void>>();
   const convex = useConvex();
   const uploadImage = useUploadFile(api.imageUploads);
 
@@ -296,23 +297,21 @@ export function PromptImageAttachments({
               src={file.url}
             />
             {uploadState?.status === "uploading" ? (
-              <div
+              <output
                 aria-label="Image upload in progress"
                 className="absolute inset-0 grid place-items-center bg-background/70"
-                role="status"
               >
                 <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-hidden />
-              </div>
+              </output>
             ) : null}
             {uploadState?.status === "error" ? (
-              <div
+              <output
                 aria-label="Image upload failed"
                 className="absolute inset-0 grid place-items-center bg-destructive/15 text-destructive"
-                role="status"
                 title={uploadState.error}
               >
                 <CircleAlert className="size-4" aria-hidden />
-              </div>
+              </output>
             ) : null}
             <button
               type="button"

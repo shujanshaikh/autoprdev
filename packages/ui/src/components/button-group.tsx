@@ -28,6 +28,7 @@ function ButtonGroup({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>) {
   return (
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role -- ButtonGroup is a reusable control grouping primitive, not an address/content landmark.
     <div
       role="group"
       data-slot="button-group"

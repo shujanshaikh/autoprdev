@@ -56,6 +56,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | undefined>(undefined);
+  const connectionIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const getPtyTerminal = useAction(api.projectActions.getPtyTerminal);
@@ -64,6 +65,10 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
   const connect = useCallback(async () => {
     const container = containerRef.current;
     if (!container) return;
+
+    const connectionId = connectionIdRef.current + 1;
+    connectionIdRef.current = connectionId;
+    const isActiveConnection = () => connectionIdRef.current === connectionId;
 
     setLoading(true);
     setError(undefined);
@@ -90,23 +95,37 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       fitAddon.fit();
 
       const terminalInfo = await getPtyTerminal({ projectId, cols: terminal.cols || 100, rows: terminal.rows || 30 });
+      if (!isActiveConnection()) {
+        terminal.dispose();
+        return;
+      }
+
       sessionIdRef.current = terminalInfo.sessionId;
       terminal.reset();
 
       const socket = new WebSocket(terminalInfo.websocketUrl, "X-Daytona-SDK-Version~");
       socket.binaryType = "arraybuffer";
       websocketRef.current = socket;
+      const isActiveSocket = () => isActiveConnection() && websocketRef.current === socket;
       let receivedOutput = false;
       let resizeTimer: number | undefined;
       let wakeTimer: number | undefined;
+      let inputDisposed = false;
 
       const inputDisposable = terminal.onData((data) => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(data));
+        if (isActiveSocket() && socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(data));
       });
+      const disposeInput = () => {
+        if (inputDisposed) return;
+        inputDisposed = true;
+        inputDisposable.dispose();
+      };
 
       socket.addEventListener("open", () => {
+        if (!isActiveSocket()) return;
         terminal.focus();
         setLoading(false);
+        setError(undefined);
         wakeTimer = window.setTimeout(() => {
           if (!receivedOutput && socket.readyState === WebSocket.OPEN) {
             socket.send(new TextEncoder().encode("\r"));
@@ -115,25 +134,36 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       });
 
       socket.addEventListener("message", async (event) => {
+        if (!isActiveSocket()) return;
         const text = await decodeTerminalData(event.data);
+        if (!isActiveSocket()) return;
         if (text) {
           receivedOutput = true;
           window.clearTimeout(wakeTimer);
+          setError(undefined);
           terminal.write(text);
         }
       });
 
       socket.addEventListener("close", () => {
+        if (!isActiveSocket()) return;
         window.clearTimeout(wakeTimer);
-        inputDisposable.dispose();
+        disposeInput();
+        if (websocketRef.current === socket) {
+          websocketRef.current = null;
+        }
       });
       socket.addEventListener("error", () => {
+        if (!isActiveSocket()) return;
         window.clearTimeout(wakeTimer);
-        setError("Terminal connection failed.");
+        if (!receivedOutput) {
+          setError("Terminal connection failed.");
+        }
         setLoading(false);
       });
 
       const resizeObserver = new ResizeObserver(() => {
+        if (!isActiveSocket()) return;
         fitAddon.fit();
         const sessionId = sessionIdRef.current;
         if (!sessionId) return;
@@ -145,10 +175,13 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       resizeObserver.observe(container);
 
       return () => {
+        if (connectionIdRef.current === connectionId) {
+          connectionIdRef.current += 1;
+        }
         window.clearTimeout(wakeTimer);
         window.clearTimeout(resizeTimer);
         resizeObserver.disconnect();
-        inputDisposable.dispose();
+        disposeInput();
         if (websocketRef.current === socket) {
           websocketRef.current = null;
         }
@@ -156,6 +189,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
         terminal.dispose();
       };
     } catch (err) {
+      if (!isActiveConnection()) return;
       setError(err instanceof Error ? err.message : "Could not start terminal.");
       setLoading(false);
     }

@@ -6,8 +6,8 @@ import { start } from "workflow/api";
 import { z } from "zod";
 import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
-import { sanitizeMessageForModelConversion, toUIMessage } from "#/lib/chat-messages";
+import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
+import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
 import { getCodexAgentModelConfig } from "#/lib/codex-auth-server";
 import { agentWorkflow } from "#/workflows/agent/workflow";
 
@@ -128,9 +128,9 @@ async function POST(
         },
         assistantMessageId: requestedAssistantMessageId,
       }),
-      convexQuery(api.messages.listByThread, { threadId }),
+      convexAction(api.messages.listByThreadHydrated, { threadId }),
     ]);
-    const uiMessages: UIMessage[] = dbMessages.flatMap((message) => {
+    const uiMessages: UIMessage[] = dbMessages.flatMap((message: StoredMessageRow) => {
       const uiMessage = toUIMessage(message);
       return uiMessage.role !== "assistant" || uiMessage.parts.length > 0 || uiMessage.id === assistantMessageId
         ? [uiMessage]

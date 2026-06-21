@@ -7,7 +7,7 @@ import {
 import { api } from "@autopr/backend/convex/_generated/api";
 import { DurableAgent } from "@workflow/ai/agent";
 import { type ModelMessage, type UIMessageChunk } from "ai";
-import { fetchMutation } from "convex/nextjs";
+import { fetchAction, fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
@@ -266,7 +266,7 @@ async function patchAssistantMessage({
 }) {
   "use step";
 
-  await fetchMutation(
+  await fetchAction(
     api.messages.patchAssistant,
     { threadId, assistantMessageId, parts, metadata },
     { token: convexAuth.accessToken, url: getConvexUrl() },

@@ -1,6 +1,11 @@
 import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import {
+  collectAssistantPartsBlobKeys,
+  deleteAssistantPartsBlobKeys,
+  type AssistantPartsBlobDeleteCtx,
+} from "./lib/assistantPartsBlobs";
 import { requireUserId } from "./lib/auth";
 import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
@@ -353,6 +358,10 @@ export const remove = mutation({
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
       .collect();
 
+    await deleteAssistantPartsBlobKeys(
+      ctx as unknown as AssistantPartsBlobDeleteCtx,
+      collectAssistantPartsBlobKeys(messages),
+    );
     await Promise.all(messages.map((message) => ctx.db.delete(message._id)));
     await ctx.db.delete(thread._id);
 

@@ -94,8 +94,13 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       terminal.open(container);
       fitAddon.fit();
 
-      const terminalInfo = await getPtyTerminal({ projectId, cols: terminal.cols || 100, rows: terminal.rows || 30 });
       if (!isActiveConnection()) {
+        terminal.dispose();
+        return;
+      }
+      const terminalInfo = await getPtyTerminal({ projectId, cols: terminal.cols || 100, rows: terminal.rows || 30 });
+      const terminalInfoConnectionActive = isActiveConnection();
+      if (!terminalInfoConnectionActive) {
         terminal.dispose();
         return;
       }
@@ -136,7 +141,8 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       socket.addEventListener("message", async (event) => {
         if (!isActiveSocket()) return;
         const text = await decodeTerminalData(event.data);
-        if (!isActiveSocket()) return;
+        const socketStillActive = isActiveSocket();
+        if (!socketStillActive) return;
         if (text) {
           receivedOutput = true;
           window.clearTimeout(wakeTimer);

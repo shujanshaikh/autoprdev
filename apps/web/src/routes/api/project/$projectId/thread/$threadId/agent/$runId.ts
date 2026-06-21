@@ -3,7 +3,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { getRun } from "workflow/api";
 import { z } from "zod";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeStoppedAssistantParts } from "#/lib/chat-messages";
 
 const cancelRunRequestSchema = z.object({
@@ -52,7 +52,7 @@ async function POST(
   if (assistantMessage && assistantMessage.parts.length > 0) {
     const parts = sanitizeStoppedAssistantParts(assistantMessage.parts);
 
-    await convexMutation(api.messages.patchAssistant, {
+    await convexAction(api.messages.patchAssistant, {
       threadId,
       assistantMessageId: assistantMessage.id,
       parts,

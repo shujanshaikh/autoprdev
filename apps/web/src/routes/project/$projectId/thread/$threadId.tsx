@@ -2,15 +2,108 @@ import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router"
 import { api } from "@autopr/backend/convex/_generated/api";
 import { cn } from "@autopr/ui/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
-import { useConvexAuth, useQuery } from "convex/react";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { Suspense, useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
 import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-diff-view";
 import Loader from "@/components/loader";
-import { toUIMessage } from "@/lib/chat-messages";
+import { toUIMessage, type StoredMessageRow } from "@/lib/chat-messages";
 import { ThreadChat } from "#/components/thread/thread-chat";
 import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
 import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
+
+const EMPTY_STORED_MESSAGES: StoredMessageRow[] = [];
+const EMPTY_PARTS_CACHE: Record<string, StoredMessageRow["parts"]> = {};
+
+type AssistantBlobDescriptor = {
+  messageId: string;
+  partsR2Key: string;
+  partsBlobSizeBytes?: number;
+  partsBlobSha256?: string;
+  cacheKey: string;
+};
+
+type HydratedAssistantParts = Omit<AssistantBlobDescriptor, "cacheKey"> & {
+  parts: StoredMessageRow["parts"];
+};
+
+type MessageLoadState = {
+  threadId?: string;
+  partsByCacheKey: Record<string, StoredMessageRow["parts"]>;
+  messageLoadError: Error | null;
+};
+
+type MessageLoadAction =
+  | { type: "reset" }
+  | { type: "clearError" }
+  | { type: "loaded"; threadId: string; parts: HydratedAssistantParts[] }
+  | { type: "failed"; error: Error };
+
+const INITIAL_MESSAGE_LOAD_STATE: MessageLoadState = {
+  threadId: undefined,
+  partsByCacheKey: EMPTY_PARTS_CACHE,
+  messageLoadError: null,
+};
+
+function messageLoadReducer(state: MessageLoadState, action: MessageLoadAction): MessageLoadState {
+  switch (action.type) {
+    case "reset":
+      if (
+        state.threadId === undefined &&
+        state.partsByCacheKey === EMPTY_PARTS_CACHE &&
+        state.messageLoadError === null
+      ) {
+        return state;
+      }
+      return INITIAL_MESSAGE_LOAD_STATE;
+    case "clearError":
+      if (state.messageLoadError === null) {
+        return state;
+      }
+      return { ...state, messageLoadError: null };
+    case "loaded":
+      return {
+        threadId: action.threadId,
+        partsByCacheKey: action.parts.reduce<Record<string, StoredMessageRow["parts"]>>((cache, result) => {
+          cache[assistantBlobCacheKey(result)] = result.parts;
+          return cache;
+        }, state.threadId === action.threadId ? { ...state.partsByCacheKey } : {}),
+        messageLoadError: null,
+      };
+    case "failed":
+      return { ...state, messageLoadError: action.error };
+  }
+}
+
+function assistantBlobCacheKey(blob: {
+  partsR2Key: string;
+  partsBlobSizeBytes?: number;
+  partsBlobSha256?: string;
+}) {
+  return JSON.stringify([
+    blob.partsR2Key,
+    blob.partsBlobSizeBytes ?? null,
+    blob.partsBlobSha256 ?? null,
+  ]);
+}
+
+function assistantBlobDescriptor(message: StoredMessageRow): AssistantBlobDescriptor | null {
+  if (message.role !== "assistant" || !message.partsR2Key) {
+    return null;
+  }
+
+  return {
+    messageId: message.messageId,
+    partsR2Key: message.partsR2Key,
+    partsBlobSizeBytes: message.partsBlobSizeBytes,
+    partsBlobSha256: message.partsBlobSha256,
+    cacheKey: assistantBlobCacheKey({
+      partsR2Key: message.partsR2Key,
+      partsBlobSizeBytes: message.partsBlobSizeBytes,
+      partsBlobSha256: message.partsBlobSha256,
+    }),
+  };
+}
 
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
@@ -25,16 +118,119 @@ function ProjectThreadPageContent() {
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
+  const hydrateAssistantParts = useAction(api.messages.hydrateAssistantParts);
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [diffCount, setDiffCount] = useState(0);
+  const [{ threadId: hydratedThreadId, partsByCacheKey, messageLoadError }, dispatchMessageLoad] = useReducer(
+    messageLoadReducer,
+    INITIAL_MESSAGE_LOAD_STATE,
+  );
 
-  const initialMessages = useMemo(() => dbMessages?.map(toUIMessage) ?? [], [dbMessages]);
-  const shouldAutoSubmitInitialPrompt = Boolean(initialPrompt && dbMessages && dbMessages.length === 0);
-  const loading = project === undefined || thread === undefined || dbMessages === undefined;
+  const activePartsCache = hydratedThreadId === threadId ? partsByCacheKey : EMPTY_PARTS_CACHE;
+  const assistantBlobDescriptors = useMemo(
+    () => dbMessages?.map(assistantBlobDescriptor).filter((descriptor): descriptor is AssistantBlobDescriptor =>
+      descriptor !== null,
+    ) ?? [],
+    [dbMessages],
+  );
+  const missingAssistantBlobDescriptors = useMemo(
+    () => assistantBlobDescriptors.filter((descriptor) => activePartsCache[descriptor.cacheKey] === undefined),
+    [activePartsCache, assistantBlobDescriptors],
+  );
+  const effectiveDbMessages = useMemo(() => {
+    if (dbMessages === undefined) {
+      return undefined;
+    }
+
+    if (dbMessages.length === 0) {
+      return EMPTY_STORED_MESSAGES;
+    }
+
+    if (missingAssistantBlobDescriptors.length > 0) {
+      return undefined;
+    }
+
+    return dbMessages.map((message: StoredMessageRow) => {
+      const descriptor = assistantBlobDescriptor(message);
+
+      if (!descriptor) {
+        return message;
+      }
+
+      return {
+        ...message,
+        parts: activePartsCache[descriptor.cacheKey] ?? message.parts,
+      };
+    });
+  }, [activePartsCache, dbMessages, missingAssistantBlobDescriptors.length]);
+  const initialMessages = useMemo(() => effectiveDbMessages?.map(toUIMessage) ?? [], [effectiveDbMessages]);
+  const shouldAutoSubmitInitialPrompt = Boolean(
+    initialPrompt &&
+    dbMessages &&
+    dbMessages.length === 0,
+  );
+  const loading =
+    project === undefined ||
+    thread === undefined ||
+    dbMessages === undefined ||
+    (effectiveDbMessages === undefined && !messageLoadError);
+  const messageLoadFailed = Boolean(messageLoadError && effectiveDbMessages === undefined);
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
+
+  useEffect(() => {
+    if (!isAuthenticated || dbMessages === undefined) {
+      dispatchMessageLoad({ type: "reset" });
+      return;
+    }
+
+    if (dbMessages.length === 0 || missingAssistantBlobDescriptors.length === 0) {
+      dispatchMessageLoad({ type: "clearError" });
+      return;
+    }
+
+    let cancelled = false;
+    dispatchMessageLoad({ type: "clearError" });
+
+    void hydrateAssistantParts({
+      threadId,
+      blobs: missingAssistantBlobDescriptors.map(({ cacheKey, ...descriptor }) => descriptor),
+    })
+      .then((parts) => {
+        if (cancelled) {
+          return;
+        }
+
+        dispatchMessageLoad({
+          type: "loaded",
+          threadId,
+          parts,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        console.error("Failed to load thread messages", error);
+        dispatchMessageLoad({
+          type: "failed",
+          error: error instanceof Error ? error : new Error("Could not load thread messages."),
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    dbMessages,
+    hydrateAssistantParts,
+    isAuthenticated,
+    missingAssistantBlobDescriptors,
+    threadId,
+  ]);
 
   useEffect(() => {
     setDiffCount(0);
@@ -133,6 +329,10 @@ function ProjectThreadPageContent() {
                 <section className="min-h-0 w-full min-w-0 flex-1">
                   <Loader />
                 </section>
+              ) : messageLoadFailed ? (
+                <div className="border border-border p-5 text-sm text-muted-foreground">
+                  Could not load thread messages.
+                </div>
               ) : (
                 <ThreadChat
                   key={threadId}

@@ -174,7 +174,7 @@ async function GET(
   const [project, thread, messages] = await Promise.all([
     convexQuery(api.projects.get, { projectId }),
     convexQuery(api.threads.get, { threadId }),
-    convexQuery(api.messages.listByThread, { threadId }),
+    convexAction(api.messages.listByThreadHydrated, { threadId }),
   ]);
 
   if (!project || !thread || thread.projectId !== projectId) {

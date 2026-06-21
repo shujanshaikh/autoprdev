@@ -2,6 +2,11 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  collectAssistantPartsBlobKeys,
+  deleteAssistantPartsBlobKeys,
+  type AssistantPartsBlobDeleteCtx,
+} from "./lib/assistantPartsBlobs";
 import { requireUserId } from "./lib/auth";
 import { randomUuid } from "./lib/uuid";
 
@@ -612,6 +617,10 @@ export const removeInternal = internalMutation({
         .collect(),
     ]);
 
+    await deleteAssistantPartsBlobKeys(
+      ctx as unknown as AssistantPartsBlobDeleteCtx,
+      collectAssistantPartsBlobKeys(messages),
+    );
     await Promise.all([
       ...messages.map((message) => ctx.db.delete(message._id)),
       ...threads.map((thread) => ctx.db.delete(thread._id)),
@@ -648,6 +657,10 @@ export const remove = mutation({
         .collect(),
     ]);
 
+    await deleteAssistantPartsBlobKeys(
+      ctx as unknown as AssistantPartsBlobDeleteCtx,
+      collectAssistantPartsBlobKeys(messages),
+    );
     await Promise.all([
       ...messages.map((message) => ctx.db.delete(message._id)),
       ...threads.map((thread) => ctx.db.delete(thread._id)),

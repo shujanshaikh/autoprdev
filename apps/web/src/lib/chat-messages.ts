@@ -4,7 +4,12 @@ export type StoredMessageRow = {
   messageId: string;
   role: "system" | "user" | "assistant";
   parts: UIMessage["parts"];
+  partsR2Key?: string;
+  partsBlobContentType?: string;
+  partsBlobSizeBytes?: number;
+  partsBlobSha256?: string;
   metadata?: unknown;
+  updatedAt?: number;
 };
 
 export function toUIMessage(row: StoredMessageRow): UIMessage {

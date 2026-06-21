@@ -35,8 +35,6 @@ export type ThreadDiffPanelProps = {
 };
 
 const MIN_PANEL_WIDTH = 380;
-const MAX_PANEL_WIDTH_RATIO = 0.8;
-const MAX_PANEL_WIDTH = 720;
 const DOCKED_MAIN_MIN_WIDTH = 420;
 const DEFAULT_PANEL_WIDTH = 640;
 
@@ -83,15 +81,13 @@ const SURFACE_PICKER_ITEMS: Array<{
   { kind: "pull-request", title: "Pull request", description: "Create or open a PR for these changes.", icon: GitPullRequest },
 ];
 
-function getMaxPanelWidth() {
+function getMaxPanelWidth(panelElement?: HTMLElement | null) {
   if (typeof window === "undefined") return DEFAULT_PANEL_WIDTH;
+  const containerWidth = panelElement?.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
+
   return Math.max(
     MIN_PANEL_WIDTH,
-    Math.min(
-      MAX_PANEL_WIDTH,
-      Math.floor(window.innerWidth * MAX_PANEL_WIDTH_RATIO),
-      window.innerWidth - DOCKED_MAIN_MIN_WIDTH,
-    ),
+    Math.floor(containerWidth - DOCKED_MAIN_MIN_WIDTH),
   );
 }
 
@@ -129,7 +125,7 @@ export function ThreadDiffPanel({
   maximized = false,
   onMaximizedChange,
 }: ThreadDiffPanelProps) {
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [panelWidth, setPanelWidth] = useState(() => getMaxPanelWidth());
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
   const [visibleTabs, setVisibleTabs] = useState<ThreadDiffPanelVisibleTab[]>(DEFAULT_VISIBLE_TABS);
   const [activeTabId, setActiveTabId] = useState("");
@@ -147,7 +143,9 @@ export function ThreadDiffPanel({
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
+  const panelRef = useRef<HTMLElement | null>(null);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
@@ -159,6 +157,22 @@ export function ThreadDiffPanel({
       setActiveTabId(visibleTabs[0]?.id ?? "");
     }
   }, [activeTabId, visibleTabs]);
+
+  const setPanelElement = useCallback((panel: HTMLElement | null) => {
+    panelResizeObserverRef.current?.disconnect();
+    panelResizeObserverRef.current = undefined;
+    panelRef.current = panel;
+
+    const container = panel?.parentElement;
+    if (!panel || !container || typeof ResizeObserver === "undefined") return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      setPanelWidth((currentWidth) => Math.min(currentWidth, getMaxPanelWidth(panel)));
+    });
+
+    resizeObserver.observe(container);
+    panelResizeObserverRef.current = resizeObserver;
+  }, []);
 
   const fileEntryCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -196,7 +210,7 @@ export function ThreadDiffPanel({
       document.body.style.userSelect = "none";
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
-        const nextWidth = Math.min(getMaxPanelWidth(), Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
+        const nextWidth = Math.min(getMaxPanelWidth(panelRef.current), Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
         setPanelWidth(nextWidth);
       };
 
@@ -223,7 +237,13 @@ export function ThreadDiffPanel({
     [panelWidth],
   );
 
-  useEffect(() => () => resizeCleanupRef.current?.(), []);
+  useEffect(
+    () => () => {
+      resizeCleanupRef.current?.();
+      panelResizeObserverRef.current?.disconnect();
+    },
+    [],
+  );
 
   const showLoadingList = isLoading && entries.length === 0;
   const showEmpty = !isLoading && entries.length === 0;
@@ -361,6 +381,7 @@ export function ThreadDiffPanel({
         />
       ) : null}
       <aside
+        ref={setPanelElement}
         id="thread-changes-panel"
         aria-hidden={!open}
         className={cn(
@@ -370,7 +391,7 @@ export function ThreadDiffPanel({
             : "w-[min(96vw,720px)] lg:w-[var(--thread-diff-width)] lg:shrink-0",
           open ? "translate-x-0" : "translate-x-full lg:hidden",
         )}
-        style={{ "--thread-diff-width": `min(${panelWidth}px, ${MAX_PANEL_WIDTH}px, 80vw, calc(100vw - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
+        style={{ "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-px bg-gradient-to-b from-transparent via-border/60 to-transparent" />
 

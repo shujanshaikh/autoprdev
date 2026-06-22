@@ -7,9 +7,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@autopr/ui/components/dropdown-menu";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowUpRight, GitCommitHorizontal, GitBranch, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ChevronDown, GitCommitHorizontal, GitBranch, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 interface ThreadCommitButtonProps {
@@ -92,12 +97,18 @@ export function ThreadCommitButton({
     ? "Committed & pushed"
     : result?.status === "committed"
       ? "Committed"
-      : "Commit & push";
+      : "Commit";
+
+  const runCommitAction = (action: CommitAction) => {
+    setOpen(true);
+    commitMutation.reset();
+    commitMutation.mutate({ action });
+  };
 
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger
+      <DropdownMenu>
+        <DropdownMenuTrigger
           render={
             <Button
               type="button"
@@ -105,21 +116,26 @@ export function ThreadCommitButton({
               size="sm"
               disabled={buttonDisabled}
               aria-label={buttonLabel}
-              onClick={() => {
-                setOpen(true);
-                commitMutation.reset();
-              }}
+              title={hasCompletedCommit ? "This thread has already been committed" : "Commit or push changes"}
               className="my-1.5 mr-2 h-8 gap-1.5 border-border bg-background px-3 text-foreground hover:bg-muted"
             >
               <GitCommitHorizontal className="size-3.5" aria-hidden />
               {buttonLabel}
+              {!hasCompletedCommit ? <ChevronDown className="size-3" aria-hidden /> : null}
             </Button>
           }
         />
-        <TooltipContent side="bottom" sideOffset={8}>
-          {hasCompletedCommit ? "This thread has already been committed" : "Commit or push changes"}
-        </TooltipContent>
-      </Tooltip>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onSelect={() => runCommitAction("commit")}>
+            <GitCommitHorizontal className="size-3.5" aria-hidden />
+            Commit
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => runCommitAction("push")}>
+            <ArrowUpRight className="size-3.5" aria-hidden />
+            Commit & push
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Dialog open={open} onOpenChange={(nextOpen) => !busy && setOpen(nextOpen)}>
         <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-[400px]" showCloseButton={!busy}>
@@ -136,6 +152,13 @@ export function ThreadCommitButton({
 
           {/* Body */}
           <div className="px-5 py-4">
+            {busy ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                {pendingAction === "push" ? "Committing and pushing changes..." : "Committing changes..."}
+              </div>
+            ) : null}
+
             {result ? (
               <div
                 className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300"
@@ -198,30 +221,10 @@ export function ThreadCommitButton({
               type="button"
               variant="outline"
               size="sm"
-              disabled={busy || hasCompletedCommit}
-              onClick={() => commitMutation.mutate({ action: "commit" })}
-              className="gap-1.5"
+              disabled={busy}
+              onClick={() => setOpen(false)}
             >
-              {pendingAction === "commit" ? (
-                <Loader2 className="size-3 animate-spin" aria-hidden />
-              ) : (
-                <GitCommitHorizontal className="size-3" aria-hidden />
-              )}
-              Just commit
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy || hasCompletedCommit}
-              onClick={() => commitMutation.mutate({ action: "push" })}
-              className="gap-1.5"
-            >
-              {pendingAction === "push" ? (
-                <Loader2 className="size-3 animate-spin" aria-hidden />
-              ) : (
-                <ArrowUpRight className="size-3" aria-hidden />
-              )}
-              Commit & push
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

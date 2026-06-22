@@ -3,7 +3,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { cn } from "@autopr/ui/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
-import { Suspense, useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-diff-view";
 import Loader from "@/components/loader";
@@ -126,6 +126,10 @@ function ProjectThreadPageContent() {
     messageLoadReducer,
     INITIAL_MESSAGE_LOAD_STATE,
   );
+  const lastEffectiveDbMessagesRef = useRef<{
+    threadId: string;
+    messages: StoredMessageRow[];
+  } | null>(null);
 
   const activePartsCache = hydratedThreadId === threadId ? partsByCacheKey : EMPTY_PARTS_CACHE;
   const assistantBlobDescriptors = useMemo(
@@ -164,7 +168,17 @@ function ProjectThreadPageContent() {
       };
     });
   }, [activePartsCache, dbMessages, missingAssistantBlobDescriptors.length]);
-  const initialMessages = useMemo(() => effectiveDbMessages?.map(toUIMessage) ?? [], [effectiveDbMessages]);
+  if (effectiveDbMessages !== undefined) {
+    lastEffectiveDbMessagesRef.current = {
+      threadId,
+      messages: effectiveDbMessages,
+    };
+  } else if (lastEffectiveDbMessagesRef.current?.threadId !== threadId) {
+    lastEffectiveDbMessagesRef.current = null;
+  }
+
+  const displayDbMessages = effectiveDbMessages ?? lastEffectiveDbMessagesRef.current?.messages;
+  const initialMessages = useMemo(() => displayDbMessages?.map(toUIMessage) ?? [], [displayDbMessages]);
   const shouldAutoSubmitInitialPrompt = Boolean(
     initialPrompt &&
     dbMessages &&
@@ -174,8 +188,8 @@ function ProjectThreadPageContent() {
     project === undefined ||
     thread === undefined ||
     dbMessages === undefined ||
-    (effectiveDbMessages === undefined && !messageLoadError);
-  const messageLoadFailed = Boolean(messageLoadError && effectiveDbMessages === undefined);
+    (displayDbMessages === undefined && !messageLoadError);
+  const messageLoadFailed = Boolean(messageLoadError && displayDbMessages === undefined);
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const disabled = !project || project.sandboxStatus !== "ready";
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);

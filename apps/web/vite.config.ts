@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import { workflow } from 'workflow/vite'
 import { devtools } from '@tanstack/devtools-vite'
-
+import type { PluginOption } from "vite";
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 
 import viteReact from '@vitejs/plugin-react'
@@ -13,7 +13,7 @@ const config = defineConfig({
   plugins: [
     workflow(),
     devtools(),
-    nitro({ rollupConfig: { external: [/^@sentry\//] } }),
+    nitro() as PluginOption,
     tailwindcss(),
     tanstackStart(),
     viteReact(),

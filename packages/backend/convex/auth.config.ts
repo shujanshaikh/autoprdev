@@ -1,28 +1,21 @@
-import type { AuthConfig } from "convex/server";
+import type { AuthConfig } from 'convex/server';
 
-const workosClientId = process.env.WORKOS_CLIENT_ID;
-
-if (!workosClientId) {
-  throw new Error("Set WORKOS_CLIENT_ID in Convex to your WorkOS AuthKit client ID.");
-}
-
-const workosUserManagementIssuer = `https://api.workos.com/user_management/${workosClientId}`;
-const workosJwks = `https://api.workos.com/sso/jwks/${workosClientId}`;
+const clientId = process.env.WORKOS_CLIENT_ID;
 
 export default {
   providers: [
     {
-      type: "customJwt",
-      issuer: "https://api.workos.com/",
-      algorithm: "RS256",
-      jwks: workosJwks,
-      applicationID: workosClientId,
+      type: 'customJwt',
+      issuer: 'https://api.workos.com/',
+      algorithm: 'RS256',
+      jwks: `https://api.workos.com/sso/jwks/${clientId}`,
+      applicationID: clientId,
     },
     {
-      type: "customJwt",
-      issuer: workosUserManagementIssuer,
-      algorithm: "RS256",
-      jwks: workosJwks,
+      type: 'customJwt',
+      issuer: `https://api.workos.com/user_management/${clientId}`,
+      algorithm: 'RS256',
+      jwks: `https://api.workos.com/sso/jwks/${clientId}`,
     },
   ],
 } satisfies AuthConfig;

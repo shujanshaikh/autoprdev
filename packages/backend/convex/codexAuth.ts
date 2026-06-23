@@ -29,7 +29,6 @@ export const status = query({
 
 export const upsert = mutation({
   args: {
-    organizationId: v.string(),
     vaultObjectId: v.string(),
     vaultVersionId: v.optional(v.string()),
     accountId: v.optional(v.string()),
@@ -46,7 +45,6 @@ export const upsert = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        organizationId: args.organizationId,
         vaultObjectId: args.vaultObjectId,
         vaultVersionId: args.vaultVersionId,
         accountId: args.accountId,
@@ -59,7 +57,6 @@ export const upsert = mutation({
 
     await ctx.db.insert("codexCredentials", {
       authorId,
-      organizationId: args.organizationId,
       vaultObjectId: args.vaultObjectId,
       vaultVersionId: args.vaultVersionId,
       accountId: args.accountId,
@@ -85,7 +82,6 @@ export const getVaultReference = query({
     }
 
     return {
-      organizationId: record.organizationId,
       vaultObjectId: record.vaultObjectId,
       vaultVersionId: record.vaultVersionId,
     };
@@ -107,7 +103,6 @@ export const remove = mutation({
 
     await ctx.db.delete(existing._id);
     return {
-      organizationId: existing.organizationId,
       vaultObjectId: existing.vaultObjectId,
     };
   },

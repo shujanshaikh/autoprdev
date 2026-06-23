@@ -63,7 +63,6 @@ export default defineSchema({
 
   codexCredentials: defineTable({
     authorId: v.string(),
-    organizationId: v.string(),
     vaultObjectId: v.string(),
     vaultVersionId: v.optional(v.string()),
     accountId: v.optional(v.string()),

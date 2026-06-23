@@ -25,7 +25,7 @@ export type WorkOSVault = {
   createObject(input: {
     name: string;
     value: string;
-    context: { organizationId: string };
+    context: { userId: string; purpose: "codex" };
   }): Promise<WorkOSVaultObject>;
   updateObject(input: {
     id: string;
@@ -180,16 +180,8 @@ async function refreshCodexTokens(refreshToken: string) {
 export async function requireCodexAuthContext() {
   const authState = await requireWorkOSAuth();
 
-  if (!authState.organizationId) {
-    throw new CodexConnectionError(
-      "Your WorkOS session does not include an organization. Create or select an organization before connecting Codex.",
-      401,
-    );
-  }
-
   return {
     userId: authState.user.id,
-    organizationId: authState.organizationId,
   };
 }
 
@@ -229,7 +221,6 @@ async function readFreshCodexCredentialReference() {
     });
 
     await convexMutation(api.codexAuth.upsert, {
-      organizationId: reference.organizationId,
       vaultObjectId: updatedObject.id,
       vaultVersionId: updatedObject.metadata?.versionId,
       accountId: credential.accountId,
@@ -429,7 +420,7 @@ export async function completeCodexDeviceAuthorization(deviceAuthId: string, use
 }
 
 async function completeCodexDeviceAuthorizationForContext(
-  { userId, organizationId }: Awaited<ReturnType<typeof requireCodexAuthContext>>,
+  { userId }: Awaited<ReturnType<typeof requireCodexAuthContext>>,
   deviceAuthId: string,
   userCode: string,
 ) {
@@ -496,12 +487,11 @@ async function completeCodexDeviceAuthorizationForContext(
     : await getWorkOSVault().createObject({
         name: codexVaultObjectName(userId),
         value,
-        context: { organizationId },
+        context: { userId, purpose: "codex" },
       });
 
   const expiresAt = Date.now() + (tokens.expires_in ?? 3600) * 1000;
   await convexMutation(api.codexAuth.upsert, {
-    organizationId,
     vaultObjectId: vaultObject.id,
     vaultVersionId: vaultObject.metadata?.versionId,
     accountId: extractAccountId(claims),

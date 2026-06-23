@@ -9,7 +9,7 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 - **TailwindCSS** - Utility-first CSS for rapid UI development
 - **Shared UI package** - shadcn/ui primitives live in `packages/ui`
 - **Convex** - Reactive backend-as-a-service platform
-- **Authentication** - Clerk
+- **Authentication** - WorkOS AuthKit
 - **Turborepo** - Optimized monorepo build system
 
 ## Getting Started
@@ -32,14 +32,13 @@ Follow the prompts to create a new Convex project and connect it to your applica
 
 Copy environment variables from `packages/backend/.env.local` to `apps/*/.env`.
 
-### Clerk Authentication Setup
+### WorkOS AuthKit Setup
 
-- Follow the guide: [Convex + Clerk](https://docs.convex.dev/auth/clerk)
-- Activate the Convex integration in the Clerk Dashboard.
-- Copy the Clerk Frontend API URL and set it as `CLERK_FRONTEND_API_URL` in `packages/backend/.env.local`.
-- If you are not using the Clerk Convex integration, you can instead create a Clerk JWT template named `convex`.
-- Set `VITE_CLERK_PUBLISHABLE_KEY` in `apps/web/.env`
-- Set `CLERK_SECRET_KEY` in `apps/web/.env` for Clerk server middleware
+- Follow the Convex guide for [adding WorkOS AuthKit to an existing app](https://docs.convex.dev/auth/authkit/add-to-app) and use the **Standard WorkOS team** flow.
+- In the WorkOS Dashboard, configure AuthKit redirect URIs and session CORS for the app origin. Local development uses `http://localhost:3001` and `http://localhost:3001/callback`.
+- Set `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` on the Convex deployment with `pnpm --filter @autopr/backend exec convex env set`.
+- Set `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, `WORKOS_REDIRECT_URI`, and `VITE_CONVEX_URL` in `apps/web/.env`.
+- Set `WORKOS_CLIENT_ID` in `packages/backend/.env.local` for local Convex auth config evaluation.
 
 Then, run the development server:
 

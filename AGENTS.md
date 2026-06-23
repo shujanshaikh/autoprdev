@@ -10,7 +10,7 @@
 
 ## Project Snapshot
 
-AutoPR is a TypeScript monorepo built with Better-T-Stack, TanStack Start, Convex, Clerk, TailwindCSS, shadcn/ui, and Turborepo.
+AutoPR is a TypeScript monorepo built with Better-T-Stack, TanStack Start, Convex, WorkOS AuthKit, TailwindCSS, shadcn/ui, and Turborepo.
 
 This repository is an active WIP. Prefer improvements that make the codebase easier to maintain, reason about, and extend.
 
@@ -33,7 +33,7 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 ## Package Roles
 
-- `apps/web`: TanStack Start React app. Owns UI, routes, client state, Clerk integration, and connections to Convex/backend functionality.
+- `apps/web`: TanStack Start React app. Owns UI, routes, client state, WorkOS AuthKit integration, and connections to Convex/backend functionality.
 - `packages/backend`: Convex backend. Owns Convex schema, queries, mutations, actions, and backend integrations.
 - `packages/agent`: Agent runtime/tools code shared with the app.
 - `packages/ui`: Shared shadcn/ui components, hooks, styles, and UI utilities.

@@ -776,15 +776,34 @@
 }
 
 .landing-hero-image {
-  opacity: 0.28;
-  filter: saturate(0.92) contrast(1.04);
+  opacity: 0.68;
+  filter: saturate(0.98) contrast(1.02);
 }
 
 .dark .landing-hero-image {
   opacity: 0.58;
+  filter: saturate(0.92) contrast(1.04);
+}
+
+.landing-hero-image--dark {
+  display: none;
+}
+
+.dark .landing-hero-image--light {
+  display: none;
+}
+
+.dark .landing-hero-image--dark {
+  display: block;
 }
 
 .landing-hero-scrim {
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--background) 82%, transparent) 0%, color-mix(in oklch, var(--background) 60%, transparent) 44%, color-mix(in oklch, var(--background) 16%, transparent) 100%),
+    linear-gradient(0deg, color-mix(in oklch, var(--background) 78%, transparent) 0%, color-mix(in oklch, var(--background) 6%, transparent) 44%, color-mix(in oklch, var(--background) 48%, transparent) 100%);
+}
+
+.dark .landing-hero-scrim {
   background:
     linear-gradient(90deg, color-mix(in oklch, var(--background) 96%, transparent) 0%, color-mix(in oklch, var(--background) 84%, transparent) 44%, color-mix(in oklch, var(--background) 48%, transparent) 100%),
     linear-gradient(0deg, color-mix(in oklch, var(--background) 92%, transparent) 0%, color-mix(in oklch, var(--background) 22%, transparent) 44%, color-mix(in oklch, var(--background) 80%, transparent) 100%);
@@ -844,7 +863,7 @@
 
 @media (max-width: 640px) {
   .landing-hero-image {
-    opacity: 0.18;
+    opacity: 0.48;
   }
 
   .dark .landing-hero-image {
@@ -852,6 +871,12 @@
   }
 
   .landing-hero-scrim {
+    background:
+      linear-gradient(90deg, color-mix(in oklch, var(--background) 88%, transparent) 0%, color-mix(in oklch, var(--background) 42%, transparent) 100%),
+      linear-gradient(0deg, color-mix(in oklch, var(--background) 82%, transparent) 0%, color-mix(in oklch, var(--background) 14%, transparent) 50%, color-mix(in oklch, var(--background) 64%, transparent) 100%);
+  }
+
+  .dark .landing-hero-scrim {
     background:
       linear-gradient(90deg, color-mix(in oklch, var(--background) 98%, transparent) 0%, color-mix(in oklch, var(--background) 82%, transparent) 100%),
       linear-gradient(0deg, color-mix(in oklch, var(--background) 92%, transparent) 0%, color-mix(in oklch, var(--background) 28%, transparent) 50%, color-mix(in oklch, var(--background) 84%, transparent) 100%);

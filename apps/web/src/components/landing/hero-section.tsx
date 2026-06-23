@@ -3,6 +3,11 @@ import { buttonVariants } from "@autopr/ui/components/button";
 import { ModeToggle } from "#/components/mode-toggle";
 import { ArrowRight } from "lucide-react";
 
+const lightHeroImage =
+  "https://pub-0423ac2cbe034b45b505d5c8dfd5f072.r2.dev/Screenshot%202026-06-23%20at%201.19.43%E2%80%AFPM.png";
+const darkHeroImage =
+  "https://pub-0423ac2cbe034b45b505d5c8dfd5f072.r2.dev/Screenshot%202026-06-23%20at%201.16.25%E2%80%AFPM.png";
+
 const navLinks = [
   { label: "Support", href: "#support" },
   { label: "Workflow", href: "#workflow" },
@@ -13,14 +18,24 @@ export function HeroSection() {
   return (
     <section className="landing-hero relative isolate min-h-[86svh] overflow-hidden px-5 text-[color:var(--landing-hero-foreground)] sm:px-8 lg:px-12">
       <img
-        src="/images/autopr-product-screenshot.jpg"
+        src={lightHeroImage}
         alt="AutoPR product workspace with an agent thread and code review surfaces"
         width={2940}
         height={1846}
         fetchPriority="high"
         loading="eager"
         decoding="async"
-        className="landing-hero-image absolute inset-0 size-full object-cover object-top"
+        className="landing-hero-image landing-hero-image--light absolute inset-0 size-full object-cover object-top"
+      />
+      <img
+        src={darkHeroImage}
+        alt="AutoPR product workspace with an agent thread and code review surfaces"
+        width={2940}
+        height={1846}
+        fetchPriority="high"
+        loading="eager"
+        decoding="async"
+        className="landing-hero-image landing-hero-image--dark absolute inset-0 size-full object-cover object-top"
       />
       <div className="landing-hero-scrim absolute inset-0" />
 

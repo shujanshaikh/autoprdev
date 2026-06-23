@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Authenticated, Unauthenticated } from "convex/react";
 
 import { LatestProjectEntry } from "#/components/latest-project-entry";
-import { CodexFloating } from "@/components/landing/codex-floating";
 import { HeroSection } from "@/components/landing/hero-section";
 import { FeaturesGrid } from "@/components/landing/features-grid";
 import { WorkflowSection } from "@/components/landing/workflow-section";
@@ -22,7 +21,6 @@ function LandingHome() {
       <WorkflowSection />
       <PricingCallout />
       <LandingFooter />
-      <CodexFloating />
     </div>
   );
 }

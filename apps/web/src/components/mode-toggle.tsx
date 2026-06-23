@@ -3,9 +3,63 @@ import { cn } from "@autopr/ui/lib/utils";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
-export function ModeToggle({ className }: { className?: string }) {
+export function ModeToggle({
+  className,
+  presentation = "icon",
+}: {
+  className?: string;
+  presentation?: "icon" | "switch";
+}) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+
+  if (presentation === "switch") {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        className={cn(
+          "group relative h-8 w-16 shrink-0 overflow-hidden rounded-full border px-1",
+          "transition-[background-color,border-color] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.16)]",
+          "focus-visible:ring-2 focus-visible:ring-primary/60 motion-reduce:transition-none",
+          className,
+        )}
+        aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+        aria-pressed={isDark}
+        onClick={() => setTheme(isDark ? "light" : "dark")}
+        suppressHydrationWarning
+      >
+        <span
+          className={cn(
+            "absolute inset-y-1 left-1 z-10 grid aspect-square place-items-center rounded-full",
+            "bg-[color:var(--landing-hero-foreground)] text-[color:var(--landing-hero-panel)] shadow-[0_2px_10px_rgba(0,0,0,0.22)]",
+            "transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none",
+            isDark ? "translate-x-8" : "translate-x-0",
+          )}
+          aria-hidden="true"
+        >
+          {isDark ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}
+        </span>
+        <span className="absolute inset-0 bg-[radial-gradient(circle_at_24%_35%,rgba(255,255,255,0.45),transparent_28%),linear-gradient(120deg,rgba(255,255,255,0.18),transparent)] opacity-80" />
+        <Sun
+          className={cn(
+            "absolute left-2.5 size-3.5 transition-[opacity,transform] duration-300 motion-reduce:transition-none",
+            isDark ? "scale-75 opacity-35" : "scale-100 opacity-0",
+          )}
+          aria-hidden="true"
+        />
+        <Moon
+          className={cn(
+            "absolute right-2.5 size-3.5 transition-[opacity,transform] duration-300 motion-reduce:transition-none",
+            isDark ? "scale-100 opacity-0" : "scale-75 opacity-35",
+          )}
+          aria-hidden="true"
+        />
+        <span className="sr-only">{isDark ? "Switch to light mode" : "Switch to dark mode"}</span>
+      </Button>
+    );
+  }
 
   return (
     <Button

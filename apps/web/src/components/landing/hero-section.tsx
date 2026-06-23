@@ -10,8 +10,6 @@ const darkHeroImage =
 
 const navLinks = [
   { label: "Support", href: "#support" },
-  { label: "Workflow", href: "#workflow" },
-  { label: "Billing", href: "#billing" },
 ] as const;
 
 export function HeroSection() {
@@ -43,16 +41,16 @@ export function HeroSection() {
         <nav className="flex items-center justify-between gap-4 py-5" aria-label="Landing page">
           <a
             href="#top"
-            className="font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--landing-hero-foreground)]"
+            className="shrink-0 font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--landing-hero-foreground)]"
           >
             AUTOPR
           </a>
-          <div className="flex flex-wrap items-center justify-end gap-3 sm:gap-5">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:gap-5">
             {navLinks.map((link) => (
               <a
                 key={link.label}
                 href={link.href}
-                className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--landing-hero-muted)] transition hover:text-[color:var(--landing-hero-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:var(--landing-hero-muted)] transition hover:text-[color:var(--landing-hero-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:tracking-[0.18em]"
               >
                 {link.label}
               </a>
@@ -64,7 +62,10 @@ export function HeroSection() {
             >
               Sign in
             </a>
-            <ModeToggle className="size-8 border border-[color:var(--landing-hero-panel-border)] bg-[color:var(--landing-hero-panel)] text-[color:var(--landing-hero-muted)] hover:text-[color:var(--landing-hero-foreground)]" />
+            <ModeToggle
+              presentation="switch"
+              className="border-[color:var(--landing-hero-foreground)] bg-[color-mix(in_oklch,var(--landing-hero-panel)_94%,var(--background))] text-[color:var(--landing-hero-foreground)] hover:border-[color:var(--landing-hero-foreground)] hover:text-[color:var(--landing-hero-foreground)]"
+            />
           </div>
         </nav>
 

@@ -11,16 +11,6 @@ async function GET({ request }: { request: Request }) {
     authState = await requireWorkOSAuth();
     const url = new URL(request.url);
     returnTo = getSafeAbsoluteRedirectUrl(url.searchParams.get("returnTo"), url.href);
-
-    if (!authState.organizationId) {
-      return Response.json(
-        {
-          error:
-            "Your WorkOS session does not include an organization. Create or select an organization before connecting GitHub.",
-        },
-        { status: 400 },
-      );
-    }
   } catch (error) {
     if (error instanceof Response) {
       throw error;

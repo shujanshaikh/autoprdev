@@ -102,17 +102,19 @@ export async function getGithubAuthorizationUrl(options: {
   organizationId?: string | null;
   returnTo?: string;
 }) {
+  const requestBody = {
+    user_id: options.userId,
+    return_to: options.returnTo,
+    ...(options.organizationId ? { organization_id: options.organizationId } : {}),
+  };
+
   const response = await fetch("https://api.workos.com/data-integrations/github/authorize", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${getWorkOSApiKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      user_id: options.userId,
-      organization_id: options.organizationId,
-      return_to: options.returnTo,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   const body = (await response.json().catch(() => undefined)) as { url?: string; message?: string } | undefined;

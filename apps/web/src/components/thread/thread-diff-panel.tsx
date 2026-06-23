@@ -126,6 +126,7 @@ export function ThreadDiffPanel({
   onMaximizedChange,
 }: ThreadDiffPanelProps) {
   const [panelWidth, setPanelWidth] = useState(() => getMaxPanelWidth());
+  const [isResizingPanel, setIsResizingPanel] = useState(false);
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
   const [visibleTabs, setVisibleTabs] = useState<ThreadDiffPanelVisibleTab[]>(DEFAULT_VISIBLE_TABS);
   const [activeTabId, setActiveTabId] = useState("");
@@ -144,6 +145,7 @@ export function ThreadDiffPanel({
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
   const panelRef = useRef<HTMLElement | null>(null);
+  const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
@@ -151,6 +153,10 @@ export function ThreadDiffPanel({
 
   const activeTab = visibleTabs.find((tab) => tab.id === activeTabId)?.kind ?? visibleTabs[0]?.kind;
   const terminalTabs = useMemo(() => visibleTabs.filter((tab) => tab.kind === "terminal"), [visibleTabs]);
+
+  useEffect(() => {
+    panelWidthRef.current = panelWidth;
+  }, [panelWidth]);
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === activeTabId)) {
@@ -167,7 +173,12 @@ export function ThreadDiffPanel({
     if (!panel || !container || typeof ResizeObserver === "undefined") return;
 
     const resizeObserver = new ResizeObserver(() => {
-      setPanelWidth((currentWidth) => Math.min(currentWidth, getMaxPanelWidth(panel)));
+      setPanelWidth((currentWidth) => {
+        const nextWidth = Math.min(currentWidth, getMaxPanelWidth(panel));
+        panelWidthRef.current = nextWidth;
+        panel.style.setProperty("--thread-diff-width", `min(${nextWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))`);
+        return nextWidth;
+      });
     });
 
     resizeObserver.observe(container);
@@ -199,24 +210,43 @@ export function ThreadDiffPanel({
 
       const pointerId = event.pointerId;
       const startX = event.clientX;
-      const startWidth = panelWidth;
+      const startWidth = panelWidthRef.current;
       const target = event.currentTarget;
+      const panel = panelRef.current;
       const previousCursor = document.body.style.cursor;
       const previousUserSelect = document.body.style.userSelect;
       let resizing = true;
+      let nextWidth = startWidth;
+      let animationFrame: number | undefined;
 
       target.setPointerCapture(pointerId);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      setIsResizingPanel(true);
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
-        const nextWidth = Math.min(getMaxPanelWidth(panelRef.current), Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
-        setPanelWidth(nextWidth);
+        nextWidth = Math.min(getMaxPanelWidth(panel), Math.max(MIN_PANEL_WIDTH, startWidth + startX - moveEvent.clientX));
+
+        if (animationFrame !== undefined) return;
+        animationFrame = window.requestAnimationFrame(() => {
+          animationFrame = undefined;
+          panelWidthRef.current = nextWidth;
+          panel?.style.setProperty("--thread-diff-width", `min(${nextWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))`);
+        });
       };
 
       const stopResize = () => {
         if (!resizing) return;
         resizing = false;
+
+        if (animationFrame !== undefined) {
+          window.cancelAnimationFrame(animationFrame);
+          animationFrame = undefined;
+        }
+        panelWidthRef.current = nextWidth;
+        panel?.style.setProperty("--thread-diff-width", `min(${nextWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))`);
+        setPanelWidth(nextWidth);
+        setIsResizingPanel(false);
 
         if (target.hasPointerCapture(pointerId)) {
           target.releasePointerCapture(pointerId);
@@ -234,7 +264,7 @@ export function ThreadDiffPanel({
       window.addEventListener("pointercancel", stopResize);
       resizeCleanupRef.current = stopResize;
     },
-    [panelWidth],
+    [],
   );
 
   useEffect(
@@ -386,6 +416,7 @@ export function ThreadDiffPanel({
         aria-hidden={!open}
         className={cn(
           "fixed inset-y-0 right-0 z-40 flex h-full max-h-full min-w-0 flex-col overflow-hidden border-l border-border/50 bg-background transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:static lg:z-auto lg:shrink-0 lg:will-change-[width]",
+          isResizingPanel && "transition-none",
           panelMaximized
             ? "inset-x-0 w-full lg:w-full"
             : "w-[min(96vw,720px)] lg:w-[var(--thread-diff-width)] lg:shrink-0",

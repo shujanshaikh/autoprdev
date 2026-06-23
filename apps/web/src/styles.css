@@ -1,6 +1,6 @@
 @import "@autopr/ui/globals.css";
 
-/* Sandstone theme fonts (DM Sans + DM Mono) are defined in
+/* Shared theme font tokens are defined in
    @autopr/ui globals.css — no overrides needed here. */
 
 .minimal-scrollbar,

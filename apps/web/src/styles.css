@@ -710,3 +710,166 @@
   --diffs-modified-light: oklch(0.65 0.15 250);
   --diffs-modified-dark: oklch(0.7 0.14 255);
 }
+
+/* Landing page */
+
+.landing-page {
+  --landing-paper: var(--background);
+  --landing-panel: var(--card);
+  --landing-ink: var(--foreground);
+  --landing-muted: var(--muted-foreground);
+  --landing-line: color-mix(in oklch, var(--border) 88%, transparent);
+  --landing-grid-line: color-mix(in oklch, var(--border) 62%, transparent);
+  --landing-accent: var(--primary);
+  --landing-accent-foreground: var(--primary-foreground);
+  --landing-accent-strong: color-mix(in oklch, var(--primary) 84%, var(--foreground));
+  --landing-accent-quiet: color-mix(in oklch, var(--primary) 44%, var(--muted-foreground));
+  --landing-cyan: var(--landing-accent);
+  --landing-green: var(--landing-accent);
+  --landing-amber: var(--landing-accent-quiet);
+  --landing-hero-foreground: var(--foreground);
+  --landing-hero-muted: color-mix(in oklch, var(--foreground) 70%, transparent);
+  --landing-hero-panel: color-mix(in oklch, var(--card) 84%, transparent);
+  --landing-hero-panel-border: color-mix(in oklch, var(--border) 78%, transparent);
+  --landing-console-bg: color-mix(in oklch, var(--foreground) 92%, var(--background));
+  --landing-console-fg: var(--background);
+  --landing-console-muted: color-mix(in oklch, var(--background) 68%, transparent);
+  --landing-console-line: color-mix(in oklch, var(--background) 18%, transparent);
+  --landing-console-accent: color-mix(in oklch, var(--primary) 82%, var(--background));
+  background: var(--landing-paper);
+  color: var(--landing-ink);
+}
+
+.dark .landing-page {
+  --landing-accent-strong: color-mix(in oklch, var(--primary) 88%, var(--foreground));
+  --landing-hero-muted: color-mix(in oklch, var(--foreground) 72%, transparent);
+  --landing-hero-panel: color-mix(in oklch, var(--card) 78%, transparent);
+  --landing-console-bg: color-mix(in oklch, var(--background) 78%, var(--card));
+  --landing-console-fg: var(--foreground);
+  --landing-console-muted: color-mix(in oklch, var(--foreground) 64%, transparent);
+  --landing-console-line: color-mix(in oklch, var(--foreground) 12%, transparent);
+  --landing-console-accent: var(--primary);
+}
+
+.landing-section {
+  position: relative;
+  background:
+    linear-gradient(to right, var(--landing-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--landing-grid-line) 1px, transparent 1px),
+    var(--landing-paper);
+  background-size: 44px 44px;
+}
+
+.landing-section-alt {
+  background:
+    linear-gradient(to right, var(--landing-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--landing-grid-line) 1px, transparent 1px),
+    color-mix(in oklch, var(--muted) 72%, var(--background));
+}
+
+.landing-section-dark {
+  background:
+    linear-gradient(to right, color-mix(in oklch, var(--primary) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--primary) 9%, transparent) 1px, transparent 1px),
+    color-mix(in oklch, var(--muted) 58%, var(--background));
+  background-size: 44px 44px;
+}
+
+.landing-hero-image {
+  opacity: 0.28;
+  filter: saturate(0.92) contrast(1.04);
+}
+
+.dark .landing-hero-image {
+  opacity: 0.58;
+}
+
+.landing-hero-scrim {
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--background) 96%, transparent) 0%, color-mix(in oklch, var(--background) 84%, transparent) 44%, color-mix(in oklch, var(--background) 48%, transparent) 100%),
+    linear-gradient(0deg, color-mix(in oklch, var(--background) 92%, transparent) 0%, color-mix(in oklch, var(--background) 22%, transparent) 44%, color-mix(in oklch, var(--background) 80%, transparent) 100%);
+}
+
+@keyframes landing-hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.landing-hero-in,
+.landing-hero-in-delayed,
+.landing-hero-in-late {
+  animation: landing-hero-in 620ms var(--ease-ui-snappy) both;
+  will-change: opacity, transform;
+}
+
+.landing-hero-in-delayed {
+  animation-delay: 90ms;
+}
+
+.landing-hero-in-late {
+  animation-delay: 180ms;
+}
+
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 520ms var(--ease-ui-snappy),
+    transform 520ms var(--ease-ui-snappy);
+  will-change: opacity, transform;
+}
+
+.landing-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-stagger-1 { transition-delay: 0ms; }
+.landing-stagger-2 { transition-delay: 55ms; }
+.landing-stagger-3 { transition-delay: 110ms; }
+.landing-stagger-4 { transition-delay: 165ms; }
+.landing-stagger-5 { transition-delay: 220ms; }
+.landing-stagger-6 { transition-delay: 275ms; }
+.landing-stagger-7 { transition-delay: 330ms; }
+.landing-stagger-8 { transition-delay: 385ms; }
+.landing-stagger-9 { transition-delay: 440ms; }
+.landing-stagger-10 { transition-delay: 495ms; }
+
+@media (max-width: 640px) {
+  .landing-hero-image {
+    opacity: 0.18;
+  }
+
+  .dark .landing-hero-image {
+    opacity: 0.38;
+  }
+
+  .landing-hero-scrim {
+    background:
+      linear-gradient(90deg, color-mix(in oklch, var(--background) 98%, transparent) 0%, color-mix(in oklch, var(--background) 82%, transparent) 100%),
+      linear-gradient(0deg, color-mix(in oklch, var(--background) 92%, transparent) 0%, color-mix(in oklch, var(--background) 28%, transparent) 50%, color-mix(in oklch, var(--background) 84%, transparent) 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-in,
+  .landing-hero-in-delayed,
+  .landing-hero-in-late {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

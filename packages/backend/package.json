@@ -6,7 +6,9 @@
   "author": "",
   "scripts": {
     "dev": "convex dev",
-    "dev:setup": "convex dev --configure --until-success"
+    "dev:setup": "convex dev --configure --until-success",
+    "deploy": "convex deploy",
+    "deploy:vercel": "convex deploy --cmd \"pnpm --filter web build\" --cmd-url-env-var-name VITE_CONVEX_URL"
   },
   "dependencies": {
     "@convex-dev/r2": "^0.10.1",

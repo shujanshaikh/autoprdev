@@ -40,6 +40,32 @@ Copy environment variables from `packages/backend/.env.local` to `apps/*/.env`.
 - Set `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, `WORKOS_REDIRECT_URI`, and `VITE_CONVEX_URL` in `apps/web/.env`.
 - Set `WORKOS_CLIENT_ID` in `packages/backend/.env.local` for local Convex auth config evaluation.
 
+### Vercel + Convex deployment
+
+This repo's Vercel project is configured with `apps/web` as the project root, so a normal Vercel build only bundles the TanStack Start app. Convex functions and `packages/backend/convex/auth.config.ts` are deployed separately by the Convex CLI.
+
+`apps/web/vercel.json` makes Vercel run:
+
+```bash
+pnpm run build:vercel
+```
+
+That script delegates to:
+
+```bash
+pnpm --filter @autopr/backend run deploy:vercel
+```
+
+which runs `convex deploy --cmd "pnpm --filter web build" --cmd-url-env-var-name VITE_CONVEX_URL`. This deploys Convex first, then builds the web app with the Convex deployment URL injected into `VITE_CONVEX_URL`.
+
+For production deploys, configure Vercel with:
+
+- `CONVEX_DEPLOY_KEY`: a production deploy key from the Convex dashboard.
+- `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_REDIRECT_URI`: the WorkOS values for the same WorkOS environment used by the Convex deployment.
+- Any app runtime secrets such as `AI_GATEWAY_API_KEY`, `DAYTONA_API_KEY`, and `DAYTONA_API_URL`.
+
+Also make sure the Convex deployment itself has `WORKOS_CLIENT_ID` set to the same WorkOS AuthKit client ID. If the web bundle uses one WorkOS app but the Convex deployment was never deployed or has a different `WORKOS_CLIENT_ID`, the browser will reconnect but Convex will log `No auth provider found matching the given token`.
+
 Then, run the development server:
 
 ```bash

@@ -438,10 +438,14 @@ function WorkspaceSidebar({
     return { visibleThreads, hiddenThreadCount };
   }, [normalizedSearch, showAllThreadsProjectIds]);
 
-  function showAllProjectThreads(projectId: string) {
+  function toggleProjectThreads(projectId: string) {
     setShowAllThreadsProjectIds((current) => {
       const next = new Set(current);
-      next.add(projectId);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
       return next;
     });
   }
@@ -562,6 +566,7 @@ function WorkspaceSidebar({
                     const projectThreads =
                       active ? activeProjectThreads : expanded ? expandedProjectThreads : undefined;
                     const { visibleThreads, hiddenThreadCount } = getSidebarThreads(project.projectId, projectThreads);
+                    const showingAllThreads = showAllThreadsProjectIds.has(project.projectId);
                     const { name } = projectParts(project.repoFullName);
                     return (
                       <SidebarMenuItem key={project.projectId} className="mb-1">
@@ -675,13 +680,13 @@ function WorkspaceSidebar({
                                     );
                                   })}
                                 </ul>
-                                {hiddenThreadCount > 0 && !showAllThreadsProjectIds.has(project.projectId) ? (
+                                {hiddenThreadCount > 0 ? (
                                   <button
                                     type="button"
-                                    onClick={() => showAllProjectThreads(project.projectId)}
-                                    className="block py-1.5 pl-8 text-[13px] text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/55"
+                                    onClick={() => toggleProjectThreads(project.projectId)}
+                                    className="block py-1.5 pl-8 text-[13px] font-medium text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/60"
                                   >
-                                    See all ({hiddenThreadCount})
+                                    {showingAllThreads ? "Show fewer" : `See all (${hiddenThreadCount})`}
                                   </button>
                                 ) : null}
                               </>

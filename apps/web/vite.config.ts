@@ -13,7 +13,9 @@ const config = defineConfig({
   plugins: [
     workflow(),
     devtools(),
-    nitro() as PluginOption,
+    nitro({
+      traceDeps: ["react", "react-dom", "scheduler"],
+    }) as PluginOption,
     tailwindcss(),
     tanstackStart(),
     viteReact(),

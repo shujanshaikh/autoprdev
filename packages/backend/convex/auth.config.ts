@@ -6,8 +6,7 @@ if (!workosClientId) {
   throw new Error("Set WORKOS_CLIENT_ID in Convex to your WorkOS AuthKit client ID.");
 }
 
-const workosAuthIssuer =
-  process.env.WORKOS_AUTH_ISSUER ?? `https://api.workos.com/user_management/${workosClientId}`;
+const workosUserManagementIssuer = `https://api.workos.com/user_management/${workosClientId}`;
 const workosJwks = `https://api.workos.com/sso/jwks/${workosClientId}`;
 
 export default {
@@ -21,10 +20,9 @@ export default {
     },
     {
       type: "customJwt",
-      issuer: workosAuthIssuer,
+      issuer: workosUserManagementIssuer,
       algorithm: "RS256",
       jwks: workosJwks,
-      applicationID: workosClientId,
     },
   ],
 } satisfies AuthConfig;

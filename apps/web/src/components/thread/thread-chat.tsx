@@ -81,6 +81,7 @@ import {
   type TokenCost,
   type TokenUsage,
 } from "#/lib/assistant-message-metadata";
+import { mergePersistedAssistantParts } from "#/lib/chat-messages";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -543,6 +544,8 @@ export function ThreadChat({
     },
   });
 
+  const allowPersistedPartRemoval = status === "ready" && !currentRunId;
+
   useEffect(() => {
     setMessages((currentMessages) => currentMessages.map((message) => {
       const persistedMessage = initialMessages.find((candidate) => candidate.id === message.id);
@@ -552,8 +555,11 @@ export function ThreadChat({
       }
 
       const nextMetadata = persistedMessage.metadata ?? message.metadata;
-      const nextParts =
-        persistedMessage.parts.length > message.parts.length
+      const nextParts = message.role === "assistant"
+        ? mergePersistedAssistantParts(message.parts, persistedMessage.parts, {
+            allowPersistedRemoval: allowPersistedPartRemoval,
+          })
+        : persistedMessage.parts.length > message.parts.length
           ? persistedMessage.parts
           : message.parts;
 
@@ -567,7 +573,7 @@ export function ThreadChat({
         parts: nextParts,
       };
     }));
-  }, [initialMessages, setMessages]);
+  }, [allowPersistedPartRemoval, initialMessages, setMessages]);
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
   const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);

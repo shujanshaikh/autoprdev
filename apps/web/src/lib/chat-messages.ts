@@ -310,6 +310,107 @@ export function sanitizeMessageForModelConversion(message: UIMessage): UIMessage
   };
 }
 
+const TERMINAL_TOOL_STATES = new Set([
+  "output-available",
+  "output-denied",
+  "output-error",
+]);
+
+function partState(part: UIMessage["parts"][number]): string | undefined {
+  return "state" in part && typeof part.state === "string" ? part.state : undefined;
+}
+
+function toolCallId(part: UIMessage["parts"][number]): string | undefined {
+  return "toolCallId" in part && typeof part.toolCallId === "string"
+    ? part.toolCallId
+    : undefined;
+}
+
+function isToolPartLike(part: UIMessage["parts"][number]) {
+  return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function isIncompleteToolPart(part: UIMessage["parts"][number]) {
+  return isToolPartLike(part) && !TERMINAL_TOOL_STATES.has(partState(part) ?? "");
+}
+
+function isPersistedPartMoreComplete(
+  currentPart: UIMessage["parts"][number] | undefined,
+  persistedPart: UIMessage["parts"][number],
+) {
+  if (!currentPart) {
+    return false;
+  }
+
+  const currentState = partState(currentPart);
+  const persistedState = partState(persistedPart);
+  if (
+    isToolPartLike(persistedPart) &&
+    TERMINAL_TOOL_STATES.has(persistedState ?? "") &&
+    !TERMINAL_TOOL_STATES.has(currentState ?? "")
+  ) {
+    return true;
+  }
+
+  if (
+    (persistedPart.type === "text" || persistedPart.type === "reasoning") &&
+    persistedState === "done" &&
+    currentState === "streaming"
+  ) {
+    return true;
+  }
+
+  return (
+    isToolPartLike(persistedPart) &&
+    (("output" in persistedPart && !("output" in currentPart)) ||
+      ("errorText" in persistedPart && !("errorText" in currentPart)))
+  );
+}
+
+export function mergePersistedAssistantParts(
+  currentParts: UIMessage["parts"],
+  persistedParts: UIMessage["parts"],
+  options: { allowPersistedRemoval?: boolean } = {},
+): UIMessage["parts"] {
+  if (persistedParts.length === 0) {
+    return currentParts;
+  }
+
+  if (persistedParts.length > currentParts.length) {
+    return persistedParts;
+  }
+
+  const currentPartsByToolCallId = new Map<string, UIMessage["parts"][number]>();
+  for (const part of currentParts) {
+    const id = toolCallId(part);
+    if (id) {
+      currentPartsByToolCallId.set(id, part);
+    }
+  }
+
+  const persistedIsMoreComplete = persistedParts.some((persistedPart, index) => {
+    const id = toolCallId(persistedPart);
+    const currentPart = id ? currentPartsByToolCallId.get(id) : currentParts[index];
+
+    return isPersistedPartMoreComplete(currentPart, persistedPart);
+  });
+
+  if (persistedIsMoreComplete) {
+    return persistedParts;
+  }
+
+  if (
+    options.allowPersistedRemoval &&
+    persistedParts.length < currentParts.length &&
+    currentParts.some(isIncompleteToolPart) &&
+    !persistedParts.some(isIncompleteToolPart)
+  ) {
+    return persistedParts;
+  }
+
+  return currentParts;
+}
+
 function getFilePartUrl(data: unknown) {
   if (typeof data === "string") {
     return data;

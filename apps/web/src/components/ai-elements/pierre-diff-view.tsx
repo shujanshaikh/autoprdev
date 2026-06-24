@@ -55,7 +55,7 @@ export function PierreDiffView({
   patch?: string;
   fileName?: string;
   oldContent?: string | null;
-  newContent: string;
+  newContent?: string;
 }) {
   const { resolvedTheme } = useTheme();
   const themeType: ThemeTypes = resolvedTheme === "dark" ? "dark" : "light";
@@ -100,7 +100,7 @@ export function PierreDiffView({
   } satisfies FileContents;
   const after = {
     name: fileName ?? "after.txt",
-    contents: newContent,
+    contents: newContent ?? "",
   } satisfies FileContents;
 
   return (

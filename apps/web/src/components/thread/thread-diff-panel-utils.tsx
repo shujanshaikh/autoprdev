@@ -10,6 +10,6 @@ export type ThreadDiffEntry = {
   deletions: number;
   status: "added" | "deleted" | "modified";
   oldContent?: string | null;
-  newContent: string;
+  newContent?: string;
   diff: import("@/components/ai-elements/tool").ToolDiffPayload;
 };

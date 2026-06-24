@@ -1,4 +1,5 @@
 import type { ModelMessage, UIMessage } from "ai";
+import { compactAssistantPartsForModel } from "./agent-message-compaction";
 
 export type StoredMessageRow = {
   messageId: string;
@@ -306,7 +307,7 @@ export function sanitizeMessageForModelConversion(message: UIMessage): UIMessage
 
   return {
     ...message,
-    parts: sanitizeStoppedAssistantParts(message.parts),
+    parts: compactAssistantPartsForModel(sanitizeStoppedAssistantParts(message.parts)),
   };
 }
 

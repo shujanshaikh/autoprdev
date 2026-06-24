@@ -23,6 +23,7 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(
       { root, rootMargin, threshold },
     );
 
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- IntersectionObserver updates state asynchronously from a subscription callback, not from a prop-change reset.
     observer.observe(el);
     return () => observer.disconnect();
   }, [root, rootMargin, threshold]);

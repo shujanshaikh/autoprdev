@@ -185,6 +185,10 @@ function countPatchLines(patch: string): { additions: number; deletions: number 
 }
 
 function diffStatus(diff: ToolDiffPayload): ThreadDiffEntry["status"] {
+  if (diff.status === "added" || diff.status === "deleted" || diff.status === "modified") {
+    return diff.status;
+  }
+
   if (diff.oldContent === null || diff.oldContent === "") {
     return "added";
   }
@@ -337,56 +341,56 @@ function ThreadContextRemainingIndicator({
           <span className="text-foreground/85 tabular-nums">{formatTokens(remainingTokens)}</span>
         </Badge>
       </TooltipTrigger>
-      <TooltipContent side="top" align="start" className="min-w-[240px] rounded-none">
-        <div className="space-y-1.5 font-mono text-[11px]">
-          <div className="flex items-center justify-between gap-4">
+      <TooltipContent side="top" align="start" className="rounded-none">
+        <div className="grid grid-cols-[max-content_max-content] gap-x-6 gap-y-1.5 font-mono text-[11px]">
+          <div className="contents">
             <span className="text-muted-foreground">Remaining</span>
-            <span>{formatTokens(remainingTokens)}</span>
+            <span className="text-right tabular-nums">{formatTokens(remainingTokens)}</span>
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="contents">
             <span className="text-muted-foreground">Context / limit</span>
-            <span>
+            <span className="text-right tabular-nums">
               {formatTokens(contextTokens)} / {formatTokens(contextLimit)}
             </span>
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="contents">
             <span className="text-muted-foreground">Input</span>
-            <span>{formatTokens(usage.inputTokens)}</span>
+            <span className="text-right tabular-nums">{formatTokens(usage.inputTokens)}</span>
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="contents">
             <span className="text-muted-foreground">Cached input</span>
-            <span>{formatTokens(usage.cachedInputTokens)}</span>
+            <span className="text-right tabular-nums">{formatTokens(usage.cachedInputTokens)}</span>
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="contents">
             <span className="text-muted-foreground">Cache write</span>
-            <span>{formatTokens(usage.cacheWriteTokens)}</span>
+            <span className="text-right tabular-nums">{formatTokens(usage.cacheWriteTokens)}</span>
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="contents">
             <span className="text-muted-foreground">Uncached input</span>
-            <span>{formatTokens(uncachedInputTokens)}</span>
+            <span className="text-right tabular-nums">{formatTokens(uncachedInputTokens)}</span>
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="contents">
             <span className="text-muted-foreground">Output</span>
-            <span>{formatTokens(usage.outputTokens)}</span>
+            <span className="text-right tabular-nums">{formatTokens(usage.outputTokens)}</span>
           </div>
           {hasThreadCost ? (
             <>
-              <div className="my-2 h-px bg-border/70" />
-              <div className="flex items-center justify-between gap-4">
+              <div className="col-span-2 my-0.5 h-px bg-border/70" />
+              <div className="contents">
                 <span className="text-muted-foreground">Thread cost</span>
-                <span>{formatRunCost(threadCost.total)}</span>
+                <span className="text-right tabular-nums">{formatRunCost(threadCost.total)}</span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="contents">
                 <span className="text-muted-foreground">Input cost</span>
-                <span>{formatRunCost(threadCost.input)}</span>
+                <span className="text-right tabular-nums">{formatRunCost(threadCost.input)}</span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="contents">
                 <span className="text-muted-foreground">Cached cost</span>
-                <span>{formatRunCost(threadCost.cacheRead)}</span>
+                <span className="text-right tabular-nums">{formatRunCost(threadCost.cacheRead)}</span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="contents">
                 <span className="text-muted-foreground">Output cost</span>
-                <span>{formatRunCost(threadCost.output)}</span>
+                <span className="text-right tabular-nums">{formatRunCost(threadCost.output)}</span>
               </div>
             </>
           ) : null}

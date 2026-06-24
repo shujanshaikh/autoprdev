@@ -10,6 +10,7 @@ import { type ModelMessage, type UIMessageChunk } from "ai";
 import { fetchAction, fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
+import { compactPromptMessagesForModel } from "@/lib/agent-message-compaction";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
 import {
   addCodexUsageCosts,
@@ -414,6 +415,9 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
         sendStart: !options.assistantMessageId,
         maxSteps: 100,
         maxRetries: 1,
+        prepareStep: ({ messages }) => ({
+          messages: compactPromptMessagesForModel(messages),
+        }),
         providerOptions: {
           openai: {
             store: false,

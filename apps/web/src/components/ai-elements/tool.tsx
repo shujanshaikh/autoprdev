@@ -473,9 +473,11 @@ function computerRecordingLabel(input: unknown, output: unknown, state: ToolPart
 export type ToolDiffPayload = {
   renderer: "pierre";
   patch?: string;
+  patchOmitted?: boolean;
   fileName?: string;
+  status?: "added" | "deleted" | "modified";
   oldContent?: string | null;
-  newContent: string;
+  newContent?: string;
 };
 
 export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
@@ -491,11 +493,23 @@ export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
     return false;
   }
 
-  if (typeof v.newContent !== "string") {
+  if ("patchOmitted" in v && typeof v.patchOmitted !== "boolean") {
+    return false;
+  }
+
+  if (!("patch" in v) && typeof v.newContent !== "string") {
+    return false;
+  }
+
+  if ("newContent" in v && typeof v.newContent !== "string") {
     return false;
   }
 
   if ("oldContent" in v && v.oldContent !== null && typeof v.oldContent !== "string") {
+    return false;
+  }
+
+  if ("status" in v && v.status !== "added" && v.status !== "deleted" && v.status !== "modified") {
     return false;
   }
 
@@ -507,7 +521,29 @@ export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
 }
 
 export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
+  if (diff.patchOmitted) {
+    return (
+      <div className="border border-border/60 bg-muted/20 px-4 py-5 text-center">
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Diff omitted</p>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          This change was too large to keep inline. The file operation still completed.
+        </p>
+      </div>
+    );
+  }
+
   if (typeof diff.patch !== "string" || diff.patch.length === 0) {
+    if (typeof diff.newContent !== "string") {
+      return (
+        <div className="border border-border/60 bg-muted/20 px-4 py-5 text-center">
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Diff unavailable</p>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            The file changed, but no renderable diff payload was stored.
+          </p>
+        </div>
+      );
+    }
+
     return (
       <PierreDiffView
         fileName={pathLine ?? diff.fileName}

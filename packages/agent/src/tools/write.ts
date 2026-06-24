@@ -57,6 +57,12 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     const previousContent = await readRemoteTextIfPresent(context.sandbox, remotePath);
     const content = Buffer.from(fileContent, "utf8");
     const patch = createTwoFilesPatch(remotePath, remotePath, previousContent ?? "", fileContent, "before", "after");
+    const diff = {
+      renderer: "pierre" as const,
+      fileName: remotePath,
+      patch,
+      status: previousContent === null ? "added" as const : "modified" as const,
+    };
 
     if (previousContent === fileContent) {
       return {
@@ -66,13 +72,7 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
           bytesWritten: 0,
           contentBytes: content.length,
           unchanged: true,
-          diff: {
-            renderer: "pierre",
-            fileName: remotePath,
-            patch,
-            oldContent: previousContent,
-            newContent: fileContent,
-          },
+          diff,
         },
       };
     }
@@ -87,13 +87,7 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
         bytesWritten: content.length,
         previousExists: previousContent !== null,
         unchanged: false,
-        diff: {
-          renderer: "pierre",
-          fileName: remotePath,
-          patch,
-          oldContent: previousContent,
-          newContent: fileContent,
-        },
+        diff,
       },
     };
   });

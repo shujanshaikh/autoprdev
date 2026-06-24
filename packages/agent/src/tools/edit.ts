@@ -126,11 +126,10 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
         replacements: edits.length,
         bytesWritten: nextBuffer.length,
         diff: {
-          renderer: "pierre",
+          renderer: "pierre" as const,
           fileName: remotePath,
           patch: createTwoFilesPatch(remotePath, remotePath, originalText, nextText, "before", "after"),
-          oldContent: originalText,
-          newContent: nextText,
+          status: "modified" as const,
         },
       },
     };

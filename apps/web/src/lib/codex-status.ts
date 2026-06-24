@@ -6,7 +6,7 @@ export type CodexStatus = {
   accountId?: string;
 };
 
-export const codexStatusQueryKey = ["codex", "status"] as const;
+const codexStatusQueryKey = ["codex", "status"] as const;
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -20,7 +20,7 @@ async function readJson<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-export async function fetchCodexStatus(): Promise<CodexStatus> {
+async function fetchCodexStatus(): Promise<CodexStatus> {
   return readJson<CodexStatus>(await fetch("/api/codex/status"));
 }
 

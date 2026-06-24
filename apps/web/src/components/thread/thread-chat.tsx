@@ -330,17 +330,10 @@ function ThreadContextRemainingIndicator({
       <TooltipTrigger>
         <Badge
           variant="outline"
-          className="h-7 shrink-0 items-center gap-2 rounded-none border-border/55 bg-background/70 px-2.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-muted/40"
+          aria-label={`Context remaining: ${formatTokens(remainingTokens)}`}
+          className="h-7 shrink-0 cursor-help items-center rounded-none border-border/55 bg-background/70 px-2 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-muted/40"
         >
           <span className="text-foreground/85 tabular-nums">{formatTokens(remainingTokens)}</span>
-          <span aria-hidden="true" className="h-3 w-px bg-border/70" />
-          <span className="text-muted-foreground/70 tabular-nums">{percentageUsed}%</span>
-          {hasThreadCost ? (
-            <>
-              <span aria-hidden="true" className="h-3 w-px bg-border/70" />
-              <span className="text-foreground/85 tabular-nums">{formatRunCost(threadCost.total)}</span>
-            </>
-          ) : null}
         </Badge>
       </TooltipTrigger>
       <TooltipContent side="top" align="start" className="min-w-[240px] rounded-none">

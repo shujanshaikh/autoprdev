@@ -37,7 +37,7 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 min-[420px]:gap-3 sm:grid-cols-3">
         <SummaryCard
           label="Total Spend"
           value={`$${totalSpend.toFixed(4)}`}
@@ -56,11 +56,11 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
       </div>
 
       <section className="min-w-0 border border-border bg-card">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <h2 className="min-w-0 font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 min-[420px]:px-4">
+          <h2 className="min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground min-[420px]:tracking-[0.24em]">
             Sandbox costs
           </h2>
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/70">
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70 min-[420px]:tracking-[0.22em]">
             {sandboxCosts ? `${sandboxCosts.length} sandboxes` : "loading"}
           </span>
         </div>
@@ -100,14 +100,14 @@ function SummaryCard({
   loading: boolean;
 }) {
   return (
-    <div className="min-w-0 border border-border bg-muted/30 px-4 py-3">
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+    <div className="min-w-0 border border-border bg-muted/30 px-3 py-2.5 min-[420px]:px-4 min-[420px]:py-3">
+      <p className="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground min-[420px]:tracking-[0.2em]">
         {label}
       </p>
       {loading ? (
         <div className="mt-2 h-7 w-16 animate-pulse bg-muted" />
       ) : (
-        <p className="mt-2 truncate text-xl font-semibold tabular-nums">{value}</p>
+        <p className="mt-2 truncate text-lg font-semibold tabular-nums min-[420px]:text-xl">{value}</p>
       )}
     </div>
   );
@@ -120,7 +120,7 @@ function BillingRow({ row }: { row: WorkspaceSandboxCost }) {
     cost === undefined ? "—" : `$${cost.toFixed(4)}`;
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_10rem]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5 px-3 py-2.5 transition-colors hover:bg-muted/30 min-[420px]:grid-cols-[minmax(0,1fr)_auto] min-[420px]:items-center min-[420px]:gap-3 min-[420px]:px-4 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_10rem]">
       <div className="min-w-0">
         <p className="truncate font-mono text-[13px]">
           {row.repoFullName ?? row.sandboxName ?? "Unnamed sandbox"}
@@ -147,7 +147,7 @@ function BillingRow({ row }: { row: WorkspaceSandboxCost }) {
         {costDisplay}
       </span>
 
-      <div className="flex items-center justify-end gap-0 sm:justify-start">
+      <div className="flex items-center justify-start gap-0 min-[420px]:justify-end sm:justify-start">
         <div className="flex items-center gap-2 sm:hidden">
           <span
             className={cn(

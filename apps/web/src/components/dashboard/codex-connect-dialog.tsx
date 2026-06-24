@@ -166,7 +166,7 @@ export function CodexConnectPanel({
   return (
     <>
       {/* Header */}
-      <div className="border-b border-border px-5 pt-4 pb-4 pr-12">
+      <div className="border-b border-border px-4 pt-4 pb-4 pr-12 min-[420px]:px-5">
         {asDialogHeader ? (
           <DialogHeader className="gap-2">
             <CodexPanelKicker />
@@ -212,6 +212,7 @@ export function CodexConnectPanel({
                 variant="outline"
                 size="sm"
                 disabled={!device}
+                className="w-full min-[420px]:w-auto"
                 onClick={() =>
                   device &&
                   window.open(
@@ -251,6 +252,7 @@ export function CodexConnectPanel({
                 variant="outline"
                 size="sm"
                 disabled={!device}
+                className="w-full min-[420px]:w-auto"
                 onClick={() =>
                   device &&
                   window.open(
@@ -269,7 +271,7 @@ export function CodexConnectPanel({
       )}
 
       {/* Status bar */}
-      <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-5 py-2.5">
+      <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-4 py-2.5 min-[420px]:px-5">
         <span
           aria-hidden
           className={cn(
@@ -281,7 +283,7 @@ export function CodexConnectPanel({
                 : "bg-muted-foreground/40",
           )}
         />
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground min-[420px]:tracking-[0.22em]">
           {statusLabel}
         </span>
         {isLive ? (
@@ -295,9 +297,9 @@ export function CodexConnectPanel({
       {error ? (
         <div
           role="alert"
-          className="border-t border-destructive/40 bg-destructive/[0.04] px-5 py-2.5 font-mono text-xs"
+          className="border-t border-destructive/40 bg-destructive/[0.04] px-4 py-2.5 font-mono text-xs min-[420px]:px-5"
         >
-          <span className="mr-2 uppercase tracking-[0.2em] text-destructive">err</span>
+          <span className="mr-2 uppercase tracking-[0.14em] text-destructive min-[420px]:tracking-[0.2em]">err</span>
           <span className="text-destructive/90">{error}</span>
         </div>
       ) : null}
@@ -309,7 +311,7 @@ function CodexPanelKicker() {
   return (
     <div className="flex items-center gap-2">
       <span aria-hidden className="inline-block size-1.5 bg-primary" />
-      <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+      <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground min-[420px]:tracking-[0.24em]">
         autopr / codex
       </span>
       <CodexLogo
@@ -334,7 +336,7 @@ function Step({
   action: React.ReactNode;
 }) {
   return (
-    <li className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 px-5 py-4">
+    <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2.5 px-4 py-4 min-[420px]:grid-cols-[1.75rem_minmax(0,1fr)] min-[420px]:gap-3 min-[420px]:px-5">
       <span
         aria-hidden
         className={cn(
@@ -369,10 +371,10 @@ function CodeBox({
   onCopy: () => void;
 }) {
   return (
-    <div className="flex items-stretch gap-2">
+    <div className="flex min-w-0 items-stretch gap-2">
       <div
         className={cn(
-          "flex min-w-0 flex-1 items-center justify-center border border-border bg-muted/40 px-3 py-2 font-mono text-base font-semibold tracking-[0.22em]",
+          "flex min-w-0 flex-1 items-center justify-center overflow-hidden border border-border bg-muted/40 px-2 py-2 font-mono text-sm font-semibold tracking-[0.12em] min-[420px]:px-3 min-[420px]:text-base min-[420px]:tracking-[0.22em]",
           userCode ? "text-foreground" : "text-muted-foreground/50",
         )}
         aria-live="polite"
@@ -413,7 +415,7 @@ function ConnectedBody({
     "ChatGPT subscription stored in WorkOS Vault.";
 
   return (
-    <div className="space-y-3 px-5 py-5">
+    <div className="space-y-3 px-4 py-5 min-[420px]:px-5">
       <div className="border border-border bg-muted/30 px-3 py-3">
         <div className="flex items-start gap-2.5">
           <span

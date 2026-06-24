@@ -32,9 +32,9 @@ function formatAge(timestamp?: number) {
 export function SettingsProjects({ projects }: SettingsProjectsProps) {
   return (
     <section className="min-w-0 border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 min-[420px]:px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+          <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground min-[420px]:tracking-[0.24em]">
             Recent projects
           </h2>
           {projects !== undefined && (
@@ -43,7 +43,7 @@ export function SettingsProjects({ projects }: SettingsProjectsProps) {
             </span>
           )}
         </div>
-        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
+        <span className="hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65 min-[380px]:inline">
           status
         </span>
       </div>
@@ -84,7 +84,7 @@ function ProjectRow({ project }: { project: WorkspaceProject }) {
     <Link
       to="/project/$projectId"
       params={{ projectId: project.projectId }}
-      className="group grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-3 py-2 transition last:border-b-0 hover:bg-muted/45 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_7rem]"
+      className="group grid min-h-12 grid-cols-[minmax(0,1fr)] gap-1.5 border-b border-border/60 px-3 py-2.5 transition last:border-b-0 hover:bg-muted/45 min-[420px]:grid-cols-[minmax(0,1fr)_auto] min-[420px]:items-center min-[420px]:gap-3 min-[420px]:py-2 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_7rem]"
     >
       <div className="min-w-0">
         <p className="truncate text-[13px]">
@@ -106,7 +106,7 @@ function ProjectRow({ project }: { project: WorkspaceProject }) {
         <GitBranch className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{branch}</span>
       </div>
-      <div className="min-w-0 flex items-center justify-end gap-2">
+      <div className="min-w-0 flex items-center justify-start gap-2 min-[420px]:justify-end">
         <span
           className={cn(
             "max-w-28 truncate font-mono text-[10px] uppercase tracking-[0.16em]",

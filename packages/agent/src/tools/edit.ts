@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { ensureRemoteParentDirectory, resolveSandboxPath } from "../sandbox/execute";
+import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutation-queue";
 import { toTextModelOutput } from "./format";
 import { requireArray, requireString } from "./validation";
 
@@ -100,37 +101,40 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
   }));
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = resolveSandboxPath(path, context.workDir);
-  const originalBuffer = Buffer.from(await context.sandbox.fs.downloadFile(remotePath));
-  const originalText = originalBuffer.toString("utf8");
-  const { bom, text: withoutBom } = stripBom(originalText);
-  const lineEnding = detectLineEnding(withoutBom);
-  const normalizedOriginal = normalizeLineEndings(withoutBom);
-  const normalizedEdits = edits.map((edit) => ({
-    oldText: normalizeLineEndings(edit.oldText),
-    newText: normalizeLineEndings(edit.newText),
-  }));
-  const normalizedNext = applyExactEdits(normalizedOriginal, normalizedEdits, remotePath);
-  const nextText = bom + restoreLineEndings(normalizedNext, lineEnding);
-  const nextBuffer = Buffer.from(nextText, "utf8");
 
-  await ensureRemoteParentDirectory(remotePath, sandboxOptions);
-  await context.sandbox.fs.uploadFile(nextBuffer, remotePath);
+  return withFileMutationQueue(createFileMutationQueueKey(context.sandbox.id, remotePath), async () => {
+    const originalBuffer = Buffer.from(await context.sandbox.fs.downloadFile(remotePath));
+    const originalText = originalBuffer.toString("utf8");
+    const { bom, text: withoutBom } = stripBom(originalText);
+    const lineEnding = detectLineEnding(withoutBom);
+    const normalizedOriginal = normalizeLineEndings(withoutBom);
+    const normalizedEdits = edits.map((edit) => ({
+      oldText: normalizeLineEndings(edit.oldText),
+      newText: normalizeLineEndings(edit.newText),
+    }));
+    const normalizedNext = applyExactEdits(normalizedOriginal, normalizedEdits, remotePath);
+    const nextText = bom + restoreLineEndings(normalizedNext, lineEnding);
+    const nextBuffer = Buffer.from(nextText, "utf8");
 
-  return {
-    content: `Applied ${edits.length} exact replacement(s) to ${remotePath}.`,
-    details: {
-      path: remotePath,
-      replacements: edits.length,
-      bytesWritten: nextBuffer.length,
-      diff: {
-        renderer: "pierre",
-        fileName: remotePath,
-        patch: createTwoFilesPatch(remotePath, remotePath, originalText, nextText, "before", "after"),
-        oldContent: originalText,
-        newContent: nextText,
+    await ensureRemoteParentDirectory(remotePath, sandboxOptions);
+    await context.sandbox.fs.uploadFile(nextBuffer, remotePath);
+
+    return {
+      content: `Applied ${edits.length} exact replacement(s) to ${remotePath}.`,
+      details: {
+        path: remotePath,
+        replacements: edits.length,
+        bytesWritten: nextBuffer.length,
+        diff: {
+          renderer: "pierre",
+          fileName: remotePath,
+          patch: createTwoFilesPatch(remotePath, remotePath, originalText, nextText, "before", "after"),
+          oldContent: originalText,
+          newContent: nextText,
+        },
       },
-    },
-  };
+    };
+  });
 }
 
 export function createDaytonaEditTool(sandboxOptions: SandboxSessionOptions) {

@@ -31,9 +31,9 @@ function formatAge(timestamp?: number) {
 
 export function SettingsProjects({ projects }: SettingsProjectsProps) {
   return (
-    <section className="border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="flex items-center gap-2">
+    <section className="min-w-0 border border-border bg-card">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
           <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
             Recent projects
           </h2>
@@ -43,7 +43,7 @@ export function SettingsProjects({ projects }: SettingsProjectsProps) {
             </span>
           )}
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
+        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
           status
         </span>
       </div>
@@ -106,10 +106,10 @@ function ProjectRow({ project }: { project: WorkspaceProject }) {
         <GitBranch className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{branch}</span>
       </div>
-      <div className="flex items-center justify-end gap-2">
+      <div className="min-w-0 flex items-center justify-end gap-2">
         <span
           className={cn(
-            "font-mono text-[10px] uppercase tracking-[0.16em]",
+            "max-w-28 truncate font-mono text-[10px] uppercase tracking-[0.16em]",
             styles.label,
           )}
         >

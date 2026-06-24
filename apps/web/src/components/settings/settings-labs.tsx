@@ -21,7 +21,7 @@ export function SettingsLabs({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="border border-border bg-card">
+      <section className="min-w-0 border border-border bg-card">
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
           <div className="min-w-0">
             <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
@@ -36,7 +36,7 @@ export function SettingsLabs({
         <div className="p-4">
           <label
             htmlFor="settings-demo-recording-experiment"
-            className="flex cursor-pointer items-start gap-3 border border-border/70 bg-muted/20 p-3 transition-colors hover:bg-muted/30 has-disabled:cursor-not-allowed has-disabled:opacity-60"
+            className="flex cursor-pointer flex-col gap-3 border border-border/70 bg-muted/20 p-3 transition-colors hover:bg-muted/30 has-disabled:cursor-not-allowed has-disabled:opacity-60 min-[420px]:flex-row min-[420px]:items-start"
           >
             <Checkbox
               id="settings-demo-recording-experiment"
@@ -56,7 +56,7 @@ export function SettingsLabs({
                 Show the Demo button in project and thread composers.
               </span>
             </span>
-            <span className="flex h-5 shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <span className="flex h-5 shrink-0 items-center gap-1.5 self-end font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground min-[420px]:self-auto">
               {saving ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : null}
               {enabled ? "On" : "Off"}
             </span>

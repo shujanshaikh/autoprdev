@@ -55,12 +55,12 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
         />
       </div>
 
-      <section className="border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-          <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+      <section className="min-w-0 border border-border bg-card">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+          <h2 className="min-w-0 font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
             Sandbox costs
           </h2>
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/70">
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/70">
             {sandboxCosts ? `${sandboxCosts.length} sandboxes` : "loading"}
           </span>
         </div>
@@ -100,14 +100,14 @@ function SummaryCard({
   loading: boolean;
 }) {
   return (
-    <div className="border border-border bg-muted/30 px-4 py-3">
+    <div className="min-w-0 border border-border bg-muted/30 px-4 py-3">
       <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
         {label}
       </p>
       {loading ? (
         <div className="mt-2 h-7 w-16 animate-pulse bg-muted" />
       ) : (
-        <p className="mt-2 text-xl font-semibold tabular-nums">{value}</p>
+        <p className="mt-2 truncate text-xl font-semibold tabular-nums">{value}</p>
       )}
     </div>
   );

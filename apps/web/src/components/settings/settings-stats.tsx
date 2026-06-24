@@ -23,7 +23,7 @@ export function SettingsStats({ projects, sandboxCosts }: SettingsStatsProps) {
   const loading = projects === undefined;
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="grid gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
       <StatCard
         label="Total"
         value={projectCount}
@@ -61,7 +61,7 @@ function StatCard({
   isCurrency?: boolean;
 }) {
   return (
-    <div className="border border-border bg-card px-4 py-3 transition-all">
+    <div className="min-w-0 border border-border bg-card px-4 py-3 transition-all">
       <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
         {label}
       </p>
@@ -70,7 +70,7 @@ function StatCard({
       ) : (
         <p
           className={cn(
-            "mt-2 font-semibold tabular-nums",
+            "mt-2 truncate font-semibold tabular-nums",
             isCurrency ? "text-2xl" : "text-3xl",
           )}
         >

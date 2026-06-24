@@ -17,6 +17,11 @@ import {
   SelectValue,
 } from "@autopr/ui/components/select";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@autopr/ui/components/tooltip";
+import {
   useMutation as useReactMutation,
   useQuery as useReactQuery,
 } from "@tanstack/react-query";
@@ -808,30 +813,32 @@ function ProjectOverviewPage() {
                               </SelectContent>
                             </Select>
                             {demoRecordingExperimentEnabled ? (
-                              <>
-                                <button
-                                  type="button"
-                                  role="switch"
-                                  aria-checked={effectiveDemoEnabled}
-                                  onClick={() => setDemoEnabled((enabled) => !enabled)}
-                                  disabled={promptControlsDisabled}
-                                  title={effectiveDemoEnabled ? "Experimental demo recording enabled for new threads" : "Allow the agent to record an experimental demo for new threads"}
-                                  className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                                    effectiveDemoEnabled
-                                      ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
-                                      : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
-                                  }`}
-                                >
-                                  <Video className="size-3.5" aria-hidden="true" />
-                                  <span>Demo</span>
-                                </button>
-                                {effectiveDemoEnabled ? (
-                                  <span className="inline-flex min-h-7 max-w-full items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
-                                    <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
-                                    <span>Experimental, can fail</span>
-                                  </span>
-                                ) : null}
-                              </>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={effectiveDemoEnabled}
+                                      onClick={() => setDemoEnabled((enabled) => !enabled)}
+                                      disabled={promptControlsDisabled}
+                                      className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                        effectiveDemoEnabled
+                                          ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
+                                          : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                                      }`}
+                                    >
+                                      <Video className="size-3.5" aria-hidden="true" />
+                                      <span>Demo</span>
+                                    </button>
+                                  }
+                                />
+                                <TooltipContent side="top" align="start" className="max-w-64 rounded-none">
+                                  {effectiveDemoEnabled
+                                    ? "Experimental: new threads will record a Daytona browser demo and may fail."
+                                    : "Allow the agent to record an experimental Daytona browser demo for new threads."}
+                                </TooltipContent>
+                              </Tooltip>
                             ) : null}
                             </div>
                             <button

@@ -651,6 +651,7 @@ export function ThreadMessages({
                         {input !== undefined ? (
                           <ToolInput
                             input={input}
+                            state={partState}
                             toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
                             toolType={part.type}
                           />

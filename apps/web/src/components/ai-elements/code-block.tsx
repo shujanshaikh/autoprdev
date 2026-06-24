@@ -46,6 +46,8 @@ interface KeyedLine {
   key: string;
 }
 
+type CodeBlockColorPalette = "shiki" | "diff";
+
 const addKeysToTokens = (lines: ThemedToken[][]): KeyedLine[] =>
   lines.map((line, lineIdx) => ({
     key: `line-${lineIdx}`,
@@ -55,20 +57,105 @@ const addKeysToTokens = (lines: ThemedToken[][]): KeyedLine[] =>
     })),
   }));
 
-// Token rendering component
-const TokenSpan = ({ token }: { token: ThemedToken }) => (
-  <span
-    className="dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)]"
-    style={
-      {
-        backgroundColor: token.bgColor,
-        color: token.color,
-        fontStyle: isItalic(token.fontStyle) ? "italic" : undefined,
-        fontWeight: isBold(token.fontStyle) ? "bold" : undefined,
-        textDecoration: isUnderline(token.fontStyle) ? "underline" : undefined,
-        ...token.htmlStyle,
-      } as CSSProperties
+function diffPaletteColorForToken(token: ThemedToken) {
+  const content = token.content.trim();
+  const htmlStyle = token.htmlStyle as (CSSProperties & Record<string, string | undefined>) | undefined;
+  const lightColor = (htmlStyle?.color ?? token.color ?? "").toLowerCase();
+  const darkColor = (htmlStyle?.["--shiki-dark"] ?? "").toLowerCase();
+
+  if (!content) {
+    return null;
+  }
+
+  if (/^[{}()[\].,;:=<>/+*\-|&!?]+$/.test(content)) {
+    return {
+      dark: "color-mix(in oklch, var(--muted-foreground) 72%, transparent)",
+      light: "color-mix(in oklch, var(--muted-foreground) 82%, transparent)",
+    };
+  }
+
+  if (
+    lightColor === "#032f62" ||
+    darkColor === "#9ecbff" ||
+    /^["'`]/.test(content)
+  ) {
+    return {
+      dark: "color-mix(in oklch, var(--diffs-added-dark, oklch(0.68 0.17 150)) 82%, var(--foreground))",
+      light: "color-mix(in oklch, var(--diffs-added-light, oklch(0.72 0.17 145)) 72%, var(--foreground))",
+    };
+  }
+
+  if (
+    lightColor === "#d73a49" ||
+    darkColor === "#f97583" ||
+    /^(?:class|const|export|function|import|interface|let|return|type|var)$/.test(content)
+  ) {
+    return {
+      dark: "color-mix(in oklch, var(--diffs-deleted-dark, oklch(0.64 0.18 20)) 78%, var(--foreground))",
+      light: "color-mix(in oklch, var(--diffs-deleted-light, oklch(0.62 0.2 25)) 70%, var(--foreground))",
+    };
+  }
+
+  if (
+    lightColor === "#005cc5" ||
+    lightColor === "#6f42c1" ||
+    darkColor === "#79b8ff" ||
+    darkColor === "#b392f0"
+  ) {
+    return {
+      dark: "color-mix(in oklch, var(--diffs-modified-dark, oklch(0.7 0.14 255)) 80%, var(--foreground))",
+      light: "color-mix(in oklch, var(--diffs-modified-light, oklch(0.65 0.15 250)) 74%, var(--foreground))",
+    };
+  }
+
+  if (lightColor === "#22863a" || darkColor === "#85e89d") {
+    return {
+      dark: "color-mix(in oklch, var(--diffs-added-dark, oklch(0.68 0.17 150)) 70%, var(--foreground))",
+      light: "color-mix(in oklch, var(--diffs-added-light, oklch(0.72 0.17 145)) 62%, var(--foreground))",
+    };
+  }
+
+  return {
+    dark: "color-mix(in oklch, var(--foreground) 84%, transparent)",
+    light: "color-mix(in oklch, var(--foreground) 78%, transparent)",
+  };
+}
+
+function tokenStyle(
+  token: ThemedToken,
+  colorPalette: CodeBlockColorPalette
+): CSSProperties {
+  const style = {
+    backgroundColor: token.bgColor,
+    color: token.color,
+    fontStyle: isItalic(token.fontStyle) ? "italic" : undefined,
+    fontWeight: isBold(token.fontStyle) ? "bold" : undefined,
+    textDecoration: isUnderline(token.fontStyle) ? "underline" : undefined,
+    ...token.htmlStyle,
+  } as CSSProperties & Record<string, string | undefined>;
+
+  if (colorPalette === "diff") {
+    const paletteColor = diffPaletteColorForToken(token);
+    if (paletteColor) {
+      style.color = paletteColor.light;
+      style["--shiki-dark"] = paletteColor.dark;
     }
+  }
+
+  return style;
+}
+
+// Token rendering component
+const TokenSpan = ({
+  colorPalette,
+  token,
+}: {
+  colorPalette: CodeBlockColorPalette;
+  token: ThemedToken;
+}) => (
+  <span
+    className="dark:!text-[var(--shiki-dark)]"
+    style={tokenStyle(token, colorPalette)}
   >
     {token.content}
   </span>
@@ -90,9 +177,11 @@ const LINE_NUMBER_CLASSES = cn(
 
 // Line rendering component
 const LineSpan = ({
+  colorPalette,
   keyedLine,
   showLineNumbers,
 }: {
+  colorPalette: CodeBlockColorPalette;
   keyedLine: KeyedLine;
   showLineNumbers: boolean;
 }) => (
@@ -100,7 +189,7 @@ const LineSpan = ({
     {keyedLine.tokens.length === 0
       ? "\n"
       : keyedLine.tokens.map(({ token, key }) => (
-          <TokenSpan key={key} token={token} />
+          <TokenSpan colorPalette={colorPalette} key={key} token={token} />
         ))}
   </span>
 );
@@ -108,14 +197,17 @@ const LineSpan = ({
 // Types
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
+  colorPalette?: CodeBlockColorPalette;
   language: BundledLanguage;
+  codeClassName?: string;
+  preClassName?: string;
   showLineNumbers?: boolean;
+  useShikiBackground?: boolean;
 };
 
 interface TokenizedCode {
   tokens: ThemedToken[][];
-  fg: string;
-  bg: string;
+  style: CSSProperties;
 }
 
 interface CodeBlockContextType {
@@ -127,11 +219,13 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: "",
 });
 
+type HighlighterCacheEntry = {
+  highlighter?: HighlighterGeneric<BundledLanguage, BundledTheme>;
+  promise: Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>;
+};
+
 // Highlighter cache (singleton per language)
-const highlighterCache = new Map<
-  string,
-  Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
->();
+const highlighterCache = new Map<string, HighlighterCacheEntry>();
 
 // Token cache
 const tokensCache = new Map<string, TokenizedCode>();
@@ -145,27 +239,110 @@ const getTokensCacheKey = (code: string, language: BundledLanguage) => {
   return `${language}:${code.length}:${start}:${end}`;
 };
 
-const getHighlighter = (
-  language: BundledLanguage
-): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> => {
+const getHighlighterEntry = (language: BundledLanguage): HighlighterCacheEntry => {
   const cached = highlighterCache.get(language);
   if (cached) {
     return cached;
   }
 
-  const highlighterPromise = createHighlighter({
-    langs: [language],
-    themes: ["github-light", "github-dark"],
-  });
+  const entry: HighlighterCacheEntry = {
+    promise: createHighlighter({
+      langs: [language],
+      themes: ["github-light", "github-dark"],
+    }),
+  };
 
-  highlighterCache.set(language, highlighterPromise);
-  return highlighterPromise;
+  entry.promise
+    // oxlint-disable-next-line eslint-plugin-promise/prefer-await-to-then
+    .then((highlighter) => {
+      entry.highlighter = highlighter;
+      return highlighter;
+    })
+    // oxlint-disable-next-line eslint-plugin-promise/prefer-await-to-then
+    .catch(() => {
+      highlighterCache.delete(language);
+    });
+
+  highlighterCache.set(language, entry);
+  return entry;
 };
+
+const getHighlighter = (
+  language: BundledLanguage
+): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> =>
+  getHighlighterEntry(language).promise;
+
+function shikiThemeStyle(
+  property: "backgroundColor" | "color",
+  value: string | undefined
+): CSSProperties {
+  if (!value) {
+    return {};
+  }
+
+  const [baseValue, ...variableDeclarations] = value.split(";");
+  const style: CSSProperties & Record<string, string> = {};
+
+  if (baseValue) {
+    style[property] = baseValue;
+  }
+
+  for (const declaration of variableDeclarations) {
+    const separatorIndex = declaration.indexOf(":");
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const name = declaration.slice(0, separatorIndex).trim();
+    const variableValue = declaration.slice(separatorIndex + 1).trim();
+
+    if (name.startsWith("--") && variableValue) {
+      style[name] = variableValue;
+    }
+  }
+
+  return style;
+}
+
+function tokenizedFromResult(result: {
+  bg?: string;
+  fg?: string;
+  tokens: ThemedToken[][];
+}): TokenizedCode {
+  return {
+    style: {
+      ...shikiThemeStyle("backgroundColor", result.bg),
+      ...shikiThemeStyle("color", result.fg),
+    },
+    tokens: result.tokens,
+  };
+}
+
+function tokenizeWithHighlighter(
+  highlighter: HighlighterGeneric<BundledLanguage, BundledTheme>,
+  code: string,
+  language: BundledLanguage
+): TokenizedCode {
+  const availableLangs = highlighter.getLoadedLanguages();
+  const langToUse = availableLangs.includes(language) ? language : "text";
+
+  return tokenizedFromResult(
+    highlighter.codeToTokens(code, {
+      lang: langToUse,
+      themes: {
+        dark: "github-dark",
+        light: "github-light",
+      },
+    })
+  );
+}
 
 // Create raw tokens for immediate display while highlighting loads
 const createRawTokens = (code: string): TokenizedCode => ({
-  bg: "transparent",
-  fg: "inherit",
+  style: {
+    backgroundColor: "transparent",
+    color: "inherit",
+  },
   tokens: code.split("\n").map((line) =>
     line === ""
       ? []
@@ -193,6 +370,17 @@ const highlightCode = (
     return cached;
   }
 
+  const highlighterEntry = highlighterCache.get(language);
+  if (highlighterEntry?.highlighter) {
+    const tokenized = tokenizeWithHighlighter(
+      highlighterEntry.highlighter,
+      code,
+      language
+    );
+    tokensCache.set(tokensCacheKey, tokenized);
+    return tokenized;
+  }
+
   // Subscribe callback if provided
   if (callback) {
     if (!subscribers.has(tokensCacheKey)) {
@@ -205,22 +393,7 @@ const highlightCode = (
   getHighlighter(language)
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
     .then((highlighter) => {
-      const availableLangs = highlighter.getLoadedLanguages();
-      const langToUse = availableLangs.includes(language) ? language : "text";
-
-      const result = highlighter.codeToTokens(code, {
-        lang: langToUse,
-        themes: {
-          dark: "github-dark",
-          light: "github-light",
-        },
-      });
-
-      const tokenized: TokenizedCode = {
-        bg: result.bg ?? "transparent",
-        fg: result.fg ?? "inherit",
-        tokens: result.tokens,
-      };
+      const tokenized = tokenizeWithHighlighter(highlighter, code, language);
 
       // Cache the result
       tokensCache.set(tokensCacheKey, tokenized);
@@ -243,22 +416,36 @@ const highlightCode = (
   return null;
 };
 
+function withoutShikiBackground(style: CSSProperties): CSSProperties {
+  const { backgroundColor: _backgroundColor, ...rest } =
+    style as CSSProperties & Record<string, string | undefined>;
+  const next = { ...rest };
+  delete next["--shiki-dark-bg"];
+  return next;
+}
+
 const CodeBlockBody = memo(
   ({
+    codeClassName,
+    colorPalette,
+    preClassName,
     tokenized,
     showLineNumbers,
-    className,
+    useShikiBackground,
   }: {
+    codeClassName?: string;
+    colorPalette: CodeBlockColorPalette;
+    preClassName?: string;
     tokenized: TokenizedCode;
     showLineNumbers: boolean;
-    className?: string;
+    useShikiBackground: boolean;
   }) => {
     const preStyle = useMemo(
-      () => ({
-        backgroundColor: tokenized.bg,
-        color: tokenized.fg,
-      }),
-      [tokenized.bg, tokenized.fg]
+      () =>
+        useShikiBackground
+          ? tokenized.style
+          : withoutShikiBackground(tokenized.style),
+      [tokenized.style, useShikiBackground]
     );
 
     const keyedLines = useMemo(
@@ -269,19 +456,22 @@ const CodeBlockBody = memo(
     return (
       <pre
         className={cn(
-          "dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)] m-0 p-4 text-sm",
-          className
+          "m-0 p-4 text-sm dark:!text-[var(--shiki-dark)]",
+          useShikiBackground && "dark:!bg-[var(--shiki-dark-bg)]",
+          preClassName
         )}
         style={preStyle}
       >
         <code
           className={cn(
             "font-mono text-sm",
-            showLineNumbers && "[counter-increment:line_0] [counter-reset:line]"
+            showLineNumbers && "[counter-increment:line_0] [counter-reset:line]",
+            codeClassName
           )}
         >
           {keyedLines.map((keyedLine) => (
             <LineSpan
+              colorPalette={colorPalette}
               key={keyedLine.key}
               keyedLine={keyedLine}
               showLineNumbers={showLineNumbers}
@@ -292,9 +482,12 @@ const CodeBlockBody = memo(
     );
   },
   (prevProps, nextProps) =>
+    prevProps.codeClassName === nextProps.codeClassName &&
+    prevProps.colorPalette === nextProps.colorPalette &&
+    prevProps.preClassName === nextProps.preClassName &&
     prevProps.tokenized === nextProps.tokenized &&
     prevProps.showLineNumbers === nextProps.showLineNumbers &&
-    prevProps.className === nextProps.className
+    prevProps.useShikiBackground === nextProps.useShikiBackground
 );
 
 CodeBlockBody.displayName = "CodeBlockBody";
@@ -371,12 +564,20 @@ const CodeBlockActions = ({
 
 const CodeBlockContent = ({
   code,
+  codeClassName,
+  colorPalette = "shiki",
   language,
+  preClassName,
   showLineNumbers = false,
+  useShikiBackground = true,
 }: {
   code: string;
+  codeClassName?: string;
+  colorPalette?: CodeBlockColorPalette;
   language: BundledLanguage;
+  preClassName?: string;
   showLineNumbers?: boolean;
+  useShikiBackground?: boolean;
 }) => {
   // Memoized raw tokens for immediate display
   const rawTokens = useMemo(() => createRawTokens(code), [code]);
@@ -415,15 +616,26 @@ const CodeBlockContent = ({
 
   return (
     <div className="relative overflow-auto">
-      <CodeBlockBody showLineNumbers={showLineNumbers} tokenized={tokenized} />
+      <CodeBlockBody
+        codeClassName={codeClassName}
+        colorPalette={colorPalette}
+        preClassName={preClassName}
+        showLineNumbers={showLineNumbers}
+        tokenized={tokenized}
+        useShikiBackground={useShikiBackground}
+      />
     </div>
   );
 };
 
 export const CodeBlock = ({
   code,
+  codeClassName,
+  colorPalette = "shiki",
   language,
+  preClassName,
   showLineNumbers = false,
+  useShikiBackground = true,
   className,
   children,
   ...props
@@ -436,8 +648,12 @@ export const CodeBlock = ({
         {children}
         <CodeBlockContent
           code={code}
+          codeClassName={codeClassName}
+          colorPalette={colorPalette}
           language={language}
+          preClassName={preClassName}
           showLineNumbers={showLineNumbers}
+          useShikiBackground={useShikiBackground}
         />
       </CodeBlockContainer>
     </CodeBlockContext.Provider>

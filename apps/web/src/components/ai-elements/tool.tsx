@@ -21,6 +21,57 @@ import { PierreDiffView } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
 
 const PLAIN_TEXT_LANG = "text" as BundledLanguage;
+const STREAMING_CODE_PREVIEW_MAX_CHARS = 80_000;
+
+const LANGUAGE_BY_BASENAME: Record<string, BundledLanguage> = {
+  ".env": "dotenv",
+  "dockerfile": "dockerfile",
+  "makefile": "makefile",
+};
+
+const LANGUAGE_BY_EXTENSION: Record<string, BundledLanguage> = {
+  bash: "bash",
+  c: "c",
+  cc: "cpp",
+  cjs: "javascript",
+  cpp: "cpp",
+  cs: "csharp",
+  css: "css",
+  cts: "typescript",
+  cxx: "cpp",
+  dockerfile: "dockerfile",
+  env: "dotenv",
+  fish: "fish",
+  go: "go",
+  h: "c",
+  hpp: "cpp",
+  html: "html",
+  java: "java",
+  js: "javascript",
+  json: "json",
+  jsonc: "jsonc",
+  jsx: "jsx",
+  kt: "kotlin",
+  kts: "kotlin",
+  md: "markdown",
+  mdx: "mdx",
+  mjs: "javascript",
+  mts: "typescript",
+  php: "php",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  scss: "scss",
+  sh: "bash",
+  sql: "sql",
+  swift: "swift",
+  toml: "toml",
+  ts: "typescript",
+  tsx: "tsx",
+  yaml: "yaml",
+  yml: "yaml",
+  zsh: "zsh",
+};
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
@@ -93,6 +144,62 @@ function pathBasename(path: string): string {
   const i = t.lastIndexOf("/");
   const n = i === -1 ? t : t.slice(i + 1);
   return n || "/";
+}
+
+function languageFromPath(path: unknown): BundledLanguage {
+  if (typeof path !== "string") {
+    return PLAIN_TEXT_LANG;
+  }
+
+  const basename = pathBasename(path).toLowerCase();
+  if (basename === ".env" || basename.startsWith(".env.")) {
+    return "dotenv";
+  }
+  if (basename === "dockerfile" || basename.startsWith("dockerfile.")) {
+    return "dockerfile";
+  }
+
+  const basenameLanguage = LANGUAGE_BY_BASENAME[basename];
+  if (basenameLanguage) {
+    return basenameLanguage;
+  }
+
+  const extension = basename.includes(".") ? basename.slice(basename.lastIndexOf(".") + 1) : "";
+  return LANGUAGE_BY_EXTENSION[extension] ?? PLAIN_TEXT_LANG;
+}
+
+function languageFromCode(code: string): BundledLanguage {
+  const trimmed = code.trimStart();
+  if (!trimmed) {
+    return PLAIN_TEXT_LANG;
+  }
+
+  const firstLine = trimmed.split(/\r?\n/, 1)[0] ?? "";
+  if (/^#!.*\b(?:bash|sh|zsh)\b/.test(firstLine)) {
+    return "bash";
+  }
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return "json";
+  }
+  if (/^</.test(trimmed) && /<\/?[a-z][\s>/]/i.test(trimmed)) {
+    return "html";
+  }
+  if (
+    /\b(?:export|import)\s+(?:type\s+)?[\w{*]/.test(trimmed) ||
+    /\b(?:const|let|interface|type)\s+\w/.test(trimmed)
+  ) {
+    return "typescript";
+  }
+  if (/^[\w.-]+:\s+\S/m.test(trimmed) && !/[;{}]/.test(trimmed.slice(0, 500))) {
+    return "yaml";
+  }
+
+  return PLAIN_TEXT_LANG;
+}
+
+function languageFromPathOrCode(path: unknown, code: string): BundledLanguage {
+  const pathLanguage = languageFromPath(path);
+  return pathLanguage === PLAIN_TEXT_LANG ? languageFromCode(code) : pathLanguage;
 }
 
 function displayToolLabel(slug: string): string {
@@ -926,8 +1033,137 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   />
 );
 
+function trimStreamingPreviewIndent(code: string) {
+  const lines = code.replace(/\r\n/g, "\n").split("\n");
+
+  while (lines[0]?.trim() === "") {
+    lines.shift();
+  }
+  while (lines.at(-1)?.trim() === "") {
+    lines.pop();
+  }
+
+  const indentedLines = lines.filter((line) => line.trim().length > 0);
+  if (indentedLines.length === 0) {
+    return "";
+  }
+
+  const commonIndent = Math.min(
+    ...indentedLines.map((line) => line.match(/^[ \t]*/)?.[0].length ?? 0)
+  );
+
+  if (commonIndent === 0) {
+    return lines.join("\n");
+  }
+
+  return lines
+    .map((line) => (line.trim().length > 0 ? line.slice(commonIndent) : ""))
+    .join("\n");
+}
+
+function streamingPreviewCode(code: string) {
+  const trimmedCode = trimStreamingPreviewIndent(code);
+  return {
+    code: trimmedCode.slice(0, STREAMING_CODE_PREVIEW_MAX_CHARS),
+    truncated: trimmedCode.length > STREAMING_CODE_PREVIEW_MAX_CHARS,
+  };
+}
+
+function StreamingCodePreview({
+  className,
+  code,
+  language,
+  path,
+  title,
+}: {
+  className?: string;
+  code: string;
+  language: BundledLanguage;
+  path?: string;
+  title: string;
+}) {
+  const preview = streamingPreviewCode(code);
+
+  return (
+    <section
+      className={cn(
+        "overflow-hidden border border-border/60 bg-[oklch(0.994_0_0)] text-foreground dark:bg-[oklch(0.222_0_0)]",
+        className
+      )}
+    >
+      <div className="flex min-w-0 items-baseline gap-2 border-b border-border/50 bg-muted/20 px-2.5 py-1.5 font-sans">
+        <h4 className="shrink-0 text-[11px] font-medium leading-none text-muted-foreground">
+          {title}
+        </h4>
+        {path ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] leading-none text-muted-foreground/65">
+            {path}
+          </span>
+        ) : null}
+      </div>
+      <div className="max-h-[min(55vh,520px)] overflow-auto">
+        <CodeBlock
+          className="rounded-none border-0 bg-transparent text-foreground"
+          code={preview.code}
+          codeClassName="text-[12px] leading-[19px]"
+          colorPalette="diff"
+          language={language}
+          preClassName="bg-transparent p-2 text-[12px] leading-[19px] text-foreground/90"
+          useShikiBackground={false}
+        />
+      </div>
+      {preview.truncated ? (
+        <p className="border-t border-border/50 bg-muted/10 px-2.5 py-1.5 font-sans text-[11px] leading-snug text-muted-foreground/70">
+          Streaming preview truncated.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function writeContentFromInput(input: unknown): string | null {
+  if (!isRecord(input) || typeof input.content !== "string") {
+    return null;
+  }
+
+  return input.content;
+}
+
+function pathFromToolInput(input: unknown): string | undefined {
+  if (!isRecord(input) || typeof input.path !== "string") {
+    return undefined;
+  }
+
+  return input.path;
+}
+
+function editPreviewsFromInput(input: unknown) {
+  if (!isRecord(input) || !Array.isArray(input.edits)) {
+    return [];
+  }
+
+  return input.edits.flatMap((edit, index) => {
+    if (!isRecord(edit)) {
+      return [];
+    }
+
+    if (typeof edit.newText === "string") {
+      return [
+        {
+          code: edit.newText,
+          index,
+          title: `Replacement ${index + 1}`,
+        },
+      ];
+    }
+
+    return [];
+  });
+}
+
 export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolPart["input"];
+  state?: ToolPart["state"];
   toolType?: string;
   toolName?: string;
 };
@@ -935,11 +1171,46 @@ export type ToolInputProps = ComponentProps<"div"> & {
 export const ToolInput = ({
   className,
   input,
+  state,
   toolType = "",
   toolName,
   ...props
 }: ToolInputProps) => {
   const slug = toolSlugFromPart(toolType, toolName);
+  if ((slug === "write" || slug === "edit") && state !== "output-available") {
+    const path = pathFromToolInput(input);
+    if (slug === "write") {
+      const content = writeContentFromInput(input);
+
+      return content !== null ? (
+        <div className={className} {...props}>
+          <StreamingCodePreview
+            code={content}
+            language={languageFromPathOrCode(path, content)}
+            path={path}
+            title="Writing"
+          />
+        </div>
+      ) : null;
+    }
+
+    const editPreviews = editPreviewsFromInput(input);
+
+    return editPreviews.length > 0 ? (
+      <div className={cn("space-y-3", className)} {...props}>
+        {editPreviews.map((preview) => (
+          <StreamingCodePreview
+            key={preview.index}
+            code={preview.code}
+            language={languageFromPathOrCode(path, preview.code)}
+            path={path}
+            title={preview.title}
+          />
+        ))}
+      </div>
+    ) : null;
+  }
+
   if (slug === "edit" || slug === "computer") {
     return null;
   }

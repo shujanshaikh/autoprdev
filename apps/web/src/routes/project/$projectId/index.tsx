@@ -49,6 +49,10 @@ import {
   type PromptImageUploadState,
 } from "#/components/thread/prompt-image-uploads";
 import {
+  CodexPromptConnectionLine,
+  type CodexPromptConnectionIssue,
+} from "#/components/codex-prompt-connection-line";
+import {
   CODEX_MODELS,
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
@@ -57,6 +61,7 @@ import {
   type CodexModelId,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
+import { useCodexStatus } from "#/lib/codex-status";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -180,6 +185,7 @@ function ProjectOverviewPage() {
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
+  const codexStatusQuery = useCodexStatus(isAuthenticated);
   const createThread = useMutation(api.threads.create);
   const removeThread = useMutation(api.threads.remove);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
@@ -295,6 +301,15 @@ function ProjectOverviewPage() {
       : refreshedSandboxRuntimeStatus ?? project?.sandboxRuntimeStatus;
   const isCheckingSandboxRuntime = sandboxRuntimeStatusQuery.isFetching;
   const isSandboxStarted = effectiveSandboxRuntimeStatus === "started";
+  const isCodexConnected = codexStatusQuery.data?.connected === true;
+  const codexPromptIssue: CodexPromptConnectionIssue | undefined =
+    project?.sandboxStatus === "ready" && codexStatusQuery.data?.connected === false
+      ? "disconnected"
+      : project?.sandboxStatus === "ready" && codexStatusQuery.isError
+        ? "unavailable"
+        : undefined;
+  const promptReady = Boolean(project && project.sandboxStatus === "ready" && isCodexConnected);
+  const promptControlsDisabled = !promptReady || isCreatingThread;
   const sandboxRuntimeButton = (() => {
     if (isTogglingSandbox) {
       return { icon: Loader2, label: "Updating Sandbox", variant: "outline" as const };
@@ -459,7 +474,7 @@ function ProjectOverviewPage() {
   }, []);
 
   const startThread = useCallback(async (initialPrompt?: string) => {
-    if (!project || project.sandboxStatus !== "ready") return;
+    if (!project || !promptReady) return;
     const prompt = (initialPrompt ?? promptValue).trim();
     setIsCreatingThread(true);
     setError(undefined);
@@ -494,6 +509,7 @@ function ProjectOverviewPage() {
     project,
     projectId,
     promptValue,
+    promptReady,
     resolvePromptImages,
     router,
     selectedModel,
@@ -676,7 +692,7 @@ function ProjectOverviewPage() {
                           accept="image/*"
                           multiple
                           className="hidden"
-                          disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                          disabled={promptControlsDisabled}
                           onChange={handlePromptImageInputChange}
                         />
                         <div
@@ -685,6 +701,7 @@ function ProjectOverviewPage() {
                             : "border-border hover:border-border/80"
                             }`}
                         >
+                          <CodexPromptConnectionLine issue={codexPromptIssue} />
                           {promptImages.length > 0 ? (
                             <div className="flex flex-wrap gap-2 px-3.5 pt-3.5">
                               {promptImages.map((image) => (
@@ -718,7 +735,7 @@ function ProjectOverviewPage() {
                                     type="button"
                                     aria-label={`Remove ${image.filename}`}
                                     className="absolute right-1 top-1 inline-flex size-5 items-center justify-center border border-border bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/image:opacity-100"
-                                    disabled={isCreatingThread}
+                                    disabled={promptControlsDisabled}
                                     onClick={() => removePromptImage(image.id)}
                                   >
                                     <X className="size-3" aria-hidden="true" />
@@ -738,7 +755,7 @@ function ProjectOverviewPage() {
                               onFocus={() => setIsFocused(true)}
                               onBlur={() => setIsFocused(false)}
                               placeholder={`Ask ${project.repoFullName?.split("/")[1] ?? "the agent"} anything…`}
-                              disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                              disabled={promptControlsDisabled}
                               rows={1}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" && !e.shiftKey) {
@@ -758,7 +775,7 @@ function ProjectOverviewPage() {
                                 aria-label="Add photos"
                                 title="Add photos"
                                 onClick={() => promptImageInputRef.current?.click()}
-                                disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                                disabled={promptControlsDisabled}
                                 className="inline-flex size-7 shrink-0 items-center justify-center border border-transparent bg-transparent text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
@@ -773,7 +790,7 @@ function ProjectOverviewPage() {
                               <SelectTrigger
                                 size="sm"
                                 className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
-                                disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                                disabled={promptControlsDisabled}
                                 aria-label="Reasoning level"
                               >
                                 <SelectValue>
@@ -797,7 +814,7 @@ function ProjectOverviewPage() {
                                   role="switch"
                                   aria-checked={effectiveDemoEnabled}
                                   onClick={() => setDemoEnabled((enabled) => !enabled)}
-                                  disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                                  disabled={promptControlsDisabled}
                                   title={effectiveDemoEnabled ? "Experimental demo recording enabled for new threads" : "Allow the agent to record an experimental demo for new threads"}
                                   className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
                                     effectiveDemoEnabled
@@ -819,7 +836,7 @@ function ProjectOverviewPage() {
                             </div>
                             <button
                               type="submit"
-                              disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                              disabled={promptControlsDisabled}
                               className="inline-flex size-7 items-center justify-center bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
                             >
                               <ArrowUp className="size-3.5" aria-hidden="true" />
@@ -854,7 +871,7 @@ function ProjectOverviewPage() {
                                setPromptValue(action);
                                void startThread(action);
                              }}
-                            disabled={project.sandboxStatus !== "ready"}
+                            disabled={promptControlsDisabled}
                             className="border border-border/60 px-3 py-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {action}
@@ -940,7 +957,7 @@ function ProjectOverviewPage() {
                         <button
                           type="button"
                           onClick={() => void startThread()}
-                          disabled={project.sandboxStatus !== "ready" || isCreatingThread}
+                          disabled={promptControlsDisabled}
                           className="inline-flex h-8 items-center gap-1.5 border border-primary/20 bg-primary/6 px-2.5 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <MessageSquarePlus className="size-3" aria-hidden="true" />

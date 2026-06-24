@@ -77,6 +77,7 @@ import {
   type SandboxStatus,
 } from "#/components/dashboard/types";
 import { RouteTransition } from "#/components/route-transition";
+import { useCodexStatus } from "#/lib/codex-status";
 
 const EMPTY_REPOSITORIES: GithubRepository[] = [];
 const EMPTY_BRANCHES: GithubBranch[] = [];
@@ -817,17 +818,7 @@ export function WorkspaceShell({
   const cachedThreads = activeProjectId ? sidebarThreadCache.get(activeProjectId) : undefined;
   const sidebarThreads = activeProjectThreads ?? cachedThreads;
 
-  const codexStatusQuery = useReactQuery({
-    queryKey: ["codex", "status"],
-    enabled: isAuthenticated,
-    retry: false,
-    queryFn: async () =>
-      readJson<{
-        connected: boolean;
-        email?: string;
-        accountId?: string;
-      }>(await fetch("/api/codex/status")),
-  });
+  const codexStatusQuery = useCodexStatus(isAuthenticated);
 
   const projectToDelete = useMemo(
     () => projects?.find((p) => p.projectId === projectIdToDelete),

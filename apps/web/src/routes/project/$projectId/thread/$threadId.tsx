@@ -8,9 +8,11 @@ import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState
 import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-diff-view";
 import Loader from "@/components/loader";
 import { toUIMessage, type StoredMessageRow } from "@/lib/chat-messages";
+import type { CodexPromptConnectionIssue } from "#/components/codex-prompt-connection-line";
 import { ThreadChat } from "#/components/thread/thread-chat";
 import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
 import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
+import { useCodexStatus } from "#/lib/codex-status";
 
 const EMPTY_STORED_MESSAGES: StoredMessageRow[] = [];
 const EMPTY_PARTS_CACHE: Record<string, StoredMessageRow["parts"]> = {};
@@ -120,6 +122,7 @@ function ProjectThreadPageContent() {
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
   const hydrateAssistantParts = useAction(api.messages.hydrateAssistantParts);
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
+  const codexStatusQuery = useCodexStatus(isAuthenticated);
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [diffCount, setDiffCount] = useState(0);
   const [{ threadId: hydratedThreadId, partsByCacheKey, messageLoadError }, dispatchMessageLoad] = useReducer(
@@ -191,7 +194,15 @@ function ProjectThreadPageContent() {
     (displayDbMessages === undefined && !messageLoadError);
   const messageLoadFailed = Boolean(messageLoadError && displayDbMessages === undefined);
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
-  const disabled = !project || project.sandboxStatus !== "ready";
+  const projectDisabled = !project || project.sandboxStatus !== "ready";
+  const codexConnected = codexStatusQuery.data?.connected === true;
+  const chatDisabled = projectDisabled || !codexConnected;
+  const codexPromptIssue: CodexPromptConnectionIssue | undefined =
+    project?.sandboxStatus === "ready" && codexStatusQuery.data?.connected === false
+      ? "disconnected"
+      : project?.sandboxStatus === "ready" && codexStatusQuery.isError
+        ? "unavailable"
+        : undefined;
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
 
   useEffect(() => {
@@ -272,7 +283,7 @@ function ProjectThreadPageContent() {
               <ThreadCommitButton
                 projectId={projectId}
                 threadId={threadId}
-                disabled={disabled || loading || notFound}
+                disabled={projectDisabled || loading || notFound}
                 thread={thread}
               />
 
@@ -357,7 +368,8 @@ function ProjectThreadPageContent() {
                   initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
                   initialModel={initialModel}
                   initialReasoningEffort={initialReasoningEffort}
-                  disabled={disabled}
+                  disabled={chatDisabled}
+                  codexPromptIssue={codexPromptIssue}
                   diffPanelOpen={diffPanelOpen}
                   demoRecordingExperimentEnabled={demoRecordingExperimentEnabled}
                   onDiffPanelOpenChange={setDiffPanelOpen}

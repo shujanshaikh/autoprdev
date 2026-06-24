@@ -8,9 +8,10 @@ import {
 } from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
 import { FlaskConical, LayoutDashboard, Receipt } from "lucide-react";
-import { CodexConnectPanel, type CodexStatus } from "#/components/dashboard/codex-connect-dialog";
+import { CodexConnectPanel } from "#/components/dashboard/codex-connect-dialog";
 import { CodexLogo } from "#/components/icons/codex-logo";
 import type { SandboxStatus, SandboxRuntimeStatus } from "#/components/dashboard/types";
+import type { CodexStatus } from "#/lib/codex-status";
 import { SettingsStats } from "./settings-stats";
 import { SettingsProjects } from "./settings-projects";
 import { SettingsBilling } from "./settings-billing";

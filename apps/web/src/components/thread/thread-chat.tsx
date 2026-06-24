@@ -49,6 +49,10 @@ import {
   PromptImageUploadButton,
   usePromptImageUploadManager,
 } from "#/components/thread/prompt-image-uploads";
+import {
+  CodexPromptConnectionLine,
+  type CodexPromptConnectionIssue,
+} from "#/components/codex-prompt-connection-line";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
@@ -407,6 +411,7 @@ export function ThreadChat({
   initialModel,
   initialReasoningEffort,
   disabled,
+  codexPromptIssue,
   diffPanelOpen,
   demoRecordingExperimentEnabled,
   onDiffPanelOpenChange,
@@ -423,6 +428,7 @@ export function ThreadChat({
   initialModel?: CodexModelId;
   initialReasoningEffort?: CodexReasoningEffort;
   disabled: boolean;
+  codexPromptIssue?: CodexPromptConnectionIssue;
   diffPanelOpen: boolean;
   demoRecordingExperimentEnabled: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
@@ -881,6 +887,7 @@ export function ThreadChat({
                 multiple
                 onSubmit={(message) => submitMessage(message)}
               >
+                <CodexPromptConnectionLine issue={codexPromptIssue} />
                 <PromptInputHeader className="px-2.5 pt-2.5 pb-0">
                   <PromptImageAttachments
                     disabled={!ready}

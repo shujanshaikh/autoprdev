@@ -13,12 +13,7 @@ import { useEffect, useState } from "react";
 
 import { CodexLogo } from "#/components/icons/codex-logo";
 import { readJson } from "#/components/dashboard/types";
-
-export type CodexStatus = {
-  connected: boolean;
-  email?: string;
-  accountId?: string;
-};
+import type { CodexStatus } from "#/lib/codex-status";
 
 type DeviceStartResponse = {
   userCode: string;

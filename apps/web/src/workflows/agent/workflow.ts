@@ -6,7 +6,7 @@ import {
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { DurableAgent } from "@workflow/ai/agent";
-import { type ModelMessage, type UIMessageChunk } from "ai";
+import { type FinishReason, type ModelMessage, type UIMessageChunk } from "ai";
 import { fetchAction, fetchMutation } from "convex/nextjs";
 import { getWorkflowMetadata, getWritable } from "workflow";
 import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
@@ -88,6 +88,8 @@ type WorkflowIssue = {
   errorStack?: string;
   occurredAt: number;
 };
+
+const MAX_AGENT_WORKFLOW_STEPS = 100;
 
 function getConvexUrl() {
   const url = process.env.VITE_CONVEX_URL;
@@ -292,6 +294,20 @@ async function writeAssistantMetadataChunk(
   }
 }
 
+async function closeAssistantStream(writable: WritableStream<UIMessageChunk>) {
+  "use step";
+
+  const writer = writable.getWriter();
+
+  try {
+    await writer.write({ type: "finish" });
+  } finally {
+    writer.releaseLock();
+  }
+
+  await writable.close();
+}
+
 async function markWorkflowRunFinished({
   convexAuth,
   threadId,
@@ -351,6 +367,20 @@ function codexOpenAIModel(options: CodexAgentModelOptions) {
   };
 }
 
+type DurableAgentStreamResult = Awaited<ReturnType<DurableAgent["stream"]>>;
+
+function finishReasonFromResult(result: DurableAgentStreamResult): FinishReason | undefined {
+  return result.steps.at(-1)?.finishReason;
+}
+
+function shouldContinueAgentLoop(result: DurableAgentStreamResult): boolean {
+  if (finishReasonFromResult(result) !== "tool-calls") {
+    return false;
+  }
+
+  return result.toolCalls.length > 0 && result.toolCalls.length === result.toolResults.length;
+}
+
 export async function agentWorkflow(inputMessages: ModelMessage[], options: AgentWorkflowOptions) {
   "use workflow";
 
@@ -394,6 +424,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
 
   const writable = getWritable<UIMessageChunk>();
   let persistenceFinished = false;
+  let streamClosed = false;
   const runStartedAt = Date.now();
 
   if (options.assistantMessageId) {
@@ -409,67 +440,85 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
         toolChoice: "auto",
       });
 
-      await agent.stream({
-        messages: applyAgenticCache(inputMessages),
-        writable,
-        sendStart: !options.assistantMessageId,
-        maxSteps: 100,
-        maxRetries: 1,
-        prepareStep: ({ messages }) => ({
-          messages: compactPromptMessagesForModel(messages),
-        }),
-        providerOptions: {
-          openai: {
-            store: false,
-            instructions,
-            parallelToolCalls: true,
-            promptCacheKey: codexOptions.promptCacheKey,
-            reasoningEffort: codexOptions.reasoningEffort,
-            reasoningSummary: "auto",
-            include: ["reasoning.encrypted_content"],
-          },
-        },
-        onFinish: async ({ messages, steps }) => {
-          if (!persistence) {
-            return;
-          }
+      let messages = inputMessages;
+      const steps: DurableAgentStreamResult["steps"] = [];
 
-          const stepUsages = steps.map((step) => tokenUsageFromStep(step, codexOptions.modelId));
-          const runCompletedAt = Date.now();
-          const usageMetadata: AssistantUsageMetadata = {
-            usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),
-            contextUsage: stepUsages.at(-1) ?? emptyTokenUsage(),
-            run: {
-              startedAt: runStartedAt,
-              completedAt: runCompletedAt,
-              durationSeconds: Math.max(0, Math.round((runCompletedAt - runStartedAt) / 1000)),
+      for (let stepIndex = 0; stepIndex < MAX_AGENT_WORKFLOW_STEPS; stepIndex += 1) {
+        const result = await agent.stream({
+          messages: applyAgenticCache(messages),
+          writable,
+          sendStart: !options.assistantMessageId && stepIndex === 0,
+          sendFinish: false,
+          preventClose: true,
+          maxSteps: 1,
+          maxRetries: 1,
+          prepareStep: ({ messages: stepMessages }) => ({
+            messages: compactPromptMessagesForModel(stepMessages),
+          }),
+          providerOptions: {
+            openai: {
+              store: false,
+              instructions,
+              parallelToolCalls: true,
+              promptCacheKey: codexOptions.promptCacheKey,
+              reasoningEffort: codexOptions.reasoningEffort,
+              reasoningSummary: "auto",
+              include: ["reasoning.encrypted_content"],
             },
-          };
+          },
+        });
 
-          try {
-            await writeAssistantMetadataChunk(writable, usageMetadata);
-            const refreshedPersistence = {
-              ...persistence,
-              convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
-            };
-            await patchAssistantMessage({
-              ...refreshedPersistence,
-              parts: responseMessagesToAssistantParts(messages, inputMessages.length),
-              metadata: usageMetadata,
-            });
-            await markWorkflowRunFinished({
-              convexAuth: refreshedPersistence.convexAuth,
-              threadId: refreshedPersistence.threadId,
-              runId: workflowRunId,
-            });
-            persistenceFinished = true;
-          } catch (error) {
-            if (!isPersistenceUnauthenticatedError(error)) {
-              throw error;
-            }
-          }
+        messages = result.messages;
+        steps.push(...result.steps);
+
+        if (!shouldContinueAgentLoop(result)) {
+          break;
+        }
+      }
+
+      const stepUsages = steps.map((step) => tokenUsageFromStep(step, codexOptions.modelId));
+      const runCompletedAt = Date.now();
+      const usageMetadata: AssistantUsageMetadata = {
+        usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),
+        contextUsage: stepUsages.at(-1) ?? emptyTokenUsage(),
+        run: {
+          startedAt: runStartedAt,
+          completedAt: runCompletedAt,
+          durationSeconds: Math.max(0, Math.round((runCompletedAt - runStartedAt) / 1000)),
         },
-      });
+      };
+
+      if (persistence) {
+        try {
+          await writeAssistantMetadataChunk(writable, usageMetadata);
+          await closeAssistantStream(writable);
+          streamClosed = true;
+
+          const refreshedPersistence = {
+            ...persistence,
+            convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
+          };
+          await patchAssistantMessage({
+            ...refreshedPersistence,
+            parts: responseMessagesToAssistantParts(messages, inputMessages.length),
+            metadata: usageMetadata,
+          });
+          await markWorkflowRunFinished({
+            convexAuth: refreshedPersistence.convexAuth,
+            threadId: refreshedPersistence.threadId,
+            runId: workflowRunId,
+          });
+          persistenceFinished = true;
+        } catch (error) {
+          if (!isPersistenceUnauthenticatedError(error)) {
+            throw error;
+          }
+        }
+        return;
+      }
+
+      await closeAssistantStream(writable);
+      streamClosed = true;
     });
   } catch (error) {
     if (persistence) {
@@ -493,6 +542,15 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
 
     throw error;
   } finally {
+    if (!streamClosed) {
+      try {
+        await closeAssistantStream(writable);
+        streamClosed = true;
+      } catch (error) {
+        console.error("Failed to close assistant stream", error);
+      }
+    }
+
     if (persistence && !persistenceFinished) {
       try {
         const refreshedPersistence = {

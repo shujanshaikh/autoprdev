@@ -9,6 +9,8 @@ const DETAIL_KEYS_FOR_MODEL = [
   "path",
   "bytesWritten",
   "contentBytes",
+  "fileBytes",
+  "mode",
   "previousExists",
   "unchanged",
   "replacements",

@@ -8,12 +8,24 @@ import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutati
 import { toTextModelOutput } from "./format";
 import { requireString } from "./validation";
 
+const MAX_WRITE_CONTENT_CHARS = 20_000;
+
 const writeInputSchema = z.object({
   path: z
     .string()
     .optional()
     .describe("Required. Path to the file to write. Relative paths resolve from the sandbox workdir."),
-  content: z.string().optional().describe("Required. Full file contents to write."),
+  content: z
+    .string()
+    .max(MAX_WRITE_CONTENT_CHARS)
+    .optional()
+    .describe(
+      `Required. File content for this write call. Maximum ${MAX_WRITE_CONTENT_CHARS} characters. For larger files, make multiple sequential write calls with mode=append.`,
+    ),
+  mode: z
+    .enum(["overwrite", "append"])
+    .optional()
+    .describe("Write mode. Defaults to overwrite. Use append for subsequent chunks of a large file."),
 });
 
 type WriteInput = z.infer<typeof writeInputSchema>;
@@ -50,13 +62,16 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
 
   const path = requireString(input.path, "path", "write");
   const fileContent = requireString(input.content, "content", "write", { allowEmpty: true });
+  const mode = input.mode ?? "overwrite";
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = resolveSandboxPath(path, context.workDir);
 
   return withFileMutationQueue(createFileMutationQueueKey(context.sandbox.id, remotePath), async () => {
     const previousContent = await readRemoteTextIfPresent(context.sandbox, remotePath);
-    const content = Buffer.from(fileContent, "utf8");
-    const patch = createTwoFilesPatch(remotePath, remotePath, previousContent ?? "", fileContent, "before", "after");
+    const nextContent = mode === "append" ? `${previousContent ?? ""}${fileContent}` : fileContent;
+    const content = Buffer.from(nextContent, "utf8");
+    const chunk = Buffer.from(fileContent, "utf8");
+    const patch = createTwoFilesPatch(remotePath, remotePath, previousContent ?? "", nextContent, "before", "after");
     const diff = {
       renderer: "pierre" as const,
       fileName: remotePath,
@@ -64,13 +79,15 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
       status: previousContent === null ? "added" as const : "modified" as const,
     };
 
-    if (previousContent === fileContent) {
+    if (previousContent === nextContent) {
       return {
         content: `No changes needed for ${remotePath}; content already matched.`,
         details: {
           path: remotePath,
+          mode,
           bytesWritten: 0,
-          contentBytes: content.length,
+          contentBytes: chunk.length,
+          fileBytes: content.length,
           unchanged: true,
           diff,
         },
@@ -81,10 +98,16 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     await context.sandbox.fs.uploadFile(content, remotePath);
 
     return {
-      content: `Wrote ${content.length} bytes to ${remotePath}.`,
+      content:
+        mode === "append"
+          ? `Appended ${chunk.length} bytes to ${remotePath} (${content.length} bytes total).`
+          : `Wrote ${content.length} bytes to ${remotePath}.`,
       details: {
         path: remotePath,
+        mode,
         bytesWritten: content.length,
+        contentBytes: chunk.length,
+        fileBytes: content.length,
         previousExists: previousContent !== null,
         unchanged: false,
         diff,
@@ -97,7 +120,7 @@ export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "write",
     description:
-      "Create or fully overwrite a text file in the Daytona sandbox. Use for new files or complete rewrites when exact edit replacement is impractical. Automatically creates parent directories, skips uploads when content already matches, mutates files, and returns a diff; prefer edit for small changes to existing files.",
+      `Create, fully overwrite, or append to a text file in the Daytona sandbox. Use mode=overwrite for new files or complete rewrites when exact edit replacement is impractical. Use mode=append for subsequent chunks when a generated file is too large for one call. Each content payload is limited to ${MAX_WRITE_CONTENT_CHARS} characters. Automatically creates parent directories, skips uploads when content already matches, mutates files, and returns a diff; prefer edit for small changes to existing files.`,
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaWrite(input, sandboxOptions),

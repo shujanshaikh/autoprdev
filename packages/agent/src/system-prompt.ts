@@ -29,7 +29,11 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
     "When changing multiple separate locations in one file, use one edit call with multiple entries.",
     "Each edits[].oldText is matched against the original file. Do not emit overlapping or nested edits.",
   ],
-  write: ["Use write only for new files or complete rewrites where exact replacement is impractical."],
+  write: [
+    "Use write only for new files or complete rewrites where exact replacement is impractical.",
+    "For large generated files, call write sequentially with mode=overwrite for the first chunk and mode=append for later chunks instead of emitting one huge content payload.",
+    "Keep each write content payload focused and below the tool's content limit; prefer edit for existing files when the change is localized.",
+  ],
   bash: [
     "Use bash for package installs, scripts, tests, and commands that require a shell.",
     "For long-running commands such as dev servers, preview servers, watchers, and tail -f, set isBackground: true so the command runs in Daytona background mode instead of being killed by foreground execution cleanup.",

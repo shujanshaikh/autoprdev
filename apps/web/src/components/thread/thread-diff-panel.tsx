@@ -1,12 +1,14 @@
 import { api } from "@autopr/backend/convex/_generated/api";
+import { ButtonGroup } from "@autopr/ui/components/button-group";
 import { Button } from "@autopr/ui/components/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, ExternalLink, FileDiff, GitBranch, GitPullRequest, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, X } from "lucide-react";
+import { ArrowRight, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, TextSearch, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
+import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import { DaytonaTerminalView } from "./daytona-terminal-view";
 import { ThreadDiffDetailView } from "./thread-diff-panel-detail-view";
@@ -81,6 +83,15 @@ const SURFACE_PICKER_ITEMS: Array<{
   { kind: "pull-request", title: "Pull request", description: "Create or open a PR for these changes.", icon: GitPullRequest },
 ];
 
+const DIFF_LAYOUT_OPTIONS: Array<{
+  value: PierreDiffStyle;
+  label: string;
+  icon: typeof FileDiff;
+}> = [
+  { value: "unified", label: "Normal", icon: List },
+  { value: "split", label: "Split", icon: Columns2 },
+];
+
 function getMaxPanelWidth(panelElement?: HTMLElement | null) {
   if (typeof window === "undefined") return DEFAULT_PANEL_WIDTH;
   const containerWidth = panelElement?.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
@@ -144,6 +155,7 @@ export function ThreadDiffPanel({
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
+  const { diffStyle, similarChanges, setDiffStyle, setSimilarChanges } = usePierreDiffPreferences();
   const panelRef = useRef<HTMLElement | null>(null);
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
@@ -529,7 +541,7 @@ export function ThreadDiffPanel({
           </div>
 
           {activeTab === "diff" ? (
-            <div className="flex h-10 items-center gap-2 border-b border-border/45 px-3">
+            <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border/45 px-3 py-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="inline-flex size-6 items-center justify-center border border-border/60 bg-muted/40">
                   <FileDiff className="size-3.5 text-foreground/80" aria-hidden="true" />
@@ -537,15 +549,72 @@ export function ThreadDiffPanel({
                 <p className="truncate text-sm font-medium text-foreground">Thread changes</p>
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{totals.files} files</span>
               </div>
-              {entries.length > 0 ? (
-                <div className="flex shrink-0 items-center gap-2 font-mono text-xs tabular-nums">
-                  <span className="text-emerald-500">+{totals.additions}</span>
-                  <span className="text-red-400">−{totals.deletions}</span>
-                </div>
-              ) : null}
-              <Button type="button" variant="ghost" size="icon" className="size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close changes panel">
-                <X className="size-3.5" aria-hidden="true" />
-              </Button>
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {entries.length > 0 ? (
+                  <div className="hidden shrink-0 items-center gap-2 font-mono text-xs tabular-nums min-[460px]:flex">
+                    <span className="text-emerald-500">+{totals.additions}</span>
+                    <span className="text-red-400">−{totals.deletions}</span>
+                  </div>
+                ) : null}
+
+                <ButtonGroup aria-label="Diff layout" className="h-7">
+                  {DIFF_LAYOUT_OPTIONS.map((option) => {
+                    const Icon = option.icon;
+                    const selected = diffStyle === option.value;
+
+                    return (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-pressed={selected}
+                        aria-label={`${option.label} diff`}
+                        title={`${option.label} diff`}
+                        onClick={() => setDiffStyle(option.value)}
+                        className={cn(
+                          "h-7 border-border/60 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground",
+                          "hover:bg-muted hover:text-foreground",
+                          selected && "bg-muted text-foreground hover:bg-muted",
+                        )}
+                      >
+                        <Icon className="size-3.5" aria-hidden="true" />
+                        <span className="hidden min-[560px]:inline">{option.label}</span>
+                      </Button>
+                    );
+                  })}
+                </ButtonGroup>
+
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-pressed={similarChanges}
+                        aria-label={similarChanges ? "Hide similar inline changes" : "Show similar inline changes"}
+                        onClick={() => setSimilarChanges(!similarChanges)}
+                        className={cn(
+                          "h-7 border border-border/60 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground",
+                          "hover:bg-muted hover:text-foreground",
+                          similarChanges && "bg-muted text-foreground hover:bg-muted",
+                        )}
+                      >
+                        <TextSearch className="size-3.5" aria-hidden="true" />
+                        <span className="hidden min-[620px]:inline">Similar</span>
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    {similarChanges ? "Hide Similar Changes" : "Show Similar Changes"}
+                  </TooltipContent>
+                </Tooltip>
+
+                <Button type="button" variant="ghost" size="icon" className="size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close changes panel">
+                  <X className="size-3.5" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
           ) : null}
 

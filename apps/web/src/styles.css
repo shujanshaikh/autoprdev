@@ -698,9 +698,13 @@
   --diffs-line-height: 19px;
   --diffs-gap-fallback: 4px;
 
-  /* Map pierre's bg to app's background */
-  --diffs-light-bg: oklch(0.994 0 0);
-  --diffs-dark-bg: oklch(0.222 0 0);
+  /* Map Pierre's bg and virtual buffers to app surfaces. */
+  --diffs-light-bg: var(--background);
+  --diffs-dark-bg: var(--background);
+  --diffs-bg-buffer-override: color-mix(in oklch, var(--muted) 22%, transparent);
+  --diffs-bg-context-override: color-mix(in oklch, var(--muted) 18%, var(--background));
+  --diffs-bg-context-gutter-override: color-mix(in oklch, var(--muted) 25%, var(--background));
+  --diffs-bg-separator-override: color-mix(in oklch, var(--muted) 34%, var(--background));
 
   /* Subtle, muted diff colors that sit well on both themes */
   --diffs-added-light: oklch(0.72 0.17 145);

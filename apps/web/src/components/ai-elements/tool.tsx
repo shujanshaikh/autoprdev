@@ -17,7 +17,7 @@ import {
   type DemoRecordingMetadata,
 } from "@/lib/chat-messages";
 import { CodeBlock } from "./code-block";
-import { PierreDiffView } from "./pierre-diff-view";
+import { PierreDiffView, usePierreDiffPreferences } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
 
 const PLAIN_TEXT_LANG = "text" as BundledLanguage;
@@ -521,6 +521,8 @@ export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
 }
 
 export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
+  const { diffStyle, lineDiffType } = usePierreDiffPreferences();
+
   if (diff.patchOmitted) {
     return (
       <div className="border border-border/60 bg-muted/20 px-4 py-5 text-center">
@@ -549,6 +551,8 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
         fileName={pathLine ?? diff.fileName}
         oldContent={diff.oldContent}
         newContent={diff.newContent}
+        diffStyle={diffStyle}
+        lineDiffType={lineDiffType}
       />
     );
   }
@@ -560,6 +564,8 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
         fileName={pathLine ?? diff.fileName}
         oldContent={diff.oldContent}
         newContent={diff.newContent}
+        diffStyle={diffStyle}
+        lineDiffType={lineDiffType}
       />
     </div>
   );
@@ -840,7 +846,7 @@ function ContentDetailsBody({
       ? details.diff
       : null;
   const demoRecordings = slug === "computer" ? demoRecordingsFromDetails(details) : [];
-  const showMeta = !(slug === "edit" && diffPayload);
+  const showMeta = !diffPayload;
 
   if (slug === "computer") {
     if (demoRecordings.length === 0) {
@@ -1247,7 +1253,7 @@ export const ToolInput = ({
     ) : null;
   }
 
-  if (slug === "edit" || slug === "computer") {
+  if (slug === "write" || slug === "edit" || slug === "computer") {
     return null;
   }
 

@@ -3,10 +3,13 @@ import { cn } from "@autopr/ui/lib/utils";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useLayoutEffect } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export const Conversation = ({ className, ...props }: ConversationProps) => (
   <StickToBottom
@@ -31,6 +34,26 @@ export const ConversationContent = ({
     {...props}
   />
 );
+
+export function ConversationAutoScrollLock({
+  active,
+  revision,
+}: {
+  active: boolean;
+  revision?: unknown;
+}) {
+  const { stopScroll } = useStickToBottomContext();
+
+  useIsomorphicLayoutEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    stopScroll();
+  }, [active, revision, stopScroll]);
+
+  return null;
+}
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
   title?: string;

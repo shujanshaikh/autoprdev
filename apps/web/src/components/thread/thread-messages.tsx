@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   Conversation,
+  ConversationAutoScrollLock,
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton,
@@ -416,8 +417,14 @@ export function ThreadMessages({
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
 }) {
+  const lockAutoScroll = activeAssistantMessageId !== undefined;
+
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
+    <ConversationAutoScrollLock
+      active={lockAutoScroll}
+      revision={keyedMessages}
+    />
     <ConversationContent>
     {keyedMessages.length === 0 && !showingInitialPromptHandoff ? (
       <ConversationEmptyState className="mx-auto max-w-[680px] items-start px-6 py-10 text-left sm:px-8" icon={<Bot className="size-6 text-muted-foreground" />}>

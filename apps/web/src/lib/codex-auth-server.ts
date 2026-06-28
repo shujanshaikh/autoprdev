@@ -189,12 +189,14 @@ export async function getCodexConnectionStatus() {
   return await convexQuery(api.codexAuth.status, {});
 }
 
-async function readFreshCodexCredentialReference() {
+async function readFreshCodexCredentialReference(options: {
+  disconnectedMessage?: string;
+} = {}) {
   await requireCodexAuthContext();
   const status = await convexQuery(api.codexAuth.status, {});
 
   if (!status.connected) {
-    throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
+    throw new CodexConnectionError(options.disconnectedMessage ?? "Connect Codex before starting an AI stream.", 401);
   }
 
   const reference = await convexQuery(api.codexAuth.getVaultReference, {});
@@ -281,6 +283,7 @@ function createCodexResponsesModelFromCredential(
         const body = JSON.parse(nextInit.body) as {
           instructions?: string;
           input?: Array<Record<string, unknown>>;
+          max_output_tokens?: unknown;
           prompt_cache_key?: string;
           prompt_cache_retention?: unknown;
           reasoning?: Record<string, unknown>;
@@ -291,6 +294,7 @@ function createCodexResponsesModelFromCredential(
         body.store = false;
         body.stream = true;
         body.prompt_cache_key = body.prompt_cache_key || options.promptCacheKey;
+        delete body.max_output_tokens;
         delete body.prompt_cache_retention;
         body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
 
@@ -362,12 +366,15 @@ export async function createCodexResponsesModel(options: {
   return createCodexResponsesModelFromCredential(credential, options);
 }
 
-async function createAuthenticatedCodexResponsesModel(options: {
+export async function createAuthenticatedCodexResponsesModel(options: {
   modelId: string;
   reasoningEffort: string;
   promptCacheKey?: string;
+  disconnectedMessage?: string;
 }): Promise<CodexResponsesModel> {
-  const { credential } = await readFreshCodexCredentialReference();
+  const { credential } = await readFreshCodexCredentialReference({
+    disconnectedMessage: options.disconnectedMessage,
+  });
 
   return createCodexResponsesModelFromCredential(credential, options);
 }

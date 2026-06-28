@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
+import { CodexConnectionError } from "#/lib/codex-auth-server";
+import { generateCommitMessage } from "#/lib/commit-messages";
 import {
   commitPreparedProjectSandboxChanges,
   prepareProjectSandboxCommit,
@@ -46,6 +48,7 @@ const RECORDING_READY_RETRY_MS = 1_000;
 const postRequestSchema = z.object({
   action: z.literal("commit"),
   push: z.boolean().optional(),
+  commitMessage: z.string().trim().min(1).max(500).optional(),
 });
 
 function delay(ms: number) {
@@ -319,12 +322,20 @@ async function POST(
 
     if (parsed.data.push) {
       githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
-      const githubIdentity = await getGithubUserIdentity(authState.user, githubToken);
-      gitIdentity = {
-        name: githubIdentity.name,
-        email: githubIdentity.email,
-      };
-      githubUsername = githubIdentity.username;
+      githubUsername = "x-access-token";
+
+      try {
+        const githubIdentity = await getGithubUserIdentity(authState.user, githubToken);
+        gitIdentity = {
+          name: githubIdentity.name,
+          email: githubIdentity.email,
+        };
+        githubUsername = githubIdentity.username;
+      } catch (error) {
+        if (!(error instanceof GithubConnectionError)) {
+          throw error;
+        }
+      }
     }
 
     const prepared = await prepareProjectSandboxCommit({
@@ -332,8 +343,9 @@ async function POST(
       repoName: project.repoName,
       sandboxWorkDir: project.sandboxWorkDir,
     });
-    const commitMessage = await convexAction(api.commitMessages.generate, {
+    const commitMessage = parsed.data.commitMessage ?? await generateCommitMessage({
       projectId,
+      threadId,
       branch: prepared.branch,
       status: prepared.status,
       diff: prepared.diff,
@@ -372,6 +384,10 @@ async function POST(
 
     if (error instanceof GithubConnectionError) {
       return Response.json({ error: error.message }, { status: 401 });
+    }
+
+    if (error instanceof CodexConnectionError) {
+      return Response.json({ error: error.message }, { status: error.status });
     }
 
     return Response.json({ error: safeErrorMessage(error, "Could not commit sandbox changes.") }, { status: 500 });

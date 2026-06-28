@@ -281,6 +281,7 @@ function ProjectThreadPageContent() {
               <div className="min-w-0 flex-1" />
 
               <ThreadCommitButton
+                key={`${projectId}:${threadId}`}
                 projectId={projectId}
                 threadId={threadId}
                 disabled={projectDisabled || loading || notFound}

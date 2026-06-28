@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@autopr/ui/components/dropdown-menu";
+import { Textarea } from "@autopr/ui/components/textarea";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowUpRight, ChevronDown, GitCommitHorizontal, GitBranch, Loader2 } from "lucide-react";
 import { useState } from "react";
@@ -27,6 +28,7 @@ type CommitAction = "commit" | "push";
 
 type CommitVariables = {
   action: CommitAction;
+  commitMessage?: string;
 };
 
 type CommitResponse = {
@@ -35,6 +37,8 @@ type CommitResponse = {
   commitSha?: string;
   commitMessage?: string;
   error?: string;
+  projectId?: string;
+  threadId?: string;
 };
 
 type ThreadCommitState = {
@@ -55,30 +59,41 @@ export function ThreadCommitButton({
   thread,
 }: ThreadCommitButtonProps & { thread?: ThreadCommitState | null }) {
   const [open, setOpen] = useState(false);
+  const [commitMessageDraft, setCommitMessageDraft] = useState("");
   const queryClient = useQueryClient();
   const commitMutation = useMutation<CommitResponse, Error, CommitVariables>({
     mutationKey: ["thread", projectId, threadId, "commit"],
-    mutationFn: async ({ action }) => {
+    mutationFn: async ({ action, commitMessage }) => {
       const response = await fetch(
         `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "commit", push: action === "push" }),
+          body: JSON.stringify({
+            action: "commit",
+            push: action === "push",
+            commitMessage,
+          }),
         },
       );
       const body = (await response.json().catch(() => ({}))) as CommitResponse;
 
       if (!response.ok) {
+        if (response.status === 409 && body.status) {
+          return { ...body, projectId, threadId };
+        }
+
         throw new Error(body.error || "Could not commit changes.");
       }
 
-      return body;
+      return { ...body, projectId, threadId };
     },
     onSuccess: () => {
+      setCommitMessageDraft("");
       void queryClient.invalidateQueries({ queryKey: ["thread", projectId, threadId] });
     },
   });
+
   const savedResult: CommitResponse | null = thread?.commitStatus
     ? {
       status: thread.commitStatus,
@@ -89,20 +104,44 @@ export function ThreadCommitButton({
     : null;
   const busy = commitMutation.isPending;
   const pendingAction = busy ? commitMutation.variables?.action ?? null : null;
-  const result = commitMutation.data ?? savedResult;
+  const localResult =
+    commitMutation.data?.projectId === projectId && commitMutation.data.threadId === threadId
+      ? commitMutation.data
+      : null;
+  const result = localResult ?? savedResult;
   const error = commitMutation.error?.message ?? null;
   const hasCompletedCommit = Boolean(result?.status);
   const buttonDisabled = disabled || busy || hasCompletedCommit;
-  const buttonLabel = result?.status === "pushed"
-    ? "Committed & pushed"
-    : result?.status === "committed"
-      ? "Committed"
-      : "Commit";
+  const buttonLabel = busy
+    ? pendingAction === "push"
+      ? "Committing & pushing..."
+      : "Committing..."
+    : result?.status === "pushed"
+      ? "Committed & pushed"
+      : result?.status === "committed"
+        ? "Committed"
+        : "Commit";
+  const buttonTitle = busy
+    ? pendingAction === "push"
+      ? "Committing and pushing changes..."
+      : "Committing changes..."
+    : hasCompletedCommit
+      ? "This thread has already been committed"
+      : "Commit or push changes";
 
-  const runCommitAction = (action: CommitAction) => {
+  const openCommitDialog = () => {
     setOpen(true);
     commitMutation.reset();
-    commitMutation.mutate({ action });
+  };
+
+  const runCommitAction = (action: CommitAction) => {
+    const commitMessage = commitMessageDraft.trim();
+
+    commitMutation.reset();
+    commitMutation.mutate({
+      action,
+      commitMessage: commitMessage || undefined,
+    });
   };
 
   return (
@@ -116,21 +155,25 @@ export function ThreadCommitButton({
               size="sm"
               disabled={buttonDisabled}
               aria-label={buttonLabel}
-              title={hasCompletedCommit ? "This thread has already been committed" : "Commit or push changes"}
+              title={buttonTitle}
               className="my-1.5 mr-2 h-8 gap-1.5 border-border bg-background px-3 text-foreground hover:bg-muted"
             >
-              <GitCommitHorizontal className="size-3.5" aria-hidden />
+              {busy ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <GitCommitHorizontal className="size-3.5" aria-hidden />
+              )}
               {buttonLabel}
               {!hasCompletedCommit ? <ChevronDown className="size-3" aria-hidden /> : null}
             </Button>
           }
         />
         <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem onSelect={() => runCommitAction("commit")}>
+          <DropdownMenuItem disabled={buttonDisabled} onClick={openCommitDialog}>
             <GitCommitHorizontal className="size-3.5" aria-hidden />
             Commit
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => runCommitAction("push")}>
+          <DropdownMenuItem disabled={buttonDisabled} onClick={openCommitDialog}>
             <ArrowUpRight className="size-3.5" aria-hidden />
             Commit & push
           </DropdownMenuItem>
@@ -152,6 +195,21 @@ export function ThreadCommitButton({
 
           {/* Body */}
           <div className="px-5 py-4">
+            {!result ? (
+              <div className="mb-3">
+                <Textarea
+                  aria-label="Commit message"
+                  value={commitMessageDraft}
+                  disabled={busy}
+                  maxLength={500}
+                  rows={4}
+                  placeholder="Commit message (leave blank to generate)..."
+                  onChange={(event) => setCommitMessageDraft(event.target.value)}
+                  className="min-h-24 resize-none bg-muted/20 text-sm leading-relaxed placeholder:text-muted-foreground/75"
+                />
+              </div>
+            ) : null}
+
             {busy ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
@@ -217,15 +275,48 @@ export function ThreadCommitButton({
 
           {/* Footer */}
           <DialogFooter className="flex-row items-center justify-end gap-2 border-t border-border px-5 py-3">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => setOpen(false)}
-            >
-              Close
-            </Button>
+            {result ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => setOpen(false)}
+              >
+                Close
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => runCommitAction("commit")}
+                >
+                  <GitCommitHorizontal className="size-3.5" aria-hidden />
+                  Commit
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => runCommitAction("push")}
+                >
+                  <ArrowUpRight className="size-3.5" aria-hidden />
+                  Commit & push
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

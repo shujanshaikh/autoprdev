@@ -1,4 +1,9 @@
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@autopr/ui/components/collapsible";
+import {
   Dialog,
   DialogContent,
   DialogTitle,
@@ -6,8 +11,8 @@ import {
 } from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
 import { getToolName, isFileUIPart, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
-import { Bot, Check, Copy } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Bot, Check, ChevronDown, Copy } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   Conversation,
@@ -224,17 +229,19 @@ function ImageAttachmentPreview({
 }
 
 function ExploreToolGroup({
+  defaultOpen = false,
   messageId,
   tools,
   summaryParts,
   anyStreaming,
 }: {
+  defaultOpen?: boolean;
   messageId: string;
   tools: { part: any; stableKey: string }[];
   summaryParts: string[];
   anyStreaming: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
     <div className="my-1.5 w-full min-w-0 font-mono text-xs leading-tight text-muted-foreground/50">
@@ -308,11 +315,15 @@ function AwaitingAgentIndicator({ startedAt }: { startedAt?: number }) {
 
 function AssistantRunTimerRow({
   active,
+  children,
+  detailsCount,
   metadata,
   modelId,
   startedAt,
 }: {
   active: boolean;
+  children?: ReactNode;
+  detailsCount?: number;
   metadata: unknown;
   modelId: string;
   startedAt?: number;
@@ -341,15 +352,18 @@ function AssistantRunTimerRow({
   const tokenUsage = getAssistantRunUsage(metadata);
   const tokenCount = tokenUsage ? contextTokensFromUsage(tokenUsage) : undefined;
   const runCost = getAssistantRunCost(metadata) ?? (tokenUsage ? calculateCodexUsageCost(modelId, tokenUsage) : null);
+  const hasDetails = (detailsCount ?? 0) > 0;
 
-  if (durationSeconds === undefined) {
+  if (durationSeconds === undefined && !hasDetails) {
     return null;
   }
 
-  return (
-    <div className="mb-3 flex w-full flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 pb-3 text-sm font-medium text-muted-foreground/80">
+  const summary = (
+    <>
       <span className="tabular-nums">
-        {active ? "Working" : "Worked"} for {formatRunDuration(durationSeconds)}
+        {durationSeconds === undefined
+          ? active ? "Working" : "Worked"
+          : `${active ? "Working" : "Worked"} for ${formatRunDuration(durationSeconds)}`}
       </span>
       {tokenCount !== undefined ? (
         <>
@@ -363,7 +377,33 @@ function AssistantRunTimerRow({
           <span className="tabular-nums">{formatRunCost(runCost.total)}</span>
         </>
       ) : null}
-    </div>
+    </>
+  );
+
+  if (!hasDetails) {
+    return (
+      <div className="mb-3 flex w-full flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 pb-3 text-sm font-medium text-muted-foreground/80">
+        {summary}
+      </div>
+    );
+  }
+
+  return (
+    <Collapsible className="group mb-3 w-full border-b border-border/60" defaultOpen={false}>
+      <CollapsibleTrigger className="flex w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 pb-3 text-left text-sm font-medium text-muted-foreground/80 outline-none transition-colors hover:text-foreground/85 focus-visible:ring-1 focus-visible:ring-ring">
+        <ChevronDown
+          className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-data-[state=open]:rotate-180"
+          aria-hidden="true"
+        />
+        {summary}
+        <span className="sr-only">Toggle run details</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="overflow-hidden pb-3 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
+        <div className="space-y-1.5 border-l border-border/30 pl-3">
+          {children}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -506,6 +546,189 @@ export function ThreadMessages({
       const displayGrouped = isUser
         ? grouped.filter((item) => !isImageFileItem(item))
         : grouped;
+      const isVisibleRunDetailItem = (item: GroupedItem) => {
+        if (item.kind === "explore-group") {
+          return true;
+        }
+
+        const { part } = item;
+        if (isReasoningUIPart(part)) {
+          return true;
+        }
+        if (!isToolUIPart(part)) {
+          return false;
+        }
+
+        const partState = getToolState(part);
+        const input = "input" in part ? part.input : undefined;
+        const output = "output" in part ? part.output : undefined;
+        const toolName = part.type === "dynamic-tool" ? getToolName(part) : undefined;
+        const toolSlug = toolSlugFromPart(part.type, toolName);
+
+        return toolSlug !== "computer" || isComputerRecordingTool(input, output, partState);
+      };
+      const runDetailItems = !isUser ? displayGrouped.filter(isVisibleRunDetailItem) : [];
+      const mainDisplayGrouped =
+        runDetailItems.length > 0
+          ? displayGrouped.filter((item) => !isVisibleRunDetailItem(item))
+          : displayGrouped;
+      const renderGroupedItem = (item: GroupedItem, location: "main" | "run-details") => {
+        const keyScope = `${message.id}-${location}`;
+
+        if (item.kind === "explore-group") {
+          const { tools } = item;
+          const counts: Record<string, number> = {};
+          for (const t of tools) {
+            const slug = toolSlugFromPart(
+              t.part.type,
+              t.part.type === "dynamic-tool" ? getToolName(t.part) : undefined
+            );
+            const label = slug === "find" ? "glob" : slug;
+            counts[label] = (counts[label] ?? 0) + 1;
+          }
+          const summaryParts = Object.entries(counts).map(
+            ([name, count]) => `${count} ${count === 1 ? name : name + "s"}`
+          );
+          const anyStreaming = tools.some((t) => {
+            const s = getToolState(t.part);
+            return s === "input-streaming" || s === "input-available";
+          });
+
+          return (
+            <ExploreToolGroup
+              key={`${keyScope}-explore-${tools[0].stableKey}`}
+              messageId={message.id}
+              tools={tools}
+              summaryParts={summaryParts}
+              anyStreaming={anyStreaming}
+              defaultOpen={location === "run-details"}
+            />
+          );
+        }
+
+        const { part, stableKey } = item;
+
+        if (isReasoningUIPart(part)) {
+          const partState = getPartState(part);
+          return (
+            <Reasoning
+              key={`${keyScope}-reasoning-${stableKey}`}
+              defaultOpen={location === "run-details" ? true : undefined}
+              isStreaming={partState === "streaming"}
+            >
+              <ReasoningTrigger />
+              <ReasoningContent>{part.text}</ReasoningContent>
+            </Reasoning>
+          );
+        }
+
+        if (isTextUIPart(part)) {
+          const partState = getPartState(part);
+          return (
+            <MessageResponse key={`${keyScope}-text-${stableKey}`} isAnimating={partState === "streaming"}>
+              {part.text}
+            </MessageResponse>
+          );
+        }
+
+        if (isFileUIPart(part)) {
+          if (part.mediaType.startsWith("image/")) {
+            return (
+              <ImageAttachmentPreview
+                key={`${keyScope}-file-${stableKey}`}
+                alt={part.filename ?? "Attached image"}
+                className="ml-auto mt-3 h-20 w-28 sm:h-24 sm:w-36"
+                src={part.url}
+              />
+            );
+          }
+
+          return (
+            <a
+              key={`${keyScope}-file-${stableKey}`}
+              className="w-fit max-w-full truncate border border-border bg-muted px-2.5 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground"
+              href={part.url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {part.filename ?? part.mediaType}
+            </a>
+          );
+        }
+
+        if (isToolUIPart(part)) {
+          const partState = getToolState(part);
+          const input = "input" in part ? part.input : undefined;
+          const output = "output" in part ? part.output : undefined;
+          const errorText = "errorText" in part ? part.errorText : undefined;
+          const toolName = part.type === "dynamic-tool" ? getToolName(part) : undefined;
+          const toolSlug = toolSlugFromPart(part.type, toolName);
+
+          if (
+            toolSlug === "computer" &&
+            !isComputerRecordingTool(input, output, partState)
+          ) {
+            return null;
+          }
+          const defaultToolOpen =
+            partState !== "output-available" ||
+            (toolSlug === "computer" && isComputerRecordingTool(input, output, partState));
+
+          return (
+            <Tool
+              key={`${keyScope}-tool-${stableKey}`}
+              className={cn(
+                toolSlug === "bash" &&
+                  "my-1.5 rounded-none border border-border bg-card text-muted-foreground shadow-none"
+              )}
+              data-tool={toolSlug}
+              defaultOpen={defaultToolOpen}
+            >
+              {part.type === "dynamic-tool" ? (
+                <ToolHeader
+                  input={input}
+                  output={output}
+                  state={partState}
+                  toolName={toolName!}
+                  type={part.type}
+                />
+              ) : (
+                <ToolHeader input={input} output={output} state={partState} type={part.type} />
+              )}
+              <ToolContent>
+                {input !== undefined ? (
+                  <ToolInput
+                    input={input}
+                    state={partState}
+                    toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
+                    toolType={part.type}
+                  />
+                ) : null}
+                <ToolOutput
+                  errorText={errorText}
+                  output={output}
+                  recordingPlaybackBasePath={recordingPlaybackBasePath}
+                  toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
+                  toolType={part.type}
+                />
+              </ToolContent>
+            </Tool>
+          );
+        }
+
+        if (part.type === "step-start") {
+          return null;
+        }
+
+        return (
+          <div
+            key={`${keyScope}-part-${stableKey}`}
+            className="rounded-md border border-dashed border-border/50 px-3 py-2 font-mono text-xs text-muted-foreground"
+          >
+            {part.type}
+          </div>
+        );
+      };
   
       return (
         <ConversationMessage
@@ -544,162 +767,16 @@ export function ThreadMessages({
                   <MessageHeader className="block max-w-none p-0 text-inherit">
                     <AssistantRunTimerRow
                       active={message.id === activeAssistantMessageId}
+                      detailsCount={runDetailItems.length}
                       metadata={message.metadata}
                       modelId={modelId}
                       startedAt={activeRunStartedAt}
-                    />
+                    >
+                      {runDetailItems.map((item) => renderGroupedItem(item, "run-details"))}
+                    </AssistantRunTimerRow>
                   </MessageHeader>
                 ) : null}
-                {displayGrouped.map((item) => {
-                if (item.kind === "explore-group") {
-                  const { tools } = item;
-                  const counts: Record<string, number> = {};
-                  for (const t of tools) {
-                    const slug = toolSlugFromPart(
-                      t.part.type,
-                      t.part.type === "dynamic-tool" ? getToolName(t.part) : undefined
-                    );
-                    const label = slug === "find" ? "glob" : slug;
-                    counts[label] = (counts[label] ?? 0) + 1;
-                  }
-                  const summaryParts = Object.entries(counts).map(
-                    ([name, count]) => `${count} ${count === 1 ? name : name + "s"}`
-                  );
-                  const anyStreaming = tools.some((t) => {
-                    const s = getToolState(t.part);
-                    return s === "input-streaming" || s === "input-available";
-                  });
-  
-                  return (
-                    <ExploreToolGroup
-                      key={`${message.id}-explore-${tools[0].stableKey}`}
-                      messageId={message.id}
-                      tools={tools}
-                      summaryParts={summaryParts}
-                      anyStreaming={anyStreaming}
-                    />
-                  );
-                }
-  
-                const { part, stableKey } = item;
-  
-                if (isReasoningUIPart(part)) {
-                  const partState = getPartState(part);
-                  return (
-                    <Reasoning key={`${message.id}-reasoning-${stableKey}`} isStreaming={partState === "streaming"}>
-                      <ReasoningTrigger />
-                      <ReasoningContent>{part.text}</ReasoningContent>
-                    </Reasoning>
-                  );
-                }
-  
-                if (isTextUIPart(part)) {
-                  const partState = getPartState(part);
-                  return (
-                    <MessageResponse key={`${message.id}-text-${stableKey}`} isAnimating={partState === "streaming"}>
-                      {part.text}
-                    </MessageResponse>
-                  );
-                }
-
-                if (isFileUIPart(part)) {
-                  if (part.mediaType.startsWith("image/")) {
-                    return (
-                      <ImageAttachmentPreview
-                        key={`${message.id}-file-${stableKey}`}
-                        alt={part.filename ?? "Attached image"}
-                        className="ml-auto mt-3 h-20 w-28 sm:h-24 sm:w-36"
-                        src={part.url}
-                      />
-                    );
-                  }
-
-                  return (
-                    <a
-                      key={`${message.id}-file-${stableKey}`}
-                      className="w-fit max-w-full truncate border border-border bg-muted px-2.5 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground"
-                      href={part.url}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      {part.filename ?? part.mediaType}
-                    </a>
-                  );
-                }
-  
-                if (isToolUIPart(part)) {
-                  const partState = getToolState(part);
-                  const input = "input" in part ? part.input : undefined;
-                  const output = "output" in part ? part.output : undefined;
-                  const errorText = "errorText" in part ? part.errorText : undefined;
-                  const toolName = part.type === "dynamic-tool" ? getToolName(part) : undefined;
-                  const toolSlug = toolSlugFromPart(part.type, toolName);
-
-                  if (
-                    toolSlug === "computer" &&
-                    !isComputerRecordingTool(input, output, partState)
-                  ) {
-                    return null;
-                  }
-                  const defaultToolOpen =
-                    partState !== "output-available" ||
-                    (toolSlug === "computer" && isComputerRecordingTool(input, output, partState));
-
-                  return (
-                    <Tool
-                      key={`${message.id}-tool-${stableKey}`}
-                      className={cn(
-                        toolSlug === "bash" &&
-                          "my-1.5 rounded-none border border-border bg-card text-muted-foreground shadow-none"
-                      )}
-                      data-tool={toolSlug}
-                      defaultOpen={defaultToolOpen}
-                    >
-                      {part.type === "dynamic-tool" ? (
-                        <ToolHeader
-                          input={input}
-                          output={output}
-                          state={partState}
-                          toolName={toolName!}
-                          type={part.type}
-                        />
-                      ) : (
-                        <ToolHeader input={input} output={output} state={partState} type={part.type} />
-                      )}
-                      <ToolContent>
-                        {input !== undefined ? (
-                          <ToolInput
-                            input={input}
-                            state={partState}
-                            toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
-                            toolType={part.type}
-                          />
-                        ) : null}
-                        <ToolOutput
-                          errorText={errorText}
-                          output={output}
-                          recordingPlaybackBasePath={recordingPlaybackBasePath}
-                          toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
-                          toolType={part.type}
-                        />
-                      </ToolContent>
-                    </Tool>
-                  );
-                }
-  
-                if (part.type === "step-start") {
-                  return null;
-                }
-  
-                return (
-                  <div
-                    key={`${message.id}-part-${stableKey}`}
-                    className="rounded-md border border-dashed border-border/50 px-3 py-2 font-mono text-xs text-muted-foreground"
-                  >
-                    {part.type}
-                  </div>
-                );
-              })}
+                {mainDisplayGrouped.map((item) => renderGroupedItem(item, "main"))}
                 </div>
                 {isUser ? <UserMessageCopyButton text={messageText} /> : null}
               </MessageContent>

@@ -398,6 +398,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
   const harness = new CodingHarness({
     ...sandboxOptions,
     computer: demoRecordingEnabled ? {} : false,
+    modelId: options.codex.modelId,
     appendSystemPrompt: [
       "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,

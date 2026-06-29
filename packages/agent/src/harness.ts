@@ -26,6 +26,7 @@ export type CodingHarnessListener = (event: CodingHarnessEvent) => void | Promis
 
 export interface CodingHarnessOptions extends SandboxSessionOptions {
   appendSystemPrompt?: string;
+  modelId?: string;
   selectedTools?: string[];
   includeProjectInstructions?: boolean;
   projectInstructionFilenames?: string[];
@@ -94,6 +95,7 @@ export class CodingHarness {
         sandboxId: sandbox.sandboxId,
         sandboxName: sandbox.sandboxName,
         snapshot: sandbox.snapshot,
+        modelId: this.options.modelId,
         selectedTools: toolSelection.toolNames,
         contextFiles: instructionFiles,
         appendSystemPrompt: this.options.appendSystemPrompt,

@@ -11,12 +11,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   Conversation,
-  ConversationAutoScrollLock,
   ConversationContent,
   ConversationEmptyState,
+  ConversationMessage,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { MessageAction, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageContent,
+  MessageFooter,
+  MessageGroup,
+  MessageHeader,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import {
   contextTokensFromUsage,
@@ -154,18 +163,20 @@ function UserMessageCopyButton({ text }: { text: string }) {
   const Icon = copied ? Check : Copy;
 
   return (
-    <MessageActions className="absolute -bottom-8 right-0 opacity-0 transition group-hover/user-message:opacity-100 focus-within:opacity-100">
-      <MessageAction
-        aria-label={copied ? "Copied message" : "Copy message"}
-        className="size-6 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-        disabled={!text}
-        label={copied ? "Copied message" : "Copy message"}
-        onClick={() => void copyMessage()}
-        tooltip={copied ? "Copied" : "Copy message"}
-      >
-        <Icon className="size-3.5" aria-hidden="true" />
-      </MessageAction>
-    </MessageActions>
+    <MessageFooter className="absolute -bottom-8 right-0 p-0 opacity-0 transition group-hover/user-message:opacity-100 focus-within:opacity-100">
+      <MessageActions>
+        <MessageAction
+          aria-label={copied ? "Copied message" : "Copy message"}
+          className="size-6 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+          disabled={!text}
+          label={copied ? "Copied message" : "Copy message"}
+          onClick={() => void copyMessage()}
+          tooltip={copied ? "Copied" : "Copy message"}
+        >
+          <Icon className="size-3.5" aria-hidden="true" />
+        </MessageAction>
+      </MessageActions>
+    </MessageFooter>
   );
 }
 
@@ -417,14 +428,8 @@ export function ThreadMessages({
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
 }) {
-  const lockAutoScroll = activeAssistantMessageId !== undefined;
-
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
-    <ConversationAutoScrollLock
-      active={lockAutoScroll}
-      revision={keyedMessages}
-    />
     <ConversationContent>
     {keyedMessages.length === 0 && !showingInitialPromptHandoff ? (
       <ConversationEmptyState className="mx-auto max-w-[680px] items-start px-6 py-10 text-left sm:px-8" icon={<Bot className="size-6 text-muted-foreground" />}>
@@ -503,41 +508,48 @@ export function ThreadMessages({
         : grouped;
   
       return (
-        <div key={messageKey}>
-          <div
-            className={cn(
-              "relative mx-auto max-w-[680px] px-6 py-4 sm:px-8",
-              isUser && imageFileItems.length > 0 && "pt-28 sm:pt-32"
-            )}
-          >
-            {imageFileItems.length > 0 ? (
-              <div className="absolute right-8 top-4 z-10 flex max-w-[calc(100%-4rem)] flex-row-reverse flex-wrap gap-2 sm:right-10">
-                {imageFileItems.map((item) => {
-                  if (item.kind !== "single" || !isFileUIPart(item.part)) {
-                    return null;
-                  }
+        <ConversationMessage
+          key={messageKey}
+          messageId={message.id}
+        >
+          <MessageGroup className="gap-0">
+            <Message
+              from={message.role}
+              className={cn(
+                "mx-auto max-w-[680px] px-6 py-4 sm:px-8",
+                isUser && imageFileItems.length > 0 && "pt-28 sm:pt-32"
+              )}
+            >
+              {imageFileItems.length > 0 ? (
+                <div className="absolute right-8 top-4 z-10 flex max-w-[calc(100%-4rem)] flex-row-reverse flex-wrap gap-2 sm:right-10">
+                  {imageFileItems.map((item) => {
+                    if (item.kind !== "single" || !isFileUIPart(item.part)) {
+                      return null;
+                    }
 
-                  return (
-                    <ImageAttachmentPreview
-                      key={`${message.id}-floating-file-${item.stableKey}`}
-                      alt={item.part.filename ?? "Attached image"}
-                      className="h-20 w-28 sm:h-24 sm:w-36"
-                      src={item.part.url}
-                    />
-                  );
-                })}
-              </div>
-            ) : null}
-            <div className={cn(isUser && "group/user-message relative rounded-none border border-border bg-card p-4 shadow-sm")}>
-              {!isUser ? (
-                <AssistantRunTimerRow
-                  active={message.id === activeAssistantMessageId}
-                  metadata={message.metadata}
-                  modelId={modelId}
-                  startedAt={activeRunStartedAt}
-                />
+                    return (
+                      <ImageAttachmentPreview
+                        key={`${message.id}-floating-file-${item.stableKey}`}
+                        alt={item.part.filename ?? "Attached image"}
+                        className="h-20 w-28 sm:h-24 sm:w-36"
+                        src={item.part.url}
+                      />
+                    );
+                  })}
+                </div>
               ) : null}
-              <MessageContent>
+              <MessageContent className={cn("gap-1 overflow-visible", isUser && "group/user-message relative")}>
+                <div className={cn(isUser && "rounded-none border border-border bg-card p-4 shadow-sm")}>
+                {!isUser ? (
+                  <MessageHeader className="block max-w-none p-0 text-inherit">
+                    <AssistantRunTimerRow
+                      active={message.id === activeAssistantMessageId}
+                      metadata={message.metadata}
+                      modelId={modelId}
+                      startedAt={activeRunStartedAt}
+                    />
+                  </MessageHeader>
+                ) : null}
                 {displayGrouped.map((item) => {
                 if (item.kind === "explore-group") {
                   const { tools } = item;
@@ -688,11 +700,12 @@ export function ThreadMessages({
                   </div>
                 );
               })}
+                </div>
+                {isUser ? <UserMessageCopyButton text={messageText} /> : null}
               </MessageContent>
-              {isUser ? <UserMessageCopyButton text={messageText} /> : null}
-            </div>
-          </div>
-        </div>
+            </Message>
+          </MessageGroup>
+        </ConversationMessage>
       );
     })}
   
@@ -706,8 +719,8 @@ export function ThreadMessages({
   
     {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
     {awaitingAgentResponse ? <AwaitingAgentIndicator startedAt={activeRunStartedAt} /> : null}
+    <div className="h-8 shrink-0" />
     </ConversationContent>
-    <div className="h-8" />
     <ConversationScrollButton className="bottom-4" />
   </Conversation>
   );

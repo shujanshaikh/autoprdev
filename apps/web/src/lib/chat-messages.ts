@@ -335,6 +335,14 @@ function isIncompleteToolPart(part: UIMessage["parts"][number]) {
   return isToolPartLike(part) && !TERMINAL_TOOL_STATES.has(partState(part) ?? "");
 }
 
+function textPartValue(part: UIMessage["parts"][number] | undefined) {
+  if (!part || (part.type !== "text" && part.type !== "reasoning")) {
+    return undefined;
+  }
+
+  return part.text;
+}
+
 function isPersistedPartMoreComplete(
   currentPart: UIMessage["parts"][number] | undefined,
   persistedPart: UIMessage["parts"][number],
@@ -357,6 +365,18 @@ function isPersistedPartMoreComplete(
     (persistedPart.type === "text" || persistedPart.type === "reasoning") &&
     persistedState === "done" &&
     currentState === "streaming"
+  ) {
+    return true;
+  }
+
+  const currentText = textPartValue(currentPart);
+  const persistedText = textPartValue(persistedPart);
+  if (
+    currentText !== undefined &&
+    persistedText !== undefined &&
+    persistedText !== currentText &&
+    persistedText.length >= currentText.length &&
+    persistedState !== "streaming"
   ) {
     return true;
   }

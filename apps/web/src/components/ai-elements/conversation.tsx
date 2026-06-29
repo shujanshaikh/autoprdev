@@ -1,64 +1,59 @@
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
+import { MessageScroller } from "@shadcn/react/message-scroller";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
-import type { ComponentProps } from "react";
-import { useCallback, useEffect, useLayoutEffect } from "react";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import type { ComponentProps, ReactNode } from "react";
+import { useCallback } from "react";
 
-export type ConversationProps = ComponentProps<typeof StickToBottom>;
+export type ConversationProps = ComponentProps<typeof MessageScroller.Root>;
 
-const useIsomorphicLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
-
-export const Conversation = ({ className, ...props }: ConversationProps) => (
-  <StickToBottom
-    className={cn("relative flex-1 overflow-y-hidden", className)}
-    initial="smooth"
-    resize="smooth"
-    role="log"
-    {...props}
-  />
+export const Conversation = ({
+  className,
+  children,
+  ...props
+}: ConversationProps) => (
+  <MessageScroller.Provider defaultScrollPosition="end">
+    <MessageScroller.Root
+      className={cn("relative flex min-h-0 flex-1 overflow-hidden", className)}
+      {...props}
+    >
+      {children}
+    </MessageScroller.Root>
+  </MessageScroller.Provider>
 );
 
 export type ConversationContentProps = ComponentProps<
-  typeof StickToBottom.Content
+  typeof MessageScroller.Content
 >;
 
 export const ConversationContent = ({
   className,
   ...props
 }: ConversationContentProps) => (
-  <StickToBottom.Content
-    className={cn("flex flex-col gap-0", className)}
-    {...props}
-  />
+  <MessageScroller.Viewport className="h-full min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <MessageScroller.Content
+      className={cn("flex min-h-full flex-col gap-0", className)}
+      {...props}
+    />
+  </MessageScroller.Viewport>
 );
 
-export function ConversationAutoScrollLock({
-  active,
-  revision,
-}: {
-  active: boolean;
-  revision?: unknown;
-}) {
-  const { stopScroll } = useStickToBottomContext();
+export type ConversationMessageProps = ComponentProps<
+  typeof MessageScroller.Item
+>;
 
-  useIsomorphicLayoutEffect(() => {
-    if (!active) {
-      return;
-    }
-
-    stopScroll();
-  }, [active, revision, stopScroll]);
-
-  return null;
-}
+export const ConversationMessage = ({
+  className,
+  ...props
+}: ConversationMessageProps) => (
+  <MessageScroller.Item className={cn("w-full", className)} {...props} />
+);
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
   title?: string;
   description?: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
 };
 
 export const ConversationEmptyState = ({
@@ -90,34 +85,38 @@ export const ConversationEmptyState = ({
   </div>
 );
 
-export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
+export type ConversationScrollButtonProps = Omit<
+  ComponentProps<typeof MessageScroller.Button>,
+  "children" | "direction" | "render"
+> & {
+  children?: ReactNode;
+};
 
 export const ConversationScrollButton = ({
   className,
+  children,
   ...props
 }: ConversationScrollButtonProps) => {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
-
-  const handleScrollToBottom = useCallback(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
-
   return (
-    !isAtBottom && (
-      <Button
-        className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full",
-          className
-        )}
-        onClick={handleScrollToBottom}
-        size="icon"
-        type="button"
-        variant="outline"
-        {...props}
-      >
-        <ArrowDownIcon className="size-4" />
-      </Button>
-    )
+    <MessageScroller.Button
+      behavior="smooth"
+      direction="end"
+      render={
+        <Button
+          aria-label="Scroll to latest message"
+          size="icon"
+          type="button"
+          variant="outline"
+        />
+      }
+      className={cn(
+        "absolute bottom-4 left-[50%] z-10 translate-x-[-50%] rounded-full transition data-[active=false]:pointer-events-none data-[active=false]:opacity-0",
+        className
+      )}
+      {...props}
+    >
+      {children ?? <ArrowDownIcon className="size-4" />}
+    </MessageScroller.Button>
   );
 };
 
@@ -173,10 +172,7 @@ const ConversationDownload = ({
 
   return (
     <Button
-      className={cn(
-        "absolute top-4 right-4 rounded-full",
-        className
-      )}
+      className={cn("absolute top-4 right-4 rounded-full", className)}
       onClick={handleDownload}
       size="icon"
       type="button"

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMPUTER_METADATA_PREFIX,
   findDemoRecordingMetadataInParts,
+  mergePersistedAssistantParts,
   sanitizeAssistantPartsForPersistence,
   sanitizeMessageForModelConversion,
 } from "./chat-messages";
@@ -71,6 +72,71 @@ describe("chat message persistence helpers", () => {
     ] as any;
 
     expect(sanitizeAssistantPartsForPersistence(parts)).toEqual(parts);
+  });
+
+  it("uses completed persisted assistant parts over stale live parts", () => {
+    const currentParts = [
+      {
+        type: "text",
+        text: "I'll inspect the repository status.",
+      },
+    ] as any;
+    const persistedParts = [
+      {
+        type: "text",
+        text: "I'll inspect the repository status.\n\nLatest changes on main: fixed the UI.",
+      },
+    ] as any;
+
+    expect(
+      mergePersistedAssistantParts(currentParts, persistedParts, {
+        allowPersistedRemoval: true,
+      }),
+    ).toBe(persistedParts);
+  });
+
+  it("keeps newer streaming assistant text over shorter persisted parts", () => {
+    const currentParts = [
+      {
+        type: "text",
+        state: "streaming",
+        text: "I'll inspect the repository status and keep streaming details.",
+      },
+    ] as any;
+    const persistedParts = [
+      {
+        type: "text",
+        text: "I'll inspect the repository status.",
+      },
+    ] as any;
+
+    expect(
+      mergePersistedAssistantParts(currentParts, persistedParts, {
+        allowPersistedRemoval: true,
+      }),
+    ).toBe(currentParts);
+  });
+
+  it("uses longer persisted assistant text even when live text is still marked streaming", () => {
+    const currentParts = [
+      {
+        type: "text",
+        state: "streaming",
+        text: "I'll inspect the repository status.",
+      },
+    ] as any;
+    const persistedParts = [
+      {
+        type: "text",
+        text: "I'll inspect the repository status.\n\nLatest changes on main: fixed the UI.",
+      },
+    ] as any;
+
+    expect(
+      mergePersistedAssistantParts(currentParts, persistedParts, {
+        allowPersistedRemoval: true,
+      }),
+    ).toBe(persistedParts);
   });
 
   it("normalizes multimodal computer content before persistence", () => {

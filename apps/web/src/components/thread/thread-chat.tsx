@@ -551,32 +551,60 @@ export function ThreadChat({
   const allowPersistedPartRemoval = status === "ready" && !currentRunId;
 
   useEffect(() => {
-    setMessages((currentMessages) => currentMessages.map((message) => {
-      const persistedMessage = initialMessages.find((candidate) => candidate.id === message.id);
+    setMessages((currentMessages) => {
+      const currentMessagesById = new Map(
+        currentMessages.map((message) => [message.id, message])
+      );
+      const mergedMessages: UIMessage[] = [];
+      const mergedMessageIds = new Set<string>();
 
-      if (!persistedMessage) {
-        return message;
-      }
+      for (const persistedMessage of initialMessages) {
+        const currentMessage = currentMessagesById.get(persistedMessage.id);
 
-      const nextMetadata = persistedMessage.metadata ?? message.metadata;
-      const nextParts = message.role === "assistant"
-        ? mergePersistedAssistantParts(message.parts, persistedMessage.parts, {
+        if (!currentMessage) {
+          mergedMessages.push(persistedMessage);
+          mergedMessageIds.add(persistedMessage.id);
+          continue;
+        }
+
+        const nextMetadata = persistedMessage.metadata ?? currentMessage.metadata;
+        const nextParts = currentMessage.role === "assistant"
+          ? mergePersistedAssistantParts(currentMessage.parts, persistedMessage.parts, {
             allowPersistedRemoval: allowPersistedPartRemoval,
           })
-        : persistedMessage.parts.length > message.parts.length
-          ? persistedMessage.parts
-          : message.parts;
+          : persistedMessage.parts.length > currentMessage.parts.length
+            ? persistedMessage.parts
+            : currentMessage.parts;
 
-      if (nextMetadata === message.metadata && nextParts === message.parts) {
-        return message;
+        if (nextMetadata === currentMessage.metadata && nextParts === currentMessage.parts) {
+          mergedMessages.push(currentMessage);
+          mergedMessageIds.add(currentMessage.id);
+          continue;
+        }
+
+        mergedMessages.push({
+          ...currentMessage,
+          metadata: nextMetadata,
+          parts: nextParts,
+        });
+        mergedMessageIds.add(currentMessage.id);
       }
 
-      return {
-        ...message,
-        metadata: nextMetadata,
-        parts: nextParts,
-      };
-    }));
+      for (const message of currentMessages) {
+        if (!mergedMessageIds.has(message.id)) {
+          mergedMessages.push(message);
+        }
+      }
+
+      if (
+        mergedMessages.length === currentMessages.length &&
+        mergedMessages.every((message, index) => message === currentMessages[index])
+      ) {
+        return currentMessages;
+      }
+
+      return mergedMessages;
+    });
   }, [allowPersistedPartRemoval, initialMessages, setMessages]);
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;

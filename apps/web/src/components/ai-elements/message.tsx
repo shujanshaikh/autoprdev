@@ -31,15 +31,36 @@ import { markdownComponents } from "./markdown-components";
 
 const MessageRoleContext = createContext<UIMessage["role"]>("assistant");
 
-export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-  from: UIMessage["role"];
+export type MessageGroupProps = ComponentProps<"div">;
+
+export const MessageGroup = ({
+  className,
+  ...props
+}: MessageGroupProps) => (
+  <div
+    data-slot="message-group"
+    className={cn("flex min-w-0 flex-col gap-1.5", className)}
+    {...props}
+  />
+);
+
+export type MessageProps = ComponentProps<"div"> & {
+  align?: "start" | "end";
+  from?: UIMessage["role"];
 };
 
-const Message = ({ className, from, ...props }: MessageProps) => (
+export const Message = ({
+  align,
+  className,
+  from = "assistant",
+  ...props
+}: MessageProps) => (
   <MessageRoleContext.Provider value={from}>
     <div
+      data-slot="message"
+      data-align={align ?? (from === "user" ? "end" : "start")}
       className={cn(
-        "flex w-full flex-col",
+        "group/message relative flex w-full min-w-0 gap-1.5 text-xs data-[align=end]:flex-row-reverse",
         from === "user" ? "message-enter-user" : "message-enter",
         className
       )}
@@ -48,7 +69,7 @@ const Message = ({ className, from, ...props }: MessageProps) => (
   </MessageRoleContext.Provider>
 );
 
-export type MessageContentProps = HTMLAttributes<HTMLDivElement>;
+export type MessageContentProps = ComponentProps<"div">;
 
 export const MessageContent = ({
   children,
@@ -57,8 +78,9 @@ export const MessageContent = ({
 }: MessageContentProps) => {
   return (
     <div
+      data-slot="message-content"
       className={cn(
-        "flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden",
+        "flex w-full min-w-0 max-w-full flex-col gap-2 overflow-visible wrap-break-word group-data-[align=end]/message:*:data-slot:self-end",
         className
       )}
       {...props}
@@ -67,6 +89,38 @@ export const MessageContent = ({
     </div>
   );
 };
+
+export type MessageHeaderProps = ComponentProps<"div">;
+
+export const MessageHeader = ({
+  className,
+  ...props
+}: MessageHeaderProps) => (
+  <div
+    data-slot="message-header"
+    className={cn(
+      "flex max-w-full min-w-0 items-center px-2.5 text-xs font-medium text-muted-foreground group-has-data-[variant=ghost]/message:px-0",
+      className
+    )}
+    {...props}
+  />
+);
+
+export type MessageFooterProps = ComponentProps<"div">;
+
+export const MessageFooter = ({
+  className,
+  ...props
+}: MessageFooterProps) => (
+  <div
+    data-slot="message-footer"
+    className={cn(
+      "flex max-w-full min-w-0 items-center px-2.5 text-xs font-medium text-muted-foreground group-has-data-[variant=ghost]/message:px-0 group-data-[align=end]/message:justify-end",
+      className
+    )}
+    {...props}
+  />
+);
 
 export type MessageActionsProps = ComponentProps<"div">;
 
@@ -341,7 +395,7 @@ export const MessageResponse = memo(
   ({ className, children, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
-        "sd-render size-full !text-[14px] !leading-[1.65] [&>*+*]:!mt-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "sd-render w-full min-w-0 !text-[14px] !leading-[1.65] [&>*+*]:!mt-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         "[&_p]:!my-2 [&_li]:!my-1 [&_ul]:!my-2 [&_ol]:!my-2",
         "[&_code]:!rounded-[3px] [&_code]:!bg-muted/55 [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!text-[0.86em]",
         "[&_[data-streamdown=inline-code]]:!text-[0.86em]",

@@ -845,28 +845,10 @@ function ContentDetailsBody({
     (slug === "write" || slug === "edit") && isToolDiffPayload(details.diff)
       ? details.diff
       : null;
-  const demoRecordings = slug === "computer" ? demoRecordingsFromDetails(details) : [];
   const showMeta = !diffPayload;
 
   if (slug === "computer") {
-    if (demoRecordings.length === 0) {
-      return null;
-    }
-
-    return (
-      <section className="space-y-1.5 font-sans">
-        <h3 className="text-[13px] font-medium leading-tight text-muted-foreground">
-          Walkthrough
-        </h3>
-        {demoRecordings.map((recording) => (
-          <DemoRecordingCard
-            key={recording.id}
-            recording={recording}
-            recordingPlaybackBasePath={recordingPlaybackBasePath}
-          />
-        ))}
-      </section>
-    );
+    return null;
   }
 
   if (slug === "bash") {
@@ -901,6 +883,46 @@ function ContentDetailsBody({
     </div>
   );
 }
+
+export type ToolRecordingOutputProps = ComponentProps<"div"> & {
+  output: ToolPart["output"];
+  recordingPlaybackBasePath?: string;
+};
+
+export const ToolRecordingOutput = ({
+  className,
+  output,
+  recordingPlaybackBasePath,
+  ...props
+}: ToolRecordingOutputProps) => {
+  const computerContentDetails = computerContentOutputToContentDetails(output);
+  const details = computerContentDetails?.details;
+
+  if (!details) {
+    return null;
+  }
+
+  const demoRecordings = demoRecordingsFromDetails(details);
+
+  if (demoRecordings.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className={cn("mt-1.5 space-y-1.5 font-sans", className)} {...props}>
+      <h3 className="text-[13px] font-medium leading-tight text-muted-foreground">
+        Walkthrough
+      </h3>
+      {demoRecordings.map((recording) => (
+        <DemoRecordingCard
+          key={recording.id}
+          recording={recording}
+          recordingPlaybackBasePath={recordingPlaybackBasePath}
+        />
+      ))}
+    </section>
+  );
+};
 
 const statusLabel: Record<ToolPart["state"], string> = {
   "approval-requested": "awaiting approval",
@@ -1325,6 +1347,10 @@ export const ToolOutput = ({
 
   const slug = toolSlugFromPart(toolType, toolName);
   const computerContentDetails = slug === "computer" ? computerContentOutputToContentDetails(output) : null;
+
+  if (!errorText && computerContentDetails) {
+    return null;
+  }
 
   let body: ReactNode;
 

@@ -48,6 +48,7 @@ import {
   ToolHeader,
   ToolInput,
   ToolOutput,
+  ToolRecordingOutput,
   ExploreToolRow,
   isExploreTool,
   isComputerRecordingTool,
@@ -542,11 +543,29 @@ export function ThreadMessages({
       const messageText = isUser ? getTextParts(message.parts) : "";
       const isImageFileItem = (item: GroupedItem) =>
         item.kind === "single" && isFileUIPart(item.part) && item.part.mediaType.startsWith("image/");
+      const isComputerRecordingItem = (item: GroupedItem) => {
+        if (item.kind !== "single" || !isToolUIPart(item.part)) {
+          return false;
+        }
+
+        const partState = getToolState(item.part);
+        const input = "input" in item.part ? item.part.input : undefined;
+        const output = "output" in item.part ? item.part.output : undefined;
+        const toolName = item.part.type === "dynamic-tool" ? getToolName(item.part) : undefined;
+        const toolSlug = toolSlugFromPart(item.part.type, toolName);
+
+        return toolSlug === "computer" && isComputerRecordingTool(input, output, partState);
+      };
       const imageFileItems = isUser ? grouped.filter(isImageFileItem) : [];
       const displayGrouped = isUser
         ? grouped.filter((item) => !isImageFileItem(item))
         : grouped;
+      const recordingItems = !isUser ? displayGrouped.filter(isComputerRecordingItem) : [];
       const isVisibleRunDetailItem = (item: GroupedItem) => {
+        if (isComputerRecordingItem(item)) {
+          return false;
+        }
+
         if (item.kind === "explore-group") {
           return true;
         }
@@ -569,9 +588,27 @@ export function ThreadMessages({
       };
       const runDetailItems = !isUser ? displayGrouped.filter(isVisibleRunDetailItem) : [];
       const mainDisplayGrouped =
-        runDetailItems.length > 0
-          ? displayGrouped.filter((item) => !isVisibleRunDetailItem(item))
+        runDetailItems.length > 0 || recordingItems.length > 0
+          ? displayGrouped.filter(
+              (item) => !isVisibleRunDetailItem(item) && !isComputerRecordingItem(item)
+            )
           : displayGrouped;
+      const renderRecordingItem = (item: GroupedItem) => {
+        if (item.kind !== "single" || !isToolUIPart(item.part)) {
+          return null;
+        }
+
+        const output = "output" in item.part ? item.part.output : undefined;
+
+        return (
+          <ToolRecordingOutput
+            key={`${message.id}-recording-${item.stableKey}`}
+            className="mb-2"
+            output={output}
+            recordingPlaybackBasePath={recordingPlaybackBasePath}
+          />
+        );
+      };
       const renderGroupedItem = (item: GroupedItem, location: "main" | "run-details") => {
         const keyScope = `${message.id}-${location}`;
 
@@ -670,9 +707,7 @@ export function ThreadMessages({
           ) {
             return null;
           }
-          const defaultToolOpen =
-            partState !== "output-available" ||
-            (toolSlug === "computer" && isComputerRecordingTool(input, output, partState));
+          const defaultToolOpen = partState !== "output-available";
 
           return (
             <Tool
@@ -776,6 +811,7 @@ export function ThreadMessages({
                     </AssistantRunTimerRow>
                   </MessageHeader>
                 ) : null}
+                {!isUser ? recordingItems.map(renderRecordingItem) : null}
                 {mainDisplayGrouped.map((item) => renderGroupedItem(item, "main"))}
                 </div>
                 {isUser ? <UserMessageCopyButton text={messageText} /> : null}

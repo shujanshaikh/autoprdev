@@ -1,7 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Authenticated, Unauthenticated } from "convex/react";
 
-import { LatestProjectEntry } from "#/components/latest-project-entry";
 import { RouteTransition } from "#/components/route-transition";
 import { FigmaLandingPage } from "@/components/landing/figma-landing-page";
 
@@ -18,13 +16,7 @@ function LandingHome() {
 function Home() {
   return (
     <RouteTransition>
-      <Authenticated>
-        <LatestProjectEntry />
-      </Authenticated>
-
-      <Unauthenticated>
-        <LandingHome />
-      </Unauthenticated>
+      <LandingHome />
     </RouteTransition>
   );
 }

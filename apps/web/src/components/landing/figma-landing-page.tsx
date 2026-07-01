@@ -142,6 +142,36 @@ function HeroMascot() {
   );
 }
 
+function MobileHeroMascot() {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative mt-0 h-[7.4rem] w-[7.3rem] shrink-0 min-[380px]:h-[8.5rem] min-[380px]:w-[8.4rem] md:h-[11rem] md:w-[10.9rem]"
+    >
+      <img
+        src="/images/landing/mascot-spark.svg"
+        alt=""
+        className="landing-muted-asset absolute left-0 top-0 h-[39.9%] w-[41.9%]"
+      />
+      <img
+        src="/images/landing/mascot-body.svg"
+        alt=""
+        className="landing-muted-asset absolute left-[14.8%] top-[12.5%] h-[100%] w-[83.3%]"
+      />
+      <img
+        src="/images/landing/mascot-leg-right.svg"
+        alt=""
+        className="landing-muted-asset absolute left-[37.7%] top-[62.7%] h-[21.2%] w-[14.9%]"
+      />
+      <img
+        src="/images/landing/mascot-leg-left.svg"
+        alt=""
+        className="landing-muted-asset absolute left-[62.3%] top-[62.7%] h-[21.2%] w-[14.9%]"
+      />
+    </div>
+  );
+}
+
 function FigmaButton({
   href,
   children,
@@ -214,12 +244,7 @@ function MobileLandingPage() {
               Your autonomous code companion.
             </p>
           </div>
-          <img
-            src="/images/landing/mascot-body.svg"
-            alt=""
-            aria-hidden="true"
-            className="landing-muted-asset mt-1 h-20 w-16 shrink-0 object-contain min-[380px]:h-24 min-[380px]:w-20 md:h-32 md:w-28"
-          />
+          <MobileHeroMascot />
         </div>
         <p className="mt-4 text-[15px] leading-6 text-[color:var(--landing-muted)] md:max-w-[38rem] md:text-base md:leading-7">
           AutoPR reviews, refactors, and ships pull requests for you, so your team stays in flow while the busywork takes care of itself.

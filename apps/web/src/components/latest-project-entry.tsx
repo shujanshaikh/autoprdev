@@ -2,7 +2,7 @@ import { Button } from "@autopr/ui/components/button";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { GitBranch, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect } from "react";
 
 import { WorkspaceShell } from "#/components/workspace-shell";
@@ -35,35 +35,15 @@ export function LatestProjectEntry() {
           </div>
 
           <div className="relative flex flex-col items-center text-center">
-            <div className="mb-8 flex size-16 items-center justify-center rounded-lg border border-border bg-card">
-              <GitBranch className="size-7 text-muted-foreground" />
-            </div>
-
-            <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-              no projects
-            </p>
-
-            <h1 className="mt-4 font-display text-3xl font-normal tracking-normal text-foreground">
-              Create your first project
-            </h1>
-
-            <p className="mt-3 max-w-sm text-base leading-7 text-muted-foreground">
-              Connect a GitHub repository and launch a sandbox to get started.
-            </p>
-
             <Button
               type="button"
               size="lg"
               onClick={openCreateProject}
-              className="mt-8 h-12 px-8 text-base"
+              className="h-12 px-8 text-base"
             >
               <Plus className="size-5" aria-hidden="true" />
-              Create project
+              Create sandbox
             </Button>
-
-            <p className="mt-12 text-xs text-muted-foreground/40">
-              Have existing projects? Open one from the sidebar.
-            </p>
           </div>
         </main>
       )}

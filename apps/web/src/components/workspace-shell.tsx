@@ -387,6 +387,7 @@ function WorkspaceSidebar({
   const [showAllThreadsProjectIds, setShowAllThreadsProjectIds] = useState<Set<string>>(() => new Set());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const hasProjects = projects === undefined || projects.length > 0;
   const expandedProjectThreads = useQuery(
     api.threads.listByProject,
     expandedProjectId && expandedProjectId !== activeProjectId
@@ -495,16 +496,18 @@ function WorkspaceSidebar({
 
         <SidebarContent className="minimal-scrollbar">
           <SidebarGroup className="min-h-0 flex-1 px-2 py-2">
-            <div className="mb-2 px-2 group-data-[collapsible=icon]:hidden">
-              <button
-                type="button"
-                onClick={onCreateProject}
-                className="inline-flex h-9 w-full items-center gap-2 rounded-xs border border-sidebar-border bg-[color:var(--project-panel)] px-2 text-left type-button text-sidebar-foreground/75 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
-              >
-                <Plus className="size-4 text-sidebar-foreground/50" aria-hidden="true" />
-                <span className="truncate">New project</span>
-              </button>
-            </div>
+            {hasProjects ? (
+              <div className="mb-2 px-2 group-data-[collapsible=icon]:hidden">
+                <button
+                  type="button"
+                  onClick={onCreateProject}
+                  className="inline-flex h-9 w-full items-center gap-2 rounded-xs border border-sidebar-border bg-[color:var(--project-panel)] px-2 text-left type-button text-sidebar-foreground/75 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
+                >
+                  <Plus className="size-4 text-sidebar-foreground/50" aria-hidden="true" />
+                  <span className="truncate">New project</span>
+                </button>
+              </div>
+            ) : null}
 
             <div className="mb-3 px-2 group-data-[collapsible=icon]:hidden">
               <div className="relative flex h-8 items-center rounded-xs border border-sidebar-border bg-[color:var(--project-panel)] transition focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/30">
@@ -554,14 +557,16 @@ function WorkspaceSidebar({
                 ) : filteredProjects.length === 0 ? (
                   <div className="px-2 py-6 text-center group-data-[collapsible=icon]:hidden">
                     <p className="text-[12px] text-sidebar-foreground/45">No projects</p>
-                    <button
-                      type="button"
-                      onClick={onCreateProject}
-                      className="mt-3 inline-flex h-8 items-center gap-2 rounded-[var(--radius-pill)] border border-sidebar-border px-3 type-button text-sidebar-foreground/70 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
-                    >
-                      <Plus className="size-3.5" aria-hidden="true" />
-                      Create project
-                    </button>
+                    {projects.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={onCreateProject}
+                        className="mt-3 inline-flex h-8 items-center gap-2 rounded-[var(--radius-pill)] border border-sidebar-border px-3 type-button text-sidebar-foreground/70 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
+                      >
+                        <Plus className="size-3.5" aria-hidden="true" />
+                        Create project
+                      </button>
+                    ) : null}
                   </div>
                 ) : (
                   filteredProjects.map((project) => {

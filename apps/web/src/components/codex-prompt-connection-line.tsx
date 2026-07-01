@@ -33,7 +33,7 @@ export function CodexPromptConnectionLine({
         aria-hidden="true"
         className={cn(
           "size-1.5 shrink-0",
-          unavailable ? "bg-destructive" : "bg-amber-500",
+          unavailable ? "bg-destructive" : "bg-[color:var(--cohere-coral)]",
         )}
       />
       <span className="min-w-0 leading-tight">{labels[issue]}</span>

@@ -44,11 +44,11 @@ export function WorkflowSection() {
       className="landing-section landing-section-alt relative isolate px-5 py-20 sm:px-8 sm:py-24 lg:px-12"
     >
       <div className="mx-auto max-w-7xl">
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-[color:var(--landing-amber)]">
+        <p className="font-mono text-[10px] font-normal uppercase tracking-[0.22em] text-[color:var(--landing-amber)]">
           Runtime path
         </p>
 
-        <h2 className="mt-4 max-w-3xl text-balance text-[clamp(2rem,5vw,4.2rem)] font-semibold leading-[0.98] tracking-normal text-[color:var(--landing-ink)]">
+        <h2 className="mt-4 max-w-3xl text-balance font-display text-[clamp(2rem,5vw,4.2rem)] font-normal leading-[0.98] tracking-normal text-[color:var(--landing-ink)]">
           The sequence is the product.
         </h2>
 
@@ -63,11 +63,11 @@ export function WorkflowSection() {
                 isVisible && "is-visible",
               )}
             >
-              <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--landing-amber)]">
+              <div className="font-mono text-[11px] font-normal uppercase tracking-[0.18em] text-[color:var(--landing-amber)]">
                 {String(i + 1).padStart(2, "0")}
               </div>
 
-              <p className="mt-8 text-sm font-semibold text-[color:var(--landing-ink)]">
+              <p className="mt-8 text-sm font-normal text-[color:var(--landing-ink)]">
                 {step.title}
               </p>
 

@@ -170,7 +170,7 @@ export function CodexConnectPanel({
         {asDialogHeader ? (
           <DialogHeader className="gap-2">
             <CodexPanelKicker />
-            <DialogTitle className="text-base font-semibold tracking-tight text-foreground">
+            <DialogTitle className="text-base font-medium text-foreground">
               Connect Codex
             </DialogTitle>
             <DialogDescription className="text-xs leading-relaxed text-muted-foreground">
@@ -181,7 +181,7 @@ export function CodexConnectPanel({
         ) : (
           <div className="space-y-2">
             <CodexPanelKicker />
-            <h2 className="text-base font-semibold tracking-tight text-foreground">
+            <h2 className="text-base font-medium text-foreground">
               Connect Codex
             </h2>
             <p className="text-xs leading-relaxed text-muted-foreground">

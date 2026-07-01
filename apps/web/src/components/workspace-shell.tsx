@@ -335,7 +335,7 @@ function ProjectSummaryRow({ project }: { project: WorkspaceProject }) {
               <span className="text-muted-foreground/45">/</span>
             </>
           ) : null}
-          <span className="font-semibold text-foreground group-hover:underline group-hover:underline-offset-4">
+          <span className="font-medium text-foreground group-hover:underline group-hover:underline-offset-4">
             {name}
           </span>
         </p>
@@ -484,9 +484,12 @@ function WorkspaceSidebar({
   return (
     <>
       <Sidebar collapsible="icon" variant="sidebar">
-        <SidebarHeader className="h-11 shrink-0 justify-center gap-0 border-b border-sidebar-border/70 px-2.5 py-0">
-          <div className="flex min-w-0 items-center gap-1.5">
+        <SidebarHeader className="h-12 shrink-0 justify-center gap-0 border-b border-sidebar-border px-2.5 py-0">
+          <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="text-sidebar-foreground/70 hover:text-sidebar-foreground" />
+            <span className="min-w-0 truncate font-display text-[14px] font-normal leading-none text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+              AUTOPR
+            </span>
           </div>
         </SidebarHeader>
 
@@ -496,7 +499,7 @@ function WorkspaceSidebar({
               <button
                 type="button"
                 onClick={onCreateProject}
-                className="inline-flex h-9 w-full items-center gap-2 border border-sidebar-border bg-sidebar px-2 text-left text-[12px] font-medium text-sidebar-foreground/75 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                className="inline-flex h-9 w-full items-center gap-2 rounded-xs border border-sidebar-border bg-[color:var(--project-panel)] px-2 text-left type-button text-sidebar-foreground/75 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
               >
                 <Plus className="size-4 text-sidebar-foreground/50" aria-hidden="true" />
                 <span className="truncate">New project</span>
@@ -504,7 +507,7 @@ function WorkspaceSidebar({
             </div>
 
             <div className="mb-3 px-2 group-data-[collapsible=icon]:hidden">
-              <div className="relative flex h-8 items-center border border-sidebar-border bg-sidebar transition focus-within:border-sidebar-foreground/45">
+              <div className="relative flex h-8 items-center rounded-xs border border-sidebar-border bg-[color:var(--project-panel)] transition focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/30">
                 <Search
                   className="pointer-events-none absolute left-2 size-3.5 text-sidebar-foreground/40"
                   aria-hidden="true"
@@ -554,7 +557,7 @@ function WorkspaceSidebar({
                     <button
                       type="button"
                       onClick={onCreateProject}
-                      className="mt-3 inline-flex h-8 items-center gap-2 border border-sidebar-border px-3 text-[12px] font-medium text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                      className="mt-3 inline-flex h-8 items-center gap-2 rounded-[var(--radius-pill)] border border-sidebar-border px-3 type-button text-sidebar-foreground/70 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
                     >
                       <Plus className="size-3.5" aria-hidden="true" />
                       Create project
@@ -592,7 +595,7 @@ function WorkspaceSidebar({
                           />
                           <span className={cn(
                             "min-w-0 flex-1 truncate text-[13px] leading-none group-data-[collapsible=icon]:hidden",
-                            active ? "font-semibold text-sidebar-foreground" : "font-medium",
+                            active ? "font-medium text-sidebar-foreground" : "font-medium",
                           )}>
                             {name}
                           </span>
@@ -605,7 +608,7 @@ function WorkspaceSidebar({
                           onClick={(event) => {
                             handleProjectNewChat(event, project.projectId);
                           }}
-                          className="right-6 text-sidebar-foreground/30 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                          className="right-6 text-sidebar-foreground/30 hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
                         >
                           <Pencil aria-hidden="true" />
                         </SidebarMenuAction>
@@ -646,10 +649,10 @@ function WorkspaceSidebar({
                                           to="/project/$projectId/thread/$threadId"
                                           params={{ projectId: project.projectId, threadId: thread.threadId }}
                                           className={cn(
-                                            "flex min-w-0 items-center gap-2 py-1.5 pr-8 pl-8 text-[13px] leading-snug transition-colors",
+                                            "flex min-w-0 items-center gap-2 border-l-2 py-1.5 pr-8 pl-[30px] text-[13px] leading-snug transition-colors",
                                             threadActive
-                                              ? "bg-sidebar-accent font-medium text-sidebar-foreground"
-                                              : "text-sidebar-foreground/55 hover:text-sidebar-foreground",
+                                              ? "border-[color:var(--project-selected-strong)] bg-[color:var(--project-selected)] font-medium text-sidebar-foreground"
+                                              : "border-transparent text-sidebar-foreground/55 hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground",
                                           )}
                                         >
                                           <span className="min-w-0 flex-1 truncate">
@@ -718,19 +721,19 @@ function WorkspaceSidebar({
                 <button
                   type="button"
                   onClick={onOpenSettings}
-                  className="hidden size-8 items-center justify-center text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-foreground group-data-[collapsible=icon]:inline-flex"
+                  className="hidden size-8 items-center justify-center text-sidebar-foreground/70 transition hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground group-data-[collapsible=icon]:inline-flex"
                   aria-label="Settings"
                   title="Settings"
                 >
                   <Settings className="size-4" aria-hidden="true" />
                 </button>
-                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden" />
+                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden" />
                 <WorkOSUserButton className="size-8 group-data-[collapsible=icon]:hidden" />
               </div>
             </SidebarMenuItem>
             <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
               <div className="flex h-9 items-center justify-center">
-                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+                <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground" />
               </div>
             </SidebarMenuItem>
             <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
@@ -882,7 +885,7 @@ export function WorkspaceShell({
         />
         <SidebarInset className="min-w-0 overflow-hidden">
           <div className="fixed left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-40 md:hidden">
-            <SidebarTrigger className="border border-border bg-background/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80" />
+            <SidebarTrigger className="border border-border bg-background" />
           </div>
           <RouteTransition>
             {typeof children === "function"
@@ -908,7 +911,7 @@ export function WorkspaceShell({
           onDelete={deleteProject}
         />
         {deleteError ? (
-          <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 border border-destructive/30 bg-popover px-3 py-2 text-xs text-destructive shadow-lg">
+          <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 border border-destructive/30 bg-popover px-3 py-2 text-xs text-destructive">
             {deleteError}
           </div>
         ) : null}

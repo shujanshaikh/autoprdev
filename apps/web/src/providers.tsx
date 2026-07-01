@@ -29,7 +29,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthKitProvider>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem={false}
+        disableTransitionOnChange
+      >
         <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
           <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
         </ConvexProviderWithAuth>

@@ -201,7 +201,7 @@ function ImageAttachmentPreview({
           <button
             type="button"
             className={cn(
-              "block overflow-hidden rounded-none border border-border/80 bg-muted/80 shadow-sm transition hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "block overflow-hidden rounded-sm border border-border bg-[color:var(--project-panel-soft)] transition hover:border-border hover:bg-[color:var(--project-panel-soft)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
               className
             )}
             aria-label="Open image preview"
@@ -283,7 +283,7 @@ function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
     <div className="message-enter-user">
       <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
-        <div className="group/user-message relative rounded-none border border-border bg-card p-4 shadow-sm">
+        <div className="group/user-message relative rounded-sm border border-border bg-card p-4">
           <p className="text-[15px] leading-[1.7] text-foreground">{prompt}</p>
           <UserMessageCopyButton text={prompt} />
         </div>
@@ -421,13 +421,13 @@ function SandboxStatusBar({
     sandboxStatus === "failed"
       ? "bg-destructive"
       : sandboxStatus === "creating" || checking
-        ? "bg-amber-500"
+        ? "bg-[color:var(--cohere-coral)]"
         : runtimeStatus === "started"
-          ? "bg-emerald-500"
+          ? "bg-[color:var(--cohere-deep-green)]"
           : runtimeStatus === "stopped"
-            ? "bg-zinc-500"
+            ? "bg-muted-foreground"
             : runtimeStatus === "archived"
-              ? "bg-sky-500"
+              ? "bg-[color:var(--cohere-action-blue)]"
             : "bg-muted-foreground/60";
 
   return (
@@ -474,10 +474,10 @@ export function ThreadMessages({
     {keyedMessages.length === 0 && !showingInitialPromptHandoff ? (
       <ConversationEmptyState className="mx-auto max-w-[680px] items-start px-6 py-10 text-left sm:px-8" icon={<Bot className="size-6 text-muted-foreground" />}>
         <div className="max-w-xl">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
             Repository thread
           </p>
-          <h2 className="mt-2 text-lg font-semibold leading-snug text-foreground sm:text-xl">
+          <h2 className="mt-2 text-lg font-medium leading-snug text-foreground sm:text-xl">
             Ask the agent to inspect, run, edit, or explain this repository.
           </h2>
         </div>
@@ -492,7 +492,7 @@ export function ThreadMessages({
               type="button"
               disabled={!ready}
               onClick={() => void onSubmitMessage(suggestion)}
-              className="min-h-[72px] rounded-lg border border-border bg-muted p-3.5 text-left text-sm leading-relaxed text-foreground transition hover:border-border hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-[72px] rounded-sm border border-border bg-[color:var(--project-panel-soft)] p-3.5 text-left text-sm leading-relaxed text-foreground transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {suggestion}
             </button>
@@ -679,7 +679,7 @@ export function ThreadMessages({
               key={`${keyScope}-tool-${stableKey}`}
               className={cn(
                 toolSlug === "bash" &&
-                  "my-1.5 rounded-none border border-border bg-card text-muted-foreground shadow-none"
+                  "my-1.5 rounded-sm border border-border bg-card text-muted-foreground shadow-none"
               )}
               data-tool={toolSlug}
               defaultOpen={defaultToolOpen}
@@ -762,7 +762,7 @@ export function ThreadMessages({
                 </div>
               ) : null}
               <MessageContent className={cn("gap-1 overflow-visible", isUser && "group/user-message relative")}>
-                <div className={cn(isUser && "rounded-none border border-border bg-card p-4 shadow-sm")}>
+                <div className={cn(isUser && "rounded-sm border border-border bg-card p-4")}>
                 {!isUser ? (
                   <MessageHeader className="block max-w-none p-0 text-inherit">
                     <AssistantRunTimerRow

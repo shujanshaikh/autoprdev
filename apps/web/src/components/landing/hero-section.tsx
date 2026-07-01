@@ -41,7 +41,7 @@ export function HeroSection() {
         <nav className="flex items-center justify-between gap-4 py-5" aria-label="Landing page">
           <a
             href="#top"
-            className="shrink-0 font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-[color:var(--landing-hero-foreground)]"
+            className="shrink-0 font-mono text-[11px] font-normal uppercase tracking-[0.24em] text-[color:var(--landing-hero-foreground)]"
           >
             AUTOPR
           </a>
@@ -50,7 +50,7 @@ export function HeroSection() {
               <a
                 key={link.label}
                 href={link.href}
-                className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:var(--landing-hero-muted)] transition hover:text-[color:var(--landing-hero-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:tracking-[0.18em]"
+                className="font-mono text-[10px] font-normal uppercase tracking-[0.16em] text-[color:var(--landing-hero-muted)] transition hover:text-[color:var(--landing-hero-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:tracking-[0.18em]"
               >
                 {link.label}
               </a>
@@ -58,23 +58,23 @@ export function HeroSection() {
             {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- This intentionally navigates to the auth API endpoint. */}
             <a
               href="/api/auth/sign-in?returnTo=%2Fdashboard"
-              className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--landing-accent-strong)] transition hover:text-[color:var(--landing-hero-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+              className="font-mono text-[10px] font-normal uppercase tracking-[0.18em] text-[color:var(--landing-accent-strong)] transition hover:text-[color:var(--landing-hero-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             >
               Sign in
             </a>
             <ModeToggle
               presentation="switch"
-              className="border-[color:var(--landing-hero-foreground)] bg-[color-mix(in_oklch,var(--landing-hero-panel)_94%,var(--background))] text-[color:var(--landing-hero-foreground)] hover:border-[color:var(--landing-hero-foreground)] hover:text-[color:var(--landing-hero-foreground)]"
+              className="border-[color:var(--landing-hero-foreground)] bg-[color-mix(in_srgb,var(--landing-hero-panel)_94%,var(--background))] text-[color:var(--landing-hero-foreground)] hover:border-[color:var(--landing-hero-foreground)] hover:text-[color:var(--landing-hero-foreground)]"
             />
           </div>
         </nav>
 
         <div className="flex flex-1 items-end pb-10 pt-14 lg:pb-14 lg:pt-20">
           <div className="max-w-4xl">
-            <p className="landing-hero-in font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--landing-accent-strong)]">
+            <p className="landing-hero-in font-mono text-[11px] font-normal uppercase tracking-[0.22em] text-[color:var(--landing-accent-strong)]">
               Hosted code-agent workspaces for GitHub repos
             </p>
-            <h1 className="landing-hero-in-delayed mt-5 text-balance font-mono text-[clamp(2.6rem,10vw,7.6rem)] font-semibold uppercase leading-[0.9] tracking-[0.08em] text-[color:var(--landing-hero-foreground)]">
+            <h1 className="landing-hero-in-delayed mt-5 text-balance font-display text-[clamp(2.6rem,10vw,7.6rem)] font-normal uppercase leading-[0.9] tracking-normal text-[color:var(--landing-hero-foreground)]">
               AUTOPR
             </h1>
             <div className="landing-hero-in-late mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -83,7 +83,7 @@ export function HeroSection() {
                 href="/api/auth/sign-in?returnTo=%2Fdashboard"
                 className={cn(
                   buttonVariants({ variant: "default", size: "lg" }),
-                  "h-11 rounded-none px-5",
+                  "h-11 rounded-[var(--radius-pill)] px-5",
                 )}
               >
                 Start with a repo
@@ -93,7 +93,7 @@ export function HeroSection() {
                 href="#support"
                 className={cn(
                   buttonVariants({ variant: "outline", size: "lg" }),
-                  "h-11 rounded-none border-[color:var(--landing-hero-panel-border)] bg-[color:var(--landing-hero-panel)] px-5 text-[color:var(--landing-hero-foreground)] hover:bg-muted hover:text-foreground",
+                  "h-11 rounded-[var(--radius-pill)] border-[color:var(--landing-hero-panel-border)] bg-[color:var(--landing-hero-panel)] px-5 text-[color:var(--landing-hero-foreground)] hover:bg-muted hover:text-foreground",
                 )}
               >
                 See supported surfaces

@@ -121,8 +121,8 @@ export function SettingsDialog({
                     className={cn(
                       "relative flex h-9 shrink-0 items-center justify-center gap-1.5 px-2.5 text-left font-mono text-[10px] uppercase tracking-[0.08em] transition-colors min-[380px]:gap-2 min-[380px]:px-3 min-[380px]:text-[11px] min-[380px]:tracking-[0.12em] sm:h-auto sm:justify-start sm:py-2 sm:tracking-[0.14em]",
                       isActive
-                        ? "bg-muted/60 text-foreground"
-                        : "text-muted-foreground hover:bg-muted/30 hover:text-foreground/80",
+                        ? "rounded-xs bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)]"
+                        : "rounded-xs text-muted-foreground hover:bg-muted/30 hover:text-foreground/80",
                     )}
                   >
                     {isActive && (
@@ -158,7 +158,7 @@ export function SettingsDialog({
                 role="tabpanel"
                 aria-labelledby="settings-tab-codex"
               >
-                <div className="overflow-hidden border border-border bg-background">
+                <div className="overflow-hidden rounded-sm border border-border bg-background">
                   <CodexConnectPanel
                     active={open && activeTab === "codex"}
                     status={codexStatus}

@@ -2,32 +2,22 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Authenticated, Unauthenticated } from "convex/react";
 
 import { LatestProjectEntry } from "#/components/latest-project-entry";
-import { HeroSection } from "@/components/landing/hero-section";
-import { FeaturesGrid } from "@/components/landing/features-grid";
-import { WorkflowSection } from "@/components/landing/workflow-section";
-import { PricingCallout } from "@/components/landing/pricing-callout";
-import { LandingFooter } from "@/components/landing/landing-footer";
+import { RouteTransition } from "#/components/route-transition";
+import { FigmaLandingPage } from "@/components/landing/figma-landing-page";
 
 export const metadata = {
-  title: "AutoPR | Hosted code-agent workspaces",
-  description: "Run Codex-backed agents in isolated Daytona sandboxes with GitHub repos, diffs, terminal, desktop preview, demo recording, PRs, and cost tracking.",
+  title: "AutoPR | Your autonomous code companion",
+  description:
+    "AutoPR reviews, refactors, and ships pull requests so your team stays in flow while focused agents handle the busywork.",
 };
 
 function LandingHome() {
-  return (
-    <div id="top" className="landing-page relative flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto">
-      <HeroSection />
-      <FeaturesGrid />
-      <WorkflowSection />
-      <PricingCallout />
-      <LandingFooter />
-    </div>
-  );
+  return <FigmaLandingPage />;
 }
 
 function Home() {
   return (
-    <>
+    <RouteTransition>
       <Authenticated>
         <LatestProjectEntry />
       </Authenticated>
@@ -35,7 +25,7 @@ function Home() {
       <Unauthenticated>
         <LandingHome />
       </Unauthenticated>
-    </>
+    </RouteTransition>
   );
 }
 

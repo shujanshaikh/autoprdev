@@ -427,7 +427,7 @@ export function ThreadDiffPanel({
         id="thread-changes-panel"
         aria-hidden={!open}
         className={cn(
-          "fixed inset-y-0 right-0 z-40 flex h-full max-h-full min-w-0 flex-col overflow-hidden border-l border-border/50 bg-background transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:static lg:z-auto lg:shrink-0 lg:will-change-[width]",
+          "fixed inset-y-0 right-0 z-40 flex h-full max-h-full min-w-0 flex-col overflow-hidden border-l border-border bg-background transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:static lg:z-auto lg:shrink-0 lg:will-change-[width]",
           isResizingPanel && "transition-none",
           panelMaximized
             ? "inset-x-0 w-full lg:w-full"
@@ -436,7 +436,7 @@ export function ThreadDiffPanel({
         )}
         style={{ "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
       >
-        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-px bg-gradient-to-b from-transparent via-border/60 to-transparent" />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-px bg-border" />
 
         <button
           type="button"
@@ -447,11 +447,11 @@ export function ThreadDiffPanel({
           )}
           onPointerDown={startResize}
         >
-          <span className="block h-12 w-0.5 rounded-full bg-border/50 transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-primary/50 group-focus-visible/resize:bg-primary" />
+          <span className="block h-12 w-0.5 rounded-full bg-border transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-[color:var(--project-selected-strong)] group-focus-visible/resize:bg-[color:var(--project-selected-strong)]" />
         </button>
 
-        <header className="relative flex shrink-0 flex-col border-b border-border/55 bg-background">
-          <div className="flex h-10 items-center gap-1 border-b border-border/45 px-3">
+        <header className="relative flex shrink-0 flex-col border-b border-border bg-background">
+          <div className="flex h-10 items-center gap-1 border-b border-border px-3">
             {visibleTabs.map((visibleTab, index) => {
               const tab = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === visibleTab.kind);
               if (!tab) return null;
@@ -465,21 +465,21 @@ export function ThreadDiffPanel({
                   key={visibleTab.id}
                   className={cn(
                     "group/tab inline-flex h-7 items-center border text-xs font-medium transition-colors",
-                    activeTabId === visibleTab.id ? "border-border/60 bg-muted/50 text-foreground" : "border-transparent text-muted-foreground hover:bg-muted/35 hover:text-foreground",
+                    activeTabId === visibleTab.id ? "border-border bg-[color:var(--project-panel-soft)] text-foreground" : "border-transparent text-muted-foreground hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
                   )}
                 >
                   <button type="button" onClick={() => selectPanelTab(visibleTab)} className="inline-flex h-full items-center gap-1.5 px-2.5">
                     <Icon className="size-3.5" aria-hidden="true" />
                     {label}
                     {visibleTab.kind === "pull-request" && effectiveStatus === "created" ? (
-                      <span className="ml-0.5 size-1.5 bg-primary" aria-hidden="true" />
+                      <span className="ml-0.5 size-1.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
                     ) : null}
                   </button>
                   {visibleTabs.length > 0 ? (
                     <button
                       type="button"
                       onClick={() => removePanelTab(visibleTab.id)}
-                      className="mr-1 inline-flex size-4 items-center justify-center text-muted-foreground/60 opacity-70 hover:bg-muted hover:text-foreground group-hover/tab:opacity-100"
+                      className="mr-1 inline-flex size-4 items-center justify-center text-muted-foreground/60 opacity-70 hover:bg-[color:var(--project-panel-soft)] hover:text-foreground group-hover/tab:opacity-100"
                       aria-label={`Remove ${label} tab`}
                     >
                       <X className="size-3" aria-hidden="true" />
@@ -516,7 +516,7 @@ export function ThreadDiffPanel({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className={cn("size-7", panelMaximized && "bg-muted text-foreground")}
+                      className={cn("size-7", panelMaximized && "bg-[color:var(--project-panel-soft)] text-foreground")}
                       onClick={() => onMaximizedChange?.(!panelMaximized)}
                       aria-pressed={panelMaximized}
                       aria-label={panelMaximized ? "Restore surface panel size" : "Maximize surface panel"}
@@ -541,9 +541,9 @@ export function ThreadDiffPanel({
           </div>
 
           {activeTab === "diff" ? (
-            <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border/45 px-3 py-1.5">
+            <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="inline-flex size-6 items-center justify-center border border-border/60 bg-muted/40">
+                <span className="inline-flex size-6 items-center justify-center border border-border bg-[color:var(--project-panel-soft)]">
                   <FileDiff className="size-3.5 text-foreground/80" aria-hidden="true" />
                 </span>
                 <p className="truncate text-sm font-medium text-foreground">Thread changes</p>
@@ -552,8 +552,8 @@ export function ThreadDiffPanel({
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 {entries.length > 0 ? (
                   <div className="hidden shrink-0 items-center gap-2 font-mono text-xs tabular-nums min-[460px]:flex">
-                    <span className="text-emerald-500">+{totals.additions}</span>
-                    <span className="text-red-400">−{totals.deletions}</span>
+                    <span className="text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]">+{totals.additions}</span>
+                    <span className="text-[color:var(--cohere-coral)]">−{totals.deletions}</span>
                   </div>
                 ) : null}
 
@@ -574,8 +574,8 @@ export function ThreadDiffPanel({
                         onClick={() => setDiffStyle(option.value)}
                         className={cn(
                           "h-7 border-border/60 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground",
-                          "hover:bg-muted hover:text-foreground",
-                          selected && "bg-muted text-foreground hover:bg-muted",
+                          "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
+                          selected && "bg-[color:var(--project-panel-soft)] text-foreground hover:bg-[color:var(--project-panel-soft)]",
                         )}
                       >
                         <Icon className="size-3.5" aria-hidden="true" />
@@ -597,8 +597,8 @@ export function ThreadDiffPanel({
                         onClick={() => setSimilarChanges(!similarChanges)}
                         className={cn(
                           "h-7 border border-border/60 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground",
-                          "hover:bg-muted hover:text-foreground",
-                          similarChanges && "bg-muted text-foreground hover:bg-muted",
+                          "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
+                          similarChanges && "bg-[color:var(--project-panel-soft)] text-foreground hover:bg-[color:var(--project-panel-soft)]",
                         )}
                       >
                         <TextSearch className="size-3.5" aria-hidden="true" />
@@ -638,8 +638,8 @@ export function ThreadDiffPanel({
                       type="button"
                       onClick={() => openPanelTab(item.kind)}
                       className={cn(
-                        "group flex min-h-[118px] flex-col items-start justify-between rounded-lg border border-border/55 bg-card/35 p-4 text-left",
-                        "transition-[background-color,border-color,transform] duration-150 hover:border-border hover:bg-muted/35 active:translate-y-px",
+                        "group flex min-h-[118px] flex-col items-start justify-between rounded-sm border border-border bg-card p-4 text-left",
+                        "transition-[background-color,border-color,transform] duration-150 hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-panel-soft)] active:translate-y-px",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
                       )}
                     >
@@ -664,7 +664,7 @@ export function ThreadDiffPanel({
                 <button
                   type="button"
                   onClick={() => setDesktopFullscreen((value) => !value)}
-                  className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/35 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="inline-flex h-7 items-center gap-1.5 border border-border bg-[color:var(--project-panel-soft)] px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:text-foreground"
                 >
                   {desktopFullscreen ? <Minimize2 className="size-3" aria-hidden="true" /> : <Maximize2 className="size-3" aria-hidden="true" />}
                   {desktopFullscreen ? "exit" : "fullscreen"}
@@ -698,7 +698,7 @@ export function ThreadDiffPanel({
                   type="button"
                   onClick={() => void loadDesktop()}
                   disabled={desktopLoading || desktopStatusLoading}
-                  className="group inline-flex h-8 items-center gap-1.5 border border-border/60 bg-background px-3 text-[12.5px] font-medium text-foreground/85 transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+                  className="group inline-flex h-8 items-center gap-1.5 border border-border bg-background px-3 text-[12.5px] font-medium text-foreground/85 transition-colors hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-panel-soft)] hover:text-foreground disabled:cursor-wait disabled:opacity-50"
                 >
                   {desktopLoading ? (
                     <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -746,7 +746,7 @@ export function ThreadDiffPanel({
           const isActiveTerminal = activeTabId === terminalTab.id;
 
           return (
-            <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[#1B1B1B]", isActiveTerminal ? "flex" : "hidden")}>
+            <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[color:var(--cohere-primary)]", isActiveTerminal ? "flex" : "hidden")}>
               {isActiveTerminal ? <DaytonaTerminalView projectId={projectId} /> : null}
             </div>
           );
@@ -759,8 +759,8 @@ export function ThreadDiffPanel({
                 <div className="border border-border bg-card">
                   <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
-                      <span className="inline-block size-1.5 bg-primary" aria-hidden="true" />
-                      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">
+                      <span className="inline-block size-1.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[color:var(--project-selected-strong)]">
                         pull request · created
                       </span>
                     </div>
@@ -818,7 +818,7 @@ export function ThreadDiffPanel({
                 <div className="border border-border bg-card">
                   <div className="flex items-center justify-between gap-4 border-b border-border bg-muted/30 px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
-                      <span className="inline-block size-1.5 bg-primary" aria-hidden="true" />
+                      <span className="inline-block size-1.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
                       <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-foreground">
                         create pull request
                       </span>
@@ -854,11 +854,11 @@ export function ThreadDiffPanel({
                         </div>
                         <div className="inline-flex items-center gap-1.5">
                           <dt className="text-muted-foreground">added</dt>
-                          <dd className="tabular-nums text-emerald-600 dark:text-emerald-400">+{totals.additions}</dd>
+                          <dd className="tabular-nums text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]">+{totals.additions}</dd>
                         </div>
                         <div className="inline-flex items-center gap-1.5">
                           <dt className="text-muted-foreground">removed</dt>
-                          <dd className="tabular-nums text-red-600 dark:text-red-400">−{totals.deletions}</dd>
+                          <dd className="tabular-nums text-[color:var(--cohere-coral)]">−{totals.deletions}</dd>
                         </div>
                       </dl>
                     ) : null}
@@ -866,7 +866,7 @@ export function ThreadDiffPanel({
                     <div className="space-y-3.5">
                       <label className="block space-y-1.5">
                         <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">branch</span>
-                        <div className="flex h-9 border border-border bg-background focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+                        <div className="flex h-9 border border-border bg-background focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-[color:var(--cohere-form-focus)]">
                           <span className="inline-flex items-center border-r border-border bg-muted/35 px-2.5 font-mono text-[12px] text-muted-foreground">
                             autopr/
                           </span>
@@ -887,7 +887,7 @@ export function ThreadDiffPanel({
                           value={title}
                           onChange={(event) => setTitle(event.target.value)}
                           placeholder="AutoPR changes"
-                          className="h-9 w-full border border-border bg-background px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-ring focus:ring-1 focus:ring-ring/40"
+                          className="h-9 w-full border border-border bg-background px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-[color:var(--cohere-form-focus)] focus:ring-1 focus:ring-[color:var(--cohere-form-focus)]"
                         />
                       </label>
                       <label className="block space-y-1.5">
@@ -897,7 +897,7 @@ export function ThreadDiffPanel({
                           onChange={(event) => setBody(event.target.value)}
                           placeholder="Optional PR description…"
                           rows={4}
-                          className="w-full resize-none border border-border bg-background px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-ring focus:ring-1 focus:ring-ring/40"
+                          className="w-full resize-none border border-border bg-background px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-[color:var(--cohere-form-focus)] focus:ring-1 focus:ring-[color:var(--cohere-form-focus)]"
                         />
                       </label>
                     </div>
@@ -920,8 +920,8 @@ export function ThreadDiffPanel({
                         canCreatePullRequest
                           ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
                           : creating
-                            ? "border-primary/50 bg-primary/10 text-primary"
-                            : "border-border bg-muted/40 text-muted-foreground/60",
+                            ? "border-[color:var(--project-selected-strong)] bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)]"
+                            : "border-border bg-[color:var(--project-panel-soft)] text-muted-foreground/60",
                       )}
                     >
                       {creating ? (
@@ -954,13 +954,13 @@ export function ThreadDiffPanel({
         ) : showLoadingList ? (
           <ThreadDiffLoadingList />
         ) : (
-          <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-muted/5 p-2">
+          <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background p-2">
             <div aria-label="Changed files" className="flex min-h-0 flex-col gap-1.5">
               {entries.map((entry) => {
                 const expanded = expandedEntryId === entry.id;
                 const active = selectedEntryId === entry.id || expanded;
                 return (
-                  <div key={entry.id} className="overflow-hidden rounded-md border border-border/45 bg-background/60">
+                  <div key={entry.id} className="overflow-hidden rounded-sm border border-border bg-card">
                     <ThreadDiffFileRow
                       entry={entry}
                       active={active}

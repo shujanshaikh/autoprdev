@@ -336,7 +336,7 @@ function ThreadContextRemainingIndicator({
         <Badge
           variant="outline"
           aria-label={`Context remaining: ${formatTokens(remainingTokens)}`}
-          className="h-7 shrink-0 cursor-help items-center rounded-none border-border/55 bg-background/70 px-2 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-muted/40"
+          className="h-7 shrink-0 cursor-help items-center rounded-[var(--radius-pill)] border-border/55 bg-background/70 px-2 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-muted/40"
         >
           <span className="text-foreground/85 tabular-nums">{formatTokens(remainingTokens)}</span>
         </Badge>
@@ -909,9 +909,8 @@ export function ThreadChat({
             <PromptInputProvider>
               <PromptInput
                 className={cn(
-                  // Sharp, flat, matches dashboard panels (border-border + bg-card)
-                  "overflow-visible border border-border bg-card shadow-none transition-colors",
-                  "focus-within:border-primary/60",
+                  "overflow-visible rounded-sm border border-border bg-card shadow-none transition-colors",
+                  "focus-within:border-[color:var(--cohere-form-focus)]",
                 )}
                 accept="image/*"
                 clearOnSubmit="submit"
@@ -968,9 +967,9 @@ export function ThreadChat({
                               disabled={demoSaving}
                               onClick={() => void toggleDemoEnabled()}
                               className={cn(
-                                "inline-flex h-7 shrink-0 items-center gap-1.5 border border-transparent px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition",
+                                "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] border border-transparent px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition",
                                 "hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
-                                optimisticDemoEnabled && "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                                optimisticDemoEnabled && "border-[color:var(--project-selected-strong)] bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-[color:var(--project-selected-strong)]",
                               )}
                             >
                               <Video className="size-3.5" aria-hidden />
@@ -992,7 +991,7 @@ export function ThreadChat({
                     />
                   </PromptInputTools>
                   <PromptInputSubmit
-                    className="size-7 rounded-none"
+                    className="size-8 rounded-full"
                     disabled={!ready && !busy}
                     onStop={stopGeneration}
                     status={status}

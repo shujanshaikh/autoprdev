@@ -24,6 +24,13 @@ export type CodingHarnessEvent =
 
 export type CodingHarnessListener = (event: CodingHarnessEvent) => void | Promise<void>;
 
+export interface CodingHarnessListenerError {
+  event: CodingHarnessEvent;
+  error: unknown;
+}
+
+export type CodingHarnessListenerErrorHandler = (failure: CodingHarnessListenerError) => void | Promise<void>;
+
 export interface CodingHarnessOptions extends SandboxSessionOptions {
   appendSystemPrompt?: string;
   modelId?: string;
@@ -32,6 +39,7 @@ export interface CodingHarnessOptions extends SandboxSessionOptions {
   projectInstructionFilenames?: string[];
   projectInstructionMaxBytes?: number;
   computer?: false | DaytonaComputerToolOptions;
+  onListenerError?: CodingHarnessListenerErrorHandler;
 }
 
 export class CodingHarnessBusyError extends Error {
@@ -155,10 +163,41 @@ export class CodingHarness {
   }
 
   private async emit(event: CodingHarnessEvent) {
-    for (const listener of this.listeners) {
-      await listener(event);
+    const results = await Promise.allSettled(
+      [...this.listeners].map((listener) => Promise.resolve().then(() => listener(event))),
+    );
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        await this.reportListenerError(event, result.reason);
+      }
     }
   }
+
+  private async reportListenerError(event: CodingHarnessEvent, error: unknown) {
+    const label = describeCodingHarnessEvent(event);
+    const handler = this.options.onListenerError;
+
+    if (!handler) {
+      console.error(`CodingHarness listener failed while handling ${label}.`, error);
+      return;
+    }
+
+    try {
+      await handler({ event, error });
+    } catch (handlerError) {
+      console.error(`CodingHarness listener error handler failed while handling ${label}.`, handlerError);
+      console.error(`Original CodingHarness listener failure while handling ${label}.`, error);
+    }
+  }
+}
+
+function describeCodingHarnessEvent(event: CodingHarnessEvent): string {
+  if (event.type === "phase_change") {
+    return `${event.type}:${event.previousPhase}->${event.phase}`;
+  }
+
+  return event.type;
 }
 
 function selectTools(

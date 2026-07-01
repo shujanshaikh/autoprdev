@@ -924,7 +924,7 @@ function ToolStatusText({ state }: { state: ToolPart["state"] }) {
     <span
       className={cn(
         "shrink-0 text-[10px] text-muted-foreground/80",
-        warn && "text-amber-600 dark:text-amber-400",
+        warn && "text-[color:var(--cohere-coral)]",
         bad && "text-destructive"
       )}
     >
@@ -1013,7 +1013,7 @@ export const ToolHeader = ({
       className={cn(
         "flex w-full cursor-pointer items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring",
         recordingHeader
-          ? "border-l border-red-500/35 bg-muted/15 px-3 py-2 transition-colors hover:bg-muted/25"
+          ? "border-l border-destructive/35 bg-muted/15 px-3 py-2 transition-colors hover:bg-muted/25"
           : "py-0.5",
         className
       )}
@@ -1039,7 +1039,7 @@ export const ToolHeader = ({
           )}>
             {recordingHeader ? (
               <span
-                className="size-1.5 shrink-0 rounded-full bg-red-500/75"
+                className="size-1.5 shrink-0 rounded-full bg-destructive/75"
                 aria-hidden="true"
               />
             ) : null}
@@ -1129,7 +1129,7 @@ function StreamingCodePreview({
   return (
     <section
       className={cn(
-        "overflow-hidden border border-border/60 bg-[oklch(0.994_0_0)] text-foreground dark:bg-[oklch(0.222_0_0)]",
+        "overflow-hidden border border-border/60 bg-card text-foreground",
         className
       )}
     >

@@ -7,13 +7,13 @@ interface SettingsBillingProps {
 
 const statusConfig = {
   active: {
-    dot: "bg-emerald-500",
-    text: "text-emerald-400",
+    dot: "bg-[color:var(--cohere-deep-green)]",
+    text: "text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]",
     label: "Active",
   },
   pending_finalization: {
-    dot: "bg-amber-500",
-    text: "text-amber-400",
+    dot: "bg-[color:var(--cohere-coral)]",
+    text: "text-[color:var(--cohere-coral)]",
     label: "Finalizing",
   },
   finalized: {
@@ -55,7 +55,7 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
         />
       </div>
 
-      <section className="min-w-0 border border-border bg-card">
+      <section className="min-w-0 rounded-sm border border-border bg-card">
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 min-[420px]:px-4">
           <h2 className="min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground min-[420px]:tracking-[0.24em]">
             Sandbox costs
@@ -100,14 +100,14 @@ function SummaryCard({
   loading: boolean;
 }) {
   return (
-    <div className="min-w-0 border border-border bg-muted/30 px-3 py-2.5 min-[420px]:px-4 min-[420px]:py-3">
+    <div className="min-w-0 rounded-sm border border-border bg-muted/30 px-3 py-2.5 min-[420px]:px-4 min-[420px]:py-3">
       <p className="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground min-[420px]:tracking-[0.2em]">
         {label}
       </p>
       {loading ? (
         <div className="mt-2 h-7 w-16 animate-pulse bg-muted" />
       ) : (
-        <p className="mt-2 truncate text-lg font-semibold tabular-nums min-[420px]:text-xl">{value}</p>
+        <p className="mt-2 truncate text-lg font-medium tabular-nums min-[420px]:text-xl">{value}</p>
       )}
     </div>
   );

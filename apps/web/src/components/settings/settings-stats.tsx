@@ -61,7 +61,7 @@ function StatCard({
   isCurrency?: boolean;
 }) {
   return (
-    <div className="min-w-0 border border-border bg-card px-3 py-2.5 transition-all min-[420px]:px-4 min-[420px]:py-3">
+    <div className="min-w-0 rounded-sm border border-border bg-card px-3 py-2.5 transition-all min-[420px]:px-4 min-[420px]:py-3">
       <p className="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground min-[420px]:tracking-[0.2em]">
         {label}
       </p>
@@ -70,7 +70,7 @@ function StatCard({
       ) : (
         <p
           className={cn(
-            "mt-2 truncate font-semibold tabular-nums",
+            "mt-2 truncate font-medium tabular-nums",
             isCurrency ? "text-xl min-[420px]:text-2xl" : "text-2xl min-[420px]:text-3xl",
           )}
         >

@@ -5,30 +5,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
-const TERMINAL_BACKGROUND = "#111111";
+const TERMINAL_BACKGROUND = "#141414";
 
 const TERMINAL_THEME = {
   background: TERMINAL_BACKGROUND,
-  foreground: "#E2E2E2",
-  cursor: "#C4B5FD",
+  foreground: "#ffffff",
+  cursor: "#0099ff",
   cursorAccent: TERMINAL_BACKGROUND,
-  selectionBackground: "#2B2B2B",
-  black: "#111111",
-  brightBlack: "#666666",
-  red: "#FF7B7B",
-  brightRed: "#FFA6A6",
-  green: "#8FD19E",
-  brightGreen: "#B7E4C3",
-  yellow: "#D6B35F",
-  brightYellow: "#E6C978",
-  blue: "#9DB8FF",
-  brightBlue: "#C2D0FF",
-  magenta: "#C4B5FD",
-  brightMagenta: "#DDD6FE",
-  cyan: "#8BD3DD",
-  brightCyan: "#B8E4EA",
-  white: "#D8D8D8",
-  brightWhite: "#FFFFFF",
+  selectionBackground: "#1c1c1c",
+  black: "#000000",
+  brightBlack: "#999999",
+  red: "#ff5577",
+  brightRed: "#ff5577",
+  green: "#22c55e",
+  brightGreen: "#22c55e",
+  yellow: "#ff7a3d",
+  brightYellow: "#ff7a3d",
+  blue: "#0099ff",
+  brightBlue: "#0099ff",
+  magenta: "#d44df0",
+  brightMagenta: "#d44df0",
+  cyan: "#6a4cf5",
+  brightCyan: "#6a4cf5",
+  white: "#999999",
+  brightWhite: "#ffffff",
 } as const;
 
 type DaytonaTerminalViewProps = {

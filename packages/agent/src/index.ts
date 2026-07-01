@@ -4,6 +4,8 @@ export {
   type CodingHarnessContext,
   type CodingHarnessEvent,
   type CodingHarnessListener,
+  type CodingHarnessListenerError,
+  type CodingHarnessListenerErrorHandler,
   type CodingHarnessOptions,
   type CodingHarnessPhase,
 } from "./harness";

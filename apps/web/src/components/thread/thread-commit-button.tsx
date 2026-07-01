@@ -156,7 +156,7 @@ export function ThreadCommitButton({
               disabled={buttonDisabled}
               aria-label={buttonLabel}
               title={buttonTitle}
-              className="my-1.5 mr-2 h-8 gap-1.5 border-border bg-background px-3 text-foreground hover:bg-muted"
+              className="mr-2 h-8 self-center gap-1.5 border-border bg-background px-3 text-foreground hover:bg-muted"
             >
               {busy ? (
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
@@ -184,7 +184,7 @@ export function ThreadCommitButton({
         <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-[400px]" showCloseButton={!busy}>
           {/* Header */}
           <DialogHeader className="border-b border-border px-5 pb-3 pt-4">
-            <DialogTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
+            <DialogTitle className="flex items-center gap-2 text-sm font-medium text-foreground">
               <GitCommitHorizontal className="size-4 text-primary" aria-hidden />
               Commit changes
             </DialogTitle>
@@ -228,7 +228,7 @@ export function ThreadCommitButton({
 
                   <div className="py-3 pl-5 pr-4">
                     {/* Status label */}
-                    <p className="text-xs font-semibold tracking-tight text-foreground">
+                    <p className="text-xs font-medium text-foreground">
                       {result.status === "pushed" ? "Committed and pushed" : "Committed"}
                     </p>
 

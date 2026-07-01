@@ -69,8 +69,8 @@ function diffPaletteColorForToken(token: ThemedToken) {
 
   if (/^[{}()[\].,;:=<>/+*\-|&!?]+$/.test(content)) {
     return {
-      dark: "color-mix(in oklch, var(--muted-foreground) 72%, transparent)",
-      light: "color-mix(in oklch, var(--muted-foreground) 82%, transparent)",
+      dark: "color-mix(in srgb, var(--muted-foreground) 72%, transparent)",
+      light: "color-mix(in srgb, var(--muted-foreground) 82%, transparent)",
     };
   }
 
@@ -80,8 +80,8 @@ function diffPaletteColorForToken(token: ThemedToken) {
     /^["'`]/.test(content)
   ) {
     return {
-      dark: "color-mix(in oklch, var(--diffs-added-dark, oklch(0.68 0.17 150)) 82%, var(--foreground))",
-      light: "color-mix(in oklch, var(--diffs-added-light, oklch(0.72 0.17 145)) 72%, var(--foreground))",
+      dark: "color-mix(in srgb, var(--diffs-added-dark, #22c55e) 82%, var(--foreground))",
+      light: "color-mix(in srgb, var(--diffs-added-light, #22c55e) 72%, var(--foreground))",
     };
   }
 
@@ -91,8 +91,8 @@ function diffPaletteColorForToken(token: ThemedToken) {
     /^(?:class|const|export|function|import|interface|let|return|type|var)$/.test(content)
   ) {
     return {
-      dark: "color-mix(in oklch, var(--diffs-deleted-dark, oklch(0.64 0.18 20)) 78%, var(--foreground))",
-      light: "color-mix(in oklch, var(--diffs-deleted-light, oklch(0.62 0.2 25)) 70%, var(--foreground))",
+      dark: "color-mix(in srgb, var(--diffs-deleted-dark, #ff5577) 78%, var(--foreground))",
+      light: "color-mix(in srgb, var(--diffs-deleted-light, #ff5577) 70%, var(--foreground))",
     };
   }
 
@@ -103,21 +103,21 @@ function diffPaletteColorForToken(token: ThemedToken) {
     darkColor === "#b392f0"
   ) {
     return {
-      dark: "color-mix(in oklch, var(--diffs-modified-dark, oklch(0.7 0.14 255)) 80%, var(--foreground))",
-      light: "color-mix(in oklch, var(--diffs-modified-light, oklch(0.65 0.15 250)) 74%, var(--foreground))",
+      dark: "color-mix(in srgb, var(--diffs-modified-dark, #0099ff) 80%, var(--foreground))",
+      light: "color-mix(in srgb, var(--diffs-modified-light, #0099ff) 74%, var(--foreground))",
     };
   }
 
   if (lightColor === "#22863a" || darkColor === "#85e89d") {
     return {
-      dark: "color-mix(in oklch, var(--diffs-added-dark, oklch(0.68 0.17 150)) 70%, var(--foreground))",
-      light: "color-mix(in oklch, var(--diffs-added-light, oklch(0.72 0.17 145)) 62%, var(--foreground))",
+      dark: "color-mix(in srgb, var(--diffs-added-dark, #22c55e) 70%, var(--foreground))",
+      light: "color-mix(in srgb, var(--diffs-added-light, #22c55e) 62%, var(--foreground))",
     };
   }
 
   return {
-    dark: "color-mix(in oklch, var(--foreground) 84%, transparent)",
-    light: "color-mix(in oklch, var(--foreground) 78%, transparent)",
+    dark: "color-mix(in srgb, var(--foreground) 84%, transparent)",
+    light: "color-mix(in srgb, var(--foreground) 78%, transparent)",
   };
 }
 

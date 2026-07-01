@@ -30,7 +30,7 @@ export function DeleteDialog({
       <DialogContent className="gap-6 border-border bg-background p-0">
         <div className="border-b border-border bg-destructive/[0.04] px-6 py-5">
           <DialogHeader className="gap-3">
-            <DialogTitle className="text-base font-semibold tracking-tight">
+            <DialogTitle className="text-base font-medium">
               Delete project?
             </DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-muted-foreground">

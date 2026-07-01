@@ -76,10 +76,10 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
   const launchReady = repoDone && branchDone && !isCreating && !isLoadingBranches;
 
   return (
-    <section className="border border-border bg-card text-card-foreground">
+    <section className="rounded-sm border border-border bg-card text-card-foreground">
       <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5">
         <div className="flex items-center gap-4">
-          <h2 className="text-sm font-semibold tracking-tight text-foreground">
+          <h2 className="text-sm font-medium text-foreground">
             Create a sandbox
           </h2>
           <FlowTrack
@@ -220,7 +220,7 @@ function ConnectStep({
   return (
     <div className="flex flex-col items-start gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between">
       <div className="max-w-md space-y-1.5">
-        <h3 className="text-base font-semibold tracking-tight text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Link a GitHub account to begin.
         </h3>
         <p className="text-xs leading-relaxed text-muted-foreground">
@@ -232,7 +232,7 @@ function ConnectStep({
         onClick={onConnect}
         disabled={isConnecting}
         className={cn(
-          "group inline-flex h-10 items-center gap-2 border border-primary bg-primary px-4 text-xs font-semibold uppercase tracking-[0.16em] text-primary-foreground transition",
+          "group inline-flex h-10 items-center gap-2 rounded-[var(--radius-pill)] border border-primary bg-primary px-5 type-button text-primary-foreground transition",
           "hover:bg-primary/90",
           "disabled:cursor-not-allowed disabled:opacity-40",
         )}
@@ -351,7 +351,7 @@ function RepoColumnPager({
         }
       />
       <div className="border-b border-border px-2 py-1.5">
-        <div className="flex items-center gap-2 border border-border bg-background px-2 focus-within:border-ring">
+        <div className="flex items-center gap-2 rounded-xs border border-border bg-background px-2 focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/30">
           <Search className="size-3.5 text-muted-foreground" aria-hidden="true" />
           <input
             aria-label="Search repositories"
@@ -396,14 +396,14 @@ function RepoColumnPager({
                     className={cn(
                       "group flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition",
                       "hover:bg-muted/50",
-                      active && "bg-primary text-primary-foreground hover:bg-primary/90",
+                      active && "bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)]",
                     )}
                   >
                     {repo.private ? (
                       <Lock
                         className={cn(
                           "size-3.5 shrink-0",
-                          active ? "text-primary-foreground/80" : "text-muted-foreground/70",
+                          active ? "text-[color:var(--project-selected-strong)]" : "text-muted-foreground/70",
                         )}
                         aria-hidden="true"
                       />
@@ -411,7 +411,7 @@ function RepoColumnPager({
                       <Unlock
                         className={cn(
                           "size-3.5 shrink-0",
-                          active ? "text-primary-foreground/80" : "text-muted-foreground/70",
+                          active ? "text-[color:var(--project-selected-strong)]" : "text-muted-foreground/70",
                         )}
                         aria-hidden="true"
                       />
@@ -419,13 +419,13 @@ function RepoColumnPager({
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">
                       <span
                         className={cn(
-                          active ? "text-primary-foreground/70" : "text-muted-foreground/70",
+                          active ? "text-[color:var(--project-selected-strong)]" : "text-muted-foreground/70",
                         )}
                       >
                         {repo.owner}
                         <span className="opacity-50">/</span>
                       </span>
-                      <span className="font-semibold">{repo.name}</span>
+                      <span className="font-medium">{repo.name}</span>
                     </span>
                   </button>
                 </li>
@@ -434,7 +434,7 @@ function RepoColumnPager({
           </ul>
         )}
         {isRefreshing && !isLoading ? (
-          <div className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1.5 border border-border bg-background/95 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground shadow-sm">
+          <div className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1.5 rounded-xs border border-border bg-background/95 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground shadow-none">
             <Loader2 className="size-3 animate-spin" aria-hidden="true" />
             syncing
           </div>
@@ -601,17 +601,17 @@ function BranchColumn({
                     className={cn(
                       "flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition",
                       "hover:bg-muted/50",
-                      active && "bg-primary text-primary-foreground hover:bg-primary/90",
+                      active && "bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)]",
                     )}
                   >
                     <GitBranch
                       className={cn(
                         "size-3.5 shrink-0",
-                        active ? "text-primary-foreground/80" : "text-muted-foreground/70",
+                        active ? "text-[color:var(--project-selected-strong)]" : "text-muted-foreground/70",
                       )}
                       aria-hidden="true"
                     />
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold">
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">
                       {branch.name}
                     </span>
                     {isDefault ? (
@@ -619,7 +619,7 @@ function BranchColumn({
                         className={cn(
                           "shrink-0 border px-1.5 font-mono text-[9px] uppercase tracking-[0.18em]",
                           active
-                            ? "border-primary-foreground/40 text-primary-foreground/80"
+                            ? "border-[color:var(--project-selected-strong)]/40 text-[color:var(--project-selected-strong)]"
                             : "border-border/80 text-muted-foreground/70",
                         )}
                       >
@@ -684,7 +684,7 @@ function LaunchColumn({
             onClick={() => void onCreate()}
             disabled={!launchReady}
             className={cn(
-              "group inline-flex h-10 w-full items-center justify-center gap-2 border text-xs font-semibold uppercase tracking-[0.16em] transition",
+              "group inline-flex h-10 w-full items-center justify-center gap-2 rounded-[var(--radius-pill)] border type-button transition",
               launchReady
                 ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
                 : "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/60",

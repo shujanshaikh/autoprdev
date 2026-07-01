@@ -83,7 +83,7 @@ function StatusDot({ variant }: { variant: Variant }) {
   if (variant === "open") {
     return (
       <span
-        className="inline-block size-1.5 shrink-0 bg-primary"
+        className="inline-block size-1.5 shrink-0 rounded-full bg-[color:var(--cohere-deep-green)]"
         aria-hidden="true"
       />
     );
@@ -92,7 +92,7 @@ function StatusDot({ variant }: { variant: Variant }) {
   if (variant === "draft") {
     return (
       <span
-        className="inline-block size-1.5 shrink-0 border border-foreground/60 bg-transparent"
+        className="inline-block size-1.5 shrink-0 rounded-full border border-foreground/60 bg-transparent"
         aria-hidden="true"
       />
     );
@@ -100,7 +100,7 @@ function StatusDot({ variant }: { variant: Variant }) {
 
   return (
     <span
-      className="inline-block size-1.5 shrink-0 bg-muted-foreground/55"
+      className="inline-block size-1.5 shrink-0 rounded-full bg-muted-foreground/55"
       aria-hidden="true"
     />
   );
@@ -185,7 +185,7 @@ function PullRow({ pull, index }: { pull: PullRequest; index: number }) {
           <MetaDot />
           <span className="inline-flex items-center gap-1.5">
             <span
-              className="inline-flex size-3.5 items-center justify-center bg-muted font-mono text-[8px] font-semibold tracking-normal text-muted-foreground"
+              className="inline-flex size-3.5 items-center justify-center rounded-full bg-muted font-mono text-[8px] font-medium tracking-normal text-muted-foreground"
               aria-hidden="true"
             >
               {initials(pull.user)}
@@ -232,19 +232,19 @@ function PullsSkeleton() {
             "border-b border-border last:border-b-0",
           )}
         >
-          <Skeleton className="h-3 w-5 rounded-none" />
+          <Skeleton className="h-3 w-5 rounded-xs" />
           <div className="flex items-center gap-2">
-            <Skeleton className="size-1.5 rounded-none" />
-            <Skeleton className="h-3 w-9 rounded-none" />
+            <Skeleton className="size-1.5 rounded-full" />
+            <Skeleton className="h-3 w-9 rounded-xs" />
           </div>
           <div className="space-y-2">
-            <Skeleton className="h-3 w-[62%] rounded-none" />
-            <Skeleton className="h-2.5 w-[42%] rounded-none" />
+            <Skeleton className="h-3 w-[62%] rounded-xs" />
+            <Skeleton className="h-2.5 w-[42%] rounded-xs" />
           </div>
           <div className="hidden justify-end gap-2 sm:flex">
-            <Skeleton className="h-3 w-10 rounded-none" />
+            <Skeleton className="h-3 w-10 rounded-xs" />
           </div>
-          <Skeleton className="size-7 rounded-none" />
+          <Skeleton className="size-7 rounded-full" />
         </div>
       ))}
     </div>
@@ -272,7 +272,7 @@ function FilterTabs({
     <div
       role="tablist"
       aria-label="Filter pull requests"
-      className="flex h-9 items-stretch border border-border bg-card"
+      className="flex h-9 items-stretch rounded-[var(--radius-pill)] border border-border bg-card"
     >
       {items.map((item, idx) => {
         const active = item.key === value;
@@ -287,7 +287,7 @@ function FilterTabs({
               "group/tab relative inline-flex items-center gap-2 px-3 font-mono text-[11px] uppercase leading-none tracking-[0.2em] transition-colors",
               idx > 0 && "border-l border-border",
               active
-                ? "bg-muted text-foreground"
+                ? "bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)]"
                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
             )}
           >
@@ -295,7 +295,7 @@ function FilterTabs({
             <span
               className={cn(
                 "font-mono text-[10px] tabular-nums",
-                active ? "text-primary" : "text-muted-foreground/55",
+                active ? "text-[color:var(--project-selected-strong)]" : "text-muted-foreground/55",
               )}
             >
               {String(counts[item.key]).padStart(2, "0")}
@@ -303,7 +303,7 @@ function FilterTabs({
             {active ? (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-2 -bottom-px h-px bg-primary"
+                className="pointer-events-none absolute inset-x-2 -bottom-px h-px bg-[color:var(--project-selected-strong)]"
               />
             ) : null}
           </button>
@@ -381,7 +381,7 @@ function PullsPage() {
                 </span>
               )}
             </p>
-            <h1 className="mt-2 font-sans text-[28px] font-semibold leading-[1.05] tracking-tight text-foreground">
+            <h1 className="mt-2 type-card-heading text-foreground">
               pull requests
             </h1>
             <p className="mt-2 truncate font-mono text-xs text-muted-foreground">
@@ -406,7 +406,7 @@ function PullsPage() {
               target="_blank"
               rel="noreferrer"
               className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 border border-border bg-card px-3",
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] border border-border bg-card px-3",
                 "font-mono text-[10px] uppercase leading-none tracking-[0.22em] text-muted-foreground transition",
                 "hover:border-primary hover:bg-primary hover:text-primary-foreground",
                 "focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
@@ -456,7 +456,7 @@ function PullsPage() {
         {!isLoading && data && counts.all > 0 ? (
           <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <FilterTabs value={filter} onChange={setFilter} counts={counts} />
-            <label className="relative inline-flex h-9 w-full min-w-[14rem] items-center border border-border bg-card px-2.5 text-xs focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50 sm:w-72">
+            <label className="relative inline-flex h-9 w-full min-w-[14rem] items-center rounded-xs border border-border bg-card px-2.5 text-xs focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/50 sm:w-72">
               <Search
                 className="size-3.5 shrink-0 text-muted-foreground/55"
                 aria-hidden="true"
@@ -487,7 +487,7 @@ function PullsPage() {
           {isLoading ? (
             <PullsSkeleton />
           ) : error ? (
-            <div className="border border-destructive/30 bg-destructive/[0.04] px-5 py-6">
+            <div className="rounded-sm border border-destructive/30 bg-destructive/[0.04] px-5 py-6">
               <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-destructive">
                 ↳ error
               </p>
@@ -520,7 +520,7 @@ function PullsPage() {
               }}
             />
           ) : (
-            <div className="overflow-hidden border border-border bg-card">
+            <div className="overflow-hidden rounded-sm border border-border bg-card">
               <div
                 className={cn(
                   "hidden items-center gap-4 border-b border-border bg-muted/35 px-4 py-2.5",
@@ -571,9 +571,9 @@ function EmptyState({
   onReset?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center border border-dashed border-border bg-card/30 px-8 py-16 text-center">
+    <div className="flex flex-col items-center justify-center rounded-sm border border-dashed border-border bg-card/30 px-8 py-16 text-center">
       <div
-        className="grid size-10 place-items-center border border-border bg-card font-mono text-xs text-muted-foreground/70"
+        className="grid size-10 place-items-center rounded-sm border border-border bg-card font-mono text-xs text-muted-foreground/70"
         aria-hidden="true"
       >
         <GitPullRequest className="size-4" strokeWidth={1.5} />
@@ -589,7 +589,7 @@ function EmptyState({
           type="button"
           onClick={onReset}
           className={cn(
-            "mt-4 inline-flex h-7 items-center border border-border bg-card px-2.5",
+            "mt-4 inline-flex h-7 items-center rounded-[var(--radius-pill)] border border-border bg-card px-3",
             "font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground transition",
             "hover:border-primary hover:bg-primary hover:text-primary-foreground",
           )}

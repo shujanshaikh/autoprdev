@@ -31,14 +31,14 @@ function formatAge(timestamp?: number) {
 
 export function SettingsProjects({ projects }: SettingsProjectsProps) {
   return (
-    <section className="min-w-0 border border-border bg-card">
+    <section className="min-w-0 rounded-sm border border-border bg-card">
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 min-[420px]:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground min-[420px]:tracking-[0.24em]">
             Recent projects
           </h2>
           {projects !== undefined && (
-            <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center bg-muted px-1 font-mono text-[9px] tabular-nums text-muted-foreground">
+          <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-muted px-1 font-mono text-[9px] tabular-nums text-muted-foreground">
               {projects.length}
             </span>
           )}
@@ -94,7 +94,7 @@ function ProjectRow({ project }: { project: WorkspaceProject }) {
               <span className="text-muted-foreground/45">/</span>
             </>
           ) : null}
-          <span className="font-semibold text-foreground group-hover:underline group-hover:underline-offset-4">
+          <span className="font-medium text-foreground group-hover:underline group-hover:underline-offset-4">
             {name}
           </span>
         </p>

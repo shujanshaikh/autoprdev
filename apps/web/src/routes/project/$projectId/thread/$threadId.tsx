@@ -277,112 +277,112 @@ function ProjectThreadPageContent() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <header className="relative z-10 flex h-11 shrink-0 items-stretch border-b border-border bg-background">
-              <div className="min-w-0 flex-1" />
+      <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-border bg-background">
+        <div className="min-w-0 flex-1" />
 
-              <ThreadCommitButton
-                key={`${projectId}:${threadId}`}
-                projectId={projectId}
-                threadId={threadId}
-                disabled={projectDisabled || loading || notFound}
-                thread={thread}
-              />
+        <ThreadCommitButton
+          key={`${projectId}:${threadId}`}
+          projectId={projectId}
+          threadId={threadId}
+          disabled={projectDisabled || loading || notFound}
+          thread={thread}
+        />
 
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-controls="thread-changes-panel"
-                      aria-expanded={diffPanelOpen}
-                      aria-label={diffPanelOpen ? "Hide changes" : "Show changes"}
-                      data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
-                      onClick={() => setDiffPanelOpen((open) => !open)}
-                      className={cn(
-                        "group/changes-trigger relative flex h-full w-11 shrink-0 items-center justify-center border-l border-border text-muted-foreground/85",
-                        "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
-                        "hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.10]",
-                        "focus-visible:bg-foreground/[0.06] focus-visible:ring-[1.5px] focus-visible:ring-sidebar-primary/40 focus-visible:ring-offset-0",
-                        diffPanelOpen && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
-                      )}
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="size-[16px]"
-                        aria-hidden
-                      >
-                        <path
-                          d="M9 5 L5.5 5 A2.5 2.5 0 0 0 3 7.5 L3 16.5 A2.5 2.5 0 0 0 5.5 19 L9 19 Z"
-                          fill="currentColor"
-                          stroke="none"
-                          className="opacity-0 transition-opacity duration-300 ease-out group-data-[diff-panel-state=open]/changes-trigger:opacity-[0.22]"
-                        />
-                        <rect x="3" y="5" width="18" height="14" rx="2.5" />
-                        <line x1="9" y1="5" x2="9" y2="19" />
-                      </svg>
-                      {diffCount > 0 ? (
-                        <span className="absolute right-1.5 top-1.5 min-w-3.5 rounded-full bg-primary px-1 text-center font-mono text-[8px] leading-3 text-primary-foreground ring-1 ring-background group-data-[diff-panel-state=open]/changes-trigger:bg-primary-foreground group-data-[diff-panel-state=open]/changes-trigger:text-primary">
-                          {diffCount > 99 ? "99+" : diffCount}
-                        </span>
-                      ) : null}
-                      <span className="sr-only">
-                        {diffPanelOpen ? "Hide changes" : "Show changes"}
-                      </span>
-                    </button>
-                  }
-                />
-                <TooltipContent side="bottom" sideOffset={8}>
-                  {diffPanelOpen
-                    ? "Hide Changes"
-                    : diffCount > 0
-                      ? `Show Changes (${diffCount > 99 ? "99+" : diffCount})`
-                      : "Show Changes"}
-                </TooltipContent>
-              </Tooltip>
-            </header>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-controls="thread-changes-panel"
+                aria-expanded={diffPanelOpen}
+                aria-label={diffPanelOpen ? "Hide changes" : "Show changes"}
+                data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
+                onClick={() => setDiffPanelOpen((open) => !open)}
+                className={cn(
+                  "group/changes-trigger relative flex h-full w-12 shrink-0 items-center justify-center border-l border-border text-muted-foreground/85",
+                  "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
+                  "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground active:bg-[color:var(--project-selected)]",
+                  "focus-visible:bg-[color:var(--project-panel-soft)] focus-visible:ring-[1.5px] focus-visible:ring-[color:var(--cohere-form-focus)] focus-visible:ring-offset-0",
+                  diffPanelOpen && "bg-[color:var(--project-selected)] text-foreground hover:bg-[color:var(--project-selected)] hover:text-foreground",
+                )}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="size-[16px]"
+                  aria-hidden
+                >
+                  <path
+                    d="M9 5 L5.5 5 A2.5 2.5 0 0 0 3 7.5 L3 16.5 A2.5 2.5 0 0 0 5.5 19 L9 19 Z"
+                    fill="currentColor"
+                    stroke="none"
+                    className="opacity-0 transition-opacity duration-300 ease-out group-data-[diff-panel-state=open]/changes-trigger:opacity-[0.22]"
+                  />
+                  <rect x="3" y="5" width="18" height="14" rx="2.5" />
+                  <line x1="9" y1="5" x2="9" y2="19" />
+                </svg>
+                {diffCount > 0 ? (
+                  <span className="absolute right-1.5 top-1.5 min-w-3.5 rounded-full bg-[color:var(--project-selected-strong)] px-1 text-center font-mono text-[8px] leading-3 text-white ring-1 ring-background">
+                    {diffCount > 99 ? "99+" : diffCount}
+                  </span>
+                ) : null}
+                <span className="sr-only">
+                  {diffPanelOpen ? "Hide changes" : "Show changes"}
+                </span>
+              </button>
+            }
+          />
+          <TooltipContent side="bottom" sideOffset={8}>
+            {diffPanelOpen
+              ? "Hide Changes"
+              : diffCount > 0
+                ? `Show Changes (${diffCount > 99 ? "99+" : diffCount})`
+                : "Show Changes"}
+          </TooltipContent>
+        </Tooltip>
+      </header>
 
-            <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-              <PierreDiffWorkerPoolProvider>
-              {notFound ? (
-                <div className="border border-border p-5 text-sm text-muted-foreground">Thread not found.</div>
-              ) : loading ? (
-                <section className="min-h-0 w-full min-w-0 flex-1">
-                  <Loader />
-                </section>
-              ) : messageLoadFailed ? (
-                <div className="border border-border p-5 text-sm text-muted-foreground">
-                  Could not load thread messages.
-                </div>
-              ) : (
-                <ThreadChat
-                  key={threadId}
-                  projectId={projectId}
-                  threadId={threadId}
-                  currentRunId={thread?.currentRunId}
-                  initialMessages={initialMessages}
-                  initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
-                  initialModel={initialModel}
-                  initialReasoningEffort={initialReasoningEffort}
-                  disabled={chatDisabled}
-                  codexPromptIssue={codexPromptIssue}
-                  diffPanelOpen={diffPanelOpen}
-                  demoRecordingExperimentEnabled={demoRecordingExperimentEnabled}
-                  onDiffPanelOpenChange={setDiffPanelOpen}
-                  onDiffCountChange={handleDiffCountChange}
-                  onInitialPromptConsumed={handleInitialPromptConsumed}
-                  project={project}
-                  thread={thread}
-                />
-              )}
-              </PierreDiffWorkerPoolProvider>
-            </main>
-          </div>
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <PierreDiffWorkerPoolProvider>
+          {notFound ? (
+            <div className="border border-border p-5 text-sm text-muted-foreground">Thread not found.</div>
+          ) : loading ? (
+            <section className="min-h-0 w-full min-w-0 flex-1">
+              <Loader />
+            </section>
+          ) : messageLoadFailed ? (
+            <div className="border border-border p-5 text-sm text-muted-foreground">
+              Could not load thread messages.
+            </div>
+          ) : (
+            <ThreadChat
+              key={threadId}
+              projectId={projectId}
+              threadId={threadId}
+              currentRunId={thread?.currentRunId}
+              initialMessages={initialMessages}
+              initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
+              initialModel={initialModel}
+              initialReasoningEffort={initialReasoningEffort}
+              disabled={chatDisabled}
+              codexPromptIssue={codexPromptIssue}
+              diffPanelOpen={diffPanelOpen}
+              demoRecordingExperimentEnabled={demoRecordingExperimentEnabled}
+              onDiffPanelOpenChange={setDiffPanelOpen}
+              onDiffCountChange={handleDiffCountChange}
+              onInitialPromptConsumed={handleInitialPromptConsumed}
+              project={project}
+              thread={thread}
+            />
+          )}
+        </PierreDiffWorkerPoolProvider>
+      </main>
+    </div>
   );
 }
 

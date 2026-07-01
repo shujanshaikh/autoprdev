@@ -41,10 +41,10 @@ export function FeaturesGrid() {
   return (
     <section id="support" className="landing-section px-5 py-20 sm:px-8 sm:py-24 lg:px-12">
       <div className="mx-auto max-w-7xl">
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-[color:var(--landing-cyan)]">
+        <p className="font-mono text-[10px] font-normal uppercase tracking-[0.22em] text-[color:var(--landing-cyan)]">
           Core workflow
         </p>
-        <h2 className="mt-4 max-w-4xl text-balance text-[clamp(2rem,5vw,4.8rem)] font-semibold leading-[0.96] tracking-normal text-[color:var(--landing-ink)]">
+        <h2 className="mt-4 max-w-4xl text-balance font-display text-[clamp(2rem,5vw,4.8rem)] font-normal leading-[0.96] tracking-normal text-[color:var(--landing-ink)]">
           The important parts of agent-led pull requests.
         </h2>
         <p className="mt-5 max-w-2xl text-sm leading-relaxed text-[color:var(--landing-muted)] sm:text-base">
@@ -67,7 +67,7 @@ export function FeaturesGrid() {
               <div className="flex size-9 items-center justify-center border border-[color:var(--landing-line)] bg-[color:var(--landing-paper)]">
                 <feature.icon className="size-4 text-[color:var(--landing-green)]" aria-hidden />
               </div>
-              <h3 className="mt-5 text-sm font-semibold text-[color:var(--landing-ink)]">
+              <h3 className="mt-5 text-sm font-normal text-[color:var(--landing-ink)]">
                 {feature.title}
               </h3>
               <p className="mt-2 text-[13px] leading-relaxed text-[color:var(--landing-muted)]">

@@ -35,10 +35,10 @@ export function PricingCallout() {
       >
         <div>
           <CodexLogo className="size-10 text-[color:var(--landing-accent)]" />
-          <p className="mt-8 font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-[color:var(--landing-accent-strong)]">
+          <p className="mt-8 font-mono text-[10px] font-normal uppercase tracking-[0.22em] text-[color:var(--landing-accent-strong)]">
             Codex and billing
           </p>
-          <h2 className="mt-4 max-w-3xl text-balance text-[clamp(2.2rem,5vw,5rem)] font-semibold leading-[0.96] tracking-normal text-[color:var(--landing-ink)]">
+          <h2 className="mt-4 max-w-3xl text-balance font-display text-[clamp(2.2rem,5vw,5rem)] font-normal leading-[0.96] tracking-normal text-[color:var(--landing-ink)]">
             Tokens stay yours. Compute stays visible.
           </h2>
           <p className="mt-5 max-w-xl text-sm leading-relaxed text-[color:var(--landing-muted)] sm:text-base">
@@ -52,7 +52,7 @@ export function PricingCallout() {
               key={item.title}
               className="border border-[color:var(--landing-line)] bg-[color:var(--landing-panel)] p-5"
             >
-              <p className="text-base font-semibold text-[color:var(--landing-ink)]">{item.title}</p>
+              <p className="text-base font-normal text-[color:var(--landing-ink)]">{item.title}</p>
               <p className="mt-2 text-[13px] leading-relaxed text-[color:var(--landing-muted)]">
                 {item.description}
               </p>
@@ -64,7 +64,7 @@ export function PricingCallout() {
               href="/api/auth/sign-in?returnTo=%2Fdashboard"
               className={cn(
                 buttonVariants({ variant: "default", size: "lg" }),
-                "h-11 rounded-none px-5",
+                "h-11 rounded-[var(--radius-pill)] px-5",
               )}
             >
               Start with your GitHub repo

@@ -13,10 +13,10 @@ function InlineStatDots({ additions, deletions }: { additions: number; deletions
   return (
     <span className="flex items-center gap-px" aria-hidden="true">
       {Array.from({ length: addDots }).map((_, i) => (
-        <span key={`a-${i}`} className="size-1.5 rounded-[1px] bg-emerald-500/70" />
+        <span key={`a-${i}`} className="size-1.5 rounded-[1px] bg-[color:var(--cohere-deep-green)] opacity-70" />
       ))}
       {Array.from({ length: delDots }).map((_, i) => (
-        <span key={`d-${i}`} className="size-1.5 rounded-[1px] bg-red-500/60" />
+        <span key={`d-${i}`} className="size-1.5 rounded-[1px] bg-[color:var(--cohere-coral)] opacity-70" />
       ))}
       {Array.from({ length: Math.max(0, maxDots - addDots - delDots) }).map((_, i) => (
         <span key={`n-${i}`} className="size-1.5 rounded-[1px] bg-border/40" />
@@ -28,10 +28,10 @@ function InlineStatDots({ additions, deletions }: { additions: number; deletions
 function StatusIcon({ status, file }: { status: ThreadDiffEntry["status"]; file: string }) {
   const shared = "size-3.5 shrink-0";
   if (status === "added") {
-    return <FilePlus2 className={cn(shared, "text-emerald-600 dark:text-emerald-400")} aria-hidden="true" />;
+    return <FilePlus2 className={cn(shared, "text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]")} aria-hidden="true" />;
   }
   if (status === "deleted") {
-    return <FileX2 className={cn(shared, "text-red-600 dark:text-red-400")} aria-hidden="true" />;
+    return <FileX2 className={cn(shared, "text-[color:var(--cohere-coral)]")} aria-hidden="true" />;
   }
   return <FileTypeIcon file={file} className={shared} />;
 }
@@ -62,15 +62,15 @@ export function ThreadDiffFileRow({
         title={entry.file}
         onClick={onSelect}
         className={cn(
-          "group/row relative flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40",
-          active ? "bg-foreground/[0.05] dark:bg-foreground/[0.06]" : "bg-background/60 hover:bg-foreground/[0.025] dark:hover:bg-foreground/[0.03]",
+          "group/row relative flex w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+          active ? "bg-[color:var(--project-selected)]" : "bg-card hover:bg-[color:var(--project-panel-soft)]",
         )}
       >
         <span
           aria-hidden="true"
           className={cn(
             "absolute inset-y-1 left-0 w-0.5 transition-all duration-200",
-            active ? "bg-primary opacity-100" : "bg-transparent opacity-0 group-hover/row:bg-border/60 group-hover/row:opacity-100",
+            active ? "bg-[color:var(--project-selected-strong)] opacity-100" : "bg-transparent opacity-0 group-hover/row:bg-border group-hover/row:opacity-100",
           )}
         />
 
@@ -87,7 +87,7 @@ export function ThreadDiffFileRow({
 
         <span className="flex shrink-0 items-center gap-2">
           {showTurn ? (
-            <span className={cn("hidden rounded-[2px] border px-1 py-px font-mono text-[8.5px] uppercase leading-none tracking-[0.1em] sm:inline-flex", active ? "border-primary/30 text-primary" : "border-border/50 text-muted-foreground/60")}>{entry.turn}</span>
+            <span className={cn("hidden rounded-[2px] border px-1 py-px font-mono text-[8.5px] uppercase leading-none tracking-[0.1em] sm:inline-flex", active ? "border-[color:var(--project-selected-strong)] text-[color:var(--project-selected-strong)]" : "border-border text-muted-foreground/60")}>{entry.turn}</span>
           ) : null}
           <InlineStatDots additions={entry.additions} deletions={entry.deletions} />
         </span>

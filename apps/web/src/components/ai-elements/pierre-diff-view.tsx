@@ -144,7 +144,7 @@ export function PierreDiffView({
   lineDiffType?: PierreLineDiffType;
 }) {
   const { resolvedTheme } = useTheme();
-  const themeType: ThemeTypes = resolvedTheme === "dark" ? "dark" : "light";
+  const themeType: ThemeTypes = resolvedTheme === "light" ? "light" : "dark";
   const disableWorkerPool = lineDiffType !== "none";
 
   const diffOptions = useMemo<FileDiffOptions<undefined>>(

@@ -54,7 +54,7 @@ function GithubConnect() {
 
   return (
     <main className="relative min-h-svh overflow-hidden bg-background text-foreground">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,hsl(var(--primary)/0.14),transparent_34%),linear-gradient(hsl(var(--border)/0.16)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.16)_1px,transparent_1px)] bg-[size:100%_100%,44px_44px,44px_44px]" />
+      <div className="github-connect-grid absolute inset-0" />
       <div className="relative mx-auto flex min-h-svh w-full max-w-5xl flex-col px-5 py-6 sm:px-8">
         <header className="flex items-center justify-between gap-3 border-b border-border/70 pb-4">
           <div className="flex items-center gap-3">
@@ -65,7 +65,7 @@ function GithubConnect() {
               <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
                 autopr / integrations
               </p>
-              <h1 className="mt-1 text-xl font-semibold tracking-tight">Connect GitHub</h1>
+              <h1 className="type-feature-heading mt-1">Connect GitHub</h1>
             </div>
           </div>
           <Button type="button" variant="outline" onClick={() => window.location.assign(returnTo)}>
@@ -80,7 +80,7 @@ function GithubConnect() {
               <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-primary">
                 secure repository access
               </p>
-              <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
+              <h2 className="type-section-heading mt-3">
                 Choose the GitHub account AutoPR should use.
               </h2>
             </div>
@@ -92,7 +92,7 @@ function GithubConnect() {
             </div>
           </div>
 
-          <div className="border border-border bg-card/80 p-3 shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="rounded-sm border border-border bg-card/80 p-3 shadow-none backdrop-blur">
             <div className="border border-border/70 bg-background">
               <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">

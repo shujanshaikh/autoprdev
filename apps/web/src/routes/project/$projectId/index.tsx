@@ -144,11 +144,11 @@ function ThreadRow({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-[13px] font-semibold leading-tight text-foreground/90 group-hover:text-foreground">
+            <p className="truncate text-[13px] font-medium leading-tight text-foreground/90 group-hover:text-foreground">
               {thread.title}
             </p>
             {thread.isLive ? (
-              <span className="inline-flex items-center gap-1 border border-primary/20 bg-primary/8 px-1.5 py-px font-mono text-[9px] uppercase tracking-[0.12em] text-primary">
+              <span className="inline-flex items-center gap-1 rounded-[var(--radius-xs)] border border-primary/20 bg-primary/8 px-1.5 py-px font-mono text-[9px] uppercase tracking-[0.12em] text-primary">
                 <span className="size-1 animate-pulse rounded-full bg-primary" />
                 live
               </span>
@@ -167,7 +167,7 @@ function ThreadRow({
         type="button"
         disabled={isDeleting}
         onClick={() => onDelete(thread.threadId, thread.title)}
-        className="mr-2 inline-flex size-8 items-center justify-center border border-destructive/20 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mr-2 inline-flex size-8 items-center justify-center rounded-full border border-destructive/20 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
         aria-label={`Delete thread ${thread.title}`}
         title="Delete thread"
       >
@@ -637,7 +637,7 @@ function ProjectOverviewPage() {
                     <div className="w-full max-w-[600px]">
                       {/* Heading */}
                       <div className="mb-6 text-center">
-                        <h1 className="text-lg font-semibold tracking-tight text-foreground">
+                        <h1 className="type-feature-heading text-foreground">
                           What do you want to work on?
                         </h1>
                         <div className="mt-2 flex flex-wrap items-center justify-center gap-2 font-mono text-[11px] text-muted-foreground/70">
@@ -701,8 +701,8 @@ function ProjectOverviewPage() {
                           onChange={handlePromptImageInputChange}
                         />
                         <div
-                          className={`border bg-background transition-shadow ${isFocused
-                            ? "border-primary/40 shadow-[0_0_0_3px_oklch(0.90_0.15_115.6/0.08)]"
+                          className={`rounded-sm border bg-card transition-shadow ${isFocused
+                            ? "border-primary/40 shadow-[0_0_0_3px_color-mix(in_srgb,var(--ring)_16%,transparent)]"
                             : "border-border hover:border-border/80"
                             }`}
                         >
@@ -739,7 +739,7 @@ function ProjectOverviewPage() {
                                   <button
                                     type="button"
                                     aria-label={`Remove ${image.filename}`}
-                                    className="absolute right-1 top-1 inline-flex size-5 items-center justify-center border border-border bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/image:opacity-100"
+                                    className="absolute right-1 top-1 inline-flex size-5 items-center justify-center rounded-full border border-border bg-background/90 text-muted-foreground opacity-0 shadow-none transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/image:opacity-100"
                                     disabled={promptControlsDisabled}
                                     onClick={() => removePromptImage(image.id)}
                                   >
@@ -781,7 +781,7 @@ function ProjectOverviewPage() {
                                 title="Add photos"
                                 onClick={() => promptImageInputRef.current?.click()}
                                 disabled={promptControlsDisabled}
-                                className="inline-flex size-7 shrink-0 items-center justify-center border border-transparent bg-transparent text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-transparent bg-transparent text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
                               </button>
@@ -822,7 +822,7 @@ function ProjectOverviewPage() {
                                       aria-checked={effectiveDemoEnabled}
                                       onClick={() => setDemoEnabled((enabled) => !enabled)}
                                       disabled={promptControlsDisabled}
-                                      className={`inline-flex h-7 shrink-0 items-center gap-1.5 border px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] border px-2 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
                                         effectiveDemoEnabled
                                           ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
                                           : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -844,7 +844,7 @@ function ProjectOverviewPage() {
                             <button
                               type="submit"
                               disabled={promptControlsDisabled}
-                              className="inline-flex size-7 items-center justify-center bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+                              className="inline-flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
                             >
                               <ArrowUp className="size-3.5" aria-hidden="true" />
                             </button>
@@ -879,7 +879,7 @@ function ProjectOverviewPage() {
                                void startThread(action);
                              }}
                             disabled={promptControlsDisabled}
-                            className="border border-border/60 px-3 py-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                            className="rounded-[var(--radius-xl)] border border-border/60 px-3 py-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {action}
                           </button>
@@ -890,7 +890,7 @@ function ProjectOverviewPage() {
 
                   {project.sandboxStatus === "creating" ? (
                     <div className="mx-auto w-full max-w-[600px] px-5">
-                      <div className="border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-700 dark:text-amber-300">
+                      <div className="border border-[color:color-mix(in_srgb,var(--cohere-coral)_25%,transparent)] bg-[color:color-mix(in_srgb,var(--cohere-coral)_5%,transparent)] px-4 py-3 text-[13px] text-[color:var(--cohere-coral)]">
                         <Loader2 className="mr-2 inline size-3.5 animate-spin" aria-hidden="true" />
                         Creating sandbox and cloning repository. Threads unlock when ready.
                       </div>
@@ -913,7 +913,7 @@ function ProjectOverviewPage() {
 
                   {project.branchSwitchStatus === "switching" ? (
                     <div className="mx-auto w-full max-w-[600px] px-5 pt-2">
-                      <div className="border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-700 dark:text-amber-300">
+                      <div className="border border-[color:color-mix(in_srgb,var(--cohere-coral)_25%,transparent)] bg-[color:color-mix(in_srgb,var(--cohere-coral)_5%,transparent)] px-4 py-3 text-[13px] text-[color:var(--cohere-coral)]">
                         <Loader2 className="mr-2 inline size-3.5 animate-spin" aria-hidden="true" />
                         Switching branch and pulling latest changes…
                       </div>
@@ -951,7 +951,7 @@ function ProjectOverviewPage() {
                       </div>
 
                       <div className="ml-auto flex items-center gap-1.5">
-                        <label className="flex h-8 w-44 items-center gap-1.5 border border-border/60 bg-background px-2.5 text-xs text-muted-foreground transition-colors focus-within:border-primary/30">
+                        <label className="flex h-8 w-44 items-center gap-1.5 rounded-xs border border-border/60 bg-background px-2.5 text-xs text-muted-foreground transition-colors focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/30">
                           <Search className="size-3 shrink-0 text-muted-foreground/40" aria-hidden="true" />
                           <input
                             type="text"
@@ -965,7 +965,7 @@ function ProjectOverviewPage() {
                           type="button"
                           onClick={() => void startThread()}
                           disabled={promptControlsDisabled}
-                          className="inline-flex h-8 items-center gap-1.5 border border-primary/20 bg-primary/6 px-2.5 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-pill)] border border-primary/20 bg-primary/6 px-3 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <MessageSquarePlus className="size-3" aria-hidden="true" />
                           New
@@ -973,7 +973,7 @@ function ProjectOverviewPage() {
                       </div>
                     </div>
 
-                    <div className="divide-y divide-border/60 border border-border/60 bg-background">
+                    <div className="divide-y divide-border/60 rounded-sm border border-border/60 bg-background">
                       {filteredThreads === undefined ? (
                         <div className="flex min-h-24 items-center justify-center text-[13px] text-muted-foreground/60">
                           <Loader2 className="mr-2 size-3.5 animate-spin" aria-hidden="true" />

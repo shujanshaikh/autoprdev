@@ -200,7 +200,7 @@ export function PromptImageUploadButton({ disabled }: { disabled: boolean }) {
   return (
     <PromptInputButton
       aria-label="Add photos"
-      className="size-7 rounded-none text-muted-foreground hover:text-foreground"
+      className="size-7 rounded-full text-muted-foreground hover:text-foreground"
       disabled={disabled}
       onClick={() => attachments.openFileDialog()}
       tooltip="Add photos"
@@ -316,7 +316,7 @@ export function PromptImageAttachments({
             <button
               type="button"
               aria-label={`Remove ${file.filename ?? "image"}`}
-              className="absolute right-1 top-1 inline-flex size-5 items-center justify-center border border-border bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/image:opacity-100"
+              className="absolute right-1 top-1 inline-flex size-5 items-center justify-center rounded-full border border-border bg-background/90 text-muted-foreground opacity-0 shadow-none transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/image:opacity-100"
               disabled={disabled}
               onClick={() => attachments.remove(file.id)}
             >

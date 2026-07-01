@@ -11,7 +11,7 @@ export function ModeToggle({
   presentation?: "icon" | "switch";
 }) {
   const { resolvedTheme, setTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const isDark = resolvedTheme !== "light";
 
   if (presentation === "switch") {
     return (
@@ -20,9 +20,9 @@ export function ModeToggle({
         variant="ghost"
         className={cn(
           "group relative h-8 w-16 shrink-0 overflow-hidden rounded-full border px-1",
+          "border-border bg-secondary text-foreground shadow-none",
           "transition-[background-color,border-color] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.16)]",
-          "focus-visible:ring-2 focus-visible:ring-primary/60 motion-reduce:transition-none",
+          "hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none",
           className,
         )}
         aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
@@ -33,7 +33,7 @@ export function ModeToggle({
         <span
           className={cn(
             "absolute inset-y-1 left-1 z-10 grid aspect-square place-items-center rounded-full",
-            "bg-[color:var(--landing-hero-foreground)] text-[color:var(--landing-hero-panel)] shadow-[0_2px_10px_rgba(0,0,0,0.22)]",
+            "border border-border bg-primary text-primary-foreground shadow-none",
             "transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none",
             isDark ? "translate-x-8" : "translate-x-0",
           )}
@@ -41,7 +41,7 @@ export function ModeToggle({
         >
           {isDark ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}
         </span>
-        <span className="absolute inset-0 bg-[radial-gradient(circle_at_24%_35%,rgba(255,255,255,0.45),transparent_28%),linear-gradient(120deg,rgba(255,255,255,0.18),transparent)] opacity-80" />
+        <span className="absolute inset-0 bg-muted/50" />
         <Sun
           className={cn(
             "absolute left-2.5 size-3.5 transition-[opacity,transform] duration-300 motion-reduce:transition-none",
@@ -68,8 +68,7 @@ export function ModeToggle({
       size="icon"
       className={cn(
         "relative overflow-hidden text-muted-foreground",
-        "hover:bg-muted/60 hover:text-foreground",
-        "dark:hover:bg-sidebar-accent",
+        "hover:bg-secondary hover:text-foreground",
         className,
       )}
       aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}

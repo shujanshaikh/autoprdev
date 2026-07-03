@@ -9,7 +9,11 @@ import { DEFAULT_THEMES, type FileDiffOptions, type ThemeTypes } from "@pierre/d
 import { useTheme } from "next-themes";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-const MAX_RENDERED_CHANGED_LINES = 500;
+// Diffs above this size mount one idle frame after first paint so the thread
+// stays responsive while still showing the diff automatically.
+const DEFERRED_RENDER_CHANGED_LINES = 500;
+// Diffs above this size require an explicit click before rendering.
+const MAX_AUTO_RENDERED_CHANGED_LINES = 5_000;
 const DIFF_PREFERENCES_STORAGE_KEY = "autopr.diff.preferences.v1";
 
 export type PierreDiffStyle = "unified" | "split";
@@ -128,6 +132,30 @@ function changedLineCount(patch?: string): number {
   return count;
 }
 
+/**
+ * Delay mounting heavy content until the browser is idle so large diffs render
+ * automatically without blocking the first paint of the surrounding thread.
+ */
+function useIdleMount(defer: boolean): boolean {
+  const [ready, setReady] = useState(!defer);
+
+  useEffect(() => {
+    if (!defer || ready) {
+      return;
+    }
+
+    if (typeof window.requestIdleCallback === "function") {
+      const handle = window.requestIdleCallback(() => setReady(true), { timeout: 500 });
+      return () => window.cancelIdleCallback(handle);
+    }
+
+    const handle = window.setTimeout(() => setReady(true), 50);
+    return () => window.clearTimeout(handle);
+  }, [defer, ready]);
+
+  return ready;
+}
+
 export function PierreDiffView({
   patch,
   fileName,
@@ -146,6 +174,10 @@ export function PierreDiffView({
   const { resolvedTheme } = useTheme();
   const themeType: ThemeTypes = resolvedTheme === "light" ? "light" : "dark";
   const disableWorkerPool = lineDiffType !== "none";
+  const changes = changedLineCount(patch);
+  const requiresOptIn = changes > MAX_AUTO_RENDERED_CHANGED_LINES;
+  const [optedIn, setOptedIn] = useState(false);
+  const idleReady = useIdleMount(changes > DEFERRED_RENDER_CHANGED_LINES && !requiresOptIn);
 
   const diffOptions = useMemo<FileDiffOptions<undefined>>(
     () => ({
@@ -167,15 +199,29 @@ export function PierreDiffView({
     [diffStyle, lineDiffType, themeType],
   );
 
-  const changes = changedLineCount(patch);
-  const tooLarge = changes > MAX_RENDERED_CHANGED_LINES;
-
-  if (tooLarge) {
+  if (requiresOptIn && !optedIn) {
     return (
       <div className="border border-border/60 bg-muted/20 px-4 py-5 text-center">
         <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Large diff</p>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          This change has {changes.toLocaleString()} changed lines. Rendering is paused to keep the thread responsive.
+          This change has {changes.toLocaleString()} changed lines. Rendering it may briefly slow this thread.
+        </p>
+        <button
+          type="button"
+          onClick={() => setOptedIn(true)}
+          className="mt-3 inline-flex items-center rounded-sm border border-border bg-background px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted"
+        >
+          Show diff
+        </button>
+      </div>
+    );
+  }
+
+  if (!requiresOptIn && !idleReady) {
+    return (
+      <div className="border border-border/60 bg-muted/20 px-4 py-5 text-center">
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+          Preparing diff ({changes.toLocaleString()} changed lines)…
         </p>
       </div>
     );

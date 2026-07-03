@@ -15,6 +15,7 @@ const DETAIL_KEYS_FOR_MODEL = [
   "unchanged",
   "replacements",
   "truncated",
+  "diffTruncated",
 ];
 
 type DiffCompactionOptions = {
@@ -81,7 +82,7 @@ function compactToolInputForModel(toolName: string, input: unknown): unknown {
 function compactDiffForModel(diff: Record<string, unknown>, options: DiffCompactionOptions): Record<string, unknown> {
   const next: Record<string, unknown> = {};
 
-  for (const key of ["renderer", "fileName", "status"]) {
+  for (const key of ["renderer", "fileName", "status", "truncated"]) {
     if (key in diff) {
       next[key] = diff[key];
     }

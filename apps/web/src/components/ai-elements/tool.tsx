@@ -478,6 +478,8 @@ export type ToolDiffPayload = {
   status?: "added" | "deleted" | "modified";
   oldContent?: string | null;
   newContent?: string;
+  /** True when the patch shows only the changed chunk, not the whole file. */
+  truncated?: boolean;
 };
 
 export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
@@ -517,7 +519,21 @@ export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
     return false;
   }
 
+  if ("truncated" in v && typeof v.truncated !== "boolean") {
+    return false;
+  }
+
   return true;
+}
+
+function ToolDiffPartialNotice() {
+  return (
+    <div className="border border-border/60 bg-muted/20 px-3 py-1.5">
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        Partial diff — shows only the changed chunk of a large file
+      </p>
+    </div>
+  );
 }
 
 export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
@@ -547,26 +563,32 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
     }
 
     return (
-      <PierreDiffView
-        fileName={pathLine ?? diff.fileName}
-        oldContent={diff.oldContent}
-        newContent={diff.newContent}
-        diffStyle={diffStyle}
-        lineDiffType={lineDiffType}
-      />
+      <div className="space-y-1.5">
+        {diff.truncated ? <ToolDiffPartialNotice /> : null}
+        <PierreDiffView
+          fileName={pathLine ?? diff.fileName}
+          oldContent={diff.oldContent}
+          newContent={diff.newContent}
+          diffStyle={diffStyle}
+          lineDiffType={lineDiffType}
+        />
+      </div>
     );
   }
 
   return (
-    <div className="overflow-hidden">
-      <PierreDiffView
-        patch={diff.patch}
-        fileName={pathLine ?? diff.fileName}
-        oldContent={diff.oldContent}
-        newContent={diff.newContent}
-        diffStyle={diffStyle}
-        lineDiffType={lineDiffType}
-      />
+    <div className="space-y-1.5">
+      {diff.truncated ? <ToolDiffPartialNotice /> : null}
+      <div className="overflow-hidden">
+        <PierreDiffView
+          patch={diff.patch}
+          fileName={pathLine ?? diff.fileName}
+          oldContent={diff.oldContent}
+          newContent={diff.newContent}
+          diffStyle={diffStyle}
+          lineDiffType={lineDiffType}
+        />
+      </div>
     </div>
   );
 }

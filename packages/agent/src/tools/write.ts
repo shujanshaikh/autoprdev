@@ -44,12 +44,14 @@ const writeInputSchema = z.object({
     .max(MAX_WRITE_CONTENT_CHARS)
     .optional()
     .describe(
-      `Required. File content for this write call. Maximum ${MAX_WRITE_CONTENT_CHARS} characters. For larger files, make multiple sequential write calls with mode=append.`,
+      `Required. File content for this write call. Maximum ${MAX_WRITE_CONTENT_CHARS} characters. Keep this payload small and bounded; never send a huge complete file. For large new files or unavoidable full rewrites, make multiple sequential write calls: mode=overwrite for the first chunk, then mode=append for later chunks.`,
     ),
   mode: z
     .enum(["overwrite", "append"])
     .optional()
-    .describe("Write mode. Defaults to overwrite. Use append for subsequent chunks of a large file."),
+    .describe(
+      "Write mode. Defaults to overwrite. Use overwrite for new files or the first chunk of an unavoidable full rewrite; use append for subsequent chunks.",
+    ),
 });
 
 type WriteInput = z.infer<typeof writeInputSchema>;
@@ -454,7 +456,7 @@ export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "write",
     description:
-      `Create, fully overwrite, or append to a text file in the Daytona sandbox. Use mode=overwrite for new files or complete rewrites when exact edit replacement is impractical. Use mode=append for subsequent chunks when a generated file is too large for one call; appends to large files are applied remotely so each chunk stays fast regardless of file size. Each content payload is limited to ${MAX_WRITE_CONTENT_CHARS} characters. Automatically creates parent directories, skips uploads when content already matches, mutates files, and returns a diff (limited to the changed chunk for very large files); prefer edit for small changes to existing files.`,
+      `Create, fully overwrite, or append to a text file in the Daytona sandbox with bounded payloads that stay below platform step limits. Use mode=overwrite for new files or the first chunk of an unavoidable complete rewrite when exact edit replacement is impractical. Use mode=append for subsequent chunks when a generated file or full rewrite is too large for one quick call; appends to large files are applied remotely so each chunk stays fast regardless of file size. Each content payload is limited to ${MAX_WRITE_CONTENT_CHARS} characters. Prefer multiple smaller files when the format allows it, prefer edit for localized changes to existing files, and never fully rewrite a large existing file just because the full content is available. Automatically creates parent directories, skips uploads when content already matches, mutates files, and returns a diff (limited to the changed chunk for very large files).`,
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaWrite(input, sandboxOptions),

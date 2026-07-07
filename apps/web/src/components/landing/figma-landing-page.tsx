@@ -1,11 +1,8 @@
 import { cn } from "@autopr/ui/lib/utils";
 import { Bot, GitCompareArrows, Github, ShieldCheck } from "lucide-react";
-import { useSyncExternalStore } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { ModeToggle } from "#/components/mode-toggle";
-
-const FIGMA_WIDTH = 1512;
 
 function u(px: number) {
   return `${px}px`;
@@ -50,28 +47,6 @@ const featureCards = [
     body: "Inspect diffs and runtime output, then create a GitHub pull request when the changes are ready.",
   },
 ] as const;
-
-function subscribeToViewportScale(onStoreChange: () => void) {
-  window.addEventListener("resize", onStoreChange);
-
-  return () => window.removeEventListener("resize", onStoreChange);
-}
-
-function getViewportScaleSnapshot() {
-  return Math.min(1, window.innerWidth / FIGMA_WIDTH);
-}
-
-function getServerScaleSnapshot() {
-  return 1;
-}
-
-function useFigmaScale() {
-  return useSyncExternalStore(
-    subscribeToViewportScale,
-    getViewportScaleSnapshot,
-    getServerScaleSnapshot,
-  );
-}
 
 function AutoPrLogo({
   x,
@@ -379,14 +354,10 @@ function FeatureCard({ card, index }: { card: (typeof featureCards)[number]; ind
 }
 
 export function FigmaLandingPage() {
-  const scale = useFigmaScale();
-  const landingStyle = { "--landing-scale": String(scale) } as CSSProperties;
-
   return (
     <div
       id="top"
       className="landing-page relative flex min-h-0 flex-1 justify-center overflow-x-clip overflow-y-auto"
-      style={landingStyle}
     >
       <MobileLandingPage />
       <div className="landing-figma-frame hidden lg:block">

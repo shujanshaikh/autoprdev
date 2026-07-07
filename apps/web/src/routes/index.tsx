@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { RouteTransition } from "#/components/route-transition";
 import { FigmaLandingPage } from "@/components/landing/figma-landing-page";
 
 export const metadata = {
@@ -14,11 +13,7 @@ function LandingHome() {
 }
 
 function Home() {
-  return (
-    <RouteTransition>
-      <LandingHome />
-    </RouteTransition>
-  );
+  return <LandingHome />;
 }
 
 export const Route = createFileRoute("/")({ component: Home });

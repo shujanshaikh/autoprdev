@@ -784,6 +784,7 @@
 
 .landing-page {
   --landing-stage-height: 1900px;
+  --landing-stage-width: 1512px;
   --landing-scale: 1;
   --landing-paper: var(--framer-canvas);
   --landing-footer: var(--framer-canvas);
@@ -864,7 +865,7 @@
 .landing-figma-frame {
   position: relative;
   flex: 0 0 auto;
-  width: min(100%, 1512px);
+  width: min(100%, var(--landing-stage-width));
   aspect-ratio: 1512 / 1900;
   overflow: hidden;
 }
@@ -873,8 +874,8 @@
   position: absolute;
   left: 0;
   top: 0;
-  width: 1512px;
-  min-width: 1512px;
+  width: var(--landing-stage-width);
+  min-width: var(--landing-stage-width);
   height: var(--landing-stage-height);
   overflow: hidden;
   background: var(--landing-paper);
@@ -885,6 +886,12 @@
 
 .landing-figma-stage * {
   box-sizing: border-box;
+}
+
+@container (width < 1512px) {
+  .landing-figma-frame {
+    --landing-scale: calc(100cqw / var(--landing-stage-width));
+  }
 }
 
 .landing-muted-asset {

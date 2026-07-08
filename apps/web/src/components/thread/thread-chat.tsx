@@ -408,6 +408,7 @@ export function ThreadChat({
   initialPrompt,
   initialModel,
   initialReasoningEffort,
+  availableModels,
   disabled,
   codexPromptIssue,
   diffPanelOpen,
@@ -425,6 +426,7 @@ export function ThreadChat({
   initialPrompt?: string;
   initialModel?: CodexModelId;
   initialReasoningEffort?: CodexReasoningEffort;
+  availableModels?: string[];
   disabled: boolean;
   codexPromptIssue?: CodexPromptConnectionIssue;
   diffPanelOpen: boolean;
@@ -443,7 +445,13 @@ export function ThreadChat({
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
-  const selectedModel: CodexModelId = initialModel ?? DEFAULT_CODEX_MODEL;
+  const selectedModel = useMemo(() => {
+    if (initialModel && (!availableModels || availableModels.includes(initialModel))) {
+      return initialModel;
+    }
+
+    return availableModels?.[0] ?? DEFAULT_CODEX_MODEL;
+  }, [availableModels, initialModel]);
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -931,7 +939,7 @@ export function ThreadChat({
                   <PromptInputTools className="min-w-0 flex-1">
                     <PromptImageUploadButton disabled={!ready} />
                     <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                      {CODEX_MODELS[0].label}
+                      {CODEX_MODELS.find((model) => model.id === selectedModel)?.label ?? selectedModel}
                     </span>
                     <Select
                       value={selectedReasoningEffort}

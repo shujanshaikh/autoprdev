@@ -41,10 +41,7 @@ interface CodexAgentModelOptions {
   modelId: string;
   reasoningEffort: string;
   promptCacheKey?: string;
-  vaultObjectId: string;
-  vaultVersionId?: string;
-  accountId?: string;
-  expiresAt: number;
+  chatgptCookieHeader: string;
 }
 
 interface AssistantPersistenceOptions {
@@ -413,10 +410,6 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       .filter(Boolean)
       .join("\n"),
   });
-
-  if (options.codex?.expiresAt && options.codex.expiresAt <= Date.now()) {
-    throw new Error("Codex credentials expired. Reconnect Codex and try again.");
-  }
 
   const codexOptions = {
     ...options.codex,

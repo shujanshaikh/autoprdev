@@ -1,13 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { codexErrorResponse, startCodexDeviceAuthorization } from "#/lib/codex-auth-server";
-
 async function POST() {
-  try {
-    return Response.json(await startCodexDeviceAuthorization());
-  } catch (error) {
-    return codexErrorResponse(error, "Could not start Codex authorization.");
-  }
+  return Response.json(
+    { error: "Codex device authorization has moved to /api/chatgpt/login." },
+    { status: 410 },
+  );
 }
 
 export const Route = createFileRoute("/api/codex/device/start")({

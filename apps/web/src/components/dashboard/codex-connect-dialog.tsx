@@ -6,22 +6,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@autopr/ui/components/dialog";
-import { useQuery as useReactQuery } from "@tanstack/react-query";
 import { cn } from "@autopr/ui/lib/utils";
+import {
+  openLoginWithChatGPTConsentPopup,
+  useLoginWithChatGPT,
+  type ChatGPTUser,
+} from "@opencoredev/loginwithchatgpt-react";
 import { Check, Copy, ExternalLink, Loader2, Unplug } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { CodexLogo } from "#/components/icons/codex-logo";
-import { readJson } from "#/components/dashboard/types";
 import type { CodexStatus } from "#/lib/codex-status";
 
-type DeviceStartResponse = {
-  userCode: string;
-  deviceAuthId: string;
-  intervalMs: number;
-  verificationUrl: string;
-  securitySettingsUrl: string;
-};
+const APP_NAME = "AutoPR";
+const CHATGPT_SECURITY_SETTINGS_URL = "https://chatgpt.com/#settings/Security";
 
 interface CodexConnectDialogProps {
   open: boolean;
@@ -30,7 +28,7 @@ interface CodexConnectDialogProps {
   onStatusChange: () => void;
 }
 
-function CodexConnectDialog({
+export function CodexConnectDialog({
   open,
   status,
   onOpenChange,
@@ -61,91 +59,50 @@ export function CodexConnectPanel({
   status?: CodexStatus;
   onStatusChange: () => void;
 }) {
-  const [deviceStartNonce, setDeviceStartNonce] = useState(0);
-  const [isPolling, setIsPolling] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [flowError, setFlowError] = useState<string>();
-
-  const deviceStartQuery = useReactQuery({
-    queryKey: ["codex", "device-start", deviceStartNonce],
-    enabled: active && !status?.connected,
-    retry: false,
-    queryFn: async () => readJson<DeviceStartResponse>(
-      await fetch("/api/codex/device/start", { method: "POST" }),
-    ),
+  const [showInlineConsent, setShowInlineConsent] = useState(false);
+  const lastReportedStatusRef = useRef<string | undefined>(undefined);
+  const auth = useLoginWithChatGPT({
+    basePath: "/api/chatgpt",
+    onAuthenticated: () => {
+      setShowInlineConsent(false);
+      onStatusChange();
+    },
+    onError: (error) => setFlowError(error.message),
   });
-  const device = deviceStartQuery.data;
-  const isStarting = active && !status?.connected && deviceStartQuery.isPending;
-  const error =
-    flowError ??
-    (deviceStartQuery.error instanceof Error
-      ? deviceStartQuery.error.message
-      : deviceStartQuery.isError
-        ? "Could not start Codex authorization."
-        : undefined);
 
   useEffect(() => {
-    if (!active || !device || status?.connected) return;
+    if (!active) return;
+    if (lastReportedStatusRef.current === auth.status) return;
+    lastReportedStatusRef.current = auth.status;
 
-    const activeDevice = device;
-    let cancelled = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-
-    async function poll() {
-      setIsPolling(true);
-      try {
-        const result = await readJson<{ connected: boolean; pending?: boolean }>(
-          await fetch("/api/codex/device/poll", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              deviceAuthId: activeDevice.deviceAuthId,
-              userCode: activeDevice.userCode,
-            }),
-          }),
-        );
-
-        if (cancelled) return;
-
-        if (result.connected) {
-          onStatusChange();
-          return;
-        }
-
-        timeout = setTimeout(poll, activeDevice.intervalMs);
-      } catch (err) {
-        if (!cancelled) {
-          setFlowError(
-            err instanceof Error ? err.message : "Could not complete Codex authorization.",
-          );
-        }
-      } finally {
-        if (!cancelled) setIsPolling(false);
-      }
+    if (auth.status === "authenticated" || auth.status === "unauthenticated" || auth.status === "expired") {
+      onStatusChange();
     }
+  }, [active, auth.status, onStatusChange]);
 
-    timeout = setTimeout(poll, activeDevice.intervalMs);
+  function startLogin() {
+    setFlowError(undefined);
+    setShowInlineConsent(false);
 
-    return () => {
-      cancelled = true;
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [active, device, onStatusChange, status?.connected]);
+    const popup = openLoginWithChatGPTConsentPopup({
+      appName: APP_NAME,
+      continueLabel: `I trust ${APP_NAME}, continue`,
+      securityHref: CHATGPT_SECURITY_SETTINGS_URL,
+      login: auth.login,
+    });
 
-  async function copyCode() {
-    if (!device) return;
-    await navigator.clipboard.writeText(device.userCode);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
+    if (!popup) {
+      setShowInlineConsent(true);
+    }
   }
 
   async function disconnect() {
     setIsDisconnecting(true);
     setFlowError(undefined);
     try {
-      await readJson(await fetch("/api/codex/disconnect", { method: "POST" }));
-      setDeviceStartNonce((current) => current + 1);
+      await auth.logout();
       onStatusChange();
     } catch (err) {
       setFlowError(err instanceof Error ? err.message : "Could not disconnect Codex.");
@@ -154,18 +111,26 @@ export function CodexConnectPanel({
     }
   }
 
-  const isLive = isStarting || isPolling;
-  const statusLabel = status?.connected
+  const connectedUser = auth.isAuthenticated
+    ? auth.user
+    : auth.status === "loading" && status?.connected
+      ? status
+      : undefined;
+  const connected = Boolean(connectedUser);
+  const isLive = auth.isConnecting || auth.isPending;
+  const error = flowError ?? auth.error;
+  const statusLabel = connected
     ? "connected"
-    : isStarting
-      ? "preparing"
-      : isPolling
-        ? "waiting for auth"
-        : "idle";
+    : auth.status === "loading"
+      ? "checking"
+      : auth.isConnecting
+        ? "preparing"
+        : auth.isPending
+          ? "waiting for auth"
+          : "idle";
 
   return (
     <>
-      {/* Header */}
       <div className="border-b border-border px-4 pt-4 pb-4 pr-12 min-[420px]:px-5">
         {asDialogHeader ? (
           <DialogHeader className="gap-2">
@@ -175,7 +140,7 @@ export function CodexConnectPanel({
             </DialogTitle>
             <DialogDescription className="text-xs leading-relaxed text-muted-foreground">
               Route OpenAI models through your ChatGPT subscription. Authorize this
-              workspace once via device code.
+              workspace once with Login with ChatGPT.
             </DialogDescription>
           </DialogHeader>
         ) : (
@@ -186,16 +151,15 @@ export function CodexConnectPanel({
             </h2>
             <p className="text-xs leading-relaxed text-muted-foreground">
               Route OpenAI models through your ChatGPT subscription. Authorize this
-              workspace once via device code.
+              workspace once with Login with ChatGPT.
             </p>
           </div>
         )}
       </div>
 
-      {/* Body */}
-      {status?.connected ? (
+      {connected ? (
         <ConnectedBody
-          status={status}
+          user={connectedUser}
           isDisconnecting={isDisconnecting}
           onDisconnect={() => void disconnect()}
         />
@@ -203,41 +167,48 @@ export function CodexConnectPanel({
         <ol className="divide-y divide-border">
           <Step
             n={1}
-            done={Boolean(device)}
-            title="Enable device code authorization"
-            hint="Open your ChatGPT security settings and turn on device codes."
+            done={auth.isPending || Boolean(auth.userCode)}
+            title="Review access"
+            hint="Confirm AutoPR can send Codex requests through your ChatGPT plan."
             action={
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!device}
+                disabled={auth.isConnecting || auth.isPending}
                 className="w-full min-[420px]:w-auto"
-                onClick={() =>
-                  device &&
-                  window.open(
-                    device.securitySettingsUrl,
-                    "_blank",
-                    "noopener,noreferrer",
-                  )
-                }
+                onClick={startLogin}
               >
-                Security settings
-                <ExternalLink className="size-3" aria-hidden="true" />
+                {auth.isConnecting ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                ) : null}
+                Review access
               </Button>
             }
           />
+          {showInlineConsent ? (
+            <li className="px-4 py-4 min-[420px]:px-5">
+              <InlineConsent
+                isConnecting={auth.isConnecting}
+                onContinue={() => {
+                  setShowInlineConsent(false);
+                  void auth.login();
+                }}
+                onCancel={() => setShowInlineConsent(false)}
+              />
+            </li>
+          ) : null}
           <Step
             n={2}
-            done={copied}
+            done={auth.copied}
             title="Copy this code"
             hint="Paste it on the verification page in step 3."
             action={
               <CodeBox
-                userCode={device?.userCode}
-                copied={copied}
-                onCopy={() => void copyCode()}
-                disabled={!device}
+                userCode={auth.userCode}
+                copied={auth.copied}
+                onCopy={() => void auth.copyCode()}
+                disabled={!auth.userCode}
               />
             }
           />
@@ -251,16 +222,9 @@ export function CodexConnectPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!device}
+                disabled={!auth.verificationUrl}
                 className="w-full min-[420px]:w-auto"
-                onClick={() =>
-                  device &&
-                  window.open(
-                    device.verificationUrl,
-                    "_blank",
-                    "noopener,noreferrer",
-                  )
-                }
+                onClick={auth.reopen}
               >
                 Verification page
                 <ExternalLink className="size-3" aria-hidden="true" />
@@ -270,13 +234,12 @@ export function CodexConnectPanel({
         </ol>
       )}
 
-      {/* Status bar */}
       <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-4 py-2.5 min-[420px]:px-5">
         <span
           aria-hidden
           className={cn(
             "inline-block size-1.5",
-            status?.connected
+            connected
               ? "bg-primary"
               : isLive
                 ? "animate-pulse bg-primary"
@@ -322,6 +285,58 @@ function CodexPanelKicker() {
   );
 }
 
+function InlineConsent({
+  isConnecting,
+  onContinue,
+  onCancel,
+}: {
+  isConnecting: boolean;
+  onContinue: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-3 border border-border bg-muted/30 px-3 py-3">
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-foreground">
+          Authorize {APP_NAME} to use ChatGPT
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Continue only if you trust {APP_NAME} and its developer.
+        </p>
+      </div>
+      <ul className="space-y-2 text-xs leading-relaxed text-muted-foreground">
+        <li>AI requests are billed to your own ChatGPT plan until you disconnect.</li>
+        <li>Your prompts and files pass through {APP_NAME}'s server before reaching OpenAI.</li>
+        <li>{APP_NAME} never sees your ChatGPT password and cannot sign in as you.</li>
+      </ul>
+      <div className="flex flex-col gap-2 min-[420px]:flex-row">
+        <Button
+          type="button"
+          size="sm"
+          disabled={isConnecting}
+          className="min-[420px]:flex-1"
+          onClick={onContinue}
+        >
+          {isConnecting ? (
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          ) : null}
+          I trust {APP_NAME}, continue
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isConnecting}
+          className="min-[420px]:flex-1"
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function Step({
   n,
   done,
@@ -333,7 +348,7 @@ function Step({
   done: boolean;
   title: string;
   hint: string;
-  action: React.ReactNode;
+  action: ReactNode;
 }) {
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2.5 px-4 py-4 min-[420px]:grid-cols-[1.75rem_minmax(0,1fr)] min-[420px]:gap-3 min-[420px]:px-5">
@@ -379,7 +394,7 @@ function CodeBox({
         )}
         aria-live="polite"
       >
-        {userCode ?? "─────────"}
+        {userCode ?? "---------"}
       </div>
       <Button
         type="button"
@@ -401,18 +416,20 @@ function CodeBox({
 }
 
 function ConnectedBody({
-  status,
+  user,
   isDisconnecting,
   onDisconnect,
 }: {
-  status: { email?: string; accountId?: string };
+  user?: ChatGPTUser | Pick<CodexStatus, "email" | "accountId" | "name" | "plan">;
   isDisconnecting: boolean;
   onDisconnect: () => void;
 }) {
   const identity =
-    status.email ??
-    status.accountId ??
-    "ChatGPT subscription stored in WorkOS Vault.";
+    user?.email ??
+    user?.name ??
+    user?.accountId ??
+    "ChatGPT session stored by Login with ChatGPT.";
+  const plan = user?.plan ? `${user.plan} plan` : undefined;
 
   return (
     <div className="space-y-3 px-4 py-5 min-[420px]:px-5">
@@ -429,6 +446,11 @@ function ConnectedBody({
             <p className="break-words font-mono text-[11px] text-muted-foreground">
               {identity}
             </p>
+            {plan ? (
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                {plan}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>

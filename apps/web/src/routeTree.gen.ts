@@ -15,6 +15,7 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAgentRouteImport } from './routes/api/agent'
+import { Route as ApiChatgptLwcRouteImport } from './routes/api/chatgpt/$lwc'
 import { Route as ProjectProjectIdRouteRouteImport } from './routes/project/$projectId/route'
 import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$projectId/index'
 import { Route as ProjectProjectIdPullsRouteImport } from './routes/project/$projectId/pulls'
@@ -67,6 +68,11 @@ const IndexRoute = IndexRouteImport.update({
 const ApiAgentRoute = ApiAgentRouteImport.update({
   id: '/api/agent',
   path: '/api/agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatgptLwcRoute = ApiChatgptLwcRouteImport.update({
+  id: '/api/chatgpt/$lwc',
+  path: '/api/chatgpt/$lwc',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectProjectIdRouteRoute = ProjectProjectIdRouteRouteImport.update({
@@ -204,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/api/chatgpt/$lwc': typeof ApiChatgptLwcRoute
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
@@ -234,6 +241,7 @@ export interface FileRoutesByTo {
   '/github-connect': typeof GithubConnectRoute
   '/sign-up': typeof SignUpRoute
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/api/chatgpt/$lwc': typeof ApiChatgptLwcRoute
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
@@ -266,6 +274,7 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/api/chatgpt/$lwc': typeof ApiChatgptLwcRoute
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/codex/disconnect': typeof ApiCodexDisconnectRoute
@@ -299,6 +308,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
+    | '/api/chatgpt/$lwc'
     | '/project/$projectId/thread'
     | '/api/auth/sign-in'
     | '/api/codex/disconnect'
@@ -329,6 +339,7 @@ export interface FileRouteTypes {
     | '/github-connect'
     | '/sign-up'
     | '/api/agent'
+    | '/api/chatgpt/$lwc'
     | '/project/$projectId/thread'
     | '/api/auth/sign-in'
     | '/api/codex/disconnect'
@@ -360,6 +371,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
+    | '/api/chatgpt/$lwc'
     | '/project/$projectId/thread'
     | '/api/auth/sign-in'
     | '/api/codex/disconnect'
@@ -392,6 +404,7 @@ export interface RootRouteChildren {
   SignUpRoute: typeof SignUpRoute
   ProjectProjectIdRouteRoute: typeof ProjectProjectIdRouteRouteWithChildren
   ApiAgentRoute: typeof ApiAgentRouteWithChildren
+  ApiChatgptLwcRoute: typeof ApiChatgptLwcRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiCodexDisconnectRoute: typeof ApiCodexDisconnectRoute
   ApiCodexStatusRoute: typeof ApiCodexStatusRoute
@@ -448,6 +461,13 @@ declare module '@tanstack/react-router' {
       path: '/api/agent'
       fullPath: '/api/agent'
       preLoaderRoute: typeof ApiAgentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chatgpt/$lwc': {
+      id: '/api/chatgpt/$lwc'
+      path: '/api/chatgpt/$lwc'
+      fullPath: '/api/chatgpt/$lwc'
+      preLoaderRoute: typeof ApiChatgptLwcRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/project/$projectId': {
@@ -728,6 +748,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignUpRoute: SignUpRoute,
   ProjectProjectIdRouteRoute: ProjectProjectIdRouteRouteWithChildren,
   ApiAgentRoute: ApiAgentRouteWithChildren,
+  ApiChatgptLwcRoute: ApiChatgptLwcRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiCodexDisconnectRoute: ApiCodexDisconnectRoute,
   ApiCodexStatusRoute: ApiCodexStatusRoute,

@@ -344,6 +344,7 @@ async function POST(
       sandboxWorkDir: project.sandboxWorkDir,
     });
     const commitMessage = parsed.data.commitMessage ?? await generateCommitMessage({
+      request: req,
       projectId,
       threadId,
       branch: prepared.branch,

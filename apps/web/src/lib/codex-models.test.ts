@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addCodexUsageCosts,
   calculateCodexUsageCost,
+  getCodexModelOptions,
   isCodexModelId,
   normalizeCodexModelList,
   selectCodexModel,
@@ -68,5 +69,10 @@ describe("Codex model cost helpers", () => {
     expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-b")).toBe("gpt-b");
     expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-missing")).toBe("gpt-a");
     expect(selectCodexModel(undefined, "gpt-deep-link")).toBe("gpt-deep-link");
+  });
+
+  it("keeps the selected model available as a dropdown option", () => {
+    expect(getCodexModelOptions(["gpt-a", "gpt-b"], "gpt-b")).toEqual(["gpt-a", "gpt-b"]);
+    expect(getCodexModelOptions(["gpt-a", "gpt-b"], "gpt-current")).toEqual(["gpt-current", "gpt-a", "gpt-b"]);
   });
 });

@@ -91,6 +91,20 @@ export function selectCodexModel(
   return models[0];
 }
 
+export function getCodexModelOptions(
+  availableModels: readonly string[] | undefined,
+  selectedModel?: string,
+): CodexModelId[] {
+  const models = normalizeCodexModelList(availableModels);
+  const selected = normalizeCodexModelId(selectedModel);
+
+  if (selected && !models.includes(selected)) {
+    return [selected, ...models];
+  }
+
+  return models;
+}
+
 export function formatCodexModelLabel(modelId: string | undefined) {
   const normalizedModelId = normalizeCodexModelId(modelId);
   if (!normalizedModelId) {

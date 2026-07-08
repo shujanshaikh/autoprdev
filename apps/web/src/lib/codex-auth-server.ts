@@ -13,6 +13,9 @@ import {
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
   isCodexReasoningEffortForModel,
+  normalizeCodexModelId,
+  normalizeCodexModelList,
+  selectCodexModel,
 } from "#/lib/codex-models";
 
 export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
@@ -252,7 +255,7 @@ function requireChatGPTSessionCookieHeader(request: Request) {
 }
 
 async function getAvailableModels(request: Request) {
-  const models = await chatGPTAuth.getModels(request);
+  const models = normalizeCodexModelList(await chatGPTAuth.getModels(request));
   if (!models || models.length === 0) {
     throw new CodexConnectionError("No ChatGPT models are available for this account.", 401);
   }
@@ -261,7 +264,7 @@ async function getAvailableModels(request: Request) {
 }
 
 function selectAvailableModel(requestedModel: string | undefined, availableModels: string[]) {
-  const requested = requestedModel?.trim();
+  const requested = normalizeCodexModelId(requestedModel);
   if (requested && availableModels.includes(requested)) {
     return requested;
   }
@@ -270,7 +273,7 @@ function selectAvailableModel(requestedModel: string | undefined, availableModel
     throw new CodexConnectionError("Selected ChatGPT model is not available for this account.", 400);
   }
 
-  const fallback = availableModels[0];
+  const fallback = selectCodexModel(availableModels);
   if (!fallback) {
     throw new CodexConnectionError("No ChatGPT models are available for this account.", 401);
   }
@@ -295,7 +298,9 @@ export async function getCodexConnectionStatus(request: Request) {
     return { connected: false as const };
   }
 
-  const models = await chatGPTAuth.getModels(request).catch(() => undefined);
+  const models = await chatGPTAuth.getModels(request)
+    .then((availableModels) => normalizeCodexModelList(availableModels))
+    .catch(() => undefined);
 
   return {
     connected: true as const,

@@ -326,7 +326,7 @@ function AssistantRunTimerRow({
   children?: ReactNode;
   detailsCount?: number;
   metadata: unknown;
-  modelId: string;
+  modelId?: string;
   startedAt?: number;
 }) {
   const elapsedSeconds = useElapsedSeconds(active ? startedAt : undefined);
@@ -465,7 +465,7 @@ export function ThreadMessages({
   awaitingAgentResponse: boolean;
   activeAssistantMessageId?: string;
   activeRunStartedAt?: number;
-  modelId: string;
+  modelId?: string;
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
 }) {

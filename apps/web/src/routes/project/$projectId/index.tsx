@@ -58,12 +58,11 @@ import {
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
 import {
-  CODEX_MODELS,
-  DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
+  formatCodexModelLabel,
   getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
-  type CodexModelId,
+  selectCodexModel,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
@@ -201,7 +200,10 @@ function ProjectOverviewPage() {
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<{ projectId: string; branch: string } | undefined>();
-  const selectedModel: CodexModelId = DEFAULT_CODEX_MODEL;
+  const selectedModel = useMemo(
+    () => selectCodexModel(codexStatusQuery.data?.models),
+    [codexStatusQuery.data?.models],
+  );
   const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -496,9 +498,11 @@ function ProjectOverviewPage() {
           JSON.stringify({ text: prompt, files: uploadedImages }),
         );
       }
-      const search = prompt
-        ? { prompt, model: selectedModel, reasoningEffort: selectedReasoningEffort }
-        : { model: selectedModel, reasoningEffort: selectedReasoningEffort };
+      const search = {
+        ...(prompt ? { prompt } : {}),
+        ...(selectedModel ? { model: selectedModel } : {}),
+        reasoningEffort: selectedReasoningEffort,
+      };
       await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
       navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
       clearPromptImages();
@@ -786,7 +790,7 @@ function ProjectOverviewPage() {
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
                               </button>
                               <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                                {CODEX_MODELS[0].label}
+                                {formatCodexModelLabel(selectedModel)}
                               </span>
                             <Select
                               value={selectedReasoningEffort}

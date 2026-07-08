@@ -1,10 +1,13 @@
 const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 
 export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
+export type CodexModelId = string;
+
+export const PREFERRED_CODEX_MODEL: CodexModelId = "gpt-5.5";
 
 export const CODEX_MODELS = [
   {
-    id: "gpt-5.5",
+    id: PREFERRED_CODEX_MODEL,
     label: "GPT-5.5",
     contextLimit: 272_000,
     reasoningEfforts: CODEX_REASONING_EFFORTS,
@@ -16,8 +19,6 @@ export const CODEX_MODELS = [
     },
   },
 ] as const;
-
-export type CodexModelId = (typeof CODEX_MODELS)[number]["id"];
 
 type CodexTokenUsage = {
   inputTokens: number;
@@ -35,7 +36,33 @@ export type CodexUsageCost = {
 };
 
 export function isCodexModelId(value: unknown): value is CodexModelId {
-  return typeof value === "string" && CODEX_MODELS.some((model) => model.id === value);
+  return normalizeCodexModelId(value) !== undefined;
+}
+
+export function normalizeCodexModelId(value: unknown): CodexModelId | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const modelId = value.trim();
+  return modelId.length > 0 ? modelId : undefined;
+}
+
+export function normalizeCodexModelList(models: readonly string[] | undefined): CodexModelId[] {
+  const normalizedModels: CodexModelId[] = [];
+  const seen = new Set<string>();
+
+  for (const model of models ?? []) {
+    const modelId = normalizeCodexModelId(model);
+    if (!modelId || seen.has(modelId)) {
+      continue;
+    }
+
+    normalizedModels.push(modelId);
+    seen.add(modelId);
+  }
+
+  return normalizedModels;
 }
 
 function getCodexModel(value: string | undefined) {
@@ -44,6 +71,33 @@ function getCodexModel(value: string | undefined) {
 
 export function getCodexReasoningEfforts(modelId: string | undefined): readonly CodexReasoningEffort[] {
   return getCodexModel(modelId)?.reasoningEfforts ?? CODEX_REASONING_EFFORTS;
+}
+
+export function selectCodexModel(
+  availableModels: readonly string[] | undefined,
+  requestedModel?: string,
+): CodexModelId | undefined {
+  const models = normalizeCodexModelList(availableModels);
+  const requested = normalizeCodexModelId(requestedModel);
+
+  if (requested && (models.length === 0 || models.includes(requested))) {
+    return requested;
+  }
+
+  if (models.includes(PREFERRED_CODEX_MODEL)) {
+    return PREFERRED_CODEX_MODEL;
+  }
+
+  return models[0];
+}
+
+export function formatCodexModelLabel(modelId: string | undefined) {
+  const normalizedModelId = normalizeCodexModelId(modelId);
+  if (!normalizedModelId) {
+    return "Auto model";
+  }
+
+  return getCodexModel(normalizedModelId)?.label ?? normalizedModelId;
 }
 
 export function getCodexReasoningEffortLabel(value: CodexReasoningEffort) {
@@ -105,5 +159,5 @@ export function calculateCodexUsageCost(
   };
 }
 
-export const DEFAULT_CODEX_MODEL: CodexModelId = "gpt-5.5";
+export const DEFAULT_CODEX_MODEL: CodexModelId = PREFERRED_CODEX_MODEL;
 export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = "low";

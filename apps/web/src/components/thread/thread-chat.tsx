@@ -57,13 +57,14 @@ import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
   CODEX_MODELS,
-  DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
   addCodexUsageCosts,
   calculateCodexUsageCost,
   emptyCodexUsageCost,
+  formatCodexModelLabel,
   getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
+  selectCodexModel,
   type CodexModelId,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
@@ -445,13 +446,10 @@ export function ThreadChat({
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
-  const selectedModel = useMemo(() => {
-    if (initialModel && (!availableModels || availableModels.includes(initialModel))) {
-      return initialModel;
-    }
-
-    return availableModels?.[0] ?? DEFAULT_CODEX_MODEL;
-  }, [availableModels, initialModel]);
+  const selectedModel = useMemo(
+    () => selectCodexModel(availableModels, initialModel),
+    [availableModels, initialModel],
+  );
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -524,7 +522,7 @@ export function ThreadChat({
             api: options.api,
             body: {
               message: options.messages[options.messages.length - 1],
-              model: selectedModel,
+              ...(selectedModel ? { model: selectedModel } : {}),
               reasoningEffort: selectedReasoningEffort,
             },
             headers: options.headers,
@@ -939,7 +937,7 @@ export function ThreadChat({
                   <PromptInputTools className="min-w-0 flex-1">
                     <PromptImageUploadButton disabled={!ready} />
                     <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                      {CODEX_MODELS.find((model) => model.id === selectedModel)?.label ?? selectedModel}
+                      {formatCodexModelLabel(selectedModel)}
                     </span>
                     <Select
                       value={selectedReasoningEffort}

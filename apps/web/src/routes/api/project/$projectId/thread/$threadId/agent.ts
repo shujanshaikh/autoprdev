@@ -107,7 +107,7 @@ async function POST(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const codex = await getCodexAgentModelConfig(parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
+    const codex = await getCodexAgentModelConfig(req, parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
       error instanceof Error ? error : new Error("Could not load Codex credentials."),
     );
 

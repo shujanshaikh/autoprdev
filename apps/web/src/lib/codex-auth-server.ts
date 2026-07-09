@@ -1,79 +1,52 @@
 import "@tanstack/react-start/server-only";
 
-import { api } from "@autopr/backend/convex/_generated/api";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createChatGPT, type CreateChatGPTOptions } from "@opencoredev/loginwithchatgpt-ai";
+import {
+  createChatGPTHandler,
+  type KeyValueStore,
+  type RateLimitBucket,
+  type StoredSession,
+} from "@opencoredev/loginwithchatgpt-server";
 import { WorkOS } from "@workos-inc/node";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
-import { DEFAULT_CODEX_REASONING_EFFORT, isCodexReasoningEffortForModel } from "#/lib/codex-models";
-import { requireWorkOSAuth } from "#/lib/github-oauth-server";
+import {
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_CODEX_REASONING_EFFORT,
+  isCodexReasoningEffortForModel,
+  normalizeCodexModelId,
+  normalizeCodexModelList,
+  selectCodexModel,
+} from "#/lib/codex-models";
 
-const OPENAI_AUTH_ISSUER = "https://auth.openai.com";
-const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-const CODEX_VERIFICATION_URL = `${OPENAI_AUTH_ISSUER}/codex/device`;
-const SECURITY_SETTINGS_URL = "https://chatgpt.com/#settings/Security";
-const POLLING_SAFETY_MARGIN_MS = 3_000;
+export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
+
+const CHATGPT_SESSION_COOKIE_NAME = "lwc_session";
+const DEFAULT_CHATGPT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_RESPONSES_RATE_LIMIT = 30;
+const DEFAULT_RESPONSES_RATE_WINDOW_MS = 60 * 1000;
+
+type CodexResponsesModel = ReturnType<ReturnType<typeof createChatGPT>["responses"]>;
 
 type WorkOSVaultObject = {
   id: string;
-  metadata?: {
-    versionId?: string;
-  };
+  value?: string;
 };
 
-export type WorkOSVault = {
+type WorkOSVault = {
   createObject(input: {
     name: string;
     value: string;
-    context: { userId: string; purpose: "codex" };
-  }): Promise<WorkOSVaultObject>;
-  updateObject(input: {
-    id: string;
-    value: string;
-    versionCheck?: string;
-  }): Promise<WorkOSVaultObject>;
-  readObject(input: { id: string }): Promise<WorkOSVaultObject & { value: string }>;
+    context: Record<string, string>;
+  }): Promise<{ id: string }>;
+  readObjectByName(name: string): Promise<WorkOSVaultObject>;
+  updateObject(input: { id: string; value: string }): Promise<WorkOSVaultObject>;
   deleteObject(input: { id: string }): Promise<void>;
 };
 
-type DeviceCodeResponse = {
-  device_auth_id: string;
-  user_code: string;
-  interval: string;
+type VaultStoreEnvelope<T> = {
+  value: T;
+  expiresAt?: number;
 };
-
-type DeviceTokenResponse = {
-  authorization_code: string;
-  code_verifier: string;
-};
-
-type CodexTokenResponse = {
-  id_token?: string;
-  access_token: string;
-  refresh_token: string;
-  expires_in?: number;
-};
-
-export type StoredCodexCredential = {
-  provider: "openai-codex";
-  type: "oauth";
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-  accountId?: string;
-  email?: string;
-};
-
-type CodexTokenClaims = {
-  email?: string;
-  chatgpt_account_id?: string;
-  organizations?: Array<{ id: string }>;
-  "https://api.openai.com/auth"?: {
-    chatgpt_account_id?: string;
-  };
-};
-
-type CodexResponsesModel = ReturnType<ReturnType<typeof createOpenAI>["responses"]>;
 
 export class CodexConnectionError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -82,7 +55,7 @@ export class CodexConnectionError extends Error {
   }
 }
 
-export function getWorkOSVault() {
+function getWorkOSVault() {
   const apiKey = process.env.WORKOS_API_KEY;
   if (!apiKey) {
     throw new CodexConnectionError("WorkOS Vault is not configured. Set WORKOS_API_KEY.", 500);
@@ -91,447 +64,318 @@ export function getWorkOSVault() {
   return new WorkOS(apiKey).vault as WorkOSVault;
 }
 
-function parseJwtClaims(token: string | undefined): CodexTokenClaims | undefined {
-  if (!token) return undefined;
-  const parts = token.split(".");
-  if (parts.length !== 3) return undefined;
-
-  try {
-    return JSON.parse(Buffer.from(parts[1], "base64url").toString()) as CodexTokenClaims;
-  } catch {
-    return undefined;
+function getChatGPTSecret() {
+  const secret = process.env.LWC_SECRET ?? process.env.LOGIN_WITH_CHATGPT_SECRET;
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new CodexConnectionError("Login with ChatGPT is not configured. Set LWC_SECRET.", 500);
   }
+
+  return secret;
 }
 
-function extractAccountId(claims: CodexTokenClaims | undefined) {
+function getAllowedOrigins() {
+  return (process.env.LWC_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+function getAllowedModels() {
+  const models = (process.env.LWC_ALLOWED_MODELS ?? "")
+    .split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+
+  return models.length > 0 ? models : undefined;
+}
+
+function isResponseStatus(error: unknown, status: number) {
   return (
-    claims?.chatgpt_account_id ??
-    claims?.["https://api.openai.com/auth"]?.chatgpt_account_id ??
-    claims?.organizations?.[0]?.id
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    (error as { status?: unknown }).status === status
   );
 }
 
-function normalizeCodexModel(model: string | undefined) {
-  const selectedModel = model?.trim() || process.env.CODEX_MODEL || "gpt-5.5";
-  const supportedModels = new Set(["gpt-5.5"]);
+function isMissingVaultObject(error: unknown) {
+  return isResponseStatus(error, 404);
+}
 
-  if (!supportedModels.has(selectedModel)) {
-    throw new CodexConnectionError("Select a supported Codex model.", 400);
+function isVaultConflict(error: unknown) {
+  return isResponseStatus(error, 409);
+}
+
+function vaultObjectName(scope: string, key: string) {
+  const encodedKey = Buffer.from(key).toString("base64url");
+  return `autopr-lwc-${scope}-${encodedKey}`;
+}
+
+class WorkOSVaultStore<T> implements KeyValueStore<T> {
+  constructor(private readonly scope: string) {}
+
+  async get(key: string): Promise<T | undefined> {
+    const name = vaultObjectName(this.scope, key);
+    let object: WorkOSVaultObject;
+
+    try {
+      object = await getWorkOSVault().readObjectByName(name);
+    } catch (error) {
+      if (isMissingVaultObject(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+
+    if (!object.value) {
+      return undefined;
+    }
+
+    const envelope = JSON.parse(object.value) as VaultStoreEnvelope<T>;
+    if (envelope.expiresAt !== undefined && envelope.expiresAt <= Date.now()) {
+      await getWorkOSVault().deleteObject({ id: object.id }).catch(() => undefined);
+      return undefined;
+    }
+
+    return envelope.value;
   }
 
-  return selectedModel;
+  async set(key: string, value: T, options: { ttlMs?: number } = {}): Promise<void> {
+    const name = vaultObjectName(this.scope, key);
+    const serialized = JSON.stringify({
+      value,
+      expiresAt: options.ttlMs === undefined ? undefined : Date.now() + options.ttlMs,
+    } satisfies VaultStoreEnvelope<T>);
+
+    const existing = await getWorkOSVault().readObjectByName(name).catch((error: unknown) => {
+      if (isMissingVaultObject(error)) {
+        return undefined;
+      }
+      throw error;
+    });
+
+    if (existing) {
+      await getWorkOSVault().updateObject({ id: existing.id, value: serialized });
+      return;
+    }
+
+    await getWorkOSVault()
+      .createObject({
+        name,
+        value: serialized,
+        context: {
+          app: "autopr",
+          purpose: "login-with-chatgpt",
+          scope: this.scope,
+        },
+      })
+      .catch(async (error: unknown) => {
+        if (!isVaultConflict(error)) {
+          throw error;
+        }
+
+        const latest = await getWorkOSVault().readObjectByName(name);
+        await getWorkOSVault().updateObject({ id: latest.id, value: serialized });
+      });
+  }
+
+  async delete(key: string): Promise<void> {
+    const name = vaultObjectName(this.scope, key);
+    const existing = await getWorkOSVault().readObjectByName(name).catch((error: unknown) => {
+      if (isMissingVaultObject(error)) {
+        return undefined;
+      }
+      throw error;
+    });
+
+    if (existing) {
+      await getWorkOSVault().deleteObject({ id: existing.id });
+    }
+  }
+}
+
+export const chatGPTAuth = createChatGPTHandler({
+  basePath: CHATGPT_AUTH_BASE_PATH,
+  secret: getChatGPTSecret(),
+  sessionStore: new WorkOSVaultStore<StoredSession>("session"),
+  sessionTtlMs: DEFAULT_CHATGPT_SESSION_TTL_MS,
+  allowedOrigins: getAllowedOrigins(),
+  responsesProxy: {
+    allowedModels: getAllowedModels(),
+    rateLimit: {
+      limit: Number.parseInt(process.env.LWC_RATE_LIMIT_PER_MINUTE ?? "", 10) || DEFAULT_RESPONSES_RATE_LIMIT,
+      windowMs: DEFAULT_RESPONSES_RATE_WINDOW_MS,
+      store: new WorkOSVaultStore<RateLimitBucket>("responses-rate"),
+    },
+  },
+});
+
+export function handleChatGPTAuthRequest(request: Request) {
+  return chatGPTAuth.handler(request);
+}
+
+function authRequestFromCookieHeader(cookieHeader: string) {
+  return new Request(`${new URL("http://autopr.local").origin}${CHATGPT_AUTH_BASE_PATH}/session`, {
+    headers: { cookie: cookieHeader },
+  });
+}
+
+function rewriteToChatGPTPath(request: Request, path: string, method = request.method) {
+  const url = new URL(request.url);
+  url.pathname = `${CHATGPT_AUTH_BASE_PATH}${path}`;
+  url.search = "";
+
+  return new Request(url, {
+    method,
+    headers: request.headers,
+  });
+}
+
+export function getChatGPTSessionCookieHeader(request: Request) {
+  const cookieHeader = request.headers.get("cookie");
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  const sessionCookie = cookieHeader
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith(`${CHATGPT_SESSION_COOKIE_NAME}=`));
+
+  return sessionCookie;
+}
+
+function requireChatGPTSessionCookieHeader(request: Request) {
+  const cookieHeader = getChatGPTSessionCookieHeader(request);
+  if (!cookieHeader) {
+    throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
+  }
+
+  return cookieHeader;
+}
+
+async function getAvailableModels(request: Request) {
+  const models = normalizeCodexModelList(await chatGPTAuth.getModels(request));
+  if (!models || models.length === 0) {
+    throw new CodexConnectionError("No ChatGPT models are available for this account.", 401);
+  }
+
+  return models;
+}
+
+function selectAvailableModel(requestedModel: string | undefined, availableModels: string[]) {
+  const requested = normalizeCodexModelId(requestedModel);
+  if (requested && availableModels.includes(requested)) {
+    return requested;
+  }
+
+  if (requested && requested !== DEFAULT_CODEX_MODEL) {
+    throw new CodexConnectionError("Selected ChatGPT model is not available for this account.", 400);
+  }
+
+  const fallback = selectCodexModel(availableModels);
+  if (!fallback) {
+    throw new CodexConnectionError("No ChatGPT models are available for this account.", 401);
+  }
+
+  return fallback;
 }
 
 function normalizeCodexReasoningEffort(modelId: string, reasoningEffort: string | undefined) {
   const selectedReasoningEffort = reasoningEffort?.trim() || DEFAULT_CODEX_REASONING_EFFORT;
 
   if (!isCodexReasoningEffortForModel(modelId, selectedReasoningEffort)) {
-    throw new CodexConnectionError("Select a supported reasoning level for this Codex model.", 400);
+    throw new CodexConnectionError("Select a supported reasoning level for this ChatGPT model.", 400);
   }
 
   return selectedReasoningEffort;
 }
 
-function codexVaultObjectName(userId: string) {
-  return `autopr-codex-${userId}`;
-}
+export async function getCodexConnectionStatus(request: Request) {
+  const session = await chatGPTAuth.getSession(request);
 
-async function fetchJson<T>(url: string, init: RequestInit, errorMessage: string) {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    throw new CodexConnectionError(errorMessage, response.status);
+  if (session.status !== "authenticated") {
+    return { connected: false as const };
   }
 
-  return (await response.json()) as T;
-}
-
-export function parseStoredCodexCredential(value: string): StoredCodexCredential {
-  const parsed = JSON.parse(value) as Partial<StoredCodexCredential>;
-
-  if (
-    parsed.provider !== "openai-codex" ||
-    parsed.type !== "oauth" ||
-    !parsed.accessToken ||
-    !parsed.refreshToken ||
-    typeof parsed.expiresAt !== "number"
-  ) {
-    throw new CodexConnectionError("Stored Codex credentials are invalid. Reconnect Codex.", 401);
-  }
-
-  return parsed as StoredCodexCredential;
-}
-
-async function refreshCodexTokens(refreshToken: string) {
-  return await fetchJson<CodexTokenResponse>(
-    `${OPENAI_AUTH_ISSUER}/oauth/token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: CODEX_CLIENT_ID,
-      }).toString(),
-    },
-    "Could not refresh Codex credentials. Reconnect Codex.",
-  );
-}
-
-export async function requireCodexAuthContext() {
-  const authState = await requireWorkOSAuth();
+  const models = await chatGPTAuth.getModels(request)
+    .then((availableModels) => normalizeCodexModelList(availableModels))
+    .catch(() => undefined);
 
   return {
-    userId: authState.user.id,
+    connected: true as const,
+    accountId: session.user?.accountId,
+    email: session.user?.email,
+    name: session.user?.name,
+    plan: session.user?.plan,
+    models,
   };
 }
 
-export async function getCodexConnectionStatus() {
-  return await convexQuery(api.codexAuth.status, {});
-}
-
-async function readFreshCodexCredentialReference(options: {
-  disconnectedMessage?: string;
-} = {}) {
-  await requireCodexAuthContext();
-  const status = await convexQuery(api.codexAuth.status, {});
-
-  if (!status.connected) {
-    throw new CodexConnectionError(options.disconnectedMessage ?? "Connect Codex before starting an AI stream.", 401);
-  }
-
-  const reference = await convexQuery(api.codexAuth.getVaultReference, {});
-  const vaultObject = await getWorkOSVault().readObject({ id: reference.vaultObjectId });
-  let credential = parseStoredCodexCredential(vaultObject.value);
-
-  if (credential.expiresAt <= Date.now() + 60_000) {
-    const tokens = await refreshCodexTokens(credential.refreshToken);
-    const claims = parseJwtClaims(tokens.id_token) ?? parseJwtClaims(tokens.access_token);
-    credential = {
-      provider: "openai-codex",
-      type: "oauth",
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-      accountId: extractAccountId(claims) ?? credential.accountId,
-      email: claims?.email ?? credential.email,
-    };
-
-    const updatedObject = await getWorkOSVault().updateObject({
-      id: reference.vaultObjectId,
-      value: JSON.stringify(credential),
-      versionCheck: reference.vaultVersionId,
-    });
-
-    await convexMutation(api.codexAuth.upsert, {
-      vaultObjectId: updatedObject.id,
-      vaultVersionId: updatedObject.metadata?.versionId,
-      accountId: credential.accountId,
-      email: credential.email,
-      expiresAt: credential.expiresAt,
-    });
-  }
-
-  return { reference, credential };
-}
-
-function responseInputContentToText(content: unknown) {
-  if (!Array.isArray(content)) {
-    return typeof content === "string" ? content : "";
-  }
-
-  const textParts: string[] = [];
-  for (const part of content) {
-    if (typeof part === "string") {
-      textParts.push(part);
-    } else if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-      textParts.push(part.text);
-    }
-  }
-  return textParts.join("\n");
-}
-
-function createCodexResponsesModelFromCredential(
-  credential: StoredCodexCredential,
-  options: {
-    modelId: string;
-    reasoningEffort: string;
-    promptCacheKey?: string;
-    accountId?: string;
-  },
-): CodexResponsesModel {
-  if (credential.expiresAt <= Date.now()) {
-    throw new CodexConnectionError("Codex credentials expired. Reconnect Codex and try again.", 401);
-  }
-
-  const provider = createOpenAI({
-    apiKey: credential.accessToken,
-    fetch: async (input, init) => {
-      const requestUrl = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url);
-      const url = requestUrl.pathname.includes("/v1/responses") || requestUrl.pathname.includes("/chat/completions")
-        ? new URL("https://chatgpt.com/backend-api/codex/responses")
-        : requestUrl;
-
-      const headers = new Headers(init?.headers);
-      headers.set("authorization", `Bearer ${credential.accessToken}`);
-      const accountId = credential.accountId ?? options.accountId;
-      if (accountId) {
-        headers.set("ChatGPT-Account-Id", accountId);
-      }
-
-      const nextInit: RequestInit = { ...init, headers };
-      if (typeof nextInit.body === "string" && nextInit.method === "POST") {
-        const body = JSON.parse(nextInit.body) as {
-          instructions?: string;
-          input?: Array<Record<string, unknown>>;
-          max_output_tokens?: unknown;
-          prompt_cache_key?: string;
-          prompt_cache_retention?: unknown;
-          reasoning?: Record<string, unknown>;
-          store?: boolean;
-          stream?: boolean;
-        };
-
-        body.store = false;
-        body.stream = true;
-        body.prompt_cache_key = body.prompt_cache_key || options.promptCacheKey;
-        delete body.max_output_tokens;
-        delete body.prompt_cache_retention;
-        body.reasoning = { ...body.reasoning, effort: options.reasoningEffort };
-
-        if (Array.isArray(body.input)) {
-          const instructionParts: string[] = [];
-          for (const item of body.input) {
-            if (item.role !== "system" && item.role !== "developer") {
-              continue;
-            }
-
-            const text = responseInputContentToText(item.content);
-            if (text) {
-              instructionParts.push(text);
-            }
-          }
-          const instructions = instructionParts.join("\n");
-
-          body.input = body.input.filter((item) => item.type !== "item_reference");
-
-          if (!body.instructions && instructions) {
-            body.instructions = instructions;
-            body.input = body.input.filter((item) => item.role !== "system" && item.role !== "developer");
-          }
-        }
-
-        nextInit.body = JSON.stringify(body);
-      }
-
-      const response = await fetch(url, nextInit);
-      if (!response.ok) {
-        const errorBody = await response.clone().text().catch(() => "<failed to read response body>");
-        throw new CodexConnectionError(
-          `Codex API request failed: ${response.status} ${response.statusText} ${errorBody}`,
-          response.status,
-        );
-      }
-
-      return response;
-    },
-  });
-  const responsesModel = provider.responses(options.modelId);
-
-  const accountId = credential.accountId ?? options.accountId;
-  if (accountId) {
-    const originalDoStream = responsesModel.doStream.bind(responsesModel);
-    responsesModel.doStream = (callOptions) =>
-      originalDoStream({
-        ...callOptions,
-        headers: {
-          ...callOptions.headers,
-          "ChatGPT-Account-Id": accountId,
-        },
-      });
-  }
-
-  return responsesModel;
+export async function disconnectCodex(request: Request) {
+  return chatGPTAuth.handler(rewriteToChatGPTPath(request, "/logout", "POST"));
 }
 
 export async function createCodexResponsesModel(options: {
-  vaultObjectId: string;
+  chatgptCookieHeader: string;
   modelId: string;
   reasoningEffort: string;
-  promptCacheKey?: string;
-  accountId?: string;
 }): Promise<CodexResponsesModel> {
-  const vaultObject = await getWorkOSVault().readObject({ id: options.vaultObjectId });
-  const credential = parseStoredCodexCredential(vaultObject.value);
+  const authRequest = authRequestFromCookieHeader(options.chatgptCookieHeader);
+  const chatgpt = createChatGPT({
+    defaultModel: options.modelId,
+    reasoningEffort: options.reasoningEffort as CreateChatGPTOptions["reasoningEffort"],
+    reasoningSummary: "auto",
+    credentials: async () => {
+      const tokens = await chatGPTAuth.getTokens(authRequest);
+      if (!tokens) {
+        throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
+      }
 
-  return createCodexResponsesModelFromCredential(credential, options);
+      return tokens;
+    },
+  });
+
+  return chatgpt.responses(options.modelId);
 }
 
 export async function createAuthenticatedCodexResponsesModel(options: {
-  modelId: string;
-  reasoningEffort: string;
-  promptCacheKey?: string;
+  request: Request;
+  modelId?: string;
+  reasoningEffort?: string;
   disconnectedMessage?: string;
 }): Promise<CodexResponsesModel> {
-  const { credential } = await readFreshCodexCredentialReference({
-    disconnectedMessage: options.disconnectedMessage,
-  });
+  try {
+    const config = await getCodexAgentModelConfig(options.request, options.modelId, options.reasoningEffort);
+    return createCodexResponsesModel(config);
+  } catch (error) {
+    if (error instanceof CodexConnectionError && options.disconnectedMessage && error.status === 401) {
+      throw new CodexConnectionError(options.disconnectedMessage, error.status);
+    }
 
-  return createCodexResponsesModelFromCredential(credential, options);
+    throw error;
+  }
 }
 
-export async function getCodexAgentModelConfig(model?: string, reasoningEffort?: string) {
-  const { reference, credential } = await readFreshCodexCredentialReference();
-  const modelId = normalizeCodexModel(model);
+export async function getCodexAgentModelConfig(request: Request, model?: string, reasoningEffort?: string) {
+  const chatgptCookieHeader = requireChatGPTSessionCookieHeader(request);
+  const authRequest = authRequestFromCookieHeader(chatgptCookieHeader);
+  const session = await chatGPTAuth.getSession(authRequest);
+
+  if (session.status !== "authenticated") {
+    throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
+  }
+
+  const availableModels = await getAvailableModels(authRequest);
+  const modelId = selectAvailableModel(model, availableModels);
   const selectedReasoningEffort = normalizeCodexReasoningEffort(modelId, reasoningEffort);
 
   return {
     provider: "openai-codex" as const,
     modelId,
     reasoningEffort: selectedReasoningEffort,
-    vaultObjectId: reference.vaultObjectId,
-    vaultVersionId: reference.vaultVersionId,
-    accountId: credential.accountId,
-    expiresAt: credential.expiresAt,
+    chatgptCookieHeader,
   };
-}
-
-export async function startCodexDeviceAuthorization() {
-  await requireCodexAuthContext();
-
-  const device = await fetchJson<DeviceCodeResponse>(
-    `${OPENAI_AUTH_ISSUER}/api/accounts/deviceauth/usercode`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "autopr/codex-auth",
-      },
-      body: JSON.stringify({ client_id: CODEX_CLIENT_ID }),
-    },
-    "Could not start Codex device authorization.",
-  );
-
-  return {
-    userCode: device.user_code,
-    deviceAuthId: device.device_auth_id,
-    intervalMs: Math.max(Number.parseInt(device.interval, 10) || 5, 1) * 1000 + POLLING_SAFETY_MARGIN_MS,
-    verificationUrl: CODEX_VERIFICATION_URL,
-    securitySettingsUrl: SECURITY_SETTINGS_URL,
-  };
-}
-
-export async function completeCodexDeviceAuthorization(deviceAuthId: string, userCode: string) {
-  const authContext = await requireCodexAuthContext();
-
-  return await completeCodexDeviceAuthorizationForContext(authContext, deviceAuthId, userCode);
-}
-
-async function completeCodexDeviceAuthorizationForContext(
-  { userId }: Awaited<ReturnType<typeof requireCodexAuthContext>>,
-  deviceAuthId: string,
-  userCode: string,
-) {
-  const deviceTokenResponse = await fetch(`${OPENAI_AUTH_ISSUER}/api/accounts/deviceauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": "autopr/codex-auth",
-    },
-    body: JSON.stringify({
-      device_auth_id: deviceAuthId,
-      user_code: userCode,
-    }),
-  });
-
-  if (deviceTokenResponse.status === 403 || deviceTokenResponse.status === 404) {
-    return { connected: false as const, pending: true as const };
-  }
-
-  if (!deviceTokenResponse.ok) {
-    throw new CodexConnectionError("Codex authorization failed.", deviceTokenResponse.status);
-  }
-
-  const deviceToken = (await deviceTokenResponse.json()) as DeviceTokenResponse;
-  const [tokens, status] = await Promise.all([
-    fetchJson<CodexTokenResponse>(
-      `${OPENAI_AUTH_ISSUER}/oauth/token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: deviceToken.authorization_code,
-          redirect_uri: `${OPENAI_AUTH_ISSUER}/deviceauth/callback`,
-          client_id: CODEX_CLIENT_ID,
-          code_verifier: deviceToken.code_verifier,
-        }).toString(),
-      },
-      "Could not exchange Codex authorization for tokens.",
-    ),
-    convexQuery(api.codexAuth.status, {}),
-  ]);
-
-  const claims = parseJwtClaims(tokens.id_token) ?? parseJwtClaims(tokens.access_token);
-  const value = JSON.stringify({
-    provider: "openai-codex",
-    type: "oauth",
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-    accountId: extractAccountId(claims),
-    email: claims?.email,
-  });
-  const existing = status.connected
-    ? await convexQuery(api.codexAuth.getVaultReference, {})
-    : undefined;
-
-  const vaultObject = existing
-    ? await getWorkOSVault().updateObject({
-        id: existing.vaultObjectId,
-        value,
-        versionCheck: existing.vaultVersionId,
-      })
-    : await getWorkOSVault().createObject({
-        name: codexVaultObjectName(userId),
-        value,
-        context: { userId, purpose: "codex" },
-      });
-
-  const expiresAt = Date.now() + (tokens.expires_in ?? 3600) * 1000;
-  await convexMutation(api.codexAuth.upsert, {
-    vaultObjectId: vaultObject.id,
-    vaultVersionId: vaultObject.metadata?.versionId,
-    accountId: extractAccountId(claims),
-    email: claims?.email,
-    expiresAt,
-  });
-
-  return { connected: true as const };
-}
-
-export async function disconnectCodex() {
-  await requireCodexAuthContext();
-  const status = await convexQuery(api.codexAuth.status, {});
-
-  if (status.connected) {
-    await disconnectConnectedCodex();
-  }
-
-  return { disconnected: true as const };
-}
-
-async function disconnectConnectedCodex() {
-  const existing = await convexQuery(api.codexAuth.getVaultReference, {});
-  await deleteCodexVaultObject(existing.vaultObjectId);
-  return removeCodexCredentialReference();
-}
-
-async function deleteCodexVaultObject(vaultObjectId: string) {
-  await getWorkOSVault().deleteObject({ id: vaultObjectId });
-}
-
-function removeCodexCredentialReference() {
-  return convexMutation(api.codexAuth.remove, {});
 }
 
 export function codexErrorResponse(error: unknown, fallback: string) {

@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { codexErrorResponse, disconnectCodex } from "#/lib/codex-auth-server";
 
-async function POST() {
+async function POST({ request }: { request: Request }) {
   try {
-    return Response.json(await disconnectCodex());
+    return await disconnectCodex(request);
   } catch (error) {
     return codexErrorResponse(error, "Could not disconnect Codex.");
   }

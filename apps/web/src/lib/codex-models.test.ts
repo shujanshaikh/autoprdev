@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { addCodexUsageCosts, calculateCodexUsageCost } from "./codex-models";
+import {
+  addCodexUsageCosts,
+  calculateCodexUsageCost,
+  getCodexModelOptions,
+  isCodexModelId,
+  normalizeCodexModelList,
+  selectCodexModel,
+} from "./codex-models";
 
 describe("Codex model cost helpers", () => {
   it("charges uncached input, cached input, and output at their own rates", () => {
@@ -44,5 +51,28 @@ describe("Codex model cost helpers", () => {
       cacheWrite: 6,
       total: 15,
     });
+  });
+
+  it("accepts discovered ChatGPT model slugs instead of only static metadata ids", () => {
+    expect(isCodexModelId("gpt-account-only")).toBe(true);
+    expect(isCodexModelId("  gpt-account-only  ")).toBe(true);
+    expect(isCodexModelId("")).toBe(false);
+  });
+
+  it("normalizes model lists returned by discovery", () => {
+    expect(normalizeCodexModelList([" gpt-a ", "", "gpt-b", "gpt-a"])).toEqual(["gpt-a", "gpt-b"]);
+  });
+
+  it("selects from discovered account models without assuming the preferred model exists", () => {
+    expect(selectCodexModel(["gpt-a", "gpt-5.5", "gpt-b"])).toBe("gpt-5.5");
+    expect(selectCodexModel(["gpt-a", "gpt-b"])).toBe("gpt-a");
+    expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-b")).toBe("gpt-b");
+    expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-missing")).toBe("gpt-a");
+    expect(selectCodexModel(undefined, "gpt-deep-link")).toBe("gpt-deep-link");
+  });
+
+  it("keeps the selected model available as a dropdown option", () => {
+    expect(getCodexModelOptions(["gpt-a", "gpt-b"], "gpt-b")).toEqual(["gpt-a", "gpt-b"]);
+    expect(getCodexModelOptions(["gpt-a", "gpt-b"], "gpt-current")).toEqual(["gpt-current", "gpt-a", "gpt-b"]);
   });
 });

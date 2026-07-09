@@ -5,8 +5,6 @@ import { streamText } from "ai";
 import { createAuthenticatedCodexResponsesModel } from "#/lib/codex-auth-server";
 import { DEFAULT_CODEX_REASONING_EFFORT } from "#/lib/codex-models";
 
-export const COMMIT_MESSAGE_MODEL_ID = "gpt-5.4";
-
 const MAX_COMMIT_MESSAGE_DIFF_CHARS = 60_000;
 
 function trimForCommitPrompt(value: string) {
@@ -37,6 +35,7 @@ function commitMessagePromptCacheKey(projectId: string, threadId: string) {
 }
 
 export async function generateCommitMessage(options: {
+  request: Request;
   projectId: string;
   threadId: string;
   branch: string;
@@ -45,9 +44,8 @@ export async function generateCommitMessage(options: {
 }) {
   const promptCacheKey = commitMessagePromptCacheKey(options.projectId, options.threadId);
   const model = await createAuthenticatedCodexResponsesModel({
-    modelId: COMMIT_MESSAGE_MODEL_ID,
+    request: options.request,
     reasoningEffort: DEFAULT_CODEX_REASONING_EFFORT,
-    promptCacheKey,
     disconnectedMessage: "Connect Codex before generating a commit message.",
   });
 

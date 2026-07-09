@@ -93,6 +93,15 @@ importers:
       '@novnc/novnc':
         specifier: ^1.7.0
         version: 1.7.0
+      '@opencoredev/loginwithchatgpt-ai':
+        specifier: ^0.1.1
+        version: 0.1.1(@ai-sdk/openai@3.0.53(zod@4.3.6))(ai@6.0.168(zod@4.3.6))
+      '@opencoredev/loginwithchatgpt-react':
+        specifier: ^0.1.1
+        version: 0.1.1(react@19.2.5)
+      '@opencoredev/loginwithchatgpt-server':
+        specifier: ^0.1.1
+        version: 0.1.1
       '@pierre/diffs':
         specifier: ^1.1.16
         version: 1.1.16(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -1612,6 +1621,27 @@ packages:
 
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
+
+  '@opencoredev/loginwithchatgpt-ai@0.1.1':
+    resolution: {integrity: sha512-I07oOquxIx7Wl1BpuVdZWP7b9qSppchsZjD/clB78UHiXWesAr5Fc45rZT/Ha4VZfwNnWi/9ocHUqhg4kKt5gw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@ai-sdk/openai': ^4.0.0
+      ai: ^7.0.0
+
+  '@opencoredev/loginwithchatgpt-core@0.1.1':
+    resolution: {integrity: sha512-ev23J6Kh3ofaVIzbgLtYA1CJ9eNBGDJoRB9QWsYxGZ+E/zJdD6u2e+NoHRkgtwxCCaAoyAkZpT+WgMT7D65f3Q==}
+    engines: {node: '>=18'}
+
+  '@opencoredev/loginwithchatgpt-react@0.1.1':
+    resolution: {integrity: sha512-+xDFRRD0pFupQn+Dt0gy1Dn4q8mMwLemJUkkc2J5gtCymjS1E6QAsk6BhbYyPxWnnpBU+QCF3w1hZ2pi/gnfRg==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+
+  '@opencoredev/loginwithchatgpt-server@0.1.1':
+    resolution: {integrity: sha512-DGtPPWsuZQ9TBKZir/ThVYFzI2SITWipzlTpDRevOYEEPzXl2lUW5JX+HNLiGAPq9s/nkvIxG+QP3tQG/02pRw==}
+    engines: {node: '>=18'}
 
   '@opentelemetry/api-logs@0.207.0':
     resolution: {integrity: sha512-lAb0jQRVyleQQGiuuvCOTDVspc14nx6XJjP4FspJ1sNARo3Regq4ZZbrc3rN4b1TYSuUCvgH+UXUPug4SLOqEQ==}
@@ -9396,6 +9426,23 @@ snapshots:
       outvariant: 1.4.3
 
   '@open-draft/until@2.1.0': {}
+
+  '@opencoredev/loginwithchatgpt-ai@0.1.1(@ai-sdk/openai@3.0.53(zod@4.3.6))(ai@6.0.168(zod@4.3.6))':
+    dependencies:
+      '@ai-sdk/openai': 3.0.53(zod@4.3.6)
+      '@opencoredev/loginwithchatgpt-core': 0.1.1
+      ai: 6.0.168(zod@4.3.6)
+
+  '@opencoredev/loginwithchatgpt-core@0.1.1': {}
+
+  '@opencoredev/loginwithchatgpt-react@0.1.1(react@19.2.5)':
+    dependencies:
+      '@opencoredev/loginwithchatgpt-core': 0.1.1
+      react: 19.2.5
+
+  '@opencoredev/loginwithchatgpt-server@0.1.1':
+    dependencies:
+      '@opencoredev/loginwithchatgpt-core': 0.1.1
 
   '@opentelemetry/api-logs@0.207.0':
     dependencies:

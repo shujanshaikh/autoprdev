@@ -4,6 +4,9 @@ export type CodexStatus = {
   connected: boolean;
   email?: string;
   accountId?: string;
+  name?: string;
+  plan?: string;
+  models?: string[];
 };
 
 const codexStatusQueryKey = ["codex", "status"] as const;

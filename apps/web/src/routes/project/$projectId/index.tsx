@@ -58,12 +58,13 @@ import {
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
 import {
-  CODEX_MODELS,
-  DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
+  formatCodexModelLabel,
+  getCodexModelOptions,
   getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
-  type CodexModelId,
+  normalizeCodexModelList,
+  selectCodexModel,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
@@ -201,7 +202,19 @@ function ProjectOverviewPage() {
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<{ projectId: string; branch: string } | undefined>();
-  const selectedModel: CodexModelId = DEFAULT_CODEX_MODEL;
+  const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>();
+  const availableCodexModels = useMemo(
+    () => normalizeCodexModelList(codexStatusQuery.data?.models),
+    [codexStatusQuery.data?.models],
+  );
+  const selectedModel = useMemo(
+    () => selectCodexModel(availableCodexModels, selectedModelChoice),
+    [availableCodexModels, selectedModelChoice],
+  );
+  const modelOptions = useMemo(
+    () => getCodexModelOptions(availableCodexModels, selectedModel),
+    [availableCodexModels, selectedModel],
+  );
   const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -478,6 +491,16 @@ function ProjectOverviewPage() {
     promptImageUploadPromisesRef.current.clear();
   }, []);
 
+  useEffect(() => {
+    if (
+      selectedModelChoice &&
+      codexStatusQuery.data?.models !== undefined &&
+      !availableCodexModels.includes(selectedModelChoice)
+    ) {
+      setSelectedModelChoice(undefined);
+    }
+  }, [availableCodexModels, codexStatusQuery.data?.models, selectedModelChoice]);
+
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || !promptReady) return;
     const prompt = (initialPrompt ?? promptValue).trim();
@@ -496,9 +519,11 @@ function ProjectOverviewPage() {
           JSON.stringify({ text: prompt, files: uploadedImages }),
         );
       }
-      const search = prompt
-        ? { prompt, model: selectedModel, reasoningEffort: selectedReasoningEffort }
-        : { model: selectedModel, reasoningEffort: selectedReasoningEffort };
+      const search = {
+        ...(prompt ? { prompt } : {}),
+        ...(selectedModel ? { model: selectedModel } : {}),
+        reasoningEffort: selectedReasoningEffort,
+      };
       await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
       navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
       clearPromptImages();
@@ -785,33 +810,54 @@ function ProjectOverviewPage() {
                               >
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
                               </button>
-                              <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                                {CODEX_MODELS[0].label}
-                              </span>
-                            <Select
-                              value={selectedReasoningEffort}
-                              onValueChange={(value) => value && setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
-                            >
-                              <SelectTrigger
-                                size="sm"
-                                className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
-                                disabled={promptControlsDisabled}
-                                aria-label="Reasoning level"
+                              <Select
+                                value={selectedModel ?? ""}
+                                onValueChange={(value) => value && setSelectedModelChoice(value)}
                               >
-                                <SelectValue>
-                                  {getCodexReasoningEffortLabel(selectedReasoningEffort)}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-36 min-w-36 p-1">
-                                {selectedReasoningEfforts.map((effort) => (
-                                  <SelectItem key={effort} value={effort} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
-                                    <span className="font-medium">
-                                      {getCodexReasoningEffortLabel(effort)}
-                                    </span>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                <SelectTrigger
+                                  size="sm"
+                                  className="h-7 max-w-[10rem] border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
+                                  disabled={promptControlsDisabled || modelOptions.length === 0}
+                                  aria-label="Model"
+                                >
+                                  <SelectValue>
+                                    {formatCodexModelLabel(selectedModel)}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-52 min-w-52 p-1">
+                                  {modelOptions.map((model) => (
+                                    <SelectItem key={model} value={model} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                                      <span className="min-w-0 truncate font-medium">
+                                        {formatCodexModelLabel(model)}
+                                      </span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Select
+                                value={selectedReasoningEffort}
+                                onValueChange={(value) => value && setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
+                              >
+                                <SelectTrigger
+                                  size="sm"
+                                  className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
+                                  disabled={promptControlsDisabled}
+                                  aria-label="Reasoning level"
+                                >
+                                  <SelectValue>
+                                    {getCodexReasoningEffortLabel(selectedReasoningEffort)}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-36 min-w-36 p-1">
+                                  {selectedReasoningEfforts.map((effort) => (
+                                    <SelectItem key={effort} value={effort} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                                      <span className="font-medium">
+                                        {getCodexReasoningEffortLabel(effort)}
+                                      </span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             {demoRecordingExperimentEnabled ? (
                               <Tooltip>
                                 <TooltipTrigger

@@ -369,6 +369,7 @@ function ProjectThreadPageContent() {
               initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
               initialModel={initialModel}
               initialReasoningEffort={initialReasoningEffort}
+              availableModels={codexStatusQuery.data?.models}
               disabled={chatDisabled}
               codexPromptIssue={codexPromptIssue}
               diffPanelOpen={diffPanelOpen}

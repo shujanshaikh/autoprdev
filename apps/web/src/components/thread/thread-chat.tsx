@@ -57,13 +57,16 @@ import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
   CODEX_MODELS,
-  DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
   addCodexUsageCosts,
   calculateCodexUsageCost,
   emptyCodexUsageCost,
+  formatCodexModelLabel,
+  getCodexModelOptions,
   getCodexReasoningEffortLabel,
   getCodexReasoningEfforts,
+  normalizeCodexModelList,
+  selectCodexModel,
   type CodexModelId,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
@@ -408,6 +411,7 @@ export function ThreadChat({
   initialPrompt,
   initialModel,
   initialReasoningEffort,
+  availableModels,
   disabled,
   codexPromptIssue,
   diffPanelOpen,
@@ -425,6 +429,7 @@ export function ThreadChat({
   initialPrompt?: string;
   initialModel?: CodexModelId;
   initialReasoningEffort?: CodexReasoningEffort;
+  availableModels?: string[];
   disabled: boolean;
   codexPromptIssue?: CodexPromptConnectionIssue;
   diffPanelOpen: boolean;
@@ -443,7 +448,19 @@ export function ThreadChat({
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
-  const selectedModel: CodexModelId = initialModel ?? DEFAULT_CODEX_MODEL;
+  const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(initialModel);
+  const availableCodexModels = useMemo(
+    () => normalizeCodexModelList(availableModels),
+    [availableModels],
+  );
+  const selectedModel = useMemo(
+    () => selectCodexModel(availableCodexModels, selectedModelChoice),
+    [availableCodexModels, selectedModelChoice],
+  );
+  const modelOptions = useMemo(
+    () => getCodexModelOptions(availableCodexModels, selectedModel),
+    [availableCodexModels, selectedModel],
+  );
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
@@ -516,7 +533,7 @@ export function ThreadChat({
             api: options.api,
             body: {
               message: options.messages[options.messages.length - 1],
-              model: selectedModel,
+              ...(selectedModel ? { model: selectedModel } : {}),
               reasoningEffort: selectedReasoningEffort,
             },
             headers: options.headers,
@@ -791,6 +808,16 @@ export function ThreadChat({
     }
   }, [selectedReasoningEffort, selectedReasoningEfforts]);
 
+  useEffect(() => {
+    if (
+      selectedModelChoice &&
+      availableModels !== undefined &&
+      !availableCodexModels.includes(selectedModelChoice)
+    ) {
+      setSelectedModelChoice(undefined);
+    }
+  }, [availableCodexModels, availableModels, selectedModelChoice]);
+
   const submitMessage = useCallback(async (message: string | PromptInputMessage) => {
     const text = typeof message === "string" ? message : message.text;
     const files = typeof message === "string" ? [] : message.files;
@@ -930,9 +957,30 @@ export function ThreadChat({
                 <PromptInputFooter className="bg-transparent px-2 py-1.5">
                   <PromptInputTools className="min-w-0 flex-1">
                     <PromptImageUploadButton disabled={!ready} />
-                    <span className="inline-flex h-7 shrink-0 items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                      {CODEX_MODELS[0].label}
-                    </span>
+                    <Select
+                      value={selectedModel ?? ""}
+                      onValueChange={(value) => value && setSelectedModelChoice(value)}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-[10rem] border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
+                        disabled={!ready || modelOptions.length === 0}
+                        aria-label="Model"
+                      >
+                        <SelectValue>
+                          {formatCodexModelLabel(selectedModel)}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-52 min-w-52 p-1">
+                        {modelOptions.map((model) => (
+                          <SelectItem key={model} value={model} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                            <span className="min-w-0 truncate font-medium">
+                              {formatCodexModelLabel(model)}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Select
                       value={selectedReasoningEffort}
                       onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}

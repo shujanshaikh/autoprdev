@@ -1,7 +1,7 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import url("https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap");
 @source "../../../apps/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
 

@@ -1,15 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { convertToModelMessages, createUIMessageStreamResponse, type UIMessage } from "ai";
+import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
+import { convertToModelMessages, type UIMessage } from "ai";
 import { nanoid } from "nanoid";
-import { start } from "workflow/api";
 import { z } from "zod";
 import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
 import { getCodexAgentModelConfig } from "#/lib/codex-auth-server";
-import { agentWorkflow } from "#/workflows/agent/workflow";
+import { AGENT_TASK_ID } from "#/lib/trigger-agent-contract";
+import type { agentTask } from "#/trigger/agent";
 
 const agentRequestSchema = z.object({
   model: z.string().optional(),
@@ -153,33 +154,45 @@ async function POST(
     }
     const modelMessages = await convertToModelMessages(sanitizedMessagesForModel);
 
-    const run = await start(agentWorkflow, [
-      modelMessages,
+    const idempotencyKey = await idempotencyKeys.create(
+      ["agent", threadId, assistantMessageId],
+      { scope: "global" },
+    );
+    const run = await tasks.trigger<typeof agentTask>(
+      AGENT_TASK_ID,
       {
-        projectId,
-        threadId,
-        sandboxCacheKey: project.sandboxCacheKey,
-        sandboxId: project.sandboxId,
-        sandboxWorkDir: project.sandboxWorkDir,
-        repoUrl: project.cloneUrl,
-        repoBranch: project.repoBranch,
-        repoName: project.repoName,
-        assistantMessageId,
-        demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
-        convexAuth: workOSSession,
-        codex,
+        messages: modelMessages,
+        options: {
+          projectId,
+          threadId,
+          sandboxCacheKey: project.sandboxCacheKey,
+          sandboxId: project.sandboxId,
+          sandboxWorkDir: project.sandboxWorkDir,
+          repoUrl: project.cloneUrl,
+          repoBranch: project.repoBranch,
+          repoName: project.repoName,
+          assistantMessageId,
+          demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
+          convexAuth: workOSSession,
+          codex,
+        },
       },
-    ]);
+      {
+        idempotencyKey,
+        idempotencyKeyTTL: "10m",
+        tags: [`project:${projectId}`, `thread:${threadId}`],
+      },
+    );
 
     await convexMutation(api.threads.markRunStarted, {
       threadId,
-      runId: run.runId,
+      runId: run.id,
     });
 
-    return createUIMessageStreamResponse({
-      stream: run.readable,
+    return new Response(null, {
+      status: 202,
       headers: {
-        "x-workflow-run-id": run.runId,
+        "x-trigger-run-id": run.id,
       },
     });
   });

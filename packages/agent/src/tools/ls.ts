@@ -30,8 +30,6 @@ function formatEntry(entry: FileListEntry): string {
 }
 
 async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOptions) {
-  "use step";
-
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = resolveSandboxPath(input.path, context.workDir);
   const limit = clampLimit(input.limit, DEFAULT_LS_LIMIT, MAX_LS_LIMIT);

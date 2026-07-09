@@ -21,8 +21,6 @@ const readInputSchema = z.object({
 type ReadInput = z.infer<typeof readInputSchema>;
 
 async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessionOptions) {
-  "use step";
-
   const path = requireString(input.path, "path", "read");
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = resolveSandboxPath(path, context.workDir);

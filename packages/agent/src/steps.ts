@@ -8,8 +8,6 @@ export interface PreparedSandbox {
 }
 
 export async function prepareDaytonaSandbox(options: SandboxSessionOptions): Promise<PreparedSandbox> {
-  "use step";
-
   const context = await getSandboxContext(options);
 
   return {

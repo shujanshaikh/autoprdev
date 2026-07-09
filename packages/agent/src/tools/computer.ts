@@ -1018,8 +1018,6 @@ async function executeDaytonaComputer(
   sandboxOptions: SandboxSessionOptions,
   computerOptions: DaytonaComputerToolOptions,
 ) {
-  "use step";
-
   const context = await getSandboxContext(sandboxOptions);
   const { computerUse } = context.sandbox;
   const summaries = input.actions.map(summarizeAction);

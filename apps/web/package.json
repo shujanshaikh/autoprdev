@@ -10,7 +10,9 @@
     "build": "vite build",
     "build:vercel": "pnpm --filter @autopr/backend run deploy:vercel",
     "preview": "vite preview --port 3001",
-    "test": "vitest run"
+    "test": "vitest run",
+    "trigger:dev": "pnpm dlx trigger.dev@4.5.2 dev --config trigger.config.ts",
+    "trigger:deploy": "pnpm dlx trigger.dev@4.5.2 deploy --config trigger.config.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
@@ -38,7 +40,7 @@
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
-    "@workflow/ai": "^4.1.2",
+    "@trigger.dev/sdk": "4.5.2",
     "@workos-inc/node": "^9.3.0",
     "@workos-inc/widgets": "^1.12.0",
     "@workos/authkit-tanstack-react-start": "^0.8.2",
@@ -59,7 +61,6 @@
     "shiki": "^4.0.2",
     "streamdown": "^2.5.0",
     "tailwindcss": "^4.1.18",
-    "workflow": "^4.2.4",
     "zod": "catalog:"
   },
   "devDependencies": {

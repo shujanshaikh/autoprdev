@@ -117,6 +117,8 @@ export interface DaytonaSandbox {
 }
 
 export interface SandboxSessionOptions {
+  /** Stable orchestrator run ID used to persist mutating-tool idempotency keys. */
+  runId?: string;
   cacheKey?: string;
   sandboxId?: string;
   snapshot?: string;

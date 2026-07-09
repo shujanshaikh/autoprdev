@@ -1,4 +1,6 @@
-import { tool } from "ai";
+import { posix as path } from "node:path";
+
+import { tool, type ToolExecutionOptions } from "ai";
 import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
 
@@ -13,22 +15,33 @@ import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutati
 import { formatSize, toTextModelOutput } from "./format";
 import { raceWithTimeout } from "./timeout";
 import { requireString } from "./validation";
+import {
+  assertWriteTransactionIdentity,
+  classifyWriteTransactionRetry,
+  createWriteIdempotencyKey,
+  fingerprintsEqual,
+  isWriteTransactionRecord,
+  sha256Hex,
+  type FileFingerprint,
+  type WriteTransactionIdentity,
+  type WriteTransactionRecord,
+} from "./write-transaction";
 
 const MAX_WRITE_CONTENT_CHARS = 20_000;
 
-// Total time budget for one write call. Kept well below Vercel's 5-minute step
-// limit so a slow sandbox operation fails fast with an actionable, retryable
-// error instead of the platform killing the step, which leaves the UI stuck
-// and silently discards the write.
+// Total time budget for one write call. A slow sandbox operation fails with an
+// actionable error while the durable transaction record remains available for
+// a safe retry.
 const WRITE_DEADLINE_MS = 4 * 60 * 1000;
 
-// Existing files larger than this are never downloaded for diffing. Writes to
-// them use remote-side operations so cost stays proportional to the chunk
-// being written instead of the full file size.
+// Existing files larger than this are never downloaded for diffing. Their
+// atomic candidates are assembled inside the sandbox, avoiding a full-file
+// network round trip even though the remote filesystem must copy the file.
 const MAX_DIFF_SOURCE_BYTES = 256 * 1024;
 
 const STAT_COMMAND_TIMEOUT_SECONDS = 30;
-const APPEND_COMMAND_TIMEOUT_SECONDS = 60;
+const FILE_TRANSACTION_TIMEOUT_SECONDS = 90;
+const WRITE_TRANSACTION_ROOT = "/home/daytona/.autopr/write-idempotency";
 
 // Bounded read used to reconstruct the trailing (unterminated) line of a large
 // file so append diffs stay semantically exact without downloading the file.
@@ -52,6 +65,26 @@ const writeInputSchema = z.object({
     .describe(
       "Write mode. Defaults to overwrite. Use overwrite for new files or the first chunk of an unavoidable full rewrite; use append for subsequent chunks.",
     ),
+  expectedOffset: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe(
+      "Optional append safety check. The target must contain exactly this many bytes before the chunk is appended.",
+    ),
+  expectedHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional()
+    .describe(
+      "Optional append safety check. SHA-256 of the complete target file before this chunk is appended.",
+    ),
+  contentHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional()
+    .describe("Optional SHA-256 of this call's content. The write is rejected if the payload hash differs."),
 });
 
 type WriteInput = z.infer<typeof writeInputSchema>;
@@ -101,8 +134,8 @@ interface WriteDeadline {
 
 function createWriteTimeoutError(phase: string): Error {
   return new Error(
-    `write timed out while ${phase} (budget: ${Math.round(WRITE_DEADLINE_MS / 1000)}s, kept below the platform step limit). ` +
-      "The target file may be partially written. Retry the write; for large files keep sending sequential mode=append chunks.",
+    `write timed out while ${phase} (budget: ${Math.round(WRITE_DEADLINE_MS / 1000)}s). ` +
+      "No file mutation for this call was started.",
   );
 }
 
@@ -116,11 +149,12 @@ function createWriteDeadline(totalMs: number): WriteDeadline {
   };
 }
 
-interface RemoteFileStat {
+interface RemoteFileStat extends FileFingerprint {
   exists: boolean;
   bytes: number;
   newlineCount: number;
   endsWithNewline: boolean;
+  sha256?: string;
 }
 
 /**
@@ -130,7 +164,7 @@ interface RemoteFileStat {
 async function statRemoteFile(remotePath: string, sandboxOptions: SandboxSessionOptions): Promise<RemoteFileStat> {
   const quoted = shellQuote(remotePath);
   const result = await executeSandboxCommand(
-    `if [ -e ${quoted} ]; then printf 'exists %s %s %s\\n' "$(wc -c < ${quoted})" "$(wc -l < ${quoted})" "$(tail -c 1 ${quoted} | wc -l)"; else printf 'missing\\n'; fi`,
+    `if [ -e ${quoted} ]; then printf 'exists %s %s %s %s\\n' "$(wc -c < ${quoted})" "$(wc -l < ${quoted})" "$(tail -c 1 ${quoted} | wc -l)" "$(sha256sum ${quoted} | cut -d ' ' -f 1)"; else printf 'missing\\n'; fi`,
     { cwd: "/", timeout: STAT_COMMAND_TIMEOUT_SECONDS, sandboxOptions },
   );
   const output = (result.stdout ?? result.output ?? "").trim();
@@ -139,13 +173,14 @@ async function statRemoteFile(remotePath: string, sandboxOptions: SandboxSession
     throw new Error(`write could not inspect ${remotePath}: ${result.stderr?.trim() || output || "unknown error"}`);
   }
 
-  const match = /exists\s+(\d+)\s+(\d+)\s+(\d+)/.exec(output);
+  const match = /exists\s+(\d+)\s+(\d+)\s+(\d+)\s+([a-f0-9]{64})/i.exec(output);
   if (match) {
     return {
       exists: true,
       bytes: Number(match[1]),
       newlineCount: Number(match[2]),
       endsWithNewline: match[3] === "1",
+      sha256: match[4]!.toLowerCase(),
     };
   }
 
@@ -156,25 +191,248 @@ async function statRemoteFile(remotePath: string, sandboxOptions: SandboxSession
   throw new Error(`write could not parse file metadata for ${remotePath}.`);
 }
 
-/**
- * Append a chunk on the remote side via base64 so large files are never
- * downloaded and re-uploaded in full for every append call.
- */
-async function appendRemoteChunk(
-  remotePath: string,
-  chunk: Buffer,
+interface WriteTransactionPaths {
+  marker: string;
+  markerTemp: string;
+  chunk: string;
+  candidate: string;
+  lock: string;
+}
+
+function transactionPaths(remotePath: string, idempotencyKey: string): WriteTransactionPaths {
+  return {
+    marker: `${WRITE_TRANSACTION_ROOT}/${idempotencyKey}.json`,
+    markerTemp: `${WRITE_TRANSACTION_ROOT}/${idempotencyKey}.json.tmp`,
+    chunk: `${WRITE_TRANSACTION_ROOT}/${idempotencyKey}.chunk`,
+    candidate: path.join(path.dirname(remotePath), `.autopr-write-${idempotencyKey}.tmp`),
+    lock: `${WRITE_TRANSACTION_ROOT}/locks/${sha256Hex(remotePath)}.lock`,
+  };
+}
+
+function fingerprintFromStat(stat: RemoteFileStat): FileFingerprint {
+  return {
+    exists: stat.exists,
+    bytes: stat.bytes,
+    sha256: stat.sha256,
+  };
+}
+
+function assertFingerprintCommand(remotePath: string, fingerprint: FileFingerprint): string {
+  const quotedPath = shellQuote(remotePath);
+
+  if (!fingerprint.exists) {
+    return `test ! -e ${quotedPath}`;
+  }
+
+  if (!fingerprint.sha256) {
+    throw new Error(`write could not validate ${remotePath} without a SHA-256 fingerprint`);
+  }
+
+  return [
+    `test -e ${quotedPath}`,
+    `test "$(wc -c < ${quotedPath})" = ${shellQuote(String(fingerprint.bytes))}`,
+    `test "$(sha256sum ${quotedPath} | cut -d ' ' -f 1)" = ${shellQuote(fingerprint.sha256)}`,
+  ].join(" && ");
+}
+
+async function readWriteTransactionRecord(
+  sandbox: DaytonaSandbox,
+  markerPath: string,
+): Promise<WriteTransactionRecord | null> {
+  const text = await readRemoteTextIfPresent(sandbox, markerPath);
+  if (text === null) {
+    return null;
+  }
+
+  const record: unknown = JSON.parse(text);
+  if (!isWriteTransactionRecord(record)) {
+    throw new Error(`write found an invalid idempotency record at ${markerPath}`);
+  }
+
+  return record;
+}
+
+async function writeTransactionRecord(
+  sandbox: DaytonaSandbox,
+  paths: WriteTransactionPaths,
+  record: WriteTransactionRecord,
   sandboxOptions: SandboxSessionOptions,
-): Promise<void> {
+) {
+  await ensureRemoteParentDirectory(paths.marker, sandboxOptions);
+  await sandbox.fs.uploadFile(Buffer.from(JSON.stringify(record), "utf8"), paths.markerTemp);
   const result = await executeSandboxCommand(
-    `printf %s ${shellQuote(chunk.toString("base64"))} | base64 -d >> ${shellQuote(remotePath)}`,
-    { cwd: "/", timeout: APPEND_COMMAND_TIMEOUT_SECONDS, sandboxOptions },
+    `mv -f -- ${shellQuote(paths.markerTemp)} ${shellQuote(paths.marker)}`,
+    { cwd: "/", timeout: STAT_COMMAND_TIMEOUT_SECONDS, sandboxOptions },
   );
 
   if (result.timedOut || result.exitCode !== 0) {
     throw new Error(
-      `write failed to append to ${remotePath}: ${result.stderr?.trim() || result.output?.trim() || "unknown error"}`,
+      `write could not persist idempotency record ${record.idempotencyKey}: ` +
+        `${result.stderr?.trim() || result.output?.trim() || "unknown error"}`,
     );
   }
+}
+
+async function markTransactionCommittedBestEffort(
+  sandbox: DaytonaSandbox,
+  paths: WriteTransactionPaths,
+  record: WriteTransactionRecord,
+  sandboxOptions: SandboxSessionOptions,
+) {
+  try {
+    await writeTransactionRecord(sandbox, paths, { ...record, state: "committed" }, sandboxOptions);
+  } catch (error) {
+    // A prepared record plus a final target fingerprint is enough to dedupe a
+    // retry. Do not turn a confirmed file commit into an ambiguous tool error
+    // merely because the bookkeeping state could not be advanced.
+    console.warn(`write committed ${record.remotePath} but could not finalize its idempotency record`, error);
+  }
+}
+
+async function buildAtomicCandidate(
+  paths: WriteTransactionPaths,
+  remotePath: string,
+  mode: WriteMode,
+  initial: FileFingerprint,
+  sandboxOptions: SandboxSessionOptions,
+): Promise<FileFingerprint> {
+  const quotedTarget = shellQuote(remotePath);
+  const quotedCandidate = shellQuote(paths.candidate);
+  const quotedChunk = shellQuote(paths.chunk);
+  const body = [
+    "set -eu",
+    assertFingerprintCommand(remotePath, initial),
+    `rm -f -- ${quotedCandidate}`,
+    mode === "append" && initial.exists
+      ? `cp -- ${quotedTarget} ${quotedCandidate}`
+      : mode === "append"
+        ? `: > ${quotedCandidate}`
+        : `cp -- ${quotedChunk} ${quotedCandidate}`,
+    mode === "append" ? `cat -- ${quotedChunk} >> ${quotedCandidate}` : undefined,
+    initial.exists ? `chmod --reference=${quotedTarget} ${quotedCandidate}` : undefined,
+    `printf 'candidate %s %s\\n' "$(wc -c < ${quotedCandidate})" "$(sha256sum ${quotedCandidate} | cut -d ' ' -f 1)"`,
+  ]
+    .filter(Boolean)
+    .join("; ");
+  const result = await executeSandboxCommand(
+    `flock ${shellQuote(paths.lock)} -c ${shellQuote(body)}`,
+    { cwd: "/", timeout: FILE_TRANSACTION_TIMEOUT_SECONDS, sandboxOptions },
+  );
+  const output = (result.stdout ?? result.output ?? "").trim();
+
+  if (result.timedOut || result.exitCode !== 0) {
+    throw new Error(
+      `write refused to prepare ${remotePath} because its offset/hash changed: ` +
+        `${result.stderr?.trim() || output || "unknown error"}`,
+    );
+  }
+
+  const match = /candidate\s+(\d+)\s+([a-f0-9]{64})/i.exec(output);
+  if (!match) {
+    throw new Error(`write could not parse the atomic candidate fingerprint for ${remotePath}`);
+  }
+
+  return {
+    exists: true,
+    bytes: Number(match[1]),
+    sha256: match[2]!.toLowerCase(),
+  };
+}
+
+async function commitAtomicCandidate(
+  paths: WriteTransactionPaths,
+  remotePath: string,
+  initial: FileFingerprint,
+  final: FileFingerprint,
+  sandboxOptions: SandboxSessionOptions,
+) {
+  const body = [
+    "set -eu",
+    assertFingerprintCommand(remotePath, initial),
+    assertFingerprintCommand(paths.candidate, final),
+    `mv -f -- ${shellQuote(paths.candidate)} ${shellQuote(remotePath)}`,
+  ].join("; ");
+  const result = await executeSandboxCommand(
+    `flock ${shellQuote(paths.lock)} -c ${shellQuote(body)}`,
+    { cwd: "/", timeout: FILE_TRANSACTION_TIMEOUT_SECONDS, sandboxOptions },
+  );
+
+  if (result.timedOut || result.exitCode !== 0) {
+    const current = fingerprintFromStat(await statRemoteFile(remotePath, sandboxOptions));
+    if (fingerprintsEqual(current, final)) {
+      return;
+    }
+
+    throw new Error(
+      `write refused to commit ${remotePath} because its offset/hash changed: ` +
+        `${result.stderr?.trim() || result.output?.trim() || "unknown error"}`,
+    );
+  }
+}
+
+async function cleanupTransactionFiles(
+  paths: WriteTransactionPaths,
+  sandboxOptions: SandboxSessionOptions,
+) {
+  await executeSandboxCommand(
+    `rm -f -- ${shellQuote(paths.chunk)} ${shellQuote(paths.candidate)} ${shellQuote(paths.markerTemp)}`,
+    { cwd: "/", timeout: STAT_COMMAND_TIMEOUT_SECONDS, sandboxOptions },
+  ).catch(() => undefined);
+}
+
+function validateExpectedInput(
+  input: WriteInput,
+  mode: WriteMode,
+  fingerprint: FileFingerprint,
+  contentSha256: string,
+) {
+  if (input.contentHash && input.contentHash.toLowerCase() !== contentSha256) {
+    throw new Error(
+      `write content hash mismatch: expected ${input.contentHash.toLowerCase()}, received ${contentSha256}`,
+    );
+  }
+
+  if (mode !== "append" && (input.expectedOffset !== undefined || input.expectedHash !== undefined)) {
+    throw new Error("write expectedOffset and expectedHash are only valid with mode=append");
+  }
+
+  if (input.expectedOffset !== undefined && fingerprint.bytes !== input.expectedOffset) {
+    throw new Error(
+      `write append offset mismatch for target: expected ${input.expectedOffset} bytes, found ${fingerprint.bytes}`,
+    );
+  }
+
+  if (input.expectedHash && fingerprint.sha256 !== input.expectedHash.toLowerCase()) {
+    throw new Error(
+      `write append hash mismatch for target: expected ${input.expectedHash.toLowerCase()}, ` +
+        `found ${fingerprint.sha256 ?? "missing file"}`,
+    );
+  }
+}
+
+function addTransactionDetails(
+  result: Awaited<ReturnType<typeof performWrite>>,
+  record: Pick<WriteTransactionRecord, "idempotencyKey" | "contentSha256" | "initial" | "final">,
+  idempotentReplay = false,
+) {
+  return {
+    ...result,
+    content: idempotentReplay
+      ? `No changes needed for ${result.details.path}; this write call was already committed.`
+      : result.content,
+    details: {
+      ...result.details,
+      ...(idempotentReplay
+        ? { bytesWritten: 0, unchanged: true, idempotentReplay: true }
+        : {}),
+      idempotencyKey: record.idempotencyKey,
+      contentSha256: record.contentSha256,
+      appendOffset: record.initial.bytes,
+      previousSha256: record.initial.sha256,
+      fileSha256: record.final.sha256,
+      fileBytes: record.final.bytes,
+    },
+  };
 }
 
 /**
@@ -278,7 +536,7 @@ interface WriteExecutionContext {
 
 /** Original path: exact full-file diff for new and reasonably sized files. */
 async function writeWithFullDiff(context: WriteExecutionContext, chunk: Buffer, stat: RemoteFileStat) {
-  const { sandbox, remotePath, fileContent, mode, sandboxOptions } = context;
+  const { sandbox, remotePath, fileContent, mode } = context;
   const previousContent = stat.exists ? await readRemoteTextIfPresent(sandbox, remotePath) : null;
   const nextContent = mode === "append" ? `${previousContent ?? ""}${fileContent}` : fileContent;
   const content = Buffer.from(nextContent, "utf8");
@@ -304,12 +562,6 @@ async function writeWithFullDiff(context: WriteExecutionContext, chunk: Buffer, 
     };
   }
 
-  if (previousContent === null) {
-    await ensureRemoteParentDirectory(remotePath, sandboxOptions);
-  }
-
-  await sandbox.fs.uploadFile(content, remotePath);
-
   return {
     content:
       mode === "append"
@@ -330,7 +582,7 @@ async function writeWithFullDiff(context: WriteExecutionContext, chunk: Buffer, 
   };
 }
 
-/** Large-file append: remote-side append, chunk-only diff, no full download/upload. */
+/** Large-file append preview: chunk-only diff without downloading the full file. */
 async function appendToLargeFile(context: WriteExecutionContext, chunk: Buffer, stat: RemoteFileStat) {
   const { remotePath, fileContent, sandboxOptions } = context;
 
@@ -368,8 +620,6 @@ async function appendToLargeFile(context: WriteExecutionContext, chunk: Buffer, 
     truncated: true,
   };
 
-  await appendRemoteChunk(remotePath, chunk, sandboxOptions);
-
   return {
     content: `Appended ${chunk.length} bytes to ${remotePath} (${formatSize(stat.bytes + chunk.length)} total). Large file: diff shows only the appended chunk.`,
     details: {
@@ -386,11 +636,9 @@ async function appendToLargeFile(context: WriteExecutionContext, chunk: Buffer, 
   };
 }
 
-/** Large-file overwrite: upload directly without downloading or diffing the previous content. */
+/** Large-file overwrite preview without downloading or diffing the previous content. */
 async function overwriteLargeFile(context: WriteExecutionContext, chunk: Buffer, stat: RemoteFileStat) {
-  const { sandbox, remotePath, fileContent } = context;
-
-  await sandbox.fs.uploadFile(chunk, remotePath);
+  const { remotePath, fileContent } = context;
 
   return {
     content: `Wrote ${chunk.length} bytes to ${remotePath}, replacing ${formatSize(stat.bytes)} of previous content. Large file: previous content was not diffed.`,
@@ -414,9 +662,8 @@ async function overwriteLargeFile(context: WriteExecutionContext, chunk: Buffer,
   };
 }
 
-async function performWrite(context: WriteExecutionContext) {
+async function performWrite(context: WriteExecutionContext, stat: RemoteFileStat) {
   const chunk = Buffer.from(context.fileContent, "utf8");
-  const stat = await statRemoteFile(context.remotePath, context.sandboxOptions);
 
   if (stat.exists && stat.bytes > MAX_DIFF_SOURCE_BYTES) {
     return context.mode === "append"
@@ -427,8 +674,102 @@ async function performWrite(context: WriteExecutionContext) {
   return writeWithFullDiff(context, chunk, stat);
 }
 
-async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSessionOptions) {
-  "use step";
+async function performIdempotentWrite(
+  input: WriteInput,
+  executionOptions: ToolExecutionOptions,
+  context: WriteExecutionContext,
+) {
+  const { sandbox, remotePath, fileContent, mode, sandboxOptions } = context;
+  const runId = sandboxOptions.runId;
+  if (!runId) {
+    throw new Error("write requires a stable runId so retries can be deduplicated safely");
+  }
+
+  const chunk = Buffer.from(fileContent, "utf8");
+  const contentSha256 = sha256Hex(chunk);
+  const idempotencyKey = createWriteIdempotencyKey(runId, executionOptions.toolCallId);
+  const paths = transactionPaths(remotePath, idempotencyKey);
+  const identity: WriteTransactionIdentity = {
+    runId,
+    toolCallId: executionOptions.toolCallId,
+    remotePath,
+    mode,
+    contentSha256,
+  };
+  const currentStat = await statRemoteFile(remotePath, sandboxOptions);
+  const current = fingerprintFromStat(currentStat);
+  const existing = await readWriteTransactionRecord(sandbox, paths.marker);
+
+  if (existing) {
+    if (existing.idempotencyKey !== idempotencyKey) {
+      throw new Error(`write found an idempotency record under the wrong key at ${paths.marker}`);
+    }
+    assertWriteTransactionIdentity(existing, identity);
+    validateExpectedInput(input, mode, existing.initial, contentSha256);
+    const retryState = classifyWriteTransactionRetry(existing, current);
+
+    if (retryState === "already-committed") {
+      if (existing.state !== "committed") {
+        await markTransactionCommittedBestEffort(sandbox, paths, existing, sandboxOptions);
+      }
+      await cleanupTransactionFiles(paths, sandboxOptions);
+      return addTransactionDetails(
+        existing.result as Awaited<ReturnType<typeof performWrite>>,
+        existing,
+        true,
+      );
+    }
+
+    await ensureRemoteParentDirectory(remotePath, sandboxOptions);
+    await ensureRemoteParentDirectory(paths.lock, sandboxOptions);
+    await sandbox.fs.uploadFile(chunk, paths.chunk);
+    const rebuiltFinal = await buildAtomicCandidate(paths, remotePath, mode, existing.initial, sandboxOptions);
+    if (!fingerprintsEqual(rebuiltFinal, existing.final)) {
+      throw new Error(
+        `write retry candidate hash mismatch for idempotency key ${idempotencyKey}`,
+      );
+    }
+
+    await commitAtomicCandidate(paths, remotePath, existing.initial, existing.final, sandboxOptions);
+    await markTransactionCommittedBestEffort(sandbox, paths, existing, sandboxOptions);
+    await cleanupTransactionFiles(paths, sandboxOptions);
+    return existing.result as Awaited<ReturnType<typeof performWrite>>;
+  }
+
+  validateExpectedInput(input, mode, current, contentSha256);
+  const result = await performWrite(context, currentStat);
+  await ensureRemoteParentDirectory(remotePath, sandboxOptions);
+  await ensureRemoteParentDirectory(paths.lock, sandboxOptions);
+  await sandbox.fs.uploadFile(chunk, paths.chunk);
+  const final = await buildAtomicCandidate(paths, remotePath, mode, current, sandboxOptions);
+  const transactionResult = addTransactionDetails(result, {
+    idempotencyKey,
+    contentSha256,
+    initial: current,
+    final,
+  });
+  const record: WriteTransactionRecord = {
+    version: 1,
+    idempotencyKey,
+    state: "prepared",
+    ...identity,
+    initial: current,
+    final,
+    result: transactionResult,
+  };
+
+  await writeTransactionRecord(sandbox, paths, record, sandboxOptions);
+  await commitAtomicCandidate(paths, remotePath, current, final, sandboxOptions);
+  await markTransactionCommittedBestEffort(sandbox, paths, record, sandboxOptions);
+  await cleanupTransactionFiles(paths, sandboxOptions);
+  return transactionResult;
+}
+
+async function executeDaytonaWrite(
+  input: WriteInput,
+  sandboxOptions: SandboxSessionOptions,
+  executionOptions: ToolExecutionOptions,
+) {
 
   const path = requireString(input.path, "path", "write");
   const fileContent = requireString(input.content, "content", "write", { allowEmpty: true });
@@ -437,17 +778,19 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
   const context = await deadline.run("starting the sandbox", () => getSandboxContext(sandboxOptions));
   const remotePath = resolveSandboxPath(path, context.workDir);
 
-  // The queue owns both timeouts: the caller fails fast, but the queue stays
-  // locked until the actual mutation settles so a timed-out write can never
-  // overlap a later write to the same file.
+  // Waiting for a predecessor is bounded because this call has not mutated
+  // anything yet. Once our transaction begins, keep awaiting it: returning an
+  // ambiguous timeout could prompt a new tool-call ID and duplicate an append.
   return withFileMutationQueue(
     createFileMutationQueueKey(context.sandbox.id, remotePath),
-    () => performWrite({ sandbox: context.sandbox, remotePath, fileContent, mode, sandboxOptions }),
+    () => performIdempotentWrite(
+      input,
+      executionOptions,
+      { sandbox: context.sandbox, remotePath, fileContent, mode, sandboxOptions },
+    ),
     {
       waitTimeoutMs: () => deadline.remainingMs(),
       createWaitTimeoutError: () => createWriteTimeoutError(`waiting for other pending writes to ${remotePath}`),
-      runTimeoutMs: () => deadline.remainingMs(),
-      createRunTimeoutError: () => createWriteTimeoutError(`writing ${remotePath}`),
     },
   );
 }
@@ -456,9 +799,9 @@ export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "write",
     description:
-      `Create, fully overwrite, or append to a text file in the Daytona sandbox with bounded payloads that stay below platform step limits. Use mode=overwrite for new files or the first chunk of an unavoidable complete rewrite when exact edit replacement is impractical. Use mode=append for subsequent chunks when a generated file or full rewrite is too large for one quick call; appends to large files are applied remotely so each chunk stays fast regardless of file size. Each content payload is limited to ${MAX_WRITE_CONTENT_CHARS} characters. Prefer multiple smaller files when the format allows it, prefer edit for localized changes to existing files, and never fully rewrite a large existing file just because the full content is available. Automatically creates parent directories, skips uploads when content already matches, mutates files, and returns a diff (limited to the changed chunk for very large files).`,
+      `Create, atomically overwrite, or retry-safely append to a text file in the Daytona sandbox with bounded payloads. Every call is persisted under an idempotency key derived from the Trigger.dev run ID and tool-call ID; a retry validates the recorded offsets and SHA-256 hashes instead of appending twice. Use mode=overwrite for new files or the first chunk of an unavoidable complete rewrite when exact edit replacement is impractical. Use mode=append for subsequent chunks. You may provide expectedOffset, expectedHash, and contentHash for additional chunk validation. Each content payload is limited to ${MAX_WRITE_CONTENT_CHARS} characters. Prefer multiple smaller files when the format allows it, prefer edit for localized changes to existing files, and never fully rewrite a large existing file just because the full content is available. Automatically creates parent directories, skips already committed calls, and returns a diff (limited to the changed chunk for very large files).`,
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaWrite(input, sandboxOptions),
+    execute: (input, executionOptions) => executeDaytonaWrite(input, sandboxOptions, executionOptions),
   });
 }

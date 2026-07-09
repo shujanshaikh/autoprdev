@@ -14,7 +14,6 @@ import {
   TooltipTrigger,
 } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
-import { WorkflowChatTransport } from "@workflow/ai";
 import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
 import { useMutation } from "convex/react";
 import { parsePatch } from "diff";
@@ -27,6 +26,8 @@ import {
 } from "ai";
 import { Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
 
 import {
   PromptInput,
@@ -271,7 +272,7 @@ function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   );
 }
 
-type WorkflowIssue = {
+type AgentRunIssue = {
   message?: unknown;
 };
 
@@ -300,7 +301,7 @@ function parseEmbeddedErrorMessage(message: string) {
   return message;
 }
 
-function WorkflowIssuePanel({ issue }: { issue: WorkflowIssue | undefined }) {
+function AgentRunIssuePanel({ issue }: { issue: AgentRunIssue | undefined }) {
   if (!issue || typeof issue.message !== "string") {
     return null;
   }
@@ -488,10 +489,10 @@ export function ThreadChat({
   );
 
   const handleChatSendMessage = useCallback((response: Response) => {
-    const workflowRunId = response.headers.get("x-workflow-run-id");
-    if (workflowRunId) {
-      activeRunIdRef.current = workflowRunId;
-      resumedRunIdsRef.current.add(workflowRunId);
+    const triggerRunId = response.headers.get("x-trigger-run-id");
+    if (triggerRunId) {
+      activeRunIdRef.current = triggerRunId;
+      resumedRunIdsRef.current.add(triggerRunId);
       if (!activeRunStartedAtRef.current) {
         const startedAt = Date.now();
         activeRunStartedAtRef.current = startedAt;
@@ -509,7 +510,7 @@ export function ThreadChat({
       const runId = activeRunIdRef.current;
 
       if (!runId) {
-        throw new Error("No active workflow run ID found");
+        throw new Error("No active Trigger.dev run ID found");
       }
 
       return {
@@ -522,7 +523,7 @@ export function ThreadChat({
 
   const transport = useMemo(
     () =>
-      new WorkflowChatTransport<UIMessage>({
+      new TriggerChatTransport<UIMessage>({
         api: agentApi,
         onChatSendMessage: handleChatSendMessage,
         onChatEnd: handleChatEnd,
@@ -644,7 +645,7 @@ export function ThreadChat({
 
     // AI SDK streams append to the current assistant message when resuming.
     // If the last assistant message already has persisted parts, replaying the
-    // workflow stream from index 0 would duplicate that content in the UI.
+    // Trigger.dev stream from index 0 would duplicate that content in the UI.
     if (hasPersistedLastAssistantMessage) {
       activeRunIdRef.current = undefined;
       return;
@@ -721,11 +722,11 @@ export function ThreadChat({
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Failed to cancel workflow run: ${response.status}`);
+          throw new Error(`Failed to cancel Trigger.dev run: ${response.status}`);
         }
       })
       .catch((cancelError) => {
-        console.error("Failed to cancel workflow run", cancelError);
+        console.error("Failed to cancel Trigger.dev run", cancelError);
       })
       .finally(() => {
         if (pendingStopRef.current === stopPromise) {
@@ -932,7 +933,7 @@ export function ThreadChat({
 
         <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
           <div className="mx-auto max-w-[680px]">
-            <WorkflowIssuePanel issue={thread?.workflowIssue} />
+            <AgentRunIssuePanel issue={thread?.agentRunIssue ?? thread?.workflowIssue} />
             <PromptInputProvider>
               <PromptInput
                 className={cn(

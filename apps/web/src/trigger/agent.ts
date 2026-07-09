@@ -5,12 +5,13 @@ import {
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { DurableAgent } from "@workflow/ai/agent";
-import { type FinishReason, type ModelMessage, type UIMessageChunk } from "ai";
+import { task } from "@trigger.dev/sdk";
+import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { fetchAction, fetchMutation } from "convex/nextjs";
-import { getWorkflowMetadata, getWritable } from "workflow";
-import { responseMessagesToAssistantParts } from "@/lib/chat-messages";
-import { compactPromptMessagesForModel } from "@/lib/agent-message-compaction";
+import { stepCountIs, streamText } from "ai";
+
+import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
+import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
 import {
   addCodexUsageCosts,
@@ -18,43 +19,18 @@ import {
   emptyCodexUsageCost,
   type CodexUsageCost,
 } from "#/lib/codex-models";
-import { getAuthkit } from "@workos/authkit-tanstack-react-start";
-import type { Impersonator, User } from "@workos-inc/node";
-
-export interface AgentWorkflowOptions {
-  projectId?: string;
-  threadId?: string;
-  sandboxCacheKey: string;
-  sandboxId?: string;
-  sandboxWorkDir?: string;
-  repoUrl?: string;
-  repoBranch?: string;
-  repoName?: string;
-  assistantMessageId?: string;
-  demoEnabled?: boolean;
-  convexAuth?: WorkOSWorkflowAuth;
-  codex: CodexAgentModelOptions;
-}
-
-interface CodexAgentModelOptions {
-  provider: "openai-codex";
-  modelId: string;
-  reasoningEffort: string;
-  promptCacheKey?: string;
-  chatgptCookieHeader: string;
-}
+import {
+  AGENT_TASK_ID,
+  type AgentTaskOptions,
+  type AgentTaskPayload,
+  type WorkOSAgentAuth,
+} from "#/lib/trigger-agent-contract";
+import { agentUIStream } from "#/trigger/streams";
 
 interface AssistantPersistenceOptions {
-  convexAuth: WorkOSWorkflowAuth;
+  convexAuth: WorkOSAgentAuth;
   threadId: string;
   assistantMessageId: string;
-}
-
-interface WorkOSWorkflowAuth {
-  accessToken: string;
-  refreshToken: string;
-  user: User;
-  impersonator?: Impersonator;
 }
 
 type AssistantTokenUsageMetadata = {
@@ -76,8 +52,8 @@ interface AssistantUsageMetadata {
   };
 }
 
-type WorkflowIssue = {
-  workflowRunId: string;
+type AgentRunIssue = {
+  runId: string;
   stepName?: string;
   attempt?: number;
   retryCount?: number;
@@ -86,18 +62,22 @@ type WorkflowIssue = {
   occurredAt: number;
 };
 
-const MAX_AGENT_WORKFLOW_STEPS = 100;
+const MAX_AGENT_STEPS = 100;
 
 function getConvexUrl() {
   const url = process.env.VITE_CONVEX_URL;
   if (!url) {
-    throw new Error("Missing VITE_CONVEX_URL in your web environment");
+    throw new Error("Missing VITE_CONVEX_URL in the Trigger.dev environment");
   }
   return url;
 }
 
 function isPersistenceUnauthenticatedError(error: unknown) {
   return error instanceof Error && error.message.includes("Unauthorized");
+}
+
+function isCancellation(error: unknown, signal: AbortSignal) {
+  return signal.aborted || (error instanceof Error && error.name === "AbortError");
 }
 
 function emptyTokenUsage(): AssistantTokenUsageMetadata {
@@ -167,10 +147,6 @@ function readNumberProperty(error: unknown, key: string): number | undefined {
 }
 
 function readNestedErrorMessage(value: unknown): string | undefined {
-  if (!readRecordProperty(value, "error")) {
-    return undefined;
-  }
-
   const error = readRecordProperty(value, "error");
   if (typeof error !== "object" || error === null) {
     return undefined;
@@ -204,21 +180,19 @@ function displayMessageFromError(error: unknown): string {
   return directNestedMessage ?? embeddedMessage ?? causeMessage ?? message;
 }
 
-function workflowIssueFromError(error: unknown, workflowRunId: string): WorkflowIssue {
+function agentRunIssueFromError(error: unknown, runId: string, attempt: number): AgentRunIssue {
   return {
-    workflowRunId,
+    runId,
     stepName: readStringProperty(error, "stepName"),
-    attempt: readNumberProperty(error, "attempt"),
-    retryCount: readNumberProperty(error, "retryCount"),
+    attempt: readNumberProperty(error, "attempt") ?? attempt,
+    retryCount: readNumberProperty(error, "retryCount") ?? Math.max(0, attempt - 1),
     message: displayMessageFromError(error),
     errorStack: error instanceof Error ? error.stack : undefined,
     occurredAt: Date.now(),
   };
 }
 
-async function refreshWorkOSConvexAuth(convexAuth: WorkOSWorkflowAuth) {
-  "use step";
-
+async function refreshWorkOSConvexAuth(convexAuth: WorkOSAgentAuth) {
   const authkit = await getAuthkit();
   const { auth } = await authkit.refreshSession({
     accessToken: convexAuth.accessToken,
@@ -236,22 +210,7 @@ async function refreshWorkOSConvexAuth(convexAuth: WorkOSWorkflowAuth) {
     refreshToken: auth.refreshToken,
     user: auth.user,
     impersonator: auth.impersonator,
-  } satisfies WorkOSWorkflowAuth;
-}
-
-async function writeAssistantStartChunk(writable: WritableStream<UIMessageChunk>, messageId: string) {
-  "use step";
-
-  const writer = writable.getWriter();
-
-  try {
-    await writer.write({
-      type: "start",
-      messageId,
-    });
-  } finally {
-    writer.releaseLock();
-  }
+  } satisfies WorkOSAgentAuth;
 }
 
 async function patchAssistantMessage({
@@ -264,8 +223,6 @@ async function patchAssistantMessage({
   parts: unknown[];
   metadata?: AssistantUsageMetadata;
 }) {
-  "use step";
-
   await fetchAction(
     api.messages.patchAssistant,
     { threadId, assistantMessageId, parts, metadata },
@@ -273,47 +230,13 @@ async function patchAssistantMessage({
   );
 }
 
-async function writeAssistantMetadataChunk(
-  writable: WritableStream<UIMessageChunk>,
-  metadata: AssistantUsageMetadata,
-) {
-  "use step";
-
-  const writer = writable.getWriter();
-
-  try {
-    await writer.write({
-      type: "message-metadata",
-      messageMetadata: metadata,
-    });
-  } finally {
-    writer.releaseLock();
-  }
-}
-
-async function closeAssistantStream(writable: WritableStream<UIMessageChunk>) {
-  "use step";
-
-  const writer = writable.getWriter();
-
-  try {
-    await writer.write({ type: "finish" });
-  } finally {
-    writer.releaseLock();
-  }
-
-  await writable.close();
-}
-
-async function markWorkflowRunFinished({
+async function markAgentRunFinished({
   convexAuth,
   threadId,
   runId,
 }: Pick<AssistantPersistenceOptions, "convexAuth" | "threadId"> & {
   runId: string;
 }) {
-  "use step";
-
   await fetchMutation(
     api.threads.markRunFinished,
     { threadId, runId },
@@ -321,23 +244,21 @@ async function markWorkflowRunFinished({
   );
 }
 
-async function recordWorkflowIssue({
+async function recordAgentRunIssue({
   convexAuth,
   threadId,
   issue,
 }: Pick<AssistantPersistenceOptions, "convexAuth" | "threadId"> & {
-  issue: WorkflowIssue;
+  issue: AgentRunIssue;
 }) {
-  "use step";
-
   await fetchMutation(
-    api.threads.recordWorkflowIssue,
+    api.threads.recordAgentRunIssue,
     { threadId, issue },
     { token: convexAuth.accessToken, url: getConvexUrl() },
   );
 }
 
-function getAssistantPersistenceOptions(options: AgentWorkflowOptions): AssistantPersistenceOptions | null {
+function getAssistantPersistenceOptions(options: AgentTaskOptions): AssistantPersistenceOptions | null {
   if (!options.convexAuth || !options.threadId || !options.assistantMessageId) {
     return null;
   }
@@ -349,40 +270,50 @@ function getAssistantPersistenceOptions(options: AgentWorkflowOptions): Assistan
   };
 }
 
-function codexPromptCacheKey(options: AgentWorkflowOptions) {
+function codexPromptCacheKey(options: AgentTaskOptions) {
   const source = options.threadId ?? options.sandboxCacheKey;
   const stableSegment = source.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 120);
 
   return `autopr-${stableSegment}`;
 }
 
-function codexOpenAIModel(options: CodexAgentModelOptions) {
-  return async () => {
-    "use step";
-
-    return await createCodexResponsesModel(options);
-  };
-}
-
-type DurableAgentStreamResult = Awaited<ReturnType<DurableAgent["stream"]>>;
-
-function finishReasonFromResult(result: DurableAgentStreamResult): FinishReason | undefined {
-  return result.steps.at(-1)?.finishReason;
-}
-
-function shouldContinueAgentLoop(result: DurableAgentStreamResult): boolean {
-  if (finishReasonFromResult(result) !== "tool-calls") {
+async function reportAgentFailure(
+  options: AgentTaskOptions,
+  error: unknown,
+  runId: string,
+  attempt: number,
+) {
+  const persistence = getAssistantPersistenceOptions(options);
+  if (!persistence) {
     return false;
   }
 
-  return result.toolCalls.length > 0 && result.toolCalls.length === result.toolResults.length;
+  try {
+    const refreshedPersistence = {
+      ...persistence,
+      convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
+    };
+    await recordAgentRunIssue({
+      convexAuth: refreshedPersistence.convexAuth,
+      threadId: refreshedPersistence.threadId,
+      issue: agentRunIssueFromError(error, runId, attempt),
+    });
+    return true;
+  } catch (recordError) {
+    if (!isPersistenceUnauthenticatedError(recordError)) {
+      console.error("Failed to record agent run issue", recordError);
+    }
+    return false;
+  }
 }
 
-export async function agentWorkflow(inputMessages: ModelMessage[], options: AgentWorkflowOptions) {
-  "use workflow";
-
+async function runAgentTask(
+  { messages: inputMessages, options }: AgentTaskPayload,
+  runId: string,
+  attempt: number,
+  signal: AbortSignal,
+) {
   const persistence = getAssistantPersistenceOptions(options);
-  const { workflowRunId } = getWorkflowMetadata();
   const sandboxOptions: SandboxSessionOptions = {
     cacheKey: options.sandboxCacheKey,
     sandboxId: options.sandboxId,
@@ -390,6 +321,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
     repoName: options.repoName,
+    runId,
   };
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
   const harness = new CodingHarness({
@@ -397,7 +329,7 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
     computer: demoRecordingEnabled ? {} : false,
     modelId: options.codex.modelId,
     appendSystemPrompt: [
-      "This chat is streamed through a durable workflow. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
+      "This chat is streamed through a durable Trigger.dev task. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
       options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
@@ -410,66 +342,59 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
       .filter(Boolean)
       .join("\n"),
   });
-
   const codexOptions = {
     ...options.codex,
     promptCacheKey: options.codex.promptCacheKey ?? codexPromptCacheKey(options),
   };
-
-  const writable = getWritable<UIMessageChunk>();
   let persistenceFinished = false;
-  let streamClosed = false;
+  let streamFinished = false;
   const runStartedAt = Date.now();
 
   if (options.assistantMessageId) {
-    await writeAssistantStartChunk(writable, options.assistantMessageId);
+    await agentUIStream.append({
+      type: "start",
+      messageId: options.assistantMessageId,
+    });
   }
 
   try {
     await harness.run(async ({ instructions, tools }) => {
-      const agent = new DurableAgent({
-        model: codexOpenAIModel(codexOptions),
-        instructions: createCachedSystemMessage(instructions),
+      const model = await createCodexResponsesModel(codexOptions);
+      const result = streamText({
+        model,
+        system: createCachedSystemMessage(instructions),
+        messages: applyAgenticCache(inputMessages),
         tools,
         toolChoice: "auto",
-      });
-
-      let messages = inputMessages;
-      const steps: DurableAgentStreamResult["steps"] = [];
-
-      for (let stepIndex = 0; stepIndex < MAX_AGENT_WORKFLOW_STEPS; stepIndex += 1) {
-        const result = await agent.stream({
-          messages: applyAgenticCache(messages),
-          writable,
-          sendStart: !options.assistantMessageId && stepIndex === 0,
-          sendFinish: false,
-          preventClose: true,
-          maxSteps: 1,
-          maxRetries: 1,
-          prepareStep: ({ messages: stepMessages }) => ({
-            messages: compactPromptMessagesForModel(stepMessages),
-          }),
-          providerOptions: {
-            openai: {
-              store: false,
-              instructions,
-              parallelToolCalls: true,
-              promptCacheKey: codexOptions.promptCacheKey,
-              reasoningEffort: codexOptions.reasoningEffort,
-              reasoningSummary: "auto",
-              include: ["reasoning.encrypted_content"],
-            },
+        stopWhen: stepCountIs(MAX_AGENT_STEPS),
+        maxRetries: 1,
+        abortSignal: signal,
+        prepareStep: ({ messages }) => ({
+          messages: compactPromptMessagesForModel(messages),
+        }),
+        providerOptions: {
+          openai: {
+            store: false,
+            instructions,
+            parallelToolCalls: true,
+            promptCacheKey: codexOptions.promptCacheKey,
+            reasoningEffort: codexOptions.reasoningEffort,
+            reasoningSummary: "auto",
+            include: ["reasoning.encrypted_content"],
           },
-        });
+        },
+      });
+      const streamed = agentUIStream.pipe(
+        result.toUIMessageStream({
+          sendStart: !options.assistantMessageId,
+          sendFinish: false,
+        }),
+        { signal },
+      );
 
-        messages = result.messages;
-        steps.push(...result.steps);
+      await streamed.waitUntilComplete();
 
-        if (!shouldContinueAgentLoop(result)) {
-          break;
-        }
-      }
-
+      const [steps, response] = await Promise.all([result.steps, result.response]);
       const stepUsages = steps.map((step) => tokenUsageFromStep(step, codexOptions.modelId));
       const runCompletedAt = Date.now();
       const usageMetadata: AssistantUsageMetadata = {
@@ -482,64 +407,53 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
         },
       };
 
-      if (persistence) {
-        try {
-          await writeAssistantMetadataChunk(writable, usageMetadata);
-          await closeAssistantStream(writable);
-          streamClosed = true;
+      await agentUIStream.append({
+        type: "message-metadata",
+        messageMetadata: usageMetadata,
+      });
+      await agentUIStream.append({ type: "finish" });
+      streamFinished = true;
 
-          const refreshedPersistence = {
-            ...persistence,
-            convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
-          };
-          await patchAssistantMessage({
-            ...refreshedPersistence,
-            parts: responseMessagesToAssistantParts(messages, inputMessages.length),
-            metadata: usageMetadata,
-          });
-          await markWorkflowRunFinished({
-            convexAuth: refreshedPersistence.convexAuth,
-            threadId: refreshedPersistence.threadId,
-            runId: workflowRunId,
-          });
-          persistenceFinished = true;
-        } catch (error) {
-          if (!isPersistenceUnauthenticatedError(error)) {
-            throw error;
-          }
-        }
+      if (!persistence) {
         return;
       }
 
-      await closeAssistantStream(writable);
-      streamClosed = true;
-    });
-  } catch (error) {
-    if (persistence) {
       try {
         const refreshedPersistence = {
           ...persistence,
           convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
         };
-        await recordWorkflowIssue({
+        await patchAssistantMessage({
+          ...refreshedPersistence,
+          parts: responseMessagesToAssistantParts(
+            [...inputMessages, ...response.messages],
+            inputMessages.length,
+          ),
+          metadata: usageMetadata,
+        });
+        await markAgentRunFinished({
           convexAuth: refreshedPersistence.convexAuth,
           threadId: refreshedPersistence.threadId,
-          issue: workflowIssueFromError(error, workflowRunId),
+          runId,
         });
         persistenceFinished = true;
-      } catch (recordError) {
-        if (!isPersistenceUnauthenticatedError(recordError)) {
-          console.error("Failed to record workflow issue", recordError);
+      } catch (error) {
+        if (!isPersistenceUnauthenticatedError(error)) {
+          throw error;
         }
       }
+    });
+  } catch (error) {
+    if (persistence && !isCancellation(error, signal)) {
+      persistenceFinished = await reportAgentFailure(options, error, runId, attempt);
     }
 
     throw error;
   } finally {
-    if (!streamClosed) {
+    if (!streamFinished && !signal.aborted) {
       try {
-        await closeAssistantStream(writable);
-        streamClosed = true;
+        await agentUIStream.append({ type: "finish" });
+        streamFinished = true;
       } catch (error) {
         console.error("Failed to close assistant stream", error);
       }
@@ -551,16 +465,36 @@ export async function agentWorkflow(inputMessages: ModelMessage[], options: Agen
           ...persistence,
           convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
         };
-        await markWorkflowRunFinished({
+        await markAgentRunFinished({
           convexAuth: refreshedPersistence.convexAuth,
           threadId: refreshedPersistence.threadId,
-          runId: workflowRunId,
+          runId,
         });
       } catch (error) {
-        if (!isPersistenceUnauthenticatedError(error)) {
+        if (!isPersistenceUnauthenticatedError(error) && !signal.aborted) {
           throw error;
         }
       }
     }
   }
 }
+
+export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true }>({
+  id: AGENT_TASK_ID,
+  machine: "small-1x",
+  retry: {
+    // Retrying an LLM stream would replay already delivered UI chunks. The AI
+    // provider still retries transient requests, while mutating tools carry
+    // their own persistent idempotency guarantees.
+    maxAttempts: 1,
+  },
+  onFailure: async ({ payload, error, ctx }) => {
+    // Trigger.dev invokes this after terminal failures, including failures
+    // where normal task cleanup could not finish.
+    await reportAgentFailure(payload.options, error, ctx.run.id, ctx.attempt.number);
+  },
+  run: async (payload: AgentTaskPayload, { ctx, signal }) => {
+    await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);
+    return { ok: true as const };
+  },
+});

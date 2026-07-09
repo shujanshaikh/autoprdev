@@ -1,47 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
-import { getRun } from "workflow/api";
+import { createUIMessageStreamResponse } from "ai";
 
-function finishedStream() {
-  return new ReadableStream<UIMessageChunk>({
-    start(controller) {
-      controller.enqueue({ type: "finish" });
-      controller.close();
-    },
-  });
-}
-
-function isWorkflowRunNotFoundError(error: unknown) {
-  return error instanceof Error && error.name === "WorkflowRunNotFoundError";
-}
+import {
+  finishedUIMessageStream,
+  isTriggerNotFoundError,
+  readAgentUIMessageStream,
+} from "#/lib/trigger-agent-stream-server";
 
 async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { searchParams } = new URL(request.url);
-  const startIndexParam = searchParams.get("startIndex");
-  const startIndex = startIndexParam ? Number.parseInt(startIndexParam, 10) : undefined;
+  const value = new URL(request.url).searchParams.get("startIndex");
+  const startIndex = value === null ? 0 : Number.parseInt(value, 10);
+
+  if (!Number.isSafeInteger(startIndex) || startIndex < 0) {
+    return Response.json({ error: "Invalid startIndex." }, { status: 400 });
+  }
 
   try {
-    const run = getRun(id);
-    const readable = run.getReadable({ startIndex });
-    const tailIndex = await readable.getTailIndex();
-
     return createUIMessageStreamResponse({
-      stream: readable,
-      headers: {
-        "x-workflow-stream-tail-index": String(tailIndex),
-      },
+      stream: await readAgentUIMessageStream(id, startIndex, request.signal),
     });
   } catch (error) {
-    if (!isWorkflowRunNotFoundError(error)) {
+    if (!isTriggerNotFoundError(error)) {
       throw error;
     }
 
     return createUIMessageStreamResponse({
-      stream: finishedStream(),
-      headers: {
-        "x-workflow-stream-tail-index": "-1",
-      },
+      stream: finishedUIMessageStream(),
     });
   }
 }

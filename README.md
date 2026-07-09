@@ -62,9 +62,36 @@ For production deploys, configure Vercel with:
 
 - `CONVEX_DEPLOY_KEY`: a production deploy key from the Convex dashboard.
 - `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_REDIRECT_URI`: the WorkOS values for the same WorkOS environment used by the Convex deployment.
+- `TRIGGER_SECRET_KEY`: the Trigger.dev environment secret used by the Vercel routes to start, inspect, stream, and cancel agent runs.
 - Any app runtime secrets such as `AI_GATEWAY_API_KEY`, `DAYTONA_API_KEY`, and `DAYTONA_API_URL`.
 
 Also make sure the Convex deployment itself has `WORKOS_CLIENT_ID` set to the same WorkOS AuthKit client ID. If the web bundle uses one WorkOS app but the Convex deployment was never deployed or has a different `WORKOS_CLIENT_ID`, the browser will reconnect but Convex will log `No auth provider found matching the given token`.
+
+### Trigger.dev agent runtime
+
+The frontend and authenticated API routes stay on Vercel. Agent-start routes persist the turn in Convex, call Trigger.dev, and return `202` immediately with the Trigger.dev run ID. The browser then consumes the task's indexed realtime stream and can reconnect from its last chunk.
+
+Set `TRIGGER_PROJECT_REF` while running the Trigger.dev CLI. Configure the following in the matching Trigger.dev environment (or sync them from the Vercel project):
+
+- `VITE_CONVEX_URL`
+- `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_REDIRECT_URI`
+- `LWC_SECRET` (or `LOGIN_WITH_CHATGPT_SECRET`) and any other Login with ChatGPT settings used by the web app
+- `DAYTONA_API_KEY`, plus `DAYTONA_API_URL` and `DAYTONA_SNAPSHOT` when customized
+
+Run the task worker locally in a separate terminal without starting another web or Convex process:
+
+```bash
+pnpm --filter web run trigger:dev
+```
+
+Deploy in this order so every boundary is available during the rollout: Convex schema/functions, the Trigger.dev task, then the Vercel frontend.
+
+```bash
+pnpm --filter @autopr/backend run deploy
+pnpm --filter web run trigger:deploy
+```
+
+After those complete, deploy or promote the Vercel application normally.
 
 Then, run the development server:
 
@@ -121,3 +148,5 @@ autopr/
 - `pnpm run dev:web`: Start only the web application
 - `pnpm run dev:setup`: Setup and configure your Convex project
 - `pnpm run check-types`: Check TypeScript types across all apps
+- `pnpm --filter web run trigger:dev`: Run the Trigger.dev agent worker locally
+- `pnpm --filter web run trigger:deploy`: Deploy the Trigger.dev agent task

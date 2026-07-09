@@ -222,7 +222,7 @@ describe("chat message persistence helpers", () => {
     expect(part.output.details.diff.patchChars).toBe(5_000);
   });
 
-  it("compacts in-flight workflow prompt tool history", () => {
+  it("compacts in-flight agent prompt tool history", () => {
     const longText = "y".repeat(5_000);
     const messages = [
       {

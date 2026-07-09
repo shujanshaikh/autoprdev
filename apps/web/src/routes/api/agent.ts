@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { UIMessage } from "ai";
-import { convertToModelMessages, createUIMessageStreamResponse } from "ai";
+import { convertToModelMessages } from "ai";
+import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import { nanoid } from "nanoid";
-import { start } from "workflow/api";
 
 import { getCodexAgentModelConfig } from "#/lib/codex-auth-server";
-import { agentWorkflow } from "#/workflows/agent/workflow";
+import { AGENT_TASK_ID } from "#/lib/trigger-agent-contract";
+import type { agentTask } from "#/trigger/agent";
 
 async function POST(req: Request) {
   const { messages, model, reasoningEffort }: { messages: UIMessage[]; model?: string; reasoningEffort?: string } = await req.json();
@@ -20,18 +21,30 @@ async function POST(req: Request) {
     return Response.json({ error: codex.message }, { status: 401 });
   }
 
-  const run = await start(agentWorkflow, [
-    modelMessages,
+  const requestId = messages.at(-1)?.id ?? nanoid();
+  const idempotencyKey = await idempotencyKeys.create(
+    ["standalone-agent", requestId],
+    { scope: "global" },
+  );
+  const run = await tasks.trigger<typeof agentTask>(
+    AGENT_TASK_ID,
     {
-      sandboxCacheKey: `workflow-agent:${nanoid()}`,
-      codex,
+      messages: modelMessages,
+      options: {
+        sandboxCacheKey: `trigger-agent:${requestId}`,
+        codex,
+      },
     },
-  ]);
+    {
+      idempotencyKey,
+      idempotencyKeyTTL: "10m",
+    },
+  );
 
-  return createUIMessageStreamResponse({
-    stream: run.readable,
+  return new Response(null, {
+    status: 202,
     headers: {
-      "x-workflow-run-id": run.runId,
+      "x-trigger-run-id": run.id,
     },
   });
 }

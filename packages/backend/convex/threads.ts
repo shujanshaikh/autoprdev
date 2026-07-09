@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
   collectAssistantPartsBlobKeys,
   deleteAssistantPartsBlobKeys,
@@ -124,7 +124,8 @@ export const markRunStarted = mutation({
 
     const now = Date.now();
 
-    if (thread.workflowIssue?.workflowRunId === args.runId) {
+    const existingIssueRunId = thread.agentRunIssue?.runId ?? thread.workflowIssue?.workflowRunId;
+    if (existingIssueRunId === args.runId) {
       await ctx.db.patch(thread._id, {
         currentRunId: undefined,
         isLive: false,
@@ -137,6 +138,7 @@ export const markRunStarted = mutation({
     await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
       isLive: true,
+      agentRunIssue: undefined,
       workflowIssue: undefined,
       updatedAt: now,
     });
@@ -145,6 +147,68 @@ export const markRunStarted = mutation({
   },
 });
 
+const runIssueValidator = v.object({
+  runId: v.string(),
+  stepName: v.optional(v.string()),
+  attempt: v.optional(v.number()),
+  retryCount: v.optional(v.number()),
+  message: v.string(),
+  errorStack: v.optional(v.string()),
+  occurredAt: v.number(),
+});
+
+type RunIssue = {
+  runId: string;
+  stepName?: string;
+  attempt?: number;
+  retryCount?: number;
+  message: string;
+  errorStack?: string;
+  occurredAt: number;
+};
+
+async function recordRunIssue(
+  ctx: MutationCtx,
+  args: { threadId: string; issue: RunIssue },
+) {
+  const authorId = await requireUserId(ctx);
+  const thread = await ctx.db
+    .query("threads")
+    .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+    .unique();
+
+  if (!thread || thread.authorId !== authorId) {
+    throw new ConvexError({ code: "UNAUTHORIZED" });
+  }
+
+  if (thread.currentRunId && thread.currentRunId !== args.issue.runId) {
+    return null;
+  }
+
+  await ctx.db.patch(thread._id, {
+    currentRunId: undefined,
+    isLive: false,
+    agentRunIssue: {
+      ...args.issue,
+      message: shortError(args.issue.message),
+      errorStack: args.issue.errorStack ? longError(args.issue.errorStack) : undefined,
+    },
+    workflowIssue: undefined,
+    updatedAt: Date.now(),
+  });
+
+  return null;
+}
+
+export const recordAgentRunIssue = mutation({
+  args: {
+    threadId: v.string(),
+    issue: runIssueValidator,
+  },
+  handler: recordRunIssue,
+});
+
+/** Compatibility endpoint for runs started before the Trigger.dev deployment. */
 export const recordWorkflowIssue = mutation({
   args: {
     threadId: v.string(),
@@ -159,32 +223,14 @@ export const recordWorkflowIssue = mutation({
     }),
   },
   handler: async (ctx, args) => {
-    const authorId = await requireUserId(ctx);
-    const thread = await ctx.db
-      .query("threads")
-      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
-      .unique();
-
-    if (!thread || thread.authorId !== authorId) {
-      throw new ConvexError({ code: "UNAUTHORIZED" });
-    }
-
-    if (thread.currentRunId && thread.currentRunId !== args.issue.workflowRunId) {
-      return null;
-    }
-
-    await ctx.db.patch(thread._id, {
-      currentRunId: undefined,
-      isLive: false,
-      workflowIssue: {
-        ...args.issue,
-        message: shortError(args.issue.message),
-        errorStack: args.issue.errorStack ? longError(args.issue.errorStack) : undefined,
+    const { workflowRunId, ...issue } = args.issue;
+    return recordRunIssue(ctx, {
+      threadId: args.threadId,
+      issue: {
+        ...issue,
+        runId: workflowRunId,
       },
-      updatedAt: Date.now(),
     });
-
-    return null;
   },
 });
 

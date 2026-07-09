@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { getRun } from "workflow/api";
+import { runs } from "@trigger.dev/sdk";
 import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
@@ -16,8 +16,13 @@ const cancelRunRequestSchema = z.object({
     .optional(),
 });
 
-function isWorkflowRunNotFoundError(error: unknown) {
-  return error instanceof Error && error.name === "WorkflowRunNotFoundError";
+function isTriggerRunNotFoundError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    (error as { status?: unknown }).status === 404
+  );
 }
 
 async function POST(
@@ -61,9 +66,9 @@ async function POST(
   }
 
   try {
-    await getRun(runId).cancel();
+    await runs.cancel(runId);
   } catch (error) {
-    if (!isWorkflowRunNotFoundError(error)) {
+    if (!isTriggerRunNotFoundError(error)) {
       throw error;
     }
   }

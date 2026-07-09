@@ -7,8 +7,6 @@ import { toTextModelOutput } from "./format";
 const sandboxInfoInputSchema = z.object({});
 
 async function executeDaytonaSandboxInfo(sandboxOptions: SandboxSessionOptions) {
-  "use step";
-
   const context = await getSandboxContext(sandboxOptions);
 
   return {

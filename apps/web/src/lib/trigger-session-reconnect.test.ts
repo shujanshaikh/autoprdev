@@ -3,9 +3,37 @@ import { describe, expect, it, vi } from "vitest";
 import {
   runTriggerSessionReconnectAttempt,
   triggerSessionReconnectDelayMs,
+  shouldUseTriggerSessionTransport,
+  triggerSessionHydration,
 } from "./trigger-session-reconnect";
 
 describe("Trigger session reconnect", () => {
+  it("selects the durable Session transport for refreshes and new threads", () => {
+    expect(
+      shouldUseTriggerSessionTransport({
+        sessionCreatedAt: Date.now(),
+        currentRunId: "run_live_session",
+      }),
+    ).toBe(true);
+    expect(shouldUseTriggerSessionTransport({})).toBe(true);
+  });
+
+  it("keeps an already-running legacy task on its run-scoped stream", () => {
+    expect(
+      shouldUseTriggerSessionTransport({ currentRunId: "run_legacy" }),
+    ).toBe(false);
+  });
+
+  it("hydrates the transport with the completed-turn cursor and lets the server decide settled state", () => {
+    expect(triggerSessionHydration("session-token", "42")).toEqual({
+      publicAccessToken: "session-token",
+      lastEventId: "42",
+    });
+    expect(triggerSessionHydration("session-token")).not.toHaveProperty(
+      "isStreaming",
+    );
+  });
+
   it("retries when resume resolves without attaching while the turn is still live", async () => {
     const resume = vi.fn().mockResolvedValue(undefined);
 

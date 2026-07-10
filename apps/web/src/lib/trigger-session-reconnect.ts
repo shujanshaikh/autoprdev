@@ -1,6 +1,23 @@
 const BASE_RECONNECT_DELAY_MS = 250;
 const MAX_RECONNECT_DELAY_MS = 5_000;
 
+export function shouldUseTriggerSessionTransport(options: {
+  sessionCreatedAt?: number;
+  currentRunId?: string;
+}) {
+  return Boolean(options.sessionCreatedAt) || !options.currentRunId;
+}
+
+export function triggerSessionHydration(
+  publicAccessToken: string,
+  lastEventId?: string,
+) {
+  return {
+    publicAccessToken,
+    lastEventId,
+  };
+}
+
 export function triggerSessionReconnectDelayMs(attempt: number) {
   return Math.min(
     BASE_RECONNECT_DELAY_MS * 2 ** Math.max(0, Math.min(attempt, 5)),

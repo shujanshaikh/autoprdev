@@ -39,6 +39,8 @@ import {
 } from "#/lib/trigger-agent-contract";
 import {
   runTriggerSessionReconnectAttempt,
+  shouldUseTriggerSessionTransport,
+  triggerSessionHydration,
   triggerSessionReconnectDelayMs,
 } from "#/lib/trigger-session-reconnect";
 
@@ -99,6 +101,25 @@ import {
   type TokenUsage,
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
+
+type ThreadChatProps = {
+  projectId: string;
+  threadId: string;
+  currentRunId?: string;
+  initialMessages: UIMessage[];
+  initialPrompt?: string;
+  initialModel?: CodexModelId;
+  initialReasoningEffort?: CodexReasoningEffort;
+  availableModels?: string[];
+  disabled: boolean;
+  codexPromptIssue?: CodexPromptConnectionIssue;
+  diffPanelOpen: boolean;
+  demoRecordingExperimentEnabled: boolean;
+  onDiffPanelOpenChange: (open: boolean) => void;
+  onDiffCountChange: (count: number) => void;
+  project?: any;
+  thread?: any;
+};
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -417,7 +438,136 @@ function ThreadContextRemainingIndicator({
   );
 }
 
-export function ThreadChat({
+function useAgentSessionTokenRequest(agentApi: string) {
+  const { getAccessToken } = useAccessToken();
+  const getAccessTokenRef = useRef(getAccessToken);
+  getAccessTokenRef.current = getAccessToken;
+
+  return useCallback(
+    async (
+      operation: "start-session" | "access-token",
+      clientData?: AgentChatClientInput,
+    ) => {
+      await getAccessTokenRef.current();
+      const response = await fetch(agentApi, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operation,
+          ...(operation === "start-session" ? { clientData } : {}),
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        publicAccessToken?: string;
+        error?: string;
+      } | null;
+
+      if (!response.ok || !result?.publicAccessToken) {
+        throw new Error(
+          result?.error ??
+            (operation === "start-session"
+              ? "Could not start the agent chat."
+              : "Could not refresh the agent chat token."),
+        );
+      }
+
+      return result.publicAccessToken;
+    },
+    [agentApi],
+  );
+}
+
+function ExistingSessionThreadChat(props: ThreadChatProps) {
+  const agentApi = `/api/project/${encodeURIComponent(props.projectId)}/thread/${encodeURIComponent(props.threadId)}/agent`;
+  const requestAgentSessionToken = useAgentSessionTokenRequest(agentApi);
+  const [publicAccessToken, setPublicAccessToken] = useState<string>();
+  const retryAttemptRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const loadToken = async () => {
+      try {
+        const token = await requestAgentSessionToken("access-token");
+        if (!cancelled) {
+          retryAttemptRef.current = 0;
+          setPublicAccessToken(token);
+        }
+      } catch (tokenError) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error("Failed to hydrate Trigger.dev chat session", tokenError);
+        const delay = triggerSessionReconnectDelayMs(retryAttemptRef.current);
+        retryAttemptRef.current += 1;
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          void loadToken();
+        }, delay);
+      }
+    };
+
+    const retryNow = () => {
+      if (retryTimer === undefined) {
+        return;
+      }
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+      void loadToken();
+    };
+
+    void loadToken();
+    globalThis.addEventListener?.("online", retryNow);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+      globalThis.removeEventListener?.("online", retryNow);
+    };
+  }, [requestAgentSessionToken]);
+
+  return (
+    <ThreadChatRuntime
+      key={publicAccessToken ?? "waiting-for-session-token"}
+      {...props}
+      disabled={props.disabled || !publicAccessToken}
+      initialSessionToken={publicAccessToken}
+      resumeSession={Boolean(publicAccessToken)}
+      usingSessionTransport
+    />
+  );
+}
+
+export function ThreadChat(props: ThreadChatProps) {
+  // A legacy run that was already active when the page mounted must finish
+  // on its run-scoped stream. New threads and known Sessions use the durable
+  // session transport for the lifetime of this mount.
+  const usingSessionTransportRef = useRef<boolean | null>(null);
+  usingSessionTransportRef.current ??= shouldUseTriggerSessionTransport({
+    sessionCreatedAt: props.thread?.triggerSessionCreatedAt,
+    currentRunId: props.currentRunId,
+  });
+  const existingSessionAtMountRef = useRef(
+    Boolean(props.thread?.triggerSessionCreatedAt),
+  );
+
+  if (!usingSessionTransportRef.current) {
+    return <ThreadChatRuntime {...props} usingSessionTransport={false} />;
+  }
+
+  if (existingSessionAtMountRef.current) {
+    return <ExistingSessionThreadChat {...props} />;
+  }
+
+  return <ThreadChatRuntime {...props} usingSessionTransport />;
+}
+
+function ThreadChatRuntime({
   projectId,
   threadId,
   currentRunId,
@@ -434,35 +584,18 @@ export function ThreadChat({
   onDiffCountChange,
   project,
   thread,
-}: {
-  projectId: string;
-  threadId: string;
-  currentRunId?: string;
-  initialMessages: UIMessage[];
-  initialPrompt?: string;
-  initialModel?: CodexModelId;
-  initialReasoningEffort?: CodexReasoningEffort;
-  availableModels?: string[];
-  disabled: boolean;
-  codexPromptIssue?: CodexPromptConnectionIssue;
-  diffPanelOpen: boolean;
-  demoRecordingExperimentEnabled: boolean;
-  onDiffPanelOpenChange: (open: boolean) => void;
-  onDiffCountChange: (count: number) => void;
-  project?: any;
-  thread?: any;
+  usingSessionTransport,
+  initialSessionToken,
+  resumeSession = false,
+}: ThreadChatProps & {
+  usingSessionTransport: boolean;
+  initialSessionToken?: string;
+  resumeSession?: boolean;
 }) {
-  // Keep an in-flight legacy run on its original transport for the duration
-  // of this mount. All new or already-migrated threads use Trigger Sessions.
-  const usingSessionTransportRef = useRef(
-    Boolean(thread?.triggerSessionCreatedAt) || !currentRunId,
-  );
-  const usingSessionTransport = usingSessionTransportRef.current;
   const activeRunIdRef = useRef(currentRunId);
   const activeRunStartedAtRef = useRef<number | undefined>(undefined);
   const resumedRunIdsRef = useRef<Set<string>>(null!);
   resumedRunIdsRef.current ??= new Set<string>();
-  const sessionHydrationStartedRef = useRef(false);
   const sessionResumeRequestedRef = useRef(false);
   const sessionStopRequestedRef = useRef(false);
   const sessionTurnCompletedRef = useRef(false);
@@ -522,39 +655,7 @@ export function ThreadChat({
     [agentApi],
   );
 
-  const requestAgentSessionToken = useCallback(
-    async (
-      operation: "start-session" | "access-token",
-      clientData?: AgentChatClientInput,
-    ) => {
-      await getWorkOSAccessTokenRef.current();
-      const response = await fetch(agentApi, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          operation,
-          ...(operation === "start-session" ? { clientData } : {}),
-        }),
-      });
-      const result = (await response.json().catch(() => null)) as {
-        publicAccessToken?: string;
-        error?: string;
-      } | null;
-
-      if (!response.ok || !result?.publicAccessToken) {
-        throw new Error(
-          result?.error ??
-            (operation === "start-session"
-              ? "Could not start the agent chat."
-              : "Could not refresh the agent chat token."),
-        );
-      }
-
-      return result.publicAccessToken;
-    },
-    [agentApi],
-  );
+  const requestAgentSessionToken = useAgentSessionTokenRequest(agentApi);
 
   const sessionFetch = useCallback(
     async (url: string, init: RequestInit, context: { endpoint: "in" | "out" }) => {
@@ -615,6 +716,14 @@ export function ThreadChat({
   const sessionTransport = useTriggerChatTransport({
     task: AGENT_CHAT_TASK_ID,
     clientData: sessionClientData,
+    sessions: initialSessionToken
+      ? {
+          [threadId]: triggerSessionHydration(
+            initialSessionToken,
+            thread?.triggerSessionLastEventId,
+          ),
+        }
+      : undefined,
     accessToken: async () =>
       await requestAgentSessionToken("access-token"),
     startSession: async ({ clientData }) => ({
@@ -626,10 +735,6 @@ export function ThreadChat({
     fetch: sessionFetch,
     onEvent: handleSessionTransportEvent,
   });
-  const [sessionHydrated, setSessionHydrated] = useState(
-    () => sessionTransport.getSession(threadId) !== undefined,
-  );
-  const [sessionHydrationAttempt, setSessionHydrationAttempt] = useState(0);
   const [sessionReconnectTick, setSessionReconnectTick] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
@@ -706,6 +811,7 @@ export function ThreadChat({
     id: threadId,
     messages: initialMessages,
     transport,
+    resume: usingSessionTransport && resumeSession,
     experimental_throttle: 50,
     onError: (chatError) => {
       if (!isExpectedStreamAbort(chatError)) {
@@ -715,9 +821,6 @@ export function ThreadChat({
       }
     },
   });
-  const chatStatusRef = useRef(status);
-  chatStatusRef.current = status;
-
   const serverStreaming = usingSessionTransport
     ? Boolean(thread?.isLive)
     : Boolean(currentRunId);
@@ -814,70 +917,9 @@ export function ThreadChat({
   useEffect(() => {
     if (
       !usingSessionTransport ||
-      !thread?.triggerSessionCreatedAt ||
-      sessionHydrationStartedRef.current
-    ) {
-      return;
-    }
-
-    const existingSession = sessionTransport.getSession(threadId);
-    if (existingSession) {
-      sessionHydrationStartedRef.current = true;
-      setSessionHydrated(true);
-      return;
-    }
-
-    sessionHydrationStartedRef.current = true;
-    let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    void requestAgentSessionToken("access-token")
-      .then((publicAccessToken) => {
-        if (cancelled) {
-          return;
-        }
-        const sessionState = sessionThreadStateRef.current;
-        sessionTransport.setSession(threadId, {
-          publicAccessToken,
-          lastEventId: sessionState.lastEventId,
-          // Leave settled sessions undefined so Trigger's X-Peek-Settled
-          // response decides whether there is anything to resume.
-          isStreaming: sessionState.isLive ? true : undefined,
-        });
-        setSessionHydrated(true);
-      })
-      .catch((sessionError) => {
-        if (cancelled) {
-          return;
-        }
-        console.error("Failed to hydrate Trigger.dev chat session", sessionError);
-        retryTimer = setTimeout(() => {
-          sessionHydrationStartedRef.current = false;
-          setSessionHydrationAttempt((attempt) => attempt + 1);
-        }, Math.min(500 * 2 ** Math.min(sessionHydrationAttempt, 4), 5_000));
-      });
-
-    return () => {
-      cancelled = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
-    };
-  }, [
-    requestAgentSessionToken,
-    sessionHydrationAttempt,
-    sessionTransport,
-    thread?.triggerSessionCreatedAt,
-    threadId,
-    usingSessionTransport,
-  ]);
-
-  useEffect(() => {
-    const chatStatus = chatStatusRef.current;
-    if (
-      !usingSessionTransport ||
-      !sessionHydrated ||
+      !resumeSession ||
       !thread?.isLive ||
-      (chatStatus !== "ready" && chatStatus !== "error") ||
+      (status !== "ready" && status !== "error") ||
       sessionResumeRequestedRef.current ||
       sessionStopRequestedRef.current ||
       sessionTurnCompletedRef.current ||
@@ -887,53 +929,53 @@ export function ThreadChat({
     }
 
     let cancelled = false;
-    sessionResumeRequestedRef.current = true;
-    if (chatStatus === "error") {
-      clearError();
-    }
-    const currentSession = sessionTransport.getSession(threadId);
-    if (currentSession) {
-      sessionTransport.setSession(threadId, {
-        ...currentSession,
-        isStreaming: true,
+    const delay = triggerSessionReconnectDelayMs(
+      sessionReconnectAttemptRef.current,
+    );
+    sessionReconnectAttemptRef.current += 1;
+    sessionReconnectTimerRef.current = setTimeout(() => {
+      sessionReconnectTimerRef.current = undefined;
+      sessionResumeRequestedRef.current = true;
+
+      if (status === "error") {
+        clearError();
+      }
+
+      const currentSession = sessionTransport.getSession(threadId);
+      if (currentSession) {
+        sessionTransport.setSession(threadId, {
+          ...currentSession,
+          isStreaming: true,
+        });
+      }
+
+      void runTriggerSessionReconnectAttempt({
+        resume: resumeStream,
+        isSessionLive: () => sessionThreadStateRef.current.isLive,
+        isTurnCompleted: () => sessionTurnCompletedRef.current,
+      }).then(({ error: resumeError, shouldRetry }) => {
+        sessionResumeRequestedRef.current = false;
+
+        if (cancelled) {
+          return;
+        }
+
+        if (resumeError) {
+          console.error("Failed to resume Trigger.dev chat session", resumeError);
+        }
+
+        if (shouldRetry) {
+          // The server can fast-close a reconnect while a freshly-started
+          // turn has not appended its first output record yet. Try again
+          // without competing with the transport's own in-stream retries.
+          clearError();
+          setSessionReconnectTick((tick) => tick + 1);
+        }
       });
-    }
-    void runTriggerSessionReconnectAttempt({
-      resume: resumeStream,
-      isSessionLive: () => sessionThreadStateRef.current.isLive,
-      isTurnCompleted: () => sessionTurnCompletedRef.current,
-    }).then(({ error: resumeError, shouldRetry }) => {
-      sessionResumeRequestedRef.current = false;
-
-      if (cancelled) {
-        return;
-      }
-
-      if (resumeError) {
-        console.error("Failed to resume Trigger.dev chat session", resumeError);
-      }
-
-      if (!shouldRetry || sessionReconnectTimerRef.current) {
-        return;
-      }
-
-      const delay = triggerSessionReconnectDelayMs(
-        sessionReconnectAttemptRef.current,
-      );
-      sessionReconnectAttemptRef.current += 1;
-      sessionReconnectTimerRef.current = setTimeout(() => {
-        sessionReconnectTimerRef.current = undefined;
-        setSessionReconnectTick((tick) => tick + 1);
-      }, delay);
-
-      // useChat records stream failures as an error even though resumeStream()
-      // resolves. Clear that transient state so the scheduled retry can attach.
-      clearError();
-    });
+    }, delay);
 
     return () => {
       cancelled = true;
-      sessionResumeRequestedRef.current = false;
       if (sessionReconnectTimerRef.current) {
         clearTimeout(sessionReconnectTimerRef.current);
         sessionReconnectTimerRef.current = undefined;
@@ -941,10 +983,11 @@ export function ThreadChat({
     };
   }, [
     clearError,
+    resumeSession,
     resumeStream,
-    sessionHydrated,
     sessionReconnectTick,
     sessionTransport,
+    status,
     thread?.isLive,
     threadId,
     usingSessionTransport,

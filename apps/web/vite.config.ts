@@ -9,6 +9,13 @@ import { nitro } from 'nitro/vite'
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  server: {
+    watch: {
+      // Trigger.dev updates active-runs.json when a run starts and finishes.
+      // Those runtime writes must not reload the application during a stream.
+      ignored: ['**/.trigger/**'],
+    },
+  },
   plugins: [
     devtools(),
     nitro({

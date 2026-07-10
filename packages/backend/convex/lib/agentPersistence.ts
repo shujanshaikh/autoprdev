@@ -49,3 +49,25 @@ export async function requireAgentPersistenceGrant(
 
   return { thread, assistant };
 }
+
+export async function requireAgentSessionPersistenceGrant(
+  ctx: PersistenceGrantLookupCtx,
+  args: {
+    threadId: string;
+    tokenHash: string;
+  },
+): Promise<{ thread: Doc<"threads"> }> {
+  const thread = await ctx.db
+    .query("threads")
+    .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+    .unique();
+
+  if (
+    !thread ||
+    !thread.agentSessionPersistenceTokenHashes?.includes(args.tokenHash)
+  ) {
+    throw new ConvexError({ code: "UNAUTHORIZED" });
+  }
+
+  return { thread };
+}

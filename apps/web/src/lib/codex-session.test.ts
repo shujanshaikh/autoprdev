@@ -80,6 +80,30 @@ describe("Codex account session resolution", () => {
     );
   });
 
+  it("restores an account session after an agent request body has been consumed", async () => {
+    const request = new Request("https://autopr.dev/api/project/project-1/thread/thread-1/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: "workos_session=workos-1",
+      },
+      body: JSON.stringify({ message: { id: "message-1" } }),
+    });
+
+    await request.json();
+
+    expect(request.bodyUsed).toBe(true);
+    expect(() => requestWithChatGPTSession(request, "lwc_session=desktop-session")).not.toThrow();
+
+    const restored = requestWithChatGPTSession(request, "lwc_session=desktop-session");
+    expect(restored.method).toBe("POST");
+    expect(restored.url).toBe(request.url);
+    expect(restored.body).toBeNull();
+    expect(restored.headers.get("cookie")).toBe(
+      "workos_session=workos-1; lwc_session=desktop-session",
+    );
+  });
+
   it("returns both device and account sessions for a complete disconnect", () => {
     expect(
       getCodexSessionCookieHeaders(

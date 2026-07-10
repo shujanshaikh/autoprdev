@@ -10,14 +10,16 @@ import { fetchAction } from "convex/nextjs";
 import { stepCountIs, streamText } from "ai";
 
 import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
+import {
+  createAssistantUsageMetadata,
+  type AssistantUsageMetadata,
+} from "#/lib/agent-usage";
+import {
+  agentRunIssueFromError,
+  type AgentRunIssue,
+} from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
-import {
-  addCodexUsageCosts,
-  calculateCodexUsageCost,
-  emptyCodexUsageCost,
-  type CodexUsageCost,
-} from "#/lib/codex-models";
 import {
   AGENT_TASK_ID,
   type AgentTaskOptions,
@@ -30,35 +32,6 @@ interface AssistantPersistenceOptions {
   threadId: string;
   assistantMessageId: string;
 }
-
-type AssistantTokenUsageMetadata = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  cachedInputTokens: number;
-  cacheWriteTokens: number;
-  cost: CodexUsageCost;
-};
-
-interface AssistantUsageMetadata {
-  usage: AssistantTokenUsageMetadata;
-  contextUsage: AssistantTokenUsageMetadata;
-  run: {
-    startedAt: number;
-    completedAt: number;
-    durationSeconds: number;
-  };
-}
-
-type AgentRunIssue = {
-  runId: string;
-  stepName?: string;
-  attempt?: number;
-  retryCount?: number;
-  message: string;
-  errorStack?: string;
-  occurredAt: number;
-};
 
 const MAX_AGENT_STEPS = 100;
 
@@ -76,118 +49,6 @@ function isPersistenceUnauthenticatedError(error: unknown) {
 
 function isCancellation(error: unknown, signal: AbortSignal) {
   return signal.aborted || (error instanceof Error && error.name === "AbortError");
-}
-
-function emptyTokenUsage(): AssistantTokenUsageMetadata {
-  return {
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    cachedInputTokens: 0,
-    cacheWriteTokens: 0,
-    cost: emptyCodexUsageCost(),
-  };
-}
-
-function tokenUsageFromStep(
-  step: {
-    usage: Omit<Partial<AssistantTokenUsageMetadata>, "cost"> & {
-      inputTokenDetails?: {
-        cacheReadTokens?: number;
-        cacheWriteTokens?: number;
-      };
-    };
-  },
-  modelId: string,
-): AssistantTokenUsageMetadata {
-  const cachedInputTokens =
-    step.usage.inputTokenDetails?.cacheReadTokens ?? step.usage.cachedInputTokens ?? 0;
-  const usage = {
-    inputTokens: step.usage.inputTokens ?? 0,
-    outputTokens: step.usage.outputTokens ?? 0,
-    totalTokens: step.usage.totalTokens ?? 0,
-    cachedInputTokens,
-    cacheWriteTokens: step.usage.inputTokenDetails?.cacheWriteTokens ?? step.usage.cacheWriteTokens ?? 0,
-  };
-
-  return {
-    ...usage,
-    cost: calculateCodexUsageCost(modelId, usage),
-  };
-}
-
-function addTokenUsage(
-  total: AssistantTokenUsageMetadata,
-  usage: AssistantTokenUsageMetadata,
-): AssistantTokenUsageMetadata {
-  return {
-    inputTokens: total.inputTokens + usage.inputTokens,
-    outputTokens: total.outputTokens + usage.outputTokens,
-    totalTokens: total.totalTokens + usage.totalTokens,
-    cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
-    cacheWriteTokens: total.cacheWriteTokens + usage.cacheWriteTokens,
-    cost: addCodexUsageCosts(total.cost, usage.cost),
-  };
-}
-
-function readRecordProperty(error: unknown, key: string): unknown {
-  return typeof error === "object" && error !== null ? (error as Record<string, unknown>)[key] : undefined;
-}
-
-function readStringProperty(error: unknown, key: string): string | undefined {
-  const value = readRecordProperty(error, key);
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function readNumberProperty(error: unknown, key: string): number | undefined {
-  const value = readRecordProperty(error, key);
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function readNestedErrorMessage(value: unknown): string | undefined {
-  const error = readRecordProperty(value, "error");
-  if (typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const message = (error as Record<string, unknown>).message;
-  return typeof message === "string" && message.length > 0 ? message : undefined;
-}
-
-function parseEmbeddedErrorMessage(message: string): string | undefined {
-  const jsonStart = message.indexOf("{");
-  const jsonEnd = message.lastIndexOf("}");
-
-  if (jsonStart === -1 || jsonEnd <= jsonStart) {
-    return undefined;
-  }
-
-  try {
-    return readNestedErrorMessage(JSON.parse(message.slice(jsonStart, jsonEnd + 1)));
-  } catch {
-    return undefined;
-  }
-}
-
-function displayMessageFromError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const directNestedMessage = readNestedErrorMessage(error);
-  const embeddedMessage = parseEmbeddedErrorMessage(message);
-  const causeMessage = parseEmbeddedErrorMessage(String(readRecordProperty(error, "cause") ?? ""));
-
-  return directNestedMessage ?? embeddedMessage ?? causeMessage ?? message;
-}
-
-function agentRunIssueFromError(error: unknown, runId: string, attempt: number): AgentRunIssue {
-  return {
-    runId,
-    stepName: readStringProperty(error, "stepName"),
-    attempt: readNumberProperty(error, "attempt") ?? attempt,
-    retryCount: readNumberProperty(error, "retryCount") ?? Math.max(0, attempt - 1),
-    message: displayMessageFromError(error),
-    errorStack: error instanceof Error ? error.stack : undefined,
-    occurredAt: Date.now(),
-  };
 }
 
 async function patchAssistantMessage({
@@ -393,17 +254,13 @@ async function runAgentTask(
       await streamed.waitUntilComplete();
 
       const [steps, response] = await Promise.all([result.steps, result.response]);
-      const stepUsages = steps.map((step) => tokenUsageFromStep(step, codexOptions.modelId));
       const runCompletedAt = Date.now();
-      const usageMetadata: AssistantUsageMetadata = {
-        usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),
-        contextUsage: stepUsages.at(-1) ?? emptyTokenUsage(),
-        run: {
-          startedAt: runStartedAt,
-          completedAt: runCompletedAt,
-          durationSeconds: Math.max(0, Math.round((runCompletedAt - runStartedAt) / 1000)),
-        },
-      };
+      const usageMetadata = createAssistantUsageMetadata(
+        steps,
+        codexOptions.modelId,
+        runStartedAt,
+        runCompletedAt,
+      );
 
       await agentUIStream.append({
         type: "message-metadata",

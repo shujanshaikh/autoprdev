@@ -283,9 +283,9 @@ function ExploreToolGroup({
 function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
     <div className="message-enter-user">
-      <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
-        <div className="group/user-message relative rounded-sm border border-border bg-card p-4">
-          <p className="text-[15px] leading-[1.7] text-foreground">{prompt}</p>
+      <div className="mx-auto w-full min-w-0 max-w-[680px] px-6 py-4 sm:px-8">
+        <div className="group/user-message relative min-w-0 rounded-sm border border-border bg-card p-4">
+          <p className="break-words text-[15px] leading-[1.7] text-foreground [overflow-wrap:anywhere]">{prompt}</p>
           <UserMessageCopyButton text={prompt} />
         </div>
       </div>
@@ -774,7 +774,7 @@ export function ThreadMessages({
             <Message
               from={message.role}
               className={cn(
-                "mx-auto max-w-[680px] px-6 py-4 sm:px-8",
+                "mx-auto w-full min-w-0 max-w-[680px] px-6 py-4 sm:px-8",
                 isUser && imageFileItems.length > 0 && "pt-28 sm:pt-32"
               )}
             >
@@ -797,7 +797,7 @@ export function ThreadMessages({
                 </div>
               ) : null}
               <MessageContent className={cn("gap-1 overflow-visible", isUser && "group/user-message relative")}>
-                <div className={cn(isUser && "rounded-sm border border-border bg-card p-4")}>
+                <div className={cn("min-w-0 max-w-full", isUser && "rounded-sm border border-border bg-card p-4 [overflow-wrap:anywhere]")}>
                 {!isUser ? (
                   <MessageHeader className="block max-w-none p-0 text-inherit">
                     <AssistantRunTimerRow
@@ -823,9 +823,9 @@ export function ThreadMessages({
     })}
   
     {error ? (
-      <div role="alert">
-        <div className="mx-auto max-w-[680px] px-6 py-4 sm:px-8">
-          <p className="text-[13px] font-medium text-destructive">{error.message}</p>
+      <div className="w-full min-w-0 max-w-full" role="alert">
+        <div className="mx-auto w-full min-w-0 max-w-[680px] px-6 py-4 sm:px-8">
+          <p className="break-words text-[13px] font-medium text-destructive [overflow-wrap:anywhere]">{error.message}</p>
         </div>
       </div>
     ) : null}

@@ -88,6 +88,9 @@ export default defineSchema({
     updatedAt: v.number(),
     currentRunId: v.optional(v.string()),
     isLive: v.optional(v.boolean()),
+    triggerSessionCreatedAt: v.optional(v.number()),
+    triggerSessionLastEventId: v.optional(v.string()),
+    agentSessionPersistenceTokenHashes: v.optional(v.array(v.string())),
     agentRunIssue: v.optional(v.object({
       runId: v.string(),
       stepName: v.optional(v.string()),

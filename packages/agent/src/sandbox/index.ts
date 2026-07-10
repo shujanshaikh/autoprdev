@@ -1,3 +1,5 @@
+import { Daytona } from "@daytona/sdk";
+
 import {
   DEFAULT_SANDBOX_WORKDIR,
   sandboxRepositoryDirectoryName,
@@ -217,11 +219,11 @@ export function createSandboxCacheKey(prefix = "sandbox"): string {
   return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function createDaytonaClient() {
-  return import("@daytona/sdk").then(({ Daytona }) => new Daytona({
+function createDaytonaClient() {
+  return new Daytona({
     apiKey: process.env.DAYTONA_API_KEY,
     apiUrl: process.env.DAYTONA_API_URL,
-  }));
+  });
 }
 
 export async function createSandbox(options: SandboxSessionOptions = {}): Promise<DaytonaSandbox> {

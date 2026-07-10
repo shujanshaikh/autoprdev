@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { defineConfig } from "@trigger.dev/sdk";
 
 const project = process.env.TRIGGER_PROJECT_REF;

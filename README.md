@@ -78,11 +78,13 @@ Set `TRIGGER_PROJECT_REF` while running the Trigger.dev CLI. Configure the follo
 - `LWC_SECRET` (or `LOGIN_WITH_CHATGPT_SECRET`) and any other Login with ChatGPT settings used by the web app
 - `DAYTONA_API_KEY`, plus `DAYTONA_API_URL` and `DAYTONA_SNAPSHOT` when customized
 
-Run the task worker locally in a separate terminal without starting another web or Convex process:
+The root development command starts the web app, Convex, and the Trigger.dev task worker together:
 
 ```bash
-pnpm --filter web run trigger:dev
+pnpm run dev
 ```
+
+To run only the Trigger.dev worker, use `pnpm --filter web run trigger:dev`.
 
 Deploy in this order so every boundary is available during the rollout: Convex schema/functions, the Trigger.dev task, then the Vercel frontend.
 
@@ -92,12 +94,6 @@ pnpm --filter web run trigger:deploy
 ```
 
 After those complete, deploy or promote the Vercel application normally.
-
-Then, run the development server:
-
-```bash
-pnpm run dev
-```
 
 Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
 Your app will connect to the Convex cloud backend automatically.

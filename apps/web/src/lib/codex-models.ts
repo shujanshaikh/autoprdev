@@ -1,6 +1,7 @@
 const STANDARD_CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 const MAX_CODEX_REASONING_EFFORTS = [...STANDARD_CODEX_REASONING_EFFORTS, "max"] as const;
 const ULTRA_CODEX_REASONING_EFFORTS = [...MAX_CODEX_REASONING_EFFORTS, "ultra"] as const;
+const HIDDEN_CODEX_MODEL_IDS = new Set(["codex-auto-review"]);
 
 export type CodexReasoningEffort = (typeof ULTRA_CODEX_REASONING_EFFORTS)[number];
 export type CodexModelId = string;
@@ -117,7 +118,7 @@ export function normalizeCodexModelList(models: readonly string[] | undefined): 
 
   for (const model of models ?? []) {
     const modelId = normalizeCodexModelId(model);
-    if (!modelId || seen.has(modelId)) {
+    if (!modelId || HIDDEN_CODEX_MODEL_IDS.has(modelId) || seen.has(modelId)) {
       continue;
     }
 

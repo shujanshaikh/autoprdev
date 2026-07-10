@@ -107,7 +107,10 @@ describe("Codex model cost helpers", () => {
   });
 
   it("normalizes model lists returned by discovery", () => {
-    expect(normalizeCodexModelList([" gpt-a ", "", "gpt-b", "gpt-a"])).toEqual(["gpt-a", "gpt-b"]);
+    expect(normalizeCodexModelList([" gpt-a ", "", "codex-auto-review", "gpt-b", "gpt-a"])).toEqual([
+      "gpt-a",
+      "gpt-b",
+    ]);
   });
 
   it("selects from discovered account models without assuming the preferred model exists", () => {

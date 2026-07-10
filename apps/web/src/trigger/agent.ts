@@ -7,9 +7,12 @@ import {
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
-import { stepCountIs, streamText } from "ai";
+import { stepCountIs, streamText, wrapLanguageModel } from "ai";
 
-import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
+import {
+  createAgentContextCompactor,
+  createContextOverflowRecoveryMiddleware,
+} from "#/lib/agent-context-compaction";
 import {
   createAssistantUsageMetadata,
   type AssistantUsageMetadata,
@@ -20,6 +23,7 @@ import {
 } from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
+import { getCodexContextLimit } from "#/lib/codex-models";
 import {
   AGENT_TASK_ID,
   type AgentTaskOptions,
@@ -217,7 +221,10 @@ async function runAgentTask(
 
   try {
     await harness.run(async ({ instructions, tools }) => {
-      const model = await createCodexResponsesModel(codexOptions);
+      const model = wrapLanguageModel({
+        model: await createCodexResponsesModel(codexOptions),
+        middleware: createContextOverflowRecoveryMiddleware(),
+      });
       const result = streamText({
         model,
         system: createCachedSystemMessage(instructions),
@@ -227,8 +234,10 @@ async function runAgentTask(
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
         maxRetries: 1,
         abortSignal: signal,
-        prepareStep: ({ messages }) => ({
-          messages: compactPromptMessagesForModel(messages),
+        prepareStep: createAgentContextCompactor({
+          contextWindow: getCodexContextLimit(codexOptions.modelId),
+          systemPrompt: instructions,
+          abortSignal: signal,
         }),
         providerOptions: {
           openai: {

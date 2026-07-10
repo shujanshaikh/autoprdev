@@ -133,6 +133,10 @@ function getCodexModel(value: string | undefined) {
   return CODEX_MODELS.find((model) => model.id === value);
 }
 
+export function getCodexContextLimit(modelId: string | undefined) {
+  return getCodexModel(modelId)?.contextLimit ?? 128_000;
+}
+
 export function getCodexReasoningEfforts(modelId: string | undefined): readonly CodexReasoningEffort[] {
   return getCodexModel(modelId)?.reasoningEfforts ?? STANDARD_CODEX_REASONING_EFFORTS;
 }

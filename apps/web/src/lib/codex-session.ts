@@ -60,6 +60,20 @@ export function requestWithChatGPTSession(request: Request, sessionCookieHeader:
     .filter((cookie) => cookie.split("=", 1)[0]?.trim() !== CHATGPT_SESSION_COOKIE_NAME);
 
   headers.set("cookie", [...otherCookies, sessionCookieHeader].join("; "));
+
+  // Agent routes read their JSON body before resolving the account-level
+  // Codex session. Constructing a new Request from a consumed Request throws
+  // in the Fetch implementation used by the production server. Session
+  // resolution only needs the request metadata, so omit an already-consumed
+  // body while preserving the original request when it is still reusable.
+  if (request.bodyUsed) {
+    return new Request(request.url, {
+      method: request.method,
+      headers,
+      signal: request.signal,
+    });
+  }
+
   return new Request(request, { headers });
 }
 

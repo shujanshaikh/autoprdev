@@ -11,6 +11,7 @@ import {
 import {
   hashAgentPersistenceToken,
   requireAgentPersistenceGrant,
+  requireAgentSessionPersistenceGrant,
 } from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
 import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
@@ -18,6 +19,7 @@ import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
 const longError = (message: string) => message.slice(0, 8_000);
+const MAX_AGENT_SESSION_PERSISTENCE_GRANTS = 16;
 
 export const create = mutation({
   args: {
@@ -109,6 +111,101 @@ export const get = query({
     }
 
     return thread;
+  },
+});
+
+export const addAgentSessionPersistenceGrant = mutation({
+  args: {
+    threadId: v.string(),
+    tokenHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const tokenHashes = [
+      ...(thread.agentSessionPersistenceTokenHashes ?? []).filter(
+        (tokenHash) => tokenHash !== args.tokenHash,
+      ),
+      args.tokenHash,
+    ].slice(-MAX_AGENT_SESSION_PERSISTENCE_GRANTS);
+
+    await ctx.db.patch(thread._id, {
+      agentSessionPersistenceTokenHashes: tokenHashes,
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const markAgentSessionCreated = mutation({
+  args: {
+    threadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
+      updatedAt: now,
+    });
+
+    return null;
+  },
+});
+
+export const markAgentSessionTurnStartedInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    tokenHash: v.string(),
+    runId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { thread } = await requireAgentSessionPersistenceGrant(ctx, args);
+    const now = Date.now();
+
+    await ctx.db.patch(thread._id, {
+      currentRunId: args.runId,
+      isLive: true,
+      triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
+      agentRunIssue: undefined,
+      workflowIssue: undefined,
+      updatedAt: now,
+    });
+
+    return null;
+  },
+});
+
+export const markAgentSessionTurnStartedFromAgent = action({
+  args: {
+    threadId: v.string(),
+    persistenceToken: v.string(),
+    runId: v.string(),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    return await ctx.runMutation(internal.threads.markAgentSessionTurnStartedInternal, {
+      threadId: args.threadId,
+      tokenHash: await hashAgentPersistenceToken(args.persistenceToken),
+      runId: args.runId,
+    });
   },
 });
 

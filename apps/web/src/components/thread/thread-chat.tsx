@@ -14,6 +14,10 @@ import {
   TooltipTrigger,
 } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
+import {
+  useTriggerChatTransport,
+  type ChatTransportEvent,
+} from "@trigger.dev/sdk/chat/react";
 import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
 import { useMutation } from "convex/react";
 import { parsePatch } from "diff";
@@ -28,6 +32,11 @@ import { Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
+import {
+  AGENT_CHAT_OPERATION_HEADER,
+  AGENT_CHAT_TASK_ID,
+  type AgentChatClientInput,
+} from "#/lib/trigger-agent-contract";
 
 import {
   PromptInput,
@@ -309,8 +318,8 @@ function AgentRunIssuePanel({ issue }: { issue: AgentRunIssue | undefined }) {
   const message = parseEmbeddedErrorMessage(issue.message);
 
   return (
-    <div className="mb-4 border border-destructive/35 bg-destructive/5 px-3.5 py-3 text-sm text-muted-foreground">
-      <p className="break-words">{message}</p>
+    <div className="mb-4 min-w-0 max-w-full border border-destructive/35 bg-destructive/5 px-3.5 py-3 text-sm text-muted-foreground">
+      <p className="break-words [overflow-wrap:anywhere]">{message}</p>
     </div>
   );
 }
@@ -439,10 +448,26 @@ export function ThreadChat({
   project?: any;
   thread?: any;
 }) {
+  // Keep an in-flight legacy run on its original transport for the duration
+  // of this mount. All new or already-migrated threads use Trigger Sessions.
+  const usingSessionTransportRef = useRef(
+    Boolean(thread?.triggerSessionCreatedAt) || !currentRunId,
+  );
+  const usingSessionTransport = usingSessionTransportRef.current;
   const activeRunIdRef = useRef(currentRunId);
   const activeRunStartedAtRef = useRef<number | undefined>(undefined);
   const resumedRunIdsRef = useRef<Set<string>>(null!);
   resumedRunIdsRef.current ??= new Set<string>();
+  const sessionHydrationStartedRef = useRef(false);
+  const sessionResumeRequestedRef = useRef(false);
+  const sessionThreadStateRef = useRef({
+    isLive: Boolean(thread?.isLive),
+    lastEventId: thread?.triggerSessionLastEventId as string | undefined,
+  });
+  sessionThreadStateRef.current = {
+    isLive: Boolean(thread?.isLive),
+    lastEventId: thread?.triggerSessionLastEventId,
+  };
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
@@ -469,8 +494,10 @@ export function ThreadChat({
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const { getAccessToken: getWorkOSAccessToken } = useAccessToken();
+  const getWorkOSAccessTokenRef = useRef(getWorkOSAccessToken);
+  getWorkOSAccessTokenRef.current = getWorkOSAccessToken;
 
-  if (currentRunId) {
+  if (!usingSessionTransport && currentRunId) {
     activeRunIdRef.current = currentRunId;
   }
 
@@ -485,6 +512,104 @@ export function ThreadChat({
     (runId: string) => `${agentApi}/${encodeURIComponent(runId)}`,
     [agentApi],
   );
+
+  const requestAgentSessionToken = useCallback(
+    async (
+      operation: "start-session" | "access-token",
+      clientData?: AgentChatClientInput,
+    ) => {
+      await getWorkOSAccessTokenRef.current();
+      const response = await fetch(agentApi, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operation,
+          ...(operation === "start-session" ? { clientData } : {}),
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        publicAccessToken?: string;
+        error?: string;
+      } | null;
+
+      if (!response.ok || !result?.publicAccessToken) {
+        throw new Error(
+          result?.error ??
+            (operation === "start-session"
+              ? "Could not start the agent chat."
+              : "Could not refresh the agent chat token."),
+        );
+      }
+
+      return result.publicAccessToken;
+    },
+    [agentApi],
+  );
+
+  const sessionFetch = useCallback(
+    async (url: string, init: RequestInit, context: { endpoint: "in" | "out" }) => {
+      if (context.endpoint === "out") {
+        return await globalThis.fetch(url, init);
+      }
+
+      await getWorkOSAccessTokenRef.current();
+      const headers = new Headers(init.headers);
+      headers.set(AGENT_CHAT_OPERATION_HEADER, "append");
+
+      return await globalThis.fetch(agentApi, {
+        ...init,
+        headers,
+        credentials: "same-origin",
+      });
+    },
+    [agentApi],
+  );
+
+  const handleSessionTransportEvent = useCallback(
+    (event: ChatTransportEvent) => {
+      if (event.chatId !== threadId) {
+        return;
+      }
+
+      if (
+        event.type === "message-sent" &&
+        (event.source === "submit-message" || event.source === "regenerate-message")
+      ) {
+        activeRunStartedAtRef.current ??= event.timestamp;
+      } else if (event.type === "turn-completed") {
+        activeRunStartedAtRef.current = undefined;
+      }
+    },
+    [threadId],
+  );
+
+  const sessionClientData = useMemo<AgentChatClientInput>(
+    () => ({
+      ...(selectedModel ? { model: selectedModel } : {}),
+      reasoningEffort: selectedReasoningEffort,
+    }),
+    [selectedModel, selectedReasoningEffort],
+  );
+
+  const sessionTransport = useTriggerChatTransport({
+    task: AGENT_CHAT_TASK_ID,
+    clientData: sessionClientData,
+    accessToken: async () =>
+      await requestAgentSessionToken("access-token"),
+    startSession: async ({ clientData }) => ({
+      publicAccessToken: await requestAgentSessionToken(
+        "start-session",
+        clientData as AgentChatClientInput,
+      ),
+    }),
+    fetch: sessionFetch,
+    onEvent: handleSessionTransportEvent,
+  });
+  const [sessionHydrated, setSessionHydrated] = useState(
+    () => sessionTransport.getSession(threadId) !== undefined,
+  );
+  const [sessionHydrationAttempt, setSessionHydrationAttempt] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
     const triggerRunId = response.headers.get("x-trigger-run-id");
@@ -519,7 +644,7 @@ export function ThreadChat({
     [getRunStreamApi],
   );
 
-  const transport = useMemo(
+  const legacyTransport = useMemo(
     () =>
       new TriggerChatTransport<UIMessage>({
         api: agentApi,
@@ -554,6 +679,7 @@ export function ThreadChat({
       selectedReasoningEffort,
     ],
   );
+  const transport = usingSessionTransport ? sessionTransport : legacyTransport;
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,
@@ -569,7 +695,10 @@ export function ThreadChat({
     },
   });
 
-  const allowPersistedPartRemoval = status === "ready" && !currentRunId;
+  const serverStreaming = usingSessionTransport
+    ? Boolean(thread?.isLive)
+    : Boolean(currentRunId);
+  const allowPersistedPartRemoval = status === "ready" && !serverStreaming;
 
   useEffect(() => {
     setMessages((currentMessages) => {
@@ -640,7 +769,111 @@ export function ThreadChat({
   }, [diffEntries.length, onDiffCountChange]);
 
   useEffect(() => {
-    if (!currentRunId || status !== "ready" || resumedRunIdsRef.current.has(currentRunId)) {
+    if (!thread?.isLive) {
+      sessionResumeRequestedRef.current = false;
+    }
+  }, [thread?.isLive]);
+
+  useEffect(() => {
+    if (
+      !usingSessionTransport ||
+      !thread?.triggerSessionCreatedAt ||
+      sessionHydrationStartedRef.current
+    ) {
+      return;
+    }
+
+    const existingSession = sessionTransport.getSession(threadId);
+    if (existingSession) {
+      sessionHydrationStartedRef.current = true;
+      setSessionHydrated(true);
+      return;
+    }
+
+    sessionHydrationStartedRef.current = true;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    void requestAgentSessionToken("access-token")
+      .then((publicAccessToken) => {
+        if (cancelled) {
+          return;
+        }
+        const sessionState = sessionThreadStateRef.current;
+        sessionTransport.setSession(threadId, {
+          publicAccessToken,
+          lastEventId: sessionState.lastEventId,
+          // Leave settled sessions undefined so Trigger's X-Peek-Settled
+          // response decides whether there is anything to resume.
+          isStreaming: sessionState.isLive ? true : undefined,
+        });
+        setSessionHydrated(true);
+      })
+      .catch((sessionError) => {
+        if (cancelled) {
+          return;
+        }
+        console.error("Failed to hydrate Trigger.dev chat session", sessionError);
+        retryTimer = setTimeout(() => {
+          sessionHydrationStartedRef.current = false;
+          setSessionHydrationAttempt((attempt) => attempt + 1);
+        }, Math.min(500 * 2 ** Math.min(sessionHydrationAttempt, 4), 5_000));
+      });
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+    };
+  }, [
+    requestAgentSessionToken,
+    sessionHydrationAttempt,
+    sessionTransport,
+    thread?.triggerSessionCreatedAt,
+    threadId,
+    usingSessionTransport,
+  ]);
+
+  useEffect(() => {
+    if (
+      !usingSessionTransport ||
+      !sessionHydrated ||
+      !thread?.isLive ||
+      status !== "ready" ||
+      sessionResumeRequestedRef.current
+    ) {
+      return;
+    }
+
+    sessionResumeRequestedRef.current = true;
+    const currentSession = sessionTransport.getSession(threadId);
+    if (currentSession) {
+      sessionTransport.setSession(threadId, {
+        ...currentSession,
+        isStreaming: true,
+      });
+    }
+    void resumeStream().catch((resumeError) => {
+      sessionResumeRequestedRef.current = false;
+      console.error("Failed to resume Trigger.dev chat session", resumeError);
+    });
+  }, [
+    resumeStream,
+    sessionHydrated,
+    sessionTransport,
+    status,
+    thread?.isLive,
+    threadId,
+    usingSessionTransport,
+  ]);
+
+  useEffect(() => {
+    if (
+      usingSessionTransport ||
+      !currentRunId ||
+      status !== "ready" ||
+      resumedRunIdsRef.current.has(currentRunId)
+    ) {
       return;
     }
 
@@ -655,14 +888,25 @@ export function ThreadChat({
     }
 
     void resumeStream();
-  }, [currentRunId, hasPersistedLastAssistantMessage, resumeStream, status]);
+  }, [
+    currentRunId,
+    hasPersistedLastAssistantMessage,
+    resumeStream,
+    status,
+    usingSessionTransport,
+  ]);
 
   const busy = status === "submitted" || status === "streaming";
-  const ready = status === "ready" && !disabled;
-  if ((currentRunId || busy) && !activeRunStartedAtRef.current) {
+  const ready = status === "ready" && !disabled && !serverStreaming;
+  if ((serverStreaming || busy) && !activeRunStartedAtRef.current) {
     activeRunStartedAtRef.current = Date.now();
   }
-  if (!busy && !activeRunIdRef.current && activeRunStartedAtRef.current) {
+  if (
+    !busy &&
+    !serverStreaming &&
+    !activeRunIdRef.current &&
+    activeRunStartedAtRef.current
+  ) {
     activeRunStartedAtRef.current = undefined;
   }
   const activeRunStartedAt = activeRunStartedAtRef.current;
@@ -680,6 +924,10 @@ export function ThreadChat({
             durationSeconds: Math.max(0, Math.round((runCompletedAt - runStartedAt) / 1000)),
           })
         : assistantMessage?.metadata;
+
+    const sessionStop = usingSessionTransport
+      ? sessionTransport.stopGeneration(threadId)
+      : null;
 
     try {
       stop();
@@ -700,6 +948,22 @@ export function ThreadChat({
             : message
         )
       );
+    }
+
+    if (sessionStop) {
+      const stopPromise = sessionStop
+        .then(() => undefined)
+        .catch((stopError) => {
+          console.error("Failed to stop Trigger.dev chat session", stopError);
+        })
+        .finally(() => {
+          if (pendingStopRef.current === stopPromise) {
+            pendingStopRef.current = null;
+          }
+        });
+
+      pendingStopRef.current = stopPromise;
+      return;
     }
 
     if (!runId) {
@@ -738,7 +1002,16 @@ export function ThreadChat({
       });
 
     pendingStopRef.current = stopPromise;
-  }, [clearError, getRunApi, messages, setMessages, stop]);
+  }, [
+    clearError,
+    getRunApi,
+    messages,
+    sessionTransport,
+    setMessages,
+    stop,
+    threadId,
+    usingSessionTransport,
+  ]);
   const toggleDemoEnabled = useCallback(async () => {
     const optimisticDemoEnabled = pendingDemoEnabled ?? Boolean(thread?.demoEnabled);
 
@@ -827,7 +1100,7 @@ export function ThreadChat({
     const files = typeof message === "string" ? [] : message.files;
     const nextMessage = text.trim();
 
-    if ((!nextMessage && files.length === 0) || disabled) {
+    if ((!nextMessage && files.length === 0) || disabled || serverStreaming) {
       return;
     }
 
@@ -858,7 +1131,7 @@ export function ThreadChat({
     }
 
     await sendMessage({ text: nextMessage });
-  }, [clearError, disabled, imageUploads, sendMessage, status]);
+  }, [clearError, disabled, imageUploads, sendMessage, serverStreaming, status]);
 
   useEffect(() => {
     if (hasAutoSubmittedInitialPromptRef.current || !ready) {
@@ -933,13 +1206,13 @@ export function ThreadChat({
           />
         </div>
 
-        <div className="relative bg-background px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
-          <div className="mx-auto max-w-[680px]">
+        <div className="relative min-w-0 bg-background px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
+          <div className="mx-auto w-full min-w-0 max-w-[680px]">
             <AgentRunIssuePanel issue={thread?.agentRunIssue ?? thread?.workflowIssue} />
             <PromptInputProvider>
               <PromptInput
                 className={cn(
-                  "overflow-visible rounded-sm border border-border bg-card shadow-none transition-colors",
+                  "min-w-0 max-w-full overflow-visible rounded-sm border border-border bg-card shadow-none transition-colors",
                   "focus-within:border-[color:var(--cohere-form-focus)]",
                 )}
                 accept="image/*"
@@ -957,8 +1230,8 @@ export function ThreadChat({
                 <PromptInputBody>
                   <ThreadChatTextarea disabled={!ready} />
                 </PromptInputBody>
-                <PromptInputFooter className="bg-transparent px-2 py-1.5">
-                  <PromptInputTools className="min-w-0 flex-1">
+                <PromptInputFooter className="min-w-0 items-end bg-transparent px-2 py-1.5">
+                  <PromptInputTools className="min-w-0 flex-1 flex-wrap">
                     <PromptImageUploadButton disabled={!ready} />
                     <Select
                       value={selectedModel ?? ""}
@@ -1042,7 +1315,7 @@ export function ThreadChat({
                     />
                   </PromptInputTools>
                   <PromptInputSubmit
-                    className="size-8 rounded-full"
+                    className="size-8 shrink-0 rounded-full"
                     disabled={!ready && !busy}
                     onStop={stopGeneration}
                     status={status}

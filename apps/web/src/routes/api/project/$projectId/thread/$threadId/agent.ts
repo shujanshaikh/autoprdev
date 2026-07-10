@@ -19,6 +19,10 @@ import {
   lookupTriggerAgentRun,
   reconcileThreadWithTriggerRun,
 } from "#/lib/trigger-agent-run-server";
+import {
+  handleAgentChatRequest,
+  isAgentChatRequest,
+} from "#/lib/trigger-agent-chat-server";
 import type { agentTask } from "#/trigger/agent";
 
 const agentRequestSchema = z.object({
@@ -95,16 +99,25 @@ async function POST(
   req: Request,
   { params }: { params: Promise<{ projectId: string; threadId: string }> },
 ) {
+  const body = await req.json().catch(() => null);
+  const { projectId: projectIdParam, threadId: threadIdParam } = await params;
+  const projectId = projectIdParam;
+  const threadId = threadIdParam;
 
-  const parsed = agentRequestSchema.safeParse(await req.json().catch(() => null));
+  if (isAgentChatRequest(req, body)) {
+    return await handleAgentChatRequest({
+      request: req,
+      body,
+      projectId,
+      threadId,
+    });
+  }
+
+  const parsed = agentRequestSchema.safeParse(body);
 
   if (!parsed.success) {
     return Response.json({ error: "Send the latest UI message." }, { status: 400 });
   }
-
-  const { projectId: projectIdParam, threadId: threadIdParam } = await params;
-  const projectId = projectIdParam;
-  const threadId = threadIdParam;
 
   return Promise.all([
     convexQuery(api.projects.get, { projectId }),

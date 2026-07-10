@@ -220,18 +220,31 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
           schema: uiMessageChunkSchema,
         });
 
-        for await (const chunk of chunks) {
-          if (!chunk.success) {
-            throw chunk.error;
-          }
+        // WebKit did not expose ReadableStream as an async iterable for a
+        // number of iOS releases. The reader API is the cross-browser stream
+        // primitive, so mobile clients can attach to an active run reliably.
+        const reader = chunks.getReader();
+        try {
+          while (true) {
+            const { done, value: chunk } = await reader.read();
+            if (done) {
+              break;
+            }
 
-          receivedChunk = true;
-          consecutiveErrors = 0;
-          chunkIndex += 1;
-          yield chunk.value;
-          if (chunk.value.type === "finish") {
-            gotFinish = true;
+            if (!chunk.success) {
+              throw chunk.error;
+            }
+
+            receivedChunk = true;
+            consecutiveErrors = 0;
+            chunkIndex += 1;
+            yield chunk.value;
+            if (chunk.value.type === "finish") {
+              gotFinish = true;
+            }
           }
+        } finally {
+          reader.releaseLock();
         }
 
         consecutiveErrors = 0;

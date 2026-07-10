@@ -22,10 +22,19 @@ function chunkResponse(...chunks: UIMessageChunk[]) {
 
 async function collect(stream: ReadableStream<UIMessageChunk>) {
   const chunks: UIMessageChunk[] = [];
-  for await (const chunk of stream) {
-    chunks.push(chunk);
+  const reader = stream.getReader();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return chunks;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
-  return chunks;
 }
 
 describe("TriggerChatTransport", () => {
@@ -86,6 +95,59 @@ describe("TriggerChatTransport", () => {
       { type: "finish" },
     ]);
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("startIndex=1");
+  });
+
+  it("reads a run stream when ReadableStream is not async iterable", async () => {
+    const asyncIteratorDescriptor = Object.getOwnPropertyDescriptor(
+      ReadableStream.prototype,
+      Symbol.asyncIterator,
+    );
+    Object.defineProperty(ReadableStream.prototype, Symbol.asyncIterator, {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          new Response(null, {
+            status: 202,
+            headers: { "x-trigger-run-id": "run_webkit" },
+          }),
+        )
+        .mockResolvedValueOnce(chunkResponse({ type: "finish" }));
+      const transport = new TriggerChatTransport({
+        api: "http://localhost/api/agent",
+        fetch: fetchMock,
+      });
+
+      const stream = await transport.sendMessages({
+        chatId: "chat_webkit",
+        messages: [
+          {
+            id: "message_webkit",
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        ],
+        trigger: "submit-message",
+      });
+
+      await expect(collect(stream)).resolves.toEqual([{ type: "finish" }]);
+    } finally {
+      if (asyncIteratorDescriptor) {
+        Object.defineProperty(
+          ReadableStream.prototype,
+          Symbol.asyncIterator,
+          asyncIteratorDescriptor,
+        );
+      } else {
+        delete (ReadableStream.prototype as Partial<AsyncIterable<unknown>>)[
+          Symbol.asyncIterator
+        ];
+      }
+    }
   });
 
   it("retries a transient network failure without losing the run", async () => {

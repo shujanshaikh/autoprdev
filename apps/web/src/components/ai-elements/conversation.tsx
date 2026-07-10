@@ -15,7 +15,7 @@ export const Conversation = ({
 }: ConversationProps) => (
   <MessageScroller.Provider defaultScrollPosition="end">
     <MessageScroller.Root
-      className={cn("relative flex min-h-0 flex-1 overflow-hidden", className)}
+      className={cn("relative flex w-full min-h-0 min-w-0 flex-1 overflow-hidden", className)}
       {...props}
     >
       {children}
@@ -31,9 +31,9 @@ export const ConversationContent = ({
   className,
   ...props
 }: ConversationContentProps) => (
-  <MessageScroller.Viewport className="h-full min-h-0 flex-1 overflow-y-auto overscroll-contain">
+  <MessageScroller.Viewport className="h-full w-full min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
     <MessageScroller.Content
-      className={cn("flex min-h-full flex-col gap-0", className)}
+      className={cn("flex min-h-full w-full min-w-0 max-w-full flex-col gap-0", className)}
       {...props}
     />
   </MessageScroller.Viewport>
@@ -47,7 +47,7 @@ export const ConversationMessage = ({
   className,
   ...props
 }: ConversationMessageProps) => (
-  <MessageScroller.Item className={cn("w-full", className)} {...props} />
+  <MessageScroller.Item className={cn("w-full min-w-0 max-w-full", className)} {...props} />
 );
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {

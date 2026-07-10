@@ -10,6 +10,7 @@ import { deleteAssistantPartsBlobKeysBestEffort } from "./lib/assistantPartsBlob
 import {
   hashAgentPersistenceToken,
   requireAgentPersistenceGrant,
+  requireAgentSessionPersistenceGrant,
 } from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
 
@@ -37,6 +38,33 @@ const assistantBlobRequestValidator = v.object({
   partsBlobSizeBytes: v.optional(v.number()),
   partsBlobSha256: v.optional(v.string()),
 });
+
+const agentUIMessageValidator = v.object({
+  id: v.string(),
+  role: v.union(v.literal("system"), v.literal("user"), v.literal("assistant")),
+  parts: v.array(v.any()),
+  metadata: v.optional(v.any()),
+});
+
+const agentRunIssueValidator = v.object({
+  runId: v.string(),
+  stepName: v.optional(v.string()),
+  attempt: v.optional(v.number()),
+  retryCount: v.optional(v.number()),
+  message: v.string(),
+  errorStack: v.optional(v.string()),
+  occurredAt: v.number(),
+});
+
+type AgentRunIssue = {
+  runId: string;
+  stepName?: string;
+  attempt?: number;
+  retryCount?: number;
+  message: string;
+  errorStack?: string;
+  occurredAt: number;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -415,6 +443,112 @@ export const listByThreadHydrated = action({
   },
 });
 
+export const upsertIncomingAgentSessionMessagesInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    tokenHash: v.string(),
+    messages: v.array(agentUIMessageValidator),
+  },
+  handler: async (ctx, args) => {
+    const { thread } = await requireAgentSessionPersistenceGrant(ctx, args);
+    const now = Date.now();
+
+    for (const message of args.messages) {
+      // AutoPR currently has no browser-executed tools. Assistant messages on
+      // the chat wire are therefore continuation deltas and must not replace
+      // the authoritative, fully persisted assistant row.
+      if (message.role === "assistant") {
+        continue;
+      }
+
+      const existing = await ctx.db
+        .query("messages")
+        .withIndex("by_message_id", (q) => q.eq("messageId", message.id))
+        .filter((q) => q.eq(q.field("threadId"), args.threadId))
+        .unique();
+
+      if (existing) {
+        if (existing.authorId !== thread.authorId || existing.projectId !== thread.projectId) {
+          throw new ConvexError({ code: "UNAUTHORIZED" });
+        }
+
+        await ctx.db.patch(existing._id, {
+          parts: message.parts,
+          metadata: message.metadata,
+          updatedAt: now,
+        });
+        continue;
+      }
+
+      await ctx.db.insert("messages", {
+        threadId: args.threadId,
+        projectId: thread.projectId,
+        authorId: thread.authorId,
+        messageId: message.id,
+        role: message.role,
+        parts: message.parts,
+        metadata: message.metadata,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (args.messages.length > 0) {
+      await ctx.db.patch(thread._id, { updatedAt: now });
+    }
+
+    return null;
+  },
+});
+
+export const listByThreadForAgentSessionInternal = internalQuery({
+  args: {
+    threadId: v.string(),
+    tokenHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { thread } = await requireAgentSessionPersistenceGrant(ctx, args);
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .order("asc")
+      .collect();
+
+    return {
+      authorId: thread.authorId,
+      messages,
+    };
+  },
+});
+
+export const hydrateThreadFromAgentSession = action({
+  args: {
+    threadId: v.string(),
+    persistenceToken: v.string(),
+    incomingMessages: v.array(agentUIMessageValidator),
+  },
+  handler: async (ctx, args): Promise<HydratedMessageDoc[]> => {
+    const tokenHash = await hashAgentPersistenceToken(args.persistenceToken);
+    await ctx.runMutation(internal.messages.upsertIncomingAgentSessionMessagesInternal, {
+      threadId: args.threadId,
+      tokenHash,
+      messages: args.incomingMessages,
+    });
+
+    const result: { authorId: string; messages: MessageDoc[] } = await ctx.runQuery(
+      internal.messages.listByThreadForAgentSessionInternal,
+      {
+        threadId: args.threadId,
+        tokenHash,
+      },
+    );
+
+    return await Promise.all(
+      result.messages.map((message) => hydrateMessageDoc(ctx, result.authorId, message)),
+    );
+  },
+});
+
 export const hydrateAssistantParts = action({
   args: {
     threadId: v.string(),
@@ -588,6 +722,20 @@ export const getAssistantAgentPatchTargetInternal = internalQuery({
   },
 });
 
+export const getAgentSessionPersistenceTargetInternal = internalQuery({
+  args: {
+    threadId: v.string(),
+    tokenHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { thread } = await requireAgentSessionPersistenceGrant(ctx, args);
+    return {
+      authorId: thread.authorId,
+      projectId: thread.projectId,
+    };
+  },
+});
+
 export const patchAssistantInternal = internalMutation({
   args: {
     authorId: v.string(),
@@ -643,12 +791,144 @@ export const patchAssistantInternal = internalMutation({
   },
 });
 
+function boundedAgentRunIssue(issue: AgentRunIssue | undefined) {
+  if (!issue) {
+    return undefined;
+  }
+
+  return {
+    ...issue,
+    message: issue.message.slice(0, 700),
+    errorStack: issue.errorStack?.slice(0, 8_000),
+  };
+}
+
+function remainingSessionPersistenceGrants(
+  tokenHashes: string[] | undefined,
+  consumedTokenHash: string,
+) {
+  const remaining = tokenHashes?.filter((tokenHash) => tokenHash !== consumedTokenHash) ?? [];
+  return remaining.length > 0 ? remaining : undefined;
+}
+
+export const completeAgentSessionTurnInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    tokenHash: v.string(),
+    runId: v.string(),
+    lastEventId: v.optional(v.string()),
+    assistantMessageId: v.string(),
+    parts: v.array(v.any()),
+    partsR2Key: v.optional(v.string()),
+    partsBlobContentType: v.optional(v.string()),
+    partsBlobSizeBytes: v.optional(v.number()),
+    partsBlobSha256: v.optional(v.string()),
+    metadata: v.optional(v.any()),
+    issue: v.optional(agentRunIssueValidator),
+  },
+  handler: async (ctx, args) => {
+    const { thread } = await requireAgentSessionPersistenceGrant(ctx, args);
+    const assistant = await ctx.db
+      .query("messages")
+      .withIndex("by_message_id", (q) => q.eq("messageId", args.assistantMessageId))
+      .filter((q) => q.eq(q.field("threadId"), args.threadId))
+      .unique();
+
+    if (
+      assistant &&
+      (assistant.authorId !== thread.authorId ||
+        assistant.projectId !== thread.projectId ||
+        assistant.role !== "assistant")
+    ) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const now = Date.now();
+    const previousPartsR2Key = assistant?.partsR2Key;
+    const assistantPatch = {
+      parts: args.parts,
+      partsR2Key: args.partsR2Key,
+      partsBlobContentType: args.partsBlobContentType,
+      partsBlobSizeBytes: args.partsBlobSizeBytes,
+      partsBlobSha256: args.partsBlobSha256,
+      metadata: args.metadata,
+      updatedAt: now,
+    };
+
+    if (assistant) {
+      await ctx.db.patch(assistant._id, assistantPatch);
+    } else {
+      await ctx.db.insert("messages", {
+        threadId: args.threadId,
+        projectId: thread.projectId,
+        authorId: thread.authorId,
+        messageId: args.assistantMessageId,
+        role: "assistant",
+        ...assistantPatch,
+        createdAt: now,
+      });
+    }
+
+    await ctx.db.patch(thread._id, {
+      currentRunId: undefined,
+      isLive: false,
+      triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
+      triggerSessionLastEventId: args.lastEventId ?? thread.triggerSessionLastEventId,
+      agentSessionPersistenceTokenHashes: remainingSessionPersistenceGrants(
+        thread.agentSessionPersistenceTokenHashes,
+        args.tokenHash,
+      ),
+      agentRunIssue: boundedAgentRunIssue(args.issue),
+      workflowIssue: undefined,
+      updatedAt: now,
+    });
+
+    return { previousPartsR2Key };
+  },
+});
+
+export const settleAgentSessionTurnInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    tokenHash: v.string(),
+    runId: v.string(),
+    lastEventId: v.optional(v.string()),
+    issue: v.optional(agentRunIssueValidator),
+  },
+  handler: async (ctx, args) => {
+    const { thread } = await requireAgentSessionPersistenceGrant(ctx, args);
+    const now = Date.now();
+
+    await ctx.db.patch(thread._id, {
+      currentRunId: undefined,
+      isLive: false,
+      triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
+      triggerSessionLastEventId: args.lastEventId ?? thread.triggerSessionLastEventId,
+      agentSessionPersistenceTokenHashes: remainingSessionPersistenceGrants(
+        thread.agentSessionPersistenceTokenHashes,
+        args.tokenHash,
+      ),
+      agentRunIssue: boundedAgentRunIssue(args.issue),
+      workflowIssue: undefined,
+      updatedAt: now,
+    });
+
+    return null;
+  },
+});
+
 type PatchAssistantPartsArgs = {
   threadId: string;
   assistantMessageId: string;
   parts: unknown[];
   metadata?: unknown;
   agentPersistenceTokenHash?: string;
+  agentSessionCompletion?: {
+    tokenHash: string;
+    runId: string;
+    lastEventId?: string;
+    issue?: AgentRunIssue;
+  };
 };
 
 async function persistAssistantParts(
@@ -687,21 +967,29 @@ async function persistAssistantParts(
   }
 
   try {
-    const result: { previousPartsR2Key?: string } = await ctx.runMutation(
-      internal.messages.patchAssistantInternal,
-      {
-        authorId,
-        threadId: args.threadId,
-        assistantMessageId: args.assistantMessageId,
-        parts: shouldStoreInline ? parts : [],
-        partsR2Key,
-        partsBlobContentType: partsR2Key ? ASSISTANT_PARTS_CONTENT_TYPE : undefined,
-        partsBlobSizeBytes: partsR2Key ? encoded.sizeBytes : undefined,
-        partsBlobSha256: partsR2Key ? sha256 : undefined,
-        agentPersistenceTokenHash: args.agentPersistenceTokenHash,
-        metadata: args.metadata,
-      },
-    );
+    const storedParts = {
+      threadId: args.threadId,
+      assistantMessageId: args.assistantMessageId,
+      parts: shouldStoreInline ? parts : [],
+      partsR2Key,
+      partsBlobContentType: partsR2Key ? ASSISTANT_PARTS_CONTENT_TYPE : undefined,
+      partsBlobSizeBytes: partsR2Key ? encoded.sizeBytes : undefined,
+      partsBlobSha256: partsR2Key ? sha256 : undefined,
+      metadata: args.metadata,
+    };
+    const result: { previousPartsR2Key?: string } = args.agentSessionCompletion
+      ? await ctx.runMutation(internal.messages.completeAgentSessionTurnInternal, {
+          ...storedParts,
+          tokenHash: args.agentSessionCompletion.tokenHash,
+          runId: args.agentSessionCompletion.runId,
+          lastEventId: args.agentSessionCompletion.lastEventId,
+          issue: args.agentSessionCompletion.issue,
+        })
+      : await ctx.runMutation(internal.messages.patchAssistantInternal, {
+          ...storedParts,
+          authorId,
+          agentPersistenceTokenHash: args.agentPersistenceTokenHash,
+        });
 
     if (result.previousPartsR2Key && result.previousPartsR2Key !== partsR2Key) {
       await deleteAssistantPartsBlobKeysBestEffort(ctx as unknown as R2DeleteCtx, [result.previousPartsR2Key]);
@@ -761,6 +1049,50 @@ export const patchAssistantFromAgent = action({
     return await persistAssistantParts(ctx, target.authorId, {
       ...args,
       agentPersistenceTokenHash: tokenHash,
+    });
+  },
+});
+
+export const completeAgentSessionTurnFromAgent = action({
+  args: {
+    threadId: v.string(),
+    persistenceToken: v.string(),
+    runId: v.string(),
+    lastEventId: v.optional(v.string()),
+    responseMessage: v.optional(agentUIMessageValidator),
+    issue: v.optional(agentRunIssueValidator),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    const tokenHash = await hashAgentPersistenceToken(args.persistenceToken);
+    const target: { authorId: string; projectId: string } = await ctx.runQuery(
+      internal.messages.getAgentSessionPersistenceTargetInternal,
+      {
+        threadId: args.threadId,
+        tokenHash,
+      },
+    );
+
+    if (!args.responseMessage || args.responseMessage.role !== "assistant") {
+      return await ctx.runMutation(internal.messages.settleAgentSessionTurnInternal, {
+        threadId: args.threadId,
+        tokenHash,
+        runId: args.runId,
+        lastEventId: args.lastEventId,
+        issue: args.issue,
+      });
+    }
+
+    return await persistAssistantParts(ctx, target.authorId, {
+      threadId: args.threadId,
+      assistantMessageId: args.responseMessage.id,
+      parts: args.responseMessage.parts,
+      metadata: args.responseMessage.metadata,
+      agentSessionCompletion: {
+        tokenHash,
+        runId: args.runId,
+        lastEventId: args.lastEventId,
+        issue: args.issue,
+      },
     });
   },
 });

@@ -1,15 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { runs } from "@trigger.dev/sdk";
 import { createUIMessageStreamResponse } from "ai";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexQuery } from "#/lib/convex-server";
+import {
+  isTriggerNotFoundError,
+  lookupTriggerAgentRun,
+  reconcileThreadWithTriggerRun,
+} from "#/lib/trigger-agent-run-server";
 import {
   emptyUIMessageStream,
   finishedUIMessageStream,
-  isTriggerNotFoundError,
   readAgentUIMessageStream,
 } from "#/lib/trigger-agent-stream-server";
+import { agentProjectTag, agentThreadTag } from "#/lib/trigger-agent-contract";
 
 function parseStartIndex(request: Request) {
   const value = new URL(request.url).searchParams.get("startIndex");
@@ -44,14 +48,29 @@ async function GET(
     return Response.json({ error: "Project or thread not found." }, { status: 404 });
   }
 
+  const requiredTags = [agentProjectTag(projectId), agentThreadTag(threadId)];
+  const lookup = await lookupTriggerAgentRun(runId, requiredTags);
+
+  if (lookup.status === "mismatch") {
+    await reconcileThreadWithTriggerRun(threadId, runId, null);
+    return Response.json({ error: "Agent run not found." }, { status: 404 });
+  }
+
+  if (lookup.status === "not-found") {
+    await reconcileThreadWithTriggerRun(threadId, runId, null);
+    return createUIMessageStreamResponse({
+      stream: finishedUIMessageStream(),
+    });
+  }
+
   try {
     return createUIMessageStreamResponse({
       stream: await readAgentUIMessageStream(
         runId,
         startIndex,
         request.signal,
-        async () => {
-          await convexMutation(api.threads.markRunFinished, { threadId, runId });
+        async (terminalRun) => {
+          await reconcileThreadWithTriggerRun(threadId, runId, terminalRun);
         },
       ),
     });
@@ -60,23 +79,23 @@ async function GET(
       throw error;
     }
 
-    const run = await runs.retrieve(runId).catch((retrieveError: unknown) => {
-      if (isTriggerNotFoundError(retrieveError)) {
-        return null;
-      }
-      throw retrieveError;
-    });
+    const latestLookup = await lookupTriggerAgentRun(runId, requiredTags);
 
-    if (run && !run.isCompleted) {
+    if (latestLookup.status === "found" && !latestLookup.run.isCompleted) {
       return createUIMessageStreamResponse({
         stream: emptyUIMessageStream(),
       });
     }
 
-    await convexMutation(api.threads.markRunFinished, {
+    await reconcileThreadWithTriggerRun(
       threadId,
       runId,
-    });
+      latestLookup.status === "found" ? latestLookup.run : null,
+    );
+
+    if (latestLookup.status === "mismatch") {
+      return Response.json({ error: "Agent run not found." }, { status: 404 });
+    }
 
     return createUIMessageStreamResponse({
       stream: finishedUIMessageStream(),

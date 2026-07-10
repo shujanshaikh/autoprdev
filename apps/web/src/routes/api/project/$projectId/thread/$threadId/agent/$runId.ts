@@ -3,8 +3,14 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { runs } from "@trigger.dev/sdk";
 import { z } from "zod";
 
-import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexAction, convexQuery } from "#/lib/convex-server";
 import { sanitizeStoppedAssistantParts } from "#/lib/chat-messages";
+import {
+  isTriggerNotFoundError,
+  lookupTriggerAgentRun,
+  reconcileThreadWithTriggerRun,
+} from "#/lib/trigger-agent-run-server";
+import { agentProjectTag, agentThreadTag } from "#/lib/trigger-agent-contract";
 
 const cancelRunRequestSchema = z.object({
   assistantMessage: z
@@ -15,15 +21,6 @@ const cancelRunRequestSchema = z.object({
     })
     .optional(),
 });
-
-function isTriggerRunNotFoundError(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    (error as { status?: unknown }).status === 404
-  );
-}
 
 async function POST(
   req: Request,
@@ -52,33 +49,55 @@ async function POST(
     return Response.json({ error: "Project or thread not found." }, { status: 404 });
   }
 
-  const { assistantMessage } = parsed.data;
+  const requiredTags = [agentProjectTag(projectId), agentThreadTag(threadId)];
+  const lookup = await lookupTriggerAgentRun(runId, requiredTags);
 
-  if (assistantMessage && assistantMessage.parts.length > 0) {
-    const parts = sanitizeStoppedAssistantParts(assistantMessage.parts);
+  if (lookup.status === "mismatch") {
+    await reconcileThreadWithTriggerRun(threadId, runId, null);
+    return Response.json({ error: "Agent run not found." }, { status: 404 });
+  }
 
-    await convexAction(api.messages.patchAssistant, {
-      threadId,
-      assistantMessageId: assistantMessage.id,
-      parts,
-      metadata: assistantMessage.metadata,
-    });
+  if (lookup.status === "not-found") {
+    await reconcileThreadWithTriggerRun(threadId, runId, null);
+    return Response.json({ ok: true, alreadyCompleted: true });
+  }
+
+  if (lookup.run.isCompleted) {
+    await reconcileThreadWithTriggerRun(threadId, runId, lookup.run);
+    return Response.json({ ok: true, alreadyCompleted: true });
   }
 
   try {
     await runs.cancel(runId);
   } catch (error) {
-    if (!isTriggerRunNotFoundError(error)) {
+    if (!isTriggerNotFoundError(error)) {
       throw error;
     }
   }
 
-  await convexMutation(api.threads.markRunFinished, {
-    threadId,
-    runId,
-  });
+  const latestLookup = await lookupTriggerAgentRun(runId, requiredTags);
+  const latestRun = latestLookup.status === "found" ? latestLookup.run : null;
+  const { assistantMessage } = parsed.data;
 
-  return Response.json({ ok: true });
+  try {
+    if (latestRun?.isCancelled && assistantMessage && assistantMessage.parts.length > 0) {
+      const parts = sanitizeStoppedAssistantParts(assistantMessage.parts);
+
+      await convexAction(api.messages.patchAssistant, {
+        threadId,
+        assistantMessageId: assistantMessage.id,
+        parts,
+        metadata: assistantMessage.metadata,
+      });
+    }
+  } finally {
+    await reconcileThreadWithTriggerRun(threadId, runId, latestRun);
+  }
+
+  return Response.json({
+    ok: true,
+    alreadyCompleted: Boolean(latestRun?.isCompleted && !latestRun.isCancelled),
+  });
 }
 
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/agent/$runId")({

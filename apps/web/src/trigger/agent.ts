@@ -307,6 +307,33 @@ async function reportAgentFailure(
   }
 }
 
+async function finishCancelledAgentRun(options: AgentTaskOptions, runId: string) {
+  const persistence = getAssistantPersistenceOptions(options);
+  const [streamResult, persistenceResult] = await Promise.allSettled([
+    agentUIStream.append({ type: "finish" }),
+    persistence
+      ? refreshWorkOSConvexAuth(persistence.convexAuth).then((convexAuth) =>
+          markAgentRunFinished({
+            convexAuth,
+            threadId: persistence.threadId,
+            runId,
+          }),
+        )
+      : Promise.resolve(),
+  ]);
+
+  if (streamResult.status === "rejected") {
+    console.error("Failed to close cancelled assistant stream", streamResult.reason);
+  }
+
+  if (
+    persistenceResult.status === "rejected" &&
+    !isPersistenceUnauthenticatedError(persistenceResult.reason)
+  ) {
+    console.error("Failed to mark cancelled agent run as finished", persistenceResult.reason);
+  }
+}
+
 async function runAgentTask(
   { messages: inputMessages, options }: AgentTaskPayload,
   runId: string,
@@ -484,14 +511,24 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
   machine: "small-1x",
   retry: {
     // Retrying an LLM stream would replay already delivered UI chunks. The AI
-    // provider still retries transient requests, while mutating tools carry
-    // their own persistent idempotency guarantees.
+    // provider still retries transient requests, while the write tool carries
+    // its own persistent idempotency guarantee.
     maxAttempts: 1,
   },
-  onFailure: async ({ payload, error, ctx }) => {
-    // Trigger.dev invokes this after terminal failures, including failures
-    // where normal task cleanup could not finish.
+  onFailure: async ({ payload, error, ctx, signal }) => {
+    // Trigger.dev 4.5.2 can reach onFailure after its cancellation signal
+    // aborts task code. A user-requested stop must not become a run issue.
+    if (isCancellation(error, signal)) {
+      return;
+    }
+
     await reportAgentFailure(payload.options, error, ctx.run.id, ctx.attempt.number);
+  },
+  onCancel: async ({ payload, ctx }) => {
+    // Trigger waits for onCancel hooks (within its cancellation timeout),
+    // making this more reliable than depending on task finally blocks while
+    // the managed worker is being torn down.
+    await finishCancelledAgentRun(payload.options, ctx.run.id);
   },
   run: async (payload: AgentTaskPayload, { ctx, signal }) => {
     await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);

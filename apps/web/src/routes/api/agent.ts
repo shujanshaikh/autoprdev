@@ -2,14 +2,45 @@ import { createFileRoute } from "@tanstack/react-router";
 import type { UIMessage } from "ai";
 import { convertToModelMessages } from "ai";
 import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
+import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 
-import { getCodexAgentModelConfig } from "#/lib/codex-auth-server";
-import { AGENT_TASK_ID } from "#/lib/trigger-agent-contract";
+import { codexErrorResponse, getCodexAgentModelConfig } from "#/lib/codex-auth-server";
+import {
+  AGENT_IDEMPOTENCY_KEY_TTL,
+  AGENT_TASK_ID,
+  agentUserTag,
+} from "#/lib/trigger-agent-contract";
 import type { agentTask } from "#/trigger/agent";
 
+const standaloneAgentRequestSchema = z.object({
+  messages: z
+    .array(z.object({
+      id: z.string(),
+      role: z.enum(["system", "user", "assistant"]),
+      parts: z.array(z.any()),
+      metadata: z.any().optional(),
+    }))
+    .min(1),
+  model: z.string().optional(),
+  reasoningEffort: z.string().optional(),
+});
+
 async function POST(req: Request) {
-  const { messages, model, reasoningEffort }: { messages: UIMessage[]; model?: string; reasoningEffort?: string } = await req.json();
+  const parsed = standaloneAgentRequestSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: "Send at least one UI message." }, { status: 400 });
+  }
+
+  const { model, reasoningEffort } = parsed.data;
+  const messages = parsed.data.messages as UIMessage[];
+  const authkit = await getAuthkit();
+  const workOSSession = await authkit.getSession(req);
+  if (!workOSSession) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const [modelMessages, codex] = await Promise.all([
     convertToModelMessages(messages),
     getCodexAgentModelConfig(req, model, reasoningEffort).catch((error) =>
@@ -18,12 +49,12 @@ async function POST(req: Request) {
   ]);
 
   if (codex instanceof Error) {
-    return Response.json({ error: codex.message }, { status: 401 });
+    return codexErrorResponse(codex, "Could not load Codex credentials.");
   }
 
   const requestId = messages.at(-1)?.id ?? nanoid();
   const idempotencyKey = await idempotencyKeys.create(
-    ["standalone-agent", requestId],
+    ["standalone-agent", workOSSession.user.id, requestId],
     { scope: "global" },
   );
   const run = await tasks.trigger<typeof agentTask>(
@@ -31,13 +62,18 @@ async function POST(req: Request) {
     {
       messages: modelMessages,
       options: {
-        sandboxCacheKey: `trigger-agent:${requestId}`,
+        sandboxCacheKey: `trigger-agent:${workOSSession.user.id}:${requestId}`,
         codex,
       },
     },
     {
       idempotencyKey,
-      idempotencyKeyTTL: "10m",
+      idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
+      tags: [agentUserTag(workOSSession.user.id)],
+      metadata: {
+        userId: workOSSession.user.id,
+        userMessageId: requestId,
+      },
     },
   );
 

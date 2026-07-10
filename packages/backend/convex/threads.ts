@@ -185,6 +185,10 @@ async function recordRunIssue(
     return null;
   }
 
+  if (thread.agentRunIssue?.runId === args.issue.runId) {
+    return null;
+  }
+
   await ctx.db.patch(thread._id, {
     currentRunId: undefined,
     isLive: false,

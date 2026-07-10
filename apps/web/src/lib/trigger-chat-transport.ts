@@ -32,8 +32,19 @@ interface TriggerChatTransportOptions<UI_MESSAGE extends UIMessage> {
   ) => void | Promise<void>;
   onChatEnd?: (options: { chatId: string; chunkIndex: number }) => void | Promise<void>;
   maxConsecutiveErrors?: number;
+  reconnectDelayInMs?: number;
   prepareSendMessagesRequest?: PrepareSendMessagesRequest<UI_MESSAGE>;
   prepareReconnectToStreamRequest?: PrepareReconnectToStreamRequest;
+}
+
+class AgentStreamResponseError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AgentStreamResponseError";
+  }
 }
 
 function iterableToReadableStream<T>(
@@ -71,6 +82,26 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isRetryableStreamResponseStatus(status: number) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+async function waitForReconnect(delayInMs: number, signal: AbortSignal | undefined) {
+  if (delayInMs <= 0 || signal?.aborted) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, delayInMs);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
+
 /**
  * AI SDK chat transport backed by Trigger.dev realtime streams.
  *
@@ -83,10 +114,12 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
 {
   private readonly fetch: typeof fetch;
   private readonly maxConsecutiveErrors: number;
+  private readonly reconnectDelayInMs: number;
 
   constructor(private readonly options: TriggerChatTransportOptions<UI_MESSAGE>) {
     this.fetch = options.fetch ?? fetch.bind(globalThis);
-    this.maxConsecutiveErrors = options.maxConsecutiveErrors ?? 3;
+    this.maxConsecutiveErrors = Math.max(1, Math.floor(options.maxConsecutiveErrors ?? 3));
+    this.reconnectDelayInMs = Math.max(0, options.reconnectDelayInMs ?? 250);
   }
 
   async sendMessages(
@@ -161,18 +194,27 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
     while (!gotFinish && !options.abortSignal?.aborted) {
       const url = new URL(baseUrl, globalThis.location?.origin ?? "http://localhost");
       url.searchParams.set("startIndex", String(chunkIndex));
-      const response = await this.fetch(url, {
-        headers: requestConfig?.headers,
-        credentials: requestConfig?.credentials,
-        signal: options.abortSignal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error(`Failed to reconnect to agent: ${response.status} ${await response.text()}`);
-      }
 
       try {
         let receivedChunk = false;
+        const response = await this.fetch(url, {
+          headers: requestConfig?.headers,
+          credentials: requestConfig?.credentials,
+          signal: options.abortSignal,
+        });
+
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new AgentStreamResponseError(
+            response.status,
+            `Failed to reconnect to agent: ${response.status} ${body}`.trimEnd(),
+          );
+        }
+
+        if (!response.body) {
+          throw new Error("Failed to reconnect to agent: response body was empty");
+        }
+
         const chunks = parseJsonEventStream({
           stream: response.body,
           schema: uiMessageChunkSchema,
@@ -184,6 +226,7 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
           }
 
           receivedChunk = true;
+          consecutiveErrors = 0;
           chunkIndex += 1;
           yield chunk.value;
           if (chunk.value.type === "finish") {
@@ -193,11 +236,18 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
 
         consecutiveErrors = 0;
         if (!receivedChunk && !gotFinish) {
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await waitForReconnect(this.reconnectDelayInMs, options.abortSignal);
         }
       } catch (error) {
         if (options.abortSignal?.aborted) {
           return;
+        }
+
+        if (
+          error instanceof AgentStreamResponseError &&
+          !isRetryableStreamResponseStatus(error.status)
+        ) {
+          throw error;
         }
 
         consecutiveErrors += 1;
@@ -207,6 +257,11 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
             `Failed to reconnect after ${this.maxConsecutiveErrors} consecutive errors. Last error: ${errorMessage(error)}`,
           );
         }
+
+        await waitForReconnect(
+          Math.min(this.reconnectDelayInMs * 2 ** (consecutiveErrors - 1), 2_000),
+          options.abortSignal,
+        );
       }
     }
 

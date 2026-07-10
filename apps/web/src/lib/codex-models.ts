@@ -1,16 +1,49 @@
-const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+const STANDARD_CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+const MAX_CODEX_REASONING_EFFORTS = [...STANDARD_CODEX_REASONING_EFFORTS, "max"] as const;
+const ULTRA_CODEX_REASONING_EFFORTS = [...MAX_CODEX_REASONING_EFFORTS, "ultra"] as const;
 
-export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
+export type CodexReasoningEffort = (typeof ULTRA_CODEX_REASONING_EFFORTS)[number];
 export type CodexModelId = string;
 
-export const PREFERRED_CODEX_MODEL: CodexModelId = "gpt-5.5";
+type CodexModel = {
+  id: CodexModelId;
+  label: string;
+  contextLimit: number;
+  reasoningEfforts: readonly CodexReasoningEffort[];
+  cost?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
+};
 
-export const CODEX_MODELS = [
+export const PREFERRED_CODEX_MODEL: CodexModelId = "gpt-5.6-sol";
+
+export const CODEX_MODELS: readonly CodexModel[] = [
   {
     id: PREFERRED_CODEX_MODEL,
+    label: "GPT-5.6-Sol",
+    contextLimit: 372_000,
+    reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
+  },
+  {
+    id: "gpt-5.6-terra",
+    label: "GPT-5.6-Terra",
+    contextLimit: 372_000,
+    reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
+  },
+  {
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6-Luna",
+    contextLimit: 372_000,
+    reasoningEfforts: MAX_CODEX_REASONING_EFFORTS,
+  },
+  {
+    id: "gpt-5.5",
     label: "GPT-5.5",
     contextLimit: 272_000,
-    reasoningEfforts: CODEX_REASONING_EFFORTS,
+    reasoningEfforts: STANDARD_CODEX_REASONING_EFFORTS,
     cost: {
       input: 5,
       output: 30,
@@ -18,7 +51,37 @@ export const CODEX_MODELS = [
       cacheWrite: 0,
     },
   },
-] as const;
+  {
+    id: "gpt-5.4",
+    label: "GPT-5.4",
+    contextLimit: 272_000,
+    reasoningEfforts: STANDARD_CODEX_REASONING_EFFORTS,
+    cost: {
+      input: 2.5,
+      output: 15,
+      cacheRead: 0.25,
+      cacheWrite: 0,
+    },
+  },
+  {
+    id: "gpt-5.4-mini",
+    label: "GPT-5.4-Mini",
+    contextLimit: 272_000,
+    reasoningEfforts: STANDARD_CODEX_REASONING_EFFORTS,
+    cost: {
+      input: 0.75,
+      output: 4.5,
+      cacheRead: 0.075,
+      cacheWrite: 0,
+    },
+  },
+  {
+    id: "gpt-5.3-codex-spark",
+    label: "GPT-5.3-Codex-Spark",
+    contextLimit: 128_000,
+    reasoningEfforts: STANDARD_CODEX_REASONING_EFFORTS,
+  },
+];
 
 type CodexTokenUsage = {
   inputTokens: number;
@@ -70,7 +133,7 @@ function getCodexModel(value: string | undefined) {
 }
 
 export function getCodexReasoningEfforts(modelId: string | undefined): readonly CodexReasoningEffort[] {
-  return getCodexModel(modelId)?.reasoningEfforts ?? CODEX_REASONING_EFFORTS;
+  return getCodexModel(modelId)?.reasoningEfforts ?? STANDARD_CODEX_REASONING_EFFORTS;
 }
 
 export function selectCodexModel(

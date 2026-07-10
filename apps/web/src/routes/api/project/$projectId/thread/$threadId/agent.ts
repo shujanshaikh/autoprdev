@@ -4,8 +4,8 @@ import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import { convertToModelMessages, type UIMessage } from "ai";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 
+import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
 import { codexErrorResponse, getCodexAgentModelConfig } from "#/lib/codex-auth-server";
@@ -141,13 +141,6 @@ async function POST(
       );
     }
 
-    const authkit = await getAuthkit();
-    const workOSSession = await authkit.getSession(req);
-
-    if (!workOSSession) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const codex = await getCodexAgentModelConfig(req, parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
       error instanceof Error ? error : new Error("Could not load Codex credentials."),
     );
@@ -158,6 +151,7 @@ async function POST(
 
     const userMessage = parsed.data.message as UIMessage;
     const requestedAssistantMessageId = nanoid();
+    const persistenceGrant = await createAgentPersistenceGrant();
     const [assistantMessageId, dbMessages] = await Promise.all([
       convexMutation(api.messages.createTurn, {
         projectId,
@@ -168,6 +162,7 @@ async function POST(
           metadata: userMessage.metadata,
         },
         assistantMessageId: requestedAssistantMessageId,
+        agentPersistenceTokenHash: persistenceGrant.tokenHash,
       }),
       convexAction(api.messages.listByThreadHydrated, { threadId }),
     ]);
@@ -212,8 +207,8 @@ async function POST(
           repoBranch: project.repoBranch,
           repoName: project.repoName,
           assistantMessageId,
+          persistenceToken: persistenceGrant.token,
           demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
-          convexAuth: workOSSession,
           codex,
         },
       },

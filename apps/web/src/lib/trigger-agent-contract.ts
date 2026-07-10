@@ -1,5 +1,4 @@
 import type { ModelMessage } from "ai";
-import type { Impersonator, User } from "@workos-inc/node";
 
 export const AGENT_TASK_ID = "autopr-agent";
 export const AGENT_STREAM_ID = "assistant-ui";
@@ -17,13 +16,6 @@ export function agentThreadTag(threadId: string) {
 
 export function agentUserTag(userId: string) {
   return `user:${userId}`;
-}
-
-export interface WorkOSAgentAuth {
-  accessToken: string;
-  refreshToken: string;
-  user: User;
-  impersonator?: Impersonator;
 }
 
 export interface CodexAgentModelOptions {
@@ -44,8 +36,8 @@ export interface AgentTaskOptions {
   repoBranch?: string;
   repoName?: string;
   assistantMessageId?: string;
+  persistenceToken?: string;
   demoEnabled?: boolean;
-  convexAuth?: WorkOSAgentAuth;
   codex: CodexAgentModelOptions;
 }
 

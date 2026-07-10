@@ -1,11 +1,17 @@
 import { ConvexError, v } from "convex/values";
 
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
+import { action, internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import {
   collectAssistantPartsBlobKeys,
   deleteAssistantPartsBlobKeys,
   type AssistantPartsBlobDeleteCtx,
 } from "./lib/assistantPartsBlobs";
+import {
+  hashAgentPersistenceToken,
+  requireAgentPersistenceGrant,
+} from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
 import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
@@ -167,25 +173,16 @@ type RunIssue = {
   occurredAt: number;
 };
 
-async function recordRunIssue(
+async function applyRunIssue(
   ctx: MutationCtx,
-  args: { threadId: string; issue: RunIssue },
+  thread: Doc<"threads">,
+  issue: RunIssue,
 ) {
-  const authorId = await requireUserId(ctx);
-  const thread = await ctx.db
-    .query("threads")
-    .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
-    .unique();
-
-  if (!thread || thread.authorId !== authorId) {
-    throw new ConvexError({ code: "UNAUTHORIZED" });
-  }
-
-  if (thread.currentRunId && thread.currentRunId !== args.issue.runId) {
+  if (thread.currentRunId && thread.currentRunId !== issue.runId) {
     return null;
   }
 
-  if (thread.agentRunIssue?.runId === args.issue.runId) {
+  if (thread.agentRunIssue?.runId === issue.runId) {
     return null;
   }
 
@@ -193,9 +190,9 @@ async function recordRunIssue(
     currentRunId: undefined,
     isLive: false,
     agentRunIssue: {
-      ...args.issue,
-      message: shortError(args.issue.message),
-      errorStack: args.issue.errorStack ? longError(args.issue.errorStack) : undefined,
+      ...issue,
+      message: shortError(issue.message),
+      errorStack: issue.errorStack ? longError(issue.errorStack) : undefined,
     },
     workflowIssue: undefined,
     updatedAt: Date.now(),
@@ -209,7 +206,19 @@ export const recordAgentRunIssue = mutation({
     threadId: v.string(),
     issue: runIssueValidator,
   },
-  handler: recordRunIssue,
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    return await applyRunIssue(ctx, thread, args.issue);
+  },
 });
 
 /** Compatibility endpoint for runs started before the Trigger.dev deployment. */
@@ -228,15 +237,72 @@ export const recordWorkflowIssue = mutation({
   },
   handler: async (ctx, args) => {
     const { workflowRunId, ...issue } = args.issue;
-    return recordRunIssue(ctx, {
-      threadId: args.threadId,
-      issue: {
-        ...issue,
-        runId: workflowRunId,
-      },
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    return await applyRunIssue(ctx, thread, {
+      ...issue,
+      runId: workflowRunId,
     });
   },
 });
+
+export const recordAgentRunIssueFromAgentInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    tokenHash: v.string(),
+    issue: runIssueValidator,
+  },
+  handler: async (ctx, args) => {
+    const { thread, assistant } = await requireAgentPersistenceGrant(ctx, args);
+    const result = await applyRunIssue(ctx, thread, args.issue);
+    await ctx.db.patch(assistant._id, { agentPersistenceTokenHash: undefined });
+    return result;
+  },
+});
+
+export const recordAgentRunIssueFromAgent = action({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    persistenceToken: v.string(),
+    issue: runIssueValidator,
+  },
+  handler: async (ctx, args): Promise<null> => {
+    return await ctx.runMutation(internal.threads.recordAgentRunIssueFromAgentInternal, {
+      threadId: args.threadId,
+      assistantMessageId: args.assistantMessageId,
+      tokenHash: await hashAgentPersistenceToken(args.persistenceToken),
+      issue: args.issue,
+    });
+  },
+});
+
+async function applyRunFinished(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+  runId?: string,
+) {
+  if (runId && thread.currentRunId && thread.currentRunId !== runId) {
+    return null;
+  }
+
+  await ctx.db.patch(thread._id, {
+    currentRunId: undefined,
+    isLive: false,
+    updatedAt: Date.now(),
+  });
+
+  return null;
+}
 
 export const markRunFinished = mutation({
   args: {
@@ -254,17 +320,39 @@ export const markRunFinished = mutation({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    if (args.runId && thread.currentRunId && thread.currentRunId !== args.runId) {
-      return null;
-    }
+    return await applyRunFinished(ctx, thread, args.runId);
+  },
+});
 
-    await ctx.db.patch(thread._id, {
-      currentRunId: undefined,
-      isLive: false,
-      updatedAt: Date.now(),
+export const markRunFinishedFromAgentInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    tokenHash: v.string(),
+    runId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { thread, assistant } = await requireAgentPersistenceGrant(ctx, args);
+    const result = await applyRunFinished(ctx, thread, args.runId);
+    await ctx.db.patch(assistant._id, { agentPersistenceTokenHash: undefined });
+    return result;
+  },
+});
+
+export const markRunFinishedFromAgent = action({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    persistenceToken: v.string(),
+    runId: v.string(),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    return await ctx.runMutation(internal.threads.markRunFinishedFromAgentInternal, {
+      threadId: args.threadId,
+      assistantMessageId: args.assistantMessageId,
+      tokenHash: await hashAgentPersistenceToken(args.persistenceToken),
+      runId: args.runId,
     });
-
-    return null;
   },
 });
 

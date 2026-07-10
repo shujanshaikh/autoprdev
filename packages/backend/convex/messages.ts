@@ -7,6 +7,10 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import { IMAGE_URL_EXPIRES_IN_SECONDS, r2 } from "./imageUploads";
 import { deleteAssistantPartsBlobKeysBestEffort } from "./lib/assistantPartsBlobs";
+import {
+  hashAgentPersistenceToken,
+  requireAgentPersistenceGrant,
+} from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
 
 const ASSISTANT_PARTS_CONTENT_TYPE = "application/json; charset=utf-8";
@@ -470,6 +474,7 @@ export const createTurn = mutation({
       metadata: v.optional(v.any()),
     }),
     assistantMessageId: v.string(),
+    agentPersistenceTokenHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
@@ -495,6 +500,11 @@ export const createTurn = mutation({
       );
 
       if (existingAssistant) {
+        if (args.agentPersistenceTokenHash) {
+          await ctx.db.patch(existingAssistant._id, {
+            agentPersistenceTokenHash: args.agentPersistenceTokenHash,
+          });
+        }
         return existingAssistant.messageId;
       }
     }
@@ -504,6 +514,11 @@ export const createTurn = mutation({
     );
 
     if (existingAssistant) {
+      if (args.agentPersistenceTokenHash) {
+        await ctx.db.patch(existingAssistant._id, {
+          agentPersistenceTokenHash: args.agentPersistenceTokenHash,
+        });
+      }
       return existingAssistant.messageId;
     }
 
@@ -527,6 +542,7 @@ export const createTurn = mutation({
       messageId: args.assistantMessageId,
       role: "assistant",
       parts: [],
+      agentPersistenceTokenHash: args.agentPersistenceTokenHash,
       createdAt: now,
       updatedAt: now,
     });
@@ -567,6 +583,21 @@ export const getAssistantPatchTargetInternal = internalQuery({
   },
 });
 
+export const getAssistantAgentPatchTargetInternal = internalQuery({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    tokenHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { assistant } = await requireAgentPersistenceGrant(ctx, args);
+
+    return {
+      authorId: assistant.authorId,
+    };
+  },
+});
+
 export const patchAssistantInternal = internalMutation({
   args: {
     authorId: v.string(),
@@ -577,10 +608,17 @@ export const patchAssistantInternal = internalMutation({
     partsBlobContentType: v.optional(v.string()),
     partsBlobSizeBytes: v.optional(v.number()),
     partsBlobSha256: v.optional(v.string()),
+    agentPersistenceTokenHash: v.optional(v.string()),
     metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const { thread } = await requireOwnedThread(ctx, args.threadId, args.authorId);
+    const { thread } = args.agentPersistenceTokenHash
+      ? await requireAgentPersistenceGrant(ctx, {
+          threadId: args.threadId,
+          assistantMessageId: args.assistantMessageId,
+          tokenHash: args.agentPersistenceTokenHash,
+        })
+      : await requireOwnedThread(ctx, args.threadId, args.authorId);
     const assistant = await ctx.db
       .query("messages")
       .withIndex("by_message_id", (q) => q.eq("messageId", args.assistantMessageId))
@@ -615,6 +653,79 @@ export const patchAssistantInternal = internalMutation({
   },
 });
 
+type PatchAssistantPartsArgs = {
+  threadId: string;
+  assistantMessageId: string;
+  parts: unknown[];
+  metadata?: unknown;
+  agentPersistenceTokenHash?: string;
+};
+
+async function persistAssistantParts(
+  ctx: ActionCtx,
+  authorId: string,
+  args: PatchAssistantPartsArgs,
+) {
+  const parts = args.parts as UIMessage["parts"];
+  const encoded = encodeAssistantParts(parts);
+  const sha256 = await sha256Hex(encoded.bytes);
+  const shouldStoreInline = shouldStoreAssistantPartsInline(encoded.sizeBytes);
+  const partsR2Key = shouldStoreInline
+    ? undefined
+    : assistantPartsObjectKey(
+        authorId,
+        args.threadId,
+        args.assistantMessageId,
+        sha256,
+      );
+  let storedNewBlobKey: string | undefined;
+
+  if (partsR2Key) {
+    try {
+      await r2.store(ctx as unknown as R2StoreCtx, encoded.bytes, {
+        key: partsR2Key,
+        type: ASSISTANT_PARTS_CONTENT_TYPE,
+        disposition: `attachment; filename="${safeObjectKeySegment(args.assistantMessageId)}.json"`,
+        cacheControl: "private, max-age=31536000, immutable",
+      });
+      storedNewBlobKey = partsR2Key;
+    } catch (error) {
+      if (!isExistingR2ObjectError(error, partsR2Key)) {
+        throw error;
+      }
+    }
+  }
+
+  try {
+    const result: { previousPartsR2Key?: string } = await ctx.runMutation(
+      internal.messages.patchAssistantInternal,
+      {
+        authorId,
+        threadId: args.threadId,
+        assistantMessageId: args.assistantMessageId,
+        parts: shouldStoreInline ? parts : [],
+        partsR2Key,
+        partsBlobContentType: partsR2Key ? ASSISTANT_PARTS_CONTENT_TYPE : undefined,
+        partsBlobSizeBytes: partsR2Key ? encoded.sizeBytes : undefined,
+        partsBlobSha256: partsR2Key ? sha256 : undefined,
+        agentPersistenceTokenHash: args.agentPersistenceTokenHash,
+        metadata: args.metadata,
+      },
+    );
+
+    if (result.previousPartsR2Key && result.previousPartsR2Key !== partsR2Key) {
+      await deleteAssistantPartsBlobKeysBestEffort(ctx as unknown as R2DeleteCtx, [result.previousPartsR2Key]);
+    }
+  } catch (error) {
+    if (storedNewBlobKey) {
+      await deleteAssistantPartsBlobKeysBestEffort(ctx as unknown as R2DeleteCtx, [storedNewBlobKey]);
+    }
+    throw error;
+  }
+
+  return null;
+}
+
 export const patchAssistant = action({
   args: {
     threadId: v.string(),
@@ -634,62 +745,32 @@ export const patchAssistant = action({
       assistantMessageId: args.assistantMessageId,
     });
 
-    const parts = args.parts as UIMessage["parts"];
-    const encoded = encodeAssistantParts(parts);
-    const sha256 = await sha256Hex(encoded.bytes);
-    const shouldStoreInline = shouldStoreAssistantPartsInline(encoded.sizeBytes);
-    const partsR2Key = shouldStoreInline
-      ? undefined
-      : assistantPartsObjectKey(
-          identity.subject,
-          args.threadId,
-          args.assistantMessageId,
-          sha256,
-        );
-    let storedNewBlobKey: string | undefined;
+    return await persistAssistantParts(ctx, identity.subject, args);
+  },
+});
 
-    if (partsR2Key) {
-      try {
-        await r2.store(ctx as unknown as R2StoreCtx, encoded.bytes, {
-          key: partsR2Key,
-          type: ASSISTANT_PARTS_CONTENT_TYPE,
-          disposition: `attachment; filename="${safeObjectKeySegment(args.assistantMessageId)}.json"`,
-          cacheControl: "private, max-age=31536000, immutable",
-        });
-        storedNewBlobKey = partsR2Key;
-      } catch (error) {
-        if (!isExistingR2ObjectError(error, partsR2Key)) {
-          throw error;
-        }
-      }
-    }
+export const patchAssistantFromAgent = action({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    persistenceToken: v.string(),
+    parts: v.array(v.any()),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    const tokenHash = await hashAgentPersistenceToken(args.persistenceToken);
+    const target: { authorId: string } = await ctx.runQuery(
+      internal.messages.getAssistantAgentPatchTargetInternal,
+      {
+        threadId: args.threadId,
+        assistantMessageId: args.assistantMessageId,
+        tokenHash,
+      },
+    );
 
-    try {
-      const result: { previousPartsR2Key?: string } = await ctx.runMutation(
-        internal.messages.patchAssistantInternal,
-        {
-          authorId: identity.subject,
-          threadId: args.threadId,
-          assistantMessageId: args.assistantMessageId,
-          parts: shouldStoreInline ? parts : [],
-          partsR2Key,
-          partsBlobContentType: partsR2Key ? ASSISTANT_PARTS_CONTENT_TYPE : undefined,
-          partsBlobSizeBytes: partsR2Key ? encoded.sizeBytes : undefined,
-          partsBlobSha256: partsR2Key ? sha256 : undefined,
-          metadata: args.metadata,
-        },
-      );
-
-      if (result.previousPartsR2Key && result.previousPartsR2Key !== partsR2Key) {
-        await deleteAssistantPartsBlobKeysBestEffort(ctx as unknown as R2DeleteCtx, [result.previousPartsR2Key]);
-      }
-    } catch (error) {
-      if (storedNewBlobKey) {
-        await deleteAssistantPartsBlobKeysBestEffort(ctx as unknown as R2DeleteCtx, [storedNewBlobKey]);
-      }
-      throw error;
-    }
-
-    return null;
+    return await persistAssistantParts(ctx, target.authorId, {
+      ...args,
+      agentPersistenceTokenHash: tokenHash,
+    });
   },
 });

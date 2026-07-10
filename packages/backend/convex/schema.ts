@@ -136,6 +136,7 @@ export default defineSchema({
     partsBlobContentType: v.optional(v.string()),
     partsBlobSizeBytes: v.optional(v.number()),
     partsBlobSha256: v.optional(v.string()),
+    agentPersistenceTokenHash: v.optional(v.string()),
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),

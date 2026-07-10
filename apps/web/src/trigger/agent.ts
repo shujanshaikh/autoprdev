@@ -6,8 +6,7 @@ import {
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
-import { getAuthkit } from "@workos/authkit-tanstack-react-start";
-import { fetchAction, fetchMutation } from "convex/nextjs";
+import { fetchAction } from "convex/nextjs";
 import { stepCountIs, streamText } from "ai";
 
 import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
@@ -23,12 +22,11 @@ import {
   AGENT_TASK_ID,
   type AgentTaskOptions,
   type AgentTaskPayload,
-  type WorkOSAgentAuth,
 } from "#/lib/trigger-agent-contract";
 import { agentUIStream } from "#/trigger/streams";
 
 interface AssistantPersistenceOptions {
-  convexAuth: WorkOSAgentAuth;
+  persistenceToken: string;
   threadId: string;
   assistantMessageId: string;
 }
@@ -73,7 +71,7 @@ function getConvexUrl() {
 }
 
 function isPersistenceUnauthenticatedError(error: unknown) {
-  return error instanceof Error && error.message.includes("Unauthorized");
+  return error instanceof Error && /unauthorized/i.test(error.message);
 }
 
 function isCancellation(error: unknown, signal: AbortSignal) {
@@ -192,29 +190,8 @@ function agentRunIssueFromError(error: unknown, runId: string, attempt: number):
   };
 }
 
-async function refreshWorkOSConvexAuth(convexAuth: WorkOSAgentAuth) {
-  const authkit = await getAuthkit();
-  const { auth } = await authkit.refreshSession({
-    accessToken: convexAuth.accessToken,
-    refreshToken: convexAuth.refreshToken,
-    user: convexAuth.user,
-    impersonator: convexAuth.impersonator,
-  });
-
-  if (!auth.user) {
-    throw new Error("Unauthorized");
-  }
-
-  return {
-    accessToken: auth.accessToken,
-    refreshToken: auth.refreshToken,
-    user: auth.user,
-    impersonator: auth.impersonator,
-  } satisfies WorkOSAgentAuth;
-}
-
 async function patchAssistantMessage({
-  convexAuth,
+  persistenceToken,
   threadId,
   assistantMessageId,
   parts,
@@ -224,47 +201,49 @@ async function patchAssistantMessage({
   metadata?: AssistantUsageMetadata;
 }) {
   await fetchAction(
-    api.messages.patchAssistant,
-    { threadId, assistantMessageId, parts, metadata },
-    { token: convexAuth.accessToken, url: getConvexUrl() },
+    api.messages.patchAssistantFromAgent,
+    { threadId, assistantMessageId, persistenceToken, parts, metadata },
+    { url: getConvexUrl() },
   );
 }
 
 async function markAgentRunFinished({
-  convexAuth,
+  persistenceToken,
   threadId,
+  assistantMessageId,
   runId,
-}: Pick<AssistantPersistenceOptions, "convexAuth" | "threadId"> & {
+}: AssistantPersistenceOptions & {
   runId: string;
 }) {
-  await fetchMutation(
-    api.threads.markRunFinished,
-    { threadId, runId },
-    { token: convexAuth.accessToken, url: getConvexUrl() },
+  await fetchAction(
+    api.threads.markRunFinishedFromAgent,
+    { threadId, assistantMessageId, persistenceToken, runId },
+    { url: getConvexUrl() },
   );
 }
 
 async function recordAgentRunIssue({
-  convexAuth,
+  persistenceToken,
   threadId,
+  assistantMessageId,
   issue,
-}: Pick<AssistantPersistenceOptions, "convexAuth" | "threadId"> & {
+}: AssistantPersistenceOptions & {
   issue: AgentRunIssue;
 }) {
-  await fetchMutation(
-    api.threads.recordAgentRunIssue,
-    { threadId, issue },
-    { token: convexAuth.accessToken, url: getConvexUrl() },
+  await fetchAction(
+    api.threads.recordAgentRunIssueFromAgent,
+    { threadId, assistantMessageId, persistenceToken, issue },
+    { url: getConvexUrl() },
   );
 }
 
 function getAssistantPersistenceOptions(options: AgentTaskOptions): AssistantPersistenceOptions | null {
-  if (!options.convexAuth || !options.threadId || !options.assistantMessageId) {
+  if (!options.persistenceToken || !options.threadId || !options.assistantMessageId) {
     return null;
   }
 
   return {
-    convexAuth: options.convexAuth,
+    persistenceToken: options.persistenceToken,
     threadId: options.threadId,
     assistantMessageId: options.assistantMessageId,
   };
@@ -289,13 +268,8 @@ async function reportAgentFailure(
   }
 
   try {
-    const refreshedPersistence = {
-      ...persistence,
-      convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
-    };
     await recordAgentRunIssue({
-      convexAuth: refreshedPersistence.convexAuth,
-      threadId: refreshedPersistence.threadId,
+      ...persistence,
       issue: agentRunIssueFromError(error, runId, attempt),
     });
     return true;
@@ -312,13 +286,10 @@ async function finishCancelledAgentRun(options: AgentTaskOptions, runId: string)
   const [streamResult, persistenceResult] = await Promise.allSettled([
     agentUIStream.append({ type: "finish" }),
     persistence
-      ? refreshWorkOSConvexAuth(persistence.convexAuth).then((convexAuth) =>
-          markAgentRunFinished({
-            convexAuth,
-            threadId: persistence.threadId,
-            runId,
-          }),
-        )
+      ? markAgentRunFinished({
+          ...persistence,
+          runId,
+        })
       : Promise.resolve(),
   ]);
 
@@ -446,12 +417,8 @@ async function runAgentTask(
       }
 
       try {
-        const refreshedPersistence = {
-          ...persistence,
-          convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
-        };
         await patchAssistantMessage({
-          ...refreshedPersistence,
+          ...persistence,
           parts: responseMessagesToAssistantParts(
             [...inputMessages, ...response.messages],
             inputMessages.length,
@@ -459,8 +426,7 @@ async function runAgentTask(
           metadata: usageMetadata,
         });
         await markAgentRunFinished({
-          convexAuth: refreshedPersistence.convexAuth,
-          threadId: refreshedPersistence.threadId,
+          ...persistence,
           runId,
         });
         persistenceFinished = true;
@@ -488,13 +454,8 @@ async function runAgentTask(
 
     if (persistence && !persistenceFinished) {
       try {
-        const refreshedPersistence = {
-          ...persistence,
-          convexAuth: await refreshWorkOSConvexAuth(persistence.convexAuth),
-        };
         await markAgentRunFinished({
-          convexAuth: refreshedPersistence.convexAuth,
-          threadId: refreshedPersistence.threadId,
+          ...persistence,
           runId,
         });
       } catch (error) {

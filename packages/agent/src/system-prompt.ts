@@ -5,7 +5,7 @@ const DEFAULT_TOOL_SNIPPETS: Record<string, string> = {
   find: "Find files using fff fuzzy search or glob filtering",
   grep: "Search file contents using fff indexed grep",
   edit: "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
-  write: "Create, overwrite, or append bounded file chunks",
+  write: "Create or overwrite files with complete content",
   bash: "Execute shell commands inside the Daytona sandbox",
   computer: "Use the Daytona desktop with Google Chrome for browser demos, screenshots, mouse/keyboard interaction, and screen recordings",
 };
@@ -31,9 +31,7 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   ],
   write: [
     "Use write only for new files, generated content, or complete rewrites where exact replacement is impractical.",
-    "Keep each write call small and bounded; never emit a huge complete file in one call.",
-    "For large new files or unavoidable full rewrites, split the content into small logical chunks. Call write sequentially with mode=overwrite for the first chunk and mode=append for later chunks.",
-    "When chaining append chunks, pass the prior result's fileBytes as expectedOffset and fileSha256 as expectedHash when available. The write tool also deduplicates retries using the run ID and tool-call ID.",
+    "Pass the complete file content in one write call. Write always replaces the target file; it does not append chunks.",
     "When the format allows it, prefer creating multiple smaller files over one very large generated file.",
     "For existing files, prefer edit for localized changes, especially after reading only part of a large file. Do not fully rewrite a large existing file just because the full content is available.",
   ],
@@ -127,8 +125,8 @@ Execution:
 
 Editing:
 - Prefer precise edits over full rewrites. Use write only for new files, complete rewrites, or generated content where exact replacement is impractical.
-- Avoid long-running file writes. For large generated content, create smaller files when the project format allows it, or write sequential chunks with mode=overwrite for the first chunk and mode=append for later chunks.
-- Do not rewrite an existing large file for localized changes. Read only the needed ranges and use edit; if a complete replacement is unavoidable, write the replacement in small sequential chunks.
+- Pass complete file content in a single write call. For very large generated content, prefer smaller files when the project format allows it.
+- Do not rewrite an existing large file for localized changes. Read only the needed ranges and use edit; if a complete replacement is unavoidable, write the complete replacement once.
 - Preserve existing style, naming, boundaries, and formatting. Add abstractions only when they reduce real duplication or complexity.
 - Default to ASCII when editing or creating files unless the file already uses non-ASCII or the change clearly requires it.
 - Add code comments sparingly, only when they clarify non-obvious logic.

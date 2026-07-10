@@ -77,10 +77,7 @@ function requireClientData(
   return clientData;
 }
 
-function sandboxOptions(
-  clientData: AgentChatClientData,
-  stableRunId: string,
-): SandboxSessionOptions {
+function sandboxOptions(clientData: AgentChatClientData): SandboxSessionOptions {
   return {
     cacheKey: clientData.sandboxCacheKey,
     sandboxId: clientData.sandboxId,
@@ -88,9 +85,6 @@ function sandboxOptions(
     repoUrl: clientData.repoUrl,
     repoBranch: clientData.repoBranch,
     repoName: clientData.repoName,
-    // Tool calls keep their IDs across recovery. Using the stable chat ID here
-    // preserves write idempotency when Trigger continues the Session in a new run.
-    runId: stableRunId,
   };
 }
 
@@ -136,7 +130,7 @@ export const agentChatTask = chat.agent({
   },
   tools: ({ chatId, clientData }) => {
     const trusted = requireClientData(clientData, chatId);
-    return createDaytonaTools(sandboxOptions(trusted, chatId), {
+    return createDaytonaTools(sandboxOptions(trusted), {
       computer: trusted.demoEnabled ? {} : false,
     });
   },
@@ -224,7 +218,7 @@ export const agentChatTask = chat.agent({
   run: async ({ chatId, clientData, messages, signal, tools }) => {
     const trusted = requireClientData(clientData, chatId);
     const harness = new CodingHarness({
-      ...sandboxOptions(trusted, chatId),
+      ...sandboxOptions(trusted),
       computer: trusted.demoEnabled ? {} : false,
       modelId: trusted.codex.modelId,
       appendSystemPrompt: modelInstructions(trusted),

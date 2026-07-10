@@ -180,7 +180,6 @@ async function runAgentTask(
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
     repoName: options.repoName,
-    runId,
   };
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
   const harness = new CodingHarness({
@@ -328,9 +327,8 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
   id: AGENT_TASK_ID,
   machine: "small-1x",
   retry: {
-    // Retrying an LLM stream would replay already delivered UI chunks. The AI
-    // provider still retries transient requests, while the write tool carries
-    // its own persistent idempotency guarantee.
+    // Retrying an LLM stream would replay UI chunks that were already delivered.
+    // The AI provider still retries transient model requests within this run.
     maxAttempts: 1,
   },
   onFailure: async ({ payload, error, ctx, signal }) => {

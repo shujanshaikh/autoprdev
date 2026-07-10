@@ -419,7 +419,6 @@ export function ThreadChat({
   demoRecordingExperimentEnabled,
   onDiffPanelOpenChange,
   onDiffCountChange,
-  onInitialPromptConsumed,
   project,
   thread,
 }: {
@@ -437,7 +436,6 @@ export function ThreadChat({
   demoRecordingExperimentEnabled: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
   onDiffCountChange: (count: number) => void;
-  onInitialPromptConsumed?: () => void;
   project?: any;
   thread?: any;
 }) {
@@ -888,7 +886,6 @@ export function ThreadChat({
     if (handoff) {
       window.sessionStorage.removeItem(threadPromptHandoffKey(threadId));
     }
-    onInitialPromptConsumed?.();
     void submitMessage(
       handoff
         ? handoff.files.length > 0
@@ -896,7 +893,7 @@ export function ThreadChat({
           : handoff.text
         : fallbackPrompt,
     );
-  }, [initialPrompt, messages.length, onInitialPromptConsumed, ready, submitMessage, threadId]);
+  }, [initialPrompt, messages.length, ready, submitMessage, threadId]);
 
   const optimisticDemoEnabled = pendingDemoEnabled ?? Boolean(thread?.demoEnabled);
   const showMaximizedDiffPanel = diffPanelOpen && diffPanelMaximized;

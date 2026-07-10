@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { cn } from "@autopr/ui/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
@@ -109,7 +109,6 @@ function assistantBlobDescriptor(message: StoredMessageRow): AssistantBlobDescri
 
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
-  const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { prompt?: string; model?: string; reasoningEffort?: string };
   const { isAuthenticated } = useConvexAuth();
   const initialPrompt = search.prompt?.trim() || undefined;
@@ -266,15 +265,6 @@ function ProjectThreadPageContent() {
     setDiffCount(count);
   }, []);
 
-  const handleInitialPromptConsumed = useCallback(() => {
-    navigate({
-      to: ".",
-      search: (prev) => ({ ...prev, prompt: undefined, model: undefined, reasoningEffort: undefined }),
-      replace: true,
-      resetScroll: false,
-    });
-  }, [navigate]);
-
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-border bg-background">
@@ -376,7 +366,6 @@ function ProjectThreadPageContent() {
               demoRecordingExperimentEnabled={demoRecordingExperimentEnabled}
               onDiffPanelOpenChange={setDiffPanelOpen}
               onDiffCountChange={handleDiffCountChange}
-              onInitialPromptConsumed={handleInitialPromptConsumed}
               project={project}
               thread={thread}
             />

@@ -68,6 +68,7 @@ import {
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
+import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -519,13 +520,15 @@ function ProjectOverviewPage() {
           JSON.stringify({ text: prompt, files: uploadedImages }),
         );
       }
-      const search = {
-        ...(prompt ? { prompt } : {}),
-        ...(selectedModel ? { model: selectedModel } : {}),
+      const navigation = buildThreadStartNavigation({
+        projectId,
+        threadId,
+        prompt,
+        model: selectedModel,
         reasoningEffort: selectedReasoningEffort,
-      };
-      await router.preloadRoute({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
-      navigate({ to: "/project/$projectId/thread/$threadId", params: { projectId, threadId }, search });
+      });
+      await router.preloadRoute(navigation);
+      navigate(navigation);
       clearPromptImages();
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not create a thread.");

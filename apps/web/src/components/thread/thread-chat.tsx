@@ -37,6 +37,10 @@ import {
   AGENT_CHAT_TASK_ID,
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
+import {
+  runTriggerSessionReconnectAttempt,
+  triggerSessionReconnectDelayMs,
+} from "#/lib/trigger-session-reconnect";
 
 import {
   PromptInput,
@@ -460,6 +464,11 @@ export function ThreadChat({
   resumedRunIdsRef.current ??= new Set<string>();
   const sessionHydrationStartedRef = useRef(false);
   const sessionResumeRequestedRef = useRef(false);
+  const sessionStopRequestedRef = useRef(false);
+  const sessionTurnCompletedRef = useRef(false);
+  const sessionReconnectAttemptRef = useRef(0);
+  const sessionReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const sessionWasLiveRef = useRef(Boolean(thread?.isLive));
   const sessionThreadStateRef = useRef({
     isLive: Boolean(thread?.isLive),
     lastEventId: thread?.triggerSessionLastEventId as string | undefined,
@@ -576,8 +585,19 @@ export function ThreadChat({
         event.type === "message-sent" &&
         (event.source === "submit-message" || event.source === "regenerate-message")
       ) {
+        sessionStopRequestedRef.current = false;
+        sessionTurnCompletedRef.current = false;
+        sessionReconnectAttemptRef.current = 0;
         activeRunStartedAtRef.current ??= event.timestamp;
+      } else if (event.type === "stream-connected" || event.type === "first-chunk") {
+        sessionReconnectAttemptRef.current = 0;
       } else if (event.type === "turn-completed") {
+        sessionTurnCompletedRef.current = true;
+        sessionReconnectAttemptRef.current = 0;
+        if (sessionReconnectTimerRef.current) {
+          clearTimeout(sessionReconnectTimerRef.current);
+          sessionReconnectTimerRef.current = undefined;
+        }
         activeRunStartedAtRef.current = undefined;
       }
     },
@@ -610,6 +630,7 @@ export function ThreadChat({
     () => sessionTransport.getSession(threadId) !== undefined,
   );
   const [sessionHydrationAttempt, setSessionHydrationAttempt] = useState(0);
+  const [sessionReconnectTick, setSessionReconnectTick] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
     const triggerRunId = response.headers.get("x-trigger-run-id");
@@ -694,6 +715,8 @@ export function ThreadChat({
       }
     },
   });
+  const chatStatusRef = useRef(status);
+  chatStatusRef.current = status;
 
   const serverStreaming = usingSessionTransport
     ? Boolean(thread?.isLive)
@@ -769,9 +792,23 @@ export function ThreadChat({
   }, [diffEntries.length, onDiffCountChange]);
 
   useEffect(() => {
-    if (!thread?.isLive) {
+    const isLive = Boolean(thread?.isLive);
+
+    if (!isLive) {
       sessionResumeRequestedRef.current = false;
+      sessionStopRequestedRef.current = false;
+      sessionTurnCompletedRef.current = false;
+      sessionReconnectAttemptRef.current = 0;
+      if (sessionReconnectTimerRef.current) {
+        clearTimeout(sessionReconnectTimerRef.current);
+        sessionReconnectTimerRef.current = undefined;
+      }
+    } else if (!sessionWasLiveRef.current) {
+      sessionTurnCompletedRef.current = false;
+      sessionReconnectAttemptRef.current = 0;
     }
+
+    sessionWasLiveRef.current = isLive;
   }, [thread?.isLive]);
 
   useEffect(() => {
@@ -835,17 +872,25 @@ export function ThreadChat({
   ]);
 
   useEffect(() => {
+    const chatStatus = chatStatusRef.current;
     if (
       !usingSessionTransport ||
       !sessionHydrated ||
       !thread?.isLive ||
-      status !== "ready" ||
-      sessionResumeRequestedRef.current
+      (chatStatus !== "ready" && chatStatus !== "error") ||
+      sessionResumeRequestedRef.current ||
+      sessionStopRequestedRef.current ||
+      sessionTurnCompletedRef.current ||
+      sessionReconnectTimerRef.current
     ) {
       return;
     }
 
+    let cancelled = false;
     sessionResumeRequestedRef.current = true;
+    if (chatStatus === "error") {
+      clearError();
+    }
     const currentSession = sessionTransport.getSession(threadId);
     if (currentSession) {
       sessionTransport.setSession(threadId, {
@@ -853,15 +898,53 @@ export function ThreadChat({
         isStreaming: true,
       });
     }
-    void resumeStream().catch((resumeError) => {
+    void runTriggerSessionReconnectAttempt({
+      resume: resumeStream,
+      isSessionLive: () => sessionThreadStateRef.current.isLive,
+      isTurnCompleted: () => sessionTurnCompletedRef.current,
+    }).then(({ error: resumeError, shouldRetry }) => {
       sessionResumeRequestedRef.current = false;
-      console.error("Failed to resume Trigger.dev chat session", resumeError);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (resumeError) {
+        console.error("Failed to resume Trigger.dev chat session", resumeError);
+      }
+
+      if (!shouldRetry || sessionReconnectTimerRef.current) {
+        return;
+      }
+
+      const delay = triggerSessionReconnectDelayMs(
+        sessionReconnectAttemptRef.current,
+      );
+      sessionReconnectAttemptRef.current += 1;
+      sessionReconnectTimerRef.current = setTimeout(() => {
+        sessionReconnectTimerRef.current = undefined;
+        setSessionReconnectTick((tick) => tick + 1);
+      }, delay);
+
+      // useChat records stream failures as an error even though resumeStream()
+      // resolves. Clear that transient state so the scheduled retry can attach.
+      clearError();
     });
+
+    return () => {
+      cancelled = true;
+      sessionResumeRequestedRef.current = false;
+      if (sessionReconnectTimerRef.current) {
+        clearTimeout(sessionReconnectTimerRef.current);
+        sessionReconnectTimerRef.current = undefined;
+      }
+    };
   }, [
+    clearError,
     resumeStream,
     sessionHydrated,
+    sessionReconnectTick,
     sessionTransport,
-    status,
     thread?.isLive,
     threadId,
     usingSessionTransport,
@@ -925,6 +1008,9 @@ export function ThreadChat({
           })
         : assistantMessage?.metadata;
 
+    if (usingSessionTransport) {
+      sessionStopRequestedRef.current = true;
+    }
     const sessionStop = usingSessionTransport
       ? sessionTransport.stopGeneration(threadId)
       : null;

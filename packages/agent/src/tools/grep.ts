@@ -64,8 +64,6 @@ interface FffGrepResult {
 }
 
 async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessionOptions) {
-  "use step";
-
   const pattern = requireString(input.pattern, "pattern", "grep");
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = context.workDir;

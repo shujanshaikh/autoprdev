@@ -22,8 +22,6 @@ const bashInputSchema = z.object({
 type BashInput = z.infer<typeof bashInputSchema>;
 
 async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessionOptions) {
-  "use step";
-
   const command = requireString(input.command, "command", "bash");
   const context = await getSandboxContext(sandboxOptions);
   const result = await executeSandboxCommand(command, {

@@ -1,11 +1,17 @@
 import { ConvexError, v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
+import { action, internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import {
   collectAssistantPartsBlobKeys,
   deleteAssistantPartsBlobKeys,
   type AssistantPartsBlobDeleteCtx,
 } from "./lib/assistantPartsBlobs";
+import {
+  hashAgentPersistenceToken,
+  requireAgentPersistenceGrant,
+} from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
 import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
@@ -124,7 +130,8 @@ export const markRunStarted = mutation({
 
     const now = Date.now();
 
-    if (thread.workflowIssue?.workflowRunId === args.runId) {
+    const existingIssueRunId = thread.agentRunIssue?.runId ?? thread.workflowIssue?.workflowRunId;
+    if (existingIssueRunId === args.runId) {
       await ctx.db.patch(thread._id, {
         currentRunId: undefined,
         isLive: false,
@@ -137,6 +144,7 @@ export const markRunStarted = mutation({
     await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
       isLive: true,
+      agentRunIssue: undefined,
       workflowIssue: undefined,
       updatedAt: now,
     });
@@ -145,6 +153,75 @@ export const markRunStarted = mutation({
   },
 });
 
+const runIssueValidator = v.object({
+  runId: v.string(),
+  stepName: v.optional(v.string()),
+  attempt: v.optional(v.number()),
+  retryCount: v.optional(v.number()),
+  message: v.string(),
+  errorStack: v.optional(v.string()),
+  occurredAt: v.number(),
+});
+
+type RunIssue = {
+  runId: string;
+  stepName?: string;
+  attempt?: number;
+  retryCount?: number;
+  message: string;
+  errorStack?: string;
+  occurredAt: number;
+};
+
+async function applyRunIssue(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+  issue: RunIssue,
+) {
+  if (thread.currentRunId && thread.currentRunId !== issue.runId) {
+    return null;
+  }
+
+  if (thread.agentRunIssue?.runId === issue.runId) {
+    return null;
+  }
+
+  await ctx.db.patch(thread._id, {
+    currentRunId: undefined,
+    isLive: false,
+    agentRunIssue: {
+      ...issue,
+      message: shortError(issue.message),
+      errorStack: issue.errorStack ? longError(issue.errorStack) : undefined,
+    },
+    workflowIssue: undefined,
+    updatedAt: Date.now(),
+  });
+
+  return null;
+}
+
+export const recordAgentRunIssue = mutation({
+  args: {
+    threadId: v.string(),
+    issue: runIssueValidator,
+  },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    return await applyRunIssue(ctx, thread, args.issue);
+  },
+});
+
+/** Compatibility endpoint for runs started before the Trigger.dev deployment. */
 export const recordWorkflowIssue = mutation({
   args: {
     threadId: v.string(),
@@ -159,6 +236,7 @@ export const recordWorkflowIssue = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    const { workflowRunId, ...issue } = args.issue;
     const authorId = await requireUserId(ctx);
     const thread = await ctx.db
       .query("threads")
@@ -169,24 +247,62 @@ export const recordWorkflowIssue = mutation({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    if (thread.currentRunId && thread.currentRunId !== args.issue.workflowRunId) {
-      return null;
-    }
-
-    await ctx.db.patch(thread._id, {
-      currentRunId: undefined,
-      isLive: false,
-      workflowIssue: {
-        ...args.issue,
-        message: shortError(args.issue.message),
-        errorStack: args.issue.errorStack ? longError(args.issue.errorStack) : undefined,
-      },
-      updatedAt: Date.now(),
+    return await applyRunIssue(ctx, thread, {
+      ...issue,
+      runId: workflowRunId,
     });
-
-    return null;
   },
 });
+
+export const recordAgentRunIssueFromAgentInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    tokenHash: v.string(),
+    issue: runIssueValidator,
+  },
+  handler: async (ctx, args) => {
+    const { thread, assistant } = await requireAgentPersistenceGrant(ctx, args);
+    const result = await applyRunIssue(ctx, thread, args.issue);
+    await ctx.db.patch(assistant._id, { agentPersistenceTokenHash: undefined });
+    return result;
+  },
+});
+
+export const recordAgentRunIssueFromAgent = action({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    persistenceToken: v.string(),
+    issue: runIssueValidator,
+  },
+  handler: async (ctx, args): Promise<null> => {
+    return await ctx.runMutation(internal.threads.recordAgentRunIssueFromAgentInternal, {
+      threadId: args.threadId,
+      assistantMessageId: args.assistantMessageId,
+      tokenHash: await hashAgentPersistenceToken(args.persistenceToken),
+      issue: args.issue,
+    });
+  },
+});
+
+async function applyRunFinished(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+  runId?: string,
+) {
+  if (runId && thread.currentRunId && thread.currentRunId !== runId) {
+    return null;
+  }
+
+  await ctx.db.patch(thread._id, {
+    currentRunId: undefined,
+    isLive: false,
+    updatedAt: Date.now(),
+  });
+
+  return null;
+}
 
 export const markRunFinished = mutation({
   args: {
@@ -204,17 +320,39 @@ export const markRunFinished = mutation({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    if (args.runId && thread.currentRunId && thread.currentRunId !== args.runId) {
-      return null;
-    }
+    return await applyRunFinished(ctx, thread, args.runId);
+  },
+});
 
-    await ctx.db.patch(thread._id, {
-      currentRunId: undefined,
-      isLive: false,
-      updatedAt: Date.now(),
+export const markRunFinishedFromAgentInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    tokenHash: v.string(),
+    runId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { thread, assistant } = await requireAgentPersistenceGrant(ctx, args);
+    const result = await applyRunFinished(ctx, thread, args.runId);
+    await ctx.db.patch(assistant._id, { agentPersistenceTokenHash: undefined });
+    return result;
+  },
+});
+
+export const markRunFinishedFromAgent = action({
+  args: {
+    threadId: v.string(),
+    assistantMessageId: v.string(),
+    persistenceToken: v.string(),
+    runId: v.string(),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    return await ctx.runMutation(internal.threads.markRunFinishedFromAgentInternal, {
+      threadId: args.threadId,
+      assistantMessageId: args.assistantMessageId,
+      tokenHash: await hashAgentPersistenceToken(args.persistenceToken),
+      runId: args.runId,
     });
-
-    return null;
   },
 });
 

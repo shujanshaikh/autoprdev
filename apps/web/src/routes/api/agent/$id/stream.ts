@@ -1,47 +1,69 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
-import { getRun } from "workflow/api";
+import { createUIMessageStreamResponse } from "ai";
+import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 
-function finishedStream() {
-  return new ReadableStream<UIMessageChunk>({
-    start(controller) {
-      controller.enqueue({ type: "finish" });
-      controller.close();
-    },
-  });
-}
-
-function isWorkflowRunNotFoundError(error: unknown) {
-  return error instanceof Error && error.name === "WorkflowRunNotFoundError";
-}
+import {
+  emptyUIMessageStream,
+  finishedUIMessageStream,
+  readAgentUIMessageStream,
+} from "#/lib/trigger-agent-stream-server";
+import {
+  isTriggerNotFoundError,
+  lookupTriggerAgentRun,
+} from "#/lib/trigger-agent-run-server";
+import { agentUserTag } from "#/lib/trigger-agent-contract";
 
 async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { searchParams } = new URL(request.url);
-  const startIndexParam = searchParams.get("startIndex");
-  const startIndex = startIndexParam ? Number.parseInt(startIndexParam, 10) : undefined;
+  const value = new URL(request.url).searchParams.get("startIndex");
+  const startIndex = value === null ? 0 : Number.parseInt(value, 10);
+
+  if (!Number.isSafeInteger(startIndex) || startIndex < 0) {
+    return Response.json({ error: "Invalid startIndex." }, { status: 400 });
+  }
+
+  const authkit = await getAuthkit();
+  const session = await authkit.getSession(request);
+  if (!session) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const requiredTags = [agentUserTag(session.user.id)];
+  const lookup = await lookupTriggerAgentRun(id, requiredTags);
+
+  if (lookup.status === "mismatch") {
+    return Response.json({ error: "Agent run not found." }, { status: 404 });
+  }
+
+  if (lookup.status === "not-found") {
+    return createUIMessageStreamResponse({
+      stream: finishedUIMessageStream(),
+    });
+  }
 
   try {
-    const run = getRun(id);
-    const readable = run.getReadable({ startIndex });
-    const tailIndex = await readable.getTailIndex();
-
     return createUIMessageStreamResponse({
-      stream: readable,
-      headers: {
-        "x-workflow-stream-tail-index": String(tailIndex),
-      },
+      stream: await readAgentUIMessageStream(id, startIndex, request.signal),
     });
   } catch (error) {
-    if (!isWorkflowRunNotFoundError(error)) {
+    if (!isTriggerNotFoundError(error)) {
       throw error;
     }
 
+    const latestLookup = await lookupTriggerAgentRun(id, requiredTags);
+
+    if (latestLookup.status === "found" && !latestLookup.run.isCompleted) {
+      return createUIMessageStreamResponse({
+        stream: emptyUIMessageStream(),
+      });
+    }
+
+    if (latestLookup.status === "mismatch") {
+      return Response.json({ error: "Agent run not found." }, { status: 404 });
+    }
+
     return createUIMessageStreamResponse({
-      stream: finishedStream(),
-      headers: {
-        "x-workflow-stream-tail-index": "-1",
-      },
+      stream: finishedUIMessageStream(),
     });
   }
 }

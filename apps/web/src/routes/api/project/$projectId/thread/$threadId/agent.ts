@@ -1,15 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { convertToModelMessages, createUIMessageStreamResponse, type UIMessage } from "ai";
+import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
+import { convertToModelMessages, type UIMessage } from "ai";
 import { nanoid } from "nanoid";
-import { start } from "workflow/api";
 import { z } from "zod";
-import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 
+import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
-import { getCodexAgentModelConfig } from "#/lib/codex-auth-server";
-import { agentWorkflow } from "#/workflows/agent/workflow";
+import { codexErrorResponse, getCodexAgentModelConfig } from "#/lib/codex-auth-server";
+import {
+  AGENT_IDEMPOTENCY_KEY_TTL,
+  AGENT_TASK_ID,
+  agentProjectTag,
+  agentThreadTag,
+} from "#/lib/trigger-agent-contract";
+import {
+  lookupTriggerAgentRun,
+  reconcileThreadWithTriggerRun,
+} from "#/lib/trigger-agent-run-server";
+import type { agentTask } from "#/trigger/agent";
 
 const agentRequestSchema = z.object({
   model: z.string().optional(),
@@ -50,6 +60,15 @@ function stripAutoprProviderMetadata(part: UIMessage["parts"][number]) {
     ...part,
     providerMetadata: Object.keys(providerMetadata).length > 0 ? providerMetadata : undefined,
   };
+}
+
+function acceptedAgentRunResponse(runId: string) {
+  return new Response(null, {
+    status: 202,
+    headers: {
+      "x-trigger-run-id": runId,
+    },
+  });
 }
 
 async function refreshR2FileUrlsForModel(message: UIMessage): Promise<UIMessage> {
@@ -100,11 +119,26 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
-    const authkit = await getAuthkit();
-    const workOSSession = await authkit.getSession(req);
+    const requiredRunTags = [agentProjectTag(projectId), agentThreadTag(threadId)];
+    if (thread.currentRunId) {
+      const currentRunLookup = await lookupTriggerAgentRun(thread.currentRunId, requiredRunTags);
 
-    if (!workOSSession) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (currentRunLookup.status === "found" && !currentRunLookup.run.isCompleted) {
+        if (currentRunLookup.run.metadata?.userMessageId === parsed.data.message.id) {
+          return acceptedAgentRunResponse(thread.currentRunId);
+        }
+
+        return Response.json(
+          { error: "An agent run is already active for this thread." },
+          { status: 409 },
+        );
+      }
+
+      await reconcileThreadWithTriggerRun(
+        threadId,
+        thread.currentRunId,
+        currentRunLookup.status === "found" ? currentRunLookup.run : null,
+      );
     }
 
     const codex = await getCodexAgentModelConfig(req, parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
@@ -112,11 +146,12 @@ async function POST(
     );
 
     if (codex instanceof Error) {
-      return Response.json({ error: codex.message }, { status: 401 });
+      return codexErrorResponse(codex, "Could not load Codex credentials.");
     }
 
     const userMessage = parsed.data.message as UIMessage;
     const requestedAssistantMessageId = nanoid();
+    const persistenceGrant = await createAgentPersistenceGrant();
     const [assistantMessageId, dbMessages] = await Promise.all([
       convexMutation(api.messages.createTurn, {
         projectId,
@@ -127,6 +162,7 @@ async function POST(
           metadata: userMessage.metadata,
         },
         assistantMessageId: requestedAssistantMessageId,
+        agentPersistenceTokenHash: persistenceGrant.tokenHash,
       }),
       convexAction(api.messages.listByThreadHydrated, { threadId }),
     ]);
@@ -153,35 +189,48 @@ async function POST(
     }
     const modelMessages = await convertToModelMessages(sanitizedMessagesForModel);
 
-    const run = await start(agentWorkflow, [
-      modelMessages,
+    const idempotencyKey = await idempotencyKeys.create(
+      ["agent", threadId, assistantMessageId],
+      { scope: "global" },
+    );
+    const run = await tasks.trigger<typeof agentTask>(
+      AGENT_TASK_ID,
       {
-        projectId,
-        threadId,
-        sandboxCacheKey: project.sandboxCacheKey,
-        sandboxId: project.sandboxId,
-        sandboxWorkDir: project.sandboxWorkDir,
-        repoUrl: project.cloneUrl,
-        repoBranch: project.repoBranch,
-        repoName: project.repoName,
-        assistantMessageId,
-        demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
-        convexAuth: workOSSession,
-        codex,
+        messages: modelMessages,
+        options: {
+          projectId,
+          threadId,
+          sandboxCacheKey: project.sandboxCacheKey,
+          sandboxId: project.sandboxId,
+          sandboxWorkDir: project.sandboxWorkDir,
+          repoUrl: project.cloneUrl,
+          repoBranch: project.repoBranch,
+          repoName: project.repoName,
+          assistantMessageId,
+          persistenceToken: persistenceGrant.token,
+          demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
+          codex,
+        },
       },
-    ]);
+      {
+        idempotencyKey,
+        idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
+        tags: requiredRunTags,
+        metadata: {
+          projectId,
+          threadId,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+        },
+      },
+    );
 
     await convexMutation(api.threads.markRunStarted, {
       threadId,
-      runId: run.runId,
+      runId: run.id,
     });
 
-    return createUIMessageStreamResponse({
-      stream: run.readable,
-      headers: {
-        "x-workflow-run-id": run.runId,
-      },
-    });
+    return acceptedAgentRunResponse(run.id);
   });
 }
 

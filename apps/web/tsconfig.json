@@ -10,7 +10,6 @@
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
-    "plugins": [{ "name": "workflow" }],
 
     /* Bundler mode */
     "moduleResolution": "bundler",

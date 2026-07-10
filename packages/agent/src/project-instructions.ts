@@ -23,8 +23,6 @@ export async function loadSandboxProjectInstructions(
   sandboxOptions: SandboxSessionOptions,
   options: LoadProjectInstructionsOptions,
 ): Promise<BuildSystemPromptContextFile[]> {
-  "use step";
-
   const context = await getSandboxContext(sandboxOptions);
   const projectRoot = normalizeRemotePath(resolveSandboxPath(options.projectRoot, context.workDir));
   const cwd = normalizeRemotePath(resolveSandboxPath(options.cwd, projectRoot));

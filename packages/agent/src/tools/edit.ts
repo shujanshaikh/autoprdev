@@ -92,8 +92,6 @@ function applyExactEdits(
 }
 
 async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessionOptions) {
-  "use step";
-
   const path = requireString(input.path, "path", "edit");
   const edits = requireArray<{ oldText?: string; newText?: string }>(input.edits, "edits", "edit").map((edit, index) => ({
     oldText: requireString(edit.oldText, `edits[${index}].oldText`, "edit"),

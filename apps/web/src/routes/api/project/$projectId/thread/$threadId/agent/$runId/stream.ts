@@ -1,28 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
-import { getRun } from "workflow/api";
+import { createUIMessageStreamResponse } from "ai";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexQuery } from "#/lib/convex-server";
+import {
+  isTriggerNotFoundError,
+  lookupTriggerAgentRun,
+  reconcileThreadWithTriggerRun,
+} from "#/lib/trigger-agent-run-server";
+import {
+  emptyUIMessageStream,
+  finishedUIMessageStream,
+  readAgentUIMessageStream,
+} from "#/lib/trigger-agent-stream-server";
+import { agentProjectTag, agentThreadTag } from "#/lib/trigger-agent-contract";
 
 function parseStartIndex(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const startIndexParam = searchParams.get("startIndex");
+  const value = new URL(request.url).searchParams.get("startIndex");
+  if (value === null) {
+    return 0;
+  }
 
-  return startIndexParam ? Number.parseInt(startIndexParam, 10) : undefined;
-}
-
-function isWorkflowRunNotFoundError(error: unknown) {
-  return error instanceof Error && error.name === "WorkflowRunNotFoundError";
-}
-
-function finishedStream() {
-  return new ReadableStream<UIMessageChunk>({
-    start(controller) {
-      controller.enqueue({ type: "finish" });
-      controller.close();
-    },
-  });
+  const startIndex = Number.parseInt(value, 10);
+  return Number.isSafeInteger(startIndex) && startIndex >= 0 ? startIndex : null;
 }
 
 async function GET(
@@ -34,49 +34,73 @@ async function GET(
   },
 ) {
   const startIndex = parseStartIndex(request);
-  if (startIndex !== undefined && Number.isNaN(startIndex)) {
+  if (startIndex === null) {
     return Response.json({ error: "Invalid startIndex." }, { status: 400 });
   }
 
-  const { projectId: projectIdParam, threadId: threadIdParam, runId } = await params;
-  const projectId = projectIdParam;
-  const threadId = threadIdParam;
-  return Promise.all([
+  const { projectId, threadId, runId } = await params;
+  const [project, thread] = await Promise.all([
     convexQuery(api.projects.get, { projectId }),
     convexQuery(api.threads.get, { threadId }),
-  ]).then(async ([project, thread]) => {
-    if (!project || !thread || thread.projectId !== projectId) {
-      return Response.json({ error: "Project or thread not found." }, { status: 404 });
-    }
+  ]);
 
-    try {
-      const readable = getRun(runId).getReadable({ startIndex });
-      const tailIndex = await readable.getTailIndex();
+  if (!project || !thread || thread.projectId !== projectId) {
+    return Response.json({ error: "Project or thread not found." }, { status: 404 });
+  }
 
-      return createUIMessageStreamResponse({
-        stream: readable,
-        headers: {
-          "x-workflow-stream-tail-index": String(tailIndex),
-        },
-      });
-    } catch (error) {
-      if (!isWorkflowRunNotFoundError(error)) {
-        throw error;
-      }
+  const requiredTags = [agentProjectTag(projectId), agentThreadTag(threadId)];
+  const lookup = await lookupTriggerAgentRun(runId, requiredTags);
 
-      await convexMutation(api.threads.markRunFinished, {
-        threadId,
+  if (lookup.status === "mismatch") {
+    await reconcileThreadWithTriggerRun(threadId, runId, null);
+    return Response.json({ error: "Agent run not found." }, { status: 404 });
+  }
+
+  if (lookup.status === "not-found") {
+    await reconcileThreadWithTriggerRun(threadId, runId, null);
+    return createUIMessageStreamResponse({
+      stream: finishedUIMessageStream(),
+    });
+  }
+
+  try {
+    return createUIMessageStreamResponse({
+      stream: await readAgentUIMessageStream(
         runId,
-      });
-
-      return createUIMessageStreamResponse({
-        stream: finishedStream(),
-        headers: {
-          "x-workflow-stream-tail-index": "-1",
+        startIndex,
+        request.signal,
+        async (terminalRun) => {
+          await reconcileThreadWithTriggerRun(threadId, runId, terminalRun);
         },
+      ),
+    });
+  } catch (error) {
+    if (!isTriggerNotFoundError(error)) {
+      throw error;
+    }
+
+    const latestLookup = await lookupTriggerAgentRun(runId, requiredTags);
+
+    if (latestLookup.status === "found" && !latestLookup.run.isCompleted) {
+      return createUIMessageStreamResponse({
+        stream: emptyUIMessageStream(),
       });
     }
-  });
+
+    await reconcileThreadWithTriggerRun(
+      threadId,
+      runId,
+      latestLookup.status === "found" ? latestLookup.run : null,
+    );
+
+    if (latestLookup.status === "mismatch") {
+      return Response.json({ error: "Agent run not found." }, { status: 404 });
+    }
+
+    return createUIMessageStreamResponse({
+      stream: finishedUIMessageStream(),
+    });
+  }
 }
 
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/agent/$runId/stream")({

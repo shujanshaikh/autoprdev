@@ -37,6 +37,9 @@ lerna-debug.log*
 .turbo
 .nx
 
+# Trigger.dev local runtime state
+.trigger
+
 # Better-T-Stack
 .alchemy
 

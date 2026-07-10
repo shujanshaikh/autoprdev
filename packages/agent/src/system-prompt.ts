@@ -31,8 +31,9 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   ],
   write: [
     "Use write only for new files, generated content, or complete rewrites where exact replacement is impractical.",
-    "Avoid monolithic writes that could approach platform step limits. Keep each write call small and bounded; never emit a huge complete file in one call.",
+    "Keep each write call small and bounded; never emit a huge complete file in one call.",
     "For large new files or unavoidable full rewrites, split the content into small logical chunks. Call write sequentially with mode=overwrite for the first chunk and mode=append for later chunks.",
+    "When chaining append chunks, pass the prior result's fileBytes as expectedOffset and fileSha256 as expectedHash when available. The write tool also deduplicates retries using the run ID and tool-call ID.",
     "When the format allows it, prefer creating multiple smaller files over one very large generated file.",
     "For existing files, prefer edit for localized changes, especially after reading only part of a large file. Do not fully rewrite a large existing file just because the full content is available.",
   ],

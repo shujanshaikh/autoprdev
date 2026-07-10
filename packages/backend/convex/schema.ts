@@ -88,6 +88,17 @@ export default defineSchema({
     updatedAt: v.number(),
     currentRunId: v.optional(v.string()),
     isLive: v.optional(v.boolean()),
+    agentRunIssue: v.optional(v.object({
+      runId: v.string(),
+      stepName: v.optional(v.string()),
+      attempt: v.optional(v.number()),
+      retryCount: v.optional(v.number()),
+      message: v.string(),
+      errorStack: v.optional(v.string()),
+      occurredAt: v.number(),
+    })),
+    // Kept during the Trigger.dev rollout so threads written by in-flight
+    // Vercel Workflow runs remain readable.
     workflowIssue: v.optional(v.object({
       workflowRunId: v.string(),
       stepName: v.optional(v.string()),
@@ -125,6 +136,7 @@ export default defineSchema({
     partsBlobContentType: v.optional(v.string()),
     partsBlobSizeBytes: v.optional(v.number()),
     partsBlobSha256: v.optional(v.string()),
+    agentPersistenceTokenHash: v.optional(v.string()),
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -5,6 +5,7 @@ import { ConvexProviderWithAuth, ConvexReactClient } from 'convex/react'
 import { useCallback, useMemo, useState } from 'react'
 
 import { ThemeProvider } from './components/theme-provider'
+import { AUTHKIT_CLIENT_SESSION_POLICY } from './lib/auth-session-policy'
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL
 
@@ -28,7 +29,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <AuthKitProvider>
+    <AuthKitProvider
+      // AuthKit's default focus/visibility recovery calls window.location.reload()
+      // when its session check cannot reach the server. Keep the mounted app and
+      // let token refreshes plus Convex auth surface session failures in place.
+      {...AUTHKIT_CLIENT_SESSION_POLICY}
+    >
       <ThemeProvider
         attribute="class"
         defaultTheme="dark"

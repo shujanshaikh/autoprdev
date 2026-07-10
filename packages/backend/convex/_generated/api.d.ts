@@ -12,6 +12,7 @@ import type * as codexAuth from "../codexAuth.js";
 import type * as crons from "../crons.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as imageUploads from "../imageUploads.js";
+import type * as lib_agentPersistence from "../lib/agentPersistence.js";
 import type * as lib_assistantPartsBlobs from "../lib/assistantPartsBlobs.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_github from "../lib/github.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   healthCheck: typeof healthCheck;
   imageUploads: typeof imageUploads;
+  "lib/agentPersistence": typeof lib_agentPersistence;
   "lib/assistantPartsBlobs": typeof lib_assistantPartsBlobs;
   "lib/auth": typeof lib_auth;
   "lib/github": typeof lib_github;

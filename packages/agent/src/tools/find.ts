@@ -65,8 +65,6 @@ interface FffFindResult {
 }
 
 async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessionOptions) {
-  "use step";
-
   const cursor = input.cursor?.trim();
   const pattern = cursor ? (input.pattern?.trim() ?? "") : requireString(input.pattern, "pattern", "find");
   const context = await getSandboxContext(sandboxOptions);

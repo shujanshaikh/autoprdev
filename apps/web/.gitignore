@@ -12,6 +12,5 @@ dist-ssr
 __unconfig*
 todos.json
 
-.workflow-data
 .swc
 .vscode

@@ -7,7 +7,7 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "turbo run dev trigger:dev",
     "build": "turbo build",
     "deploy:vercel": "pnpm --filter @autopr/backend run deploy:vercel",
     "check-types": "turbo check-types",

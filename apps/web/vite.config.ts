@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import { workflow } from 'workflow/vite'
 import { devtools } from '@tanstack/devtools-vite'
 import type { PluginOption } from "vite";
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -10,8 +9,14 @@ import { nitro } from 'nitro/vite'
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  server: {
+    watch: {
+      // Trigger.dev updates active-runs.json when a run starts and finishes.
+      // Those runtime writes must not reload the application during a stream.
+      ignored: ['**/.trigger/**'],
+    },
+  },
   plugins: [
-    workflow(),
     devtools(),
     nitro({
       traceDeps: ["react", "react-dom", "scheduler"],

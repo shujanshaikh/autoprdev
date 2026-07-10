@@ -1,15 +1,62 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CODEX_MODELS,
   addCodexUsageCosts,
   calculateCodexUsageCost,
+  formatCodexModelLabel,
   getCodexModelOptions,
+  getCodexReasoningEfforts,
   isCodexModelId,
   normalizeCodexModelList,
   selectCodexModel,
 } from "./codex-models";
 
 describe("Codex model cost helpers", () => {
+  it("matches the current user-selectable Codex model catalog", () => {
+    expect(CODEX_MODELS.map(({ id, label, contextLimit }) => ({ id, label, contextLimit }))).toEqual([
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 372_000 },
+      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 372_000 },
+      { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 372_000 },
+      { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 272_000 },
+      { id: "gpt-5.4", label: "GPT-5.4", contextLimit: 272_000 },
+      { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", contextLimit: 272_000 },
+      { id: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark", contextLimit: 128_000 },
+    ]);
+  });
+
+  it("matches Codex reasoning support for every model family", () => {
+    expect(getCodexReasoningEfforts("gpt-5.6-sol")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(getCodexReasoningEfforts("gpt-5.6-terra")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(getCodexReasoningEfforts("gpt-5.6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+
+    for (const modelId of ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"]) {
+      expect(getCodexReasoningEfforts(modelId)).toEqual(["low", "medium", "high", "xhigh"]);
+    }
+
+    expect(getCodexReasoningEfforts("gpt-future-account-model")).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
+  it("formats the exact Codex display names", () => {
+    expect(formatCodexModelLabel("gpt-5.6-sol")).toBe("GPT-5.6-Sol");
+    expect(formatCodexModelLabel("gpt-5.4-mini")).toBe("GPT-5.4-Mini");
+    expect(formatCodexModelLabel("gpt-5.3-codex-spark")).toBe("GPT-5.3-Codex-Spark");
+  });
+
   it("charges uncached input, cached input, and output at their own rates", () => {
     const cost = calculateCodexUsageCost("gpt-5.5", {
       inputTokens: 1_000,
@@ -60,11 +107,14 @@ describe("Codex model cost helpers", () => {
   });
 
   it("normalizes model lists returned by discovery", () => {
-    expect(normalizeCodexModelList([" gpt-a ", "", "gpt-b", "gpt-a"])).toEqual(["gpt-a", "gpt-b"]);
+    expect(normalizeCodexModelList([" gpt-a ", "", "codex-auto-review", "gpt-b", "gpt-a"])).toEqual([
+      "gpt-a",
+      "gpt-b",
+    ]);
   });
 
   it("selects from discovered account models without assuming the preferred model exists", () => {
-    expect(selectCodexModel(["gpt-a", "gpt-5.5", "gpt-b"])).toBe("gpt-5.5");
+    expect(selectCodexModel(["gpt-a", "gpt-5.6-sol", "gpt-b"])).toBe("gpt-5.6-sol");
     expect(selectCodexModel(["gpt-a", "gpt-b"])).toBe("gpt-a");
     expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-b")).toBe("gpt-b");
     expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-missing")).toBe("gpt-a");

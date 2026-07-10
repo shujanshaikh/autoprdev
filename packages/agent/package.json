@@ -9,18 +9,19 @@
     "./tools": "./src/tools/index.ts"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@daytona/sdk": "^0.164.0",
     "ai": "^6.0.168",
     "diff": "^8.0.2",
-    "workflow": "^4.2.4",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@autopr/config": "workspace:*",
     "@types/node": "^20",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^4.1.6"
   }
 }

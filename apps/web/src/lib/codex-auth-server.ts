@@ -24,6 +24,7 @@ const CHATGPT_SESSION_COOKIE_NAME = "lwc_session";
 const DEFAULT_CHATGPT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_RESPONSES_RATE_LIMIT = 30;
 const DEFAULT_RESPONSES_RATE_WINDOW_MS = 60 * 1000;
+const DEFAULT_CODEX_CLIENT_VERSION = "0.144.0";
 
 type CodexResponsesModel = ReturnType<ReturnType<typeof createChatGPT>["responses"]>;
 
@@ -87,6 +88,10 @@ function getAllowedModels() {
     .filter(Boolean);
 
   return models.length > 0 ? models : undefined;
+}
+
+function getCodexClientVersion() {
+  return process.env.LWC_CLIENT_VERSION?.trim() || DEFAULT_CODEX_CLIENT_VERSION;
 }
 
 function isResponseStatus(error: unknown, status: number) {
@@ -196,6 +201,7 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
 
 export const chatGPTAuth = createChatGPTHandler({
   basePath: CHATGPT_AUTH_BASE_PATH,
+  clientVersion: getCodexClientVersion(),
   secret: getChatGPTSecret(),
   sessionStore: new WorkOSVaultStore<StoredSession>("session"),
   sessionTtlMs: DEFAULT_CHATGPT_SESSION_TTL_MS,
@@ -323,6 +329,7 @@ export async function createCodexResponsesModel(options: {
 }): Promise<CodexResponsesModel> {
   const authRequest = authRequestFromCookieHeader(options.chatgptCookieHeader);
   const chatgpt = createChatGPT({
+    clientVersion: getCodexClientVersion(),
     defaultModel: options.modelId,
     reasoningEffort: options.reasoningEffort as CreateChatGPTOptions["reasoningEffort"],
     reasoningSummary: "auto",

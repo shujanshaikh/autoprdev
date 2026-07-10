@@ -1,14 +1,17 @@
 import "@tanstack/react-start/server-only";
 
+import { api } from "@autopr/backend/convex/_generated/api";
 import { createChatGPT, type CreateChatGPTOptions } from "@opencoredev/loginwithchatgpt-ai";
 import {
   createChatGPTHandler,
+  type ChatGPTUser,
   type KeyValueStore,
   type RateLimitBucket,
   type StoredSession,
 } from "@opencoredev/loginwithchatgpt-server";
 import { WorkOS } from "@workos-inc/node";
 
+import { convexMutation, convexQuery } from "#/lib/convex-server";
 import {
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
@@ -17,10 +20,17 @@ import {
   normalizeCodexModelList,
   selectCodexModel,
 } from "#/lib/codex-models";
+import {
+  createStoredCodexSessionLink,
+  getCodexSessionCookieHeaders,
+  parseStoredCodexSessionLink,
+  requestWithChatGPTSession,
+  resolveCodexSession,
+} from "#/lib/codex-session";
+import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 
 export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
 
-const CHATGPT_SESSION_COOKIE_NAME = "lwc_session";
 const DEFAULT_CHATGPT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_RESPONSES_RATE_LIMIT = 30;
 const DEFAULT_RESPONSES_RATE_WINDOW_MS = 60 * 1000;
@@ -31,6 +41,9 @@ type CodexResponsesModel = ReturnType<ReturnType<typeof createChatGPT>["response
 type WorkOSVaultObject = {
   id: string;
   value?: string;
+  metadata?: {
+    versionId?: string;
+  };
 };
 
 type WorkOSVault = {
@@ -38,7 +51,8 @@ type WorkOSVault = {
     name: string;
     value: string;
     context: Record<string, string>;
-  }): Promise<{ id: string }>;
+  }): Promise<WorkOSVaultObject>;
+  readObject(input: { id: string }): Promise<WorkOSVaultObject>;
   readObjectByName(name: string): Promise<WorkOSVaultObject>;
   updateObject(input: { id: string; value: string }): Promise<WorkOSVaultObject>;
   deleteObject(input: { id: string }): Promise<void>;
@@ -216,8 +230,152 @@ export const chatGPTAuth = createChatGPTHandler({
   },
 });
 
-export function handleChatGPTAuthRequest(request: Request) {
-  return chatGPTAuth.handler(request);
+async function getCodexCredentialState() {
+  const connection = await convexQuery(api.codexAuth.getConnection, {});
+  if (!connection) {
+    return { connection: undefined, reference: undefined };
+  }
+
+  return {
+    connection,
+    reference: {
+      vaultObjectId: connection.vaultObjectId,
+      vaultVersionId: connection.vaultVersionId,
+    },
+  };
+}
+
+async function readVaultObject(id: string) {
+  return await getWorkOSVault().readObject({ id }).catch((error: unknown) => {
+    if (isMissingVaultObject(error)) {
+      return undefined;
+    }
+    throw error;
+  });
+}
+
+async function loadAccountCodexSessionLink() {
+  const { reference } = await getCodexCredentialState();
+  if (!reference) {
+    return undefined;
+  }
+
+  const object = await readVaultObject(reference.vaultObjectId);
+  if (!object?.value) {
+    return undefined;
+  }
+
+  const link = parseStoredCodexSessionLink(object.value);
+  return link ? { link, reference } : undefined;
+}
+
+async function persistAccountCodexSession(options: {
+  userId: string;
+  sessionCookieHeader: string;
+  user?: ChatGPTUser;
+}) {
+  const value = JSON.stringify(createStoredCodexSessionLink(options.sessionCookieHeader));
+  const { connection, reference } = await getCodexCredentialState();
+  const existingObject = reference ? await readVaultObject(reference.vaultObjectId) : undefined;
+  const existingLink = existingObject?.value
+    ? parseStoredCodexSessionLink(existingObject.value)
+    : undefined;
+
+  if (
+    existingLink?.sessionCookieHeader === options.sessionCookieHeader &&
+    connection &&
+    connection.accountId === options.user?.accountId &&
+    connection.email === options.user?.email
+  ) {
+    return;
+  }
+
+  const vaultObject = existingObject
+    ? await getWorkOSVault().updateObject({ id: existingObject.id, value })
+    : await getWorkOSVault()
+        .createObject({
+          name: vaultObjectName("account-session", options.userId),
+          value,
+          context: {
+            app: "autopr",
+            purpose: "login-with-chatgpt-account-session",
+            userId: options.userId,
+          },
+        })
+        .catch(async (error: unknown) => {
+          if (!isVaultConflict(error)) {
+            throw error;
+          }
+
+          const latest = await getWorkOSVault().readObjectByName(
+            vaultObjectName("account-session", options.userId),
+          );
+          return await getWorkOSVault().updateObject({ id: latest.id, value });
+        });
+
+  await convexMutation(api.codexAuth.upsert, {
+    vaultObjectId: vaultObject.id,
+    vaultVersionId: vaultObject.metadata?.versionId,
+    accountId: options.user?.accountId,
+    email: options.user?.email,
+    expiresAt: Date.now() + DEFAULT_CHATGPT_SESSION_TTL_MS,
+  });
+}
+
+async function resolveAccountCodexSession(request: Request) {
+  const authState = await requireWorkOSAuth();
+  const resolved = await resolveCodexSession({
+    request,
+    getSession: (sessionRequest) => chatGPTAuth.getSession(sessionRequest),
+    loadAccountCookieHeader: async () =>
+      (await loadAccountCodexSessionLink())?.link.sessionCookieHeader,
+  });
+
+  if (resolved?.source === "request" && resolved.session.status === "authenticated") {
+    await persistAccountCodexSession({
+      userId: authState.user.id,
+      sessionCookieHeader: resolved.cookieHeader,
+      user: resolved.session.user,
+    });
+  }
+
+  return resolved;
+}
+
+async function removeAccountCodexSessionLink() {
+  const { reference } = await getCodexCredentialState();
+  if (reference) {
+    await getWorkOSVault()
+      .deleteObject({ id: reference.vaultObjectId })
+      .catch((error: unknown) => {
+        if (!isMissingVaultObject(error)) {
+          throw error;
+        }
+      });
+  }
+
+  await convexMutation(api.codexAuth.remove, {});
+}
+
+export async function handleChatGPTAuthRequest(request: Request) {
+  const route = new URL(request.url).pathname.slice(CHATGPT_AUTH_BASE_PATH.length);
+  if (route === "/logout") {
+    return disconnectCodex(request);
+  }
+
+  if (route === "/login") {
+    await requireWorkOSAuth();
+    return chatGPTAuth.handler(request);
+  }
+
+  const resolved = await resolveAccountCodexSession(request);
+  const response = await chatGPTAuth.handler(resolved?.request ?? request);
+
+  if (route === "/status" && resolved?.session.status === "pending") {
+    await resolveAccountCodexSession(request);
+  }
+
+  return response;
 }
 
 function authRequestFromCookieHeader(cookieHeader: string) {
@@ -235,29 +393,6 @@ function rewriteToChatGPTPath(request: Request, path: string, method = request.m
     method,
     headers: request.headers,
   });
-}
-
-export function getChatGPTSessionCookieHeader(request: Request) {
-  const cookieHeader = request.headers.get("cookie");
-  if (!cookieHeader) {
-    return undefined;
-  }
-
-  const sessionCookie = cookieHeader
-    .split(";")
-    .map((cookie) => cookie.trim())
-    .find((cookie) => cookie.startsWith(`${CHATGPT_SESSION_COOKIE_NAME}=`));
-
-  return sessionCookie;
-}
-
-function requireChatGPTSessionCookieHeader(request: Request) {
-  const cookieHeader = getChatGPTSessionCookieHeader(request);
-  if (!cookieHeader) {
-    throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
-  }
-
-  return cookieHeader;
 }
 
 async function getAvailableModels(request: Request) {
@@ -298,13 +433,14 @@ function normalizeCodexReasoningEffort(modelId: string, reasoningEffort: string 
 }
 
 export async function getCodexConnectionStatus(request: Request) {
-  const session = await chatGPTAuth.getSession(request);
+  const resolved = await resolveAccountCodexSession(request);
 
-  if (session.status !== "authenticated") {
+  if (!resolved || resolved.session.status !== "authenticated") {
     return { connected: false as const };
   }
 
-  const models = await chatGPTAuth.getModels(request)
+  const session = resolved.session;
+  const models = await chatGPTAuth.getModels(resolved.request)
     .then((availableModels) => normalizeCodexModelList(availableModels))
     .catch(() => undefined);
 
@@ -319,7 +455,24 @@ export async function getCodexConnectionStatus(request: Request) {
 }
 
 export async function disconnectCodex(request: Request) {
-  return chatGPTAuth.handler(rewriteToChatGPTPath(request, "/logout", "POST"));
+  await requireWorkOSAuth();
+  const accountLink = await loadAccountCodexSessionLink();
+  const cookieHeaders = getCodexSessionCookieHeaders(
+    request,
+    accountLink?.link.sessionCookieHeader,
+  );
+
+  let response: Response | undefined;
+  for (const cookieHeader of cookieHeaders) {
+    const sessionRequest = requestWithChatGPTSession(request, cookieHeader);
+    response = await chatGPTAuth.handler(
+      rewriteToChatGPTPath(sessionRequest, "/logout", "POST"),
+    );
+  }
+
+  response ??= await chatGPTAuth.handler(rewriteToChatGPTPath(request, "/logout", "POST"));
+  await removeAccountCodexSessionLink();
+  return response;
 }
 
 export async function createCodexResponsesModel(options: {
@@ -365,15 +518,13 @@ export async function createAuthenticatedCodexResponsesModel(options: {
 }
 
 export async function getCodexAgentModelConfig(request: Request, model?: string, reasoningEffort?: string) {
-  const chatgptCookieHeader = requireChatGPTSessionCookieHeader(request);
-  const authRequest = authRequestFromCookieHeader(chatgptCookieHeader);
-  const session = await chatGPTAuth.getSession(authRequest);
+  const resolved = await resolveAccountCodexSession(request);
 
-  if (session.status !== "authenticated") {
+  if (!resolved || resolved.session.status !== "authenticated") {
     throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
   }
 
-  const availableModels = await getAvailableModels(authRequest);
+  const availableModels = await getAvailableModels(resolved.request);
   const modelId = selectAvailableModel(model, availableModels);
   const selectedReasoningEffort = normalizeCodexReasoningEffort(modelId, reasoningEffort);
 
@@ -381,7 +532,7 @@ export async function getCodexAgentModelConfig(request: Request, model?: string,
     provider: "openai-codex" as const,
     modelId,
     reasoningEffort: selectedReasoningEffort,
-    chatgptCookieHeader,
+    chatgptCookieHeader: resolved.cookieHeader,
   };
 }
 

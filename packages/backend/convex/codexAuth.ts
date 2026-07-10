@@ -27,6 +27,29 @@ export const status = query({
   },
 });
 
+export const getConnection = query({
+  args: {},
+  handler: async (ctx) => {
+    const authorId = await requireUserId(ctx);
+    const record = await ctx.db
+      .query("codexCredentials")
+      .withIndex("by_author", (q) => q.eq("authorId", authorId))
+      .unique();
+
+    if (!record) {
+      return undefined;
+    }
+
+    return {
+      vaultObjectId: record.vaultObjectId,
+      vaultVersionId: record.vaultVersionId,
+      accountId: record.accountId,
+      email: record.email,
+      expiresAt: record.expiresAt,
+    };
+  },
+});
+
 export const upsert = mutation({
   args: {
     vaultObjectId: v.string(),

@@ -500,11 +500,6 @@ export const createTurn = mutation({
       );
 
       if (existingAssistant) {
-        if (args.agentPersistenceTokenHash) {
-          await ctx.db.patch(existingAssistant._id, {
-            agentPersistenceTokenHash: args.agentPersistenceTokenHash,
-          });
-        }
         return existingAssistant.messageId;
       }
     }
@@ -514,11 +509,6 @@ export const createTurn = mutation({
     );
 
     if (existingAssistant) {
-      if (args.agentPersistenceTokenHash) {
-        await ctx.db.patch(existingAssistant._id, {
-          agentPersistenceTokenHash: args.agentPersistenceTokenHash,
-        });
-      }
       return existingAssistant.messageId;
     }
 

@@ -468,7 +468,7 @@ export function ThreadChat({
   const imageUploads = usePromptImageUploadManager();
   const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
-  const { refresh: refreshWorkOSAccessToken } = useAccessToken();
+  const { getAccessToken: getWorkOSAccessToken } = useAccessToken();
 
   if (currentRunId) {
     activeRunIdRef.current = currentRunId;
@@ -526,7 +526,10 @@ export function ThreadChat({
         onChatSendMessage: handleChatSendMessage,
         onChatEnd: handleChatEnd,
         prepareSendMessagesRequest: async (options) => {
-          await refreshWorkOSAccessToken();
+          // Ensure the token is usable without rotating the WorkOS session on
+          // every prompt. Forced rotation can briefly disturb active queries
+          // and race AuthKit's focus/visibility session checks.
+          await getWorkOSAccessToken();
 
           return {
             api: options.api,
@@ -546,7 +549,7 @@ export function ThreadChat({
       handleChatEnd,
       handleChatSendMessage,
       prepareReconnectToStreamRequest,
-      refreshWorkOSAccessToken,
+      getWorkOSAccessToken,
       selectedModel,
       selectedReasoningEffort,
     ],
@@ -559,7 +562,9 @@ export function ThreadChat({
     experimental_throttle: 50,
     onError: (chatError) => {
       if (!isExpectedStreamAbort(chatError)) {
-        throw chatError;
+        // useChat records the error after this callback returns. Re-throwing
+        // here rejects the submit lifecycle and can escape route boundaries.
+        console.error("Agent chat stream failed", chatError);
       }
     },
   });

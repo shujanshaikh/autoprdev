@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, TextSearch, X } from "lucide-react";
+import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, List, Loader2, Maximize2, Minimize2, Monitor, MoreHorizontal, Send, Terminal, TextSearch, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
@@ -63,11 +63,13 @@ const THREAD_DIFF_PANEL_TABS: Array<{
   menuLabel: string;
   icon: typeof GitBranch;
 }> = [
-  { kind: "diff", label: "Diffs", menuLabel: "Diffs", icon: GitBranch },
+  { kind: "diff", label: "Git", menuLabel: "Git changes", icon: GitBranch },
   { kind: "pull-request", label: "Pull request", menuLabel: "PR", icon: GitPullRequest },
   { kind: "desktop", label: "Desktop", menuLabel: "Desktop", icon: Monitor },
   { kind: "terminal", label: "Terminal", menuLabel: "New terminal", icon: Terminal },
 ];
+
+const HEADER_SURFACE_KINDS: ThreadDiffPanelTabKind[] = ["diff", "desktop", "terminal", "pull-request"];
 
 const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, string> = {
   diff: "diff",
@@ -476,64 +478,61 @@ export function ThreadDiffPanel({
         </button>
 
         <header className="relative flex shrink-0 flex-col border-b border-border bg-background">
-          <div className="flex h-10 items-center gap-1 border-b border-border px-3">
-            {visibleTabs.map((visibleTab, index) => {
-              const tab = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === visibleTab.kind);
-              if (!tab) return null;
-
-              const Icon = tab.icon;
-              const terminalNumber = visibleTab.kind === "terminal" ? visibleTabs.slice(0, index + 1).filter((candidate) => candidate.kind === "terminal").length : undefined;
-              const label = terminalNumber ? `Terminal ${terminalNumber}` : tab.label;
-
-              return (
-                <div
-                  key={visibleTab.id}
-                  className={cn(
-                    "group/tab inline-flex h-7 items-center border text-xs font-medium transition-colors",
-                    activeTabId === visibleTab.id ? "border-border bg-[color:var(--project-panel-soft)] text-foreground" : "border-transparent text-muted-foreground hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
-                  )}
-                >
-                  <button type="button" onClick={() => selectPanelTab(visibleTab)} className="inline-flex h-full items-center gap-1.5 px-2.5">
-                    <Icon className="size-3.5" aria-hidden="true" />
-                    {label}
-                    {visibleTab.kind === "pull-request" && effectiveStatus === "created" ? (
-                      <span className="ml-0.5 size-1.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
+          <div className="flex h-11 items-center gap-1 border-b border-border px-2.5">
+            <nav aria-label="Workspace surfaces" className="flex min-w-0 items-center gap-0.5 overflow-hidden">
+              {HEADER_SURFACE_KINDS.map((kind) => {
+                const tab = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === kind);
+                if (!tab) return null;
+                const selected = activeTab === kind;
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => {
+                      const installed = kind === "terminal"
+                        ? visibleTabs.find((visibleTab) => visibleTab.id === activeTabId && visibleTab.kind === "terminal") ?? terminalTabs.at(-1)
+                        : visibleTabs.find((visibleTab) => visibleTab.kind === kind);
+                      if (installed) selectPanelTab(installed);
+                      else openPanelTab(kind);
+                    }}
+                    className={cn(
+                      "relative inline-flex h-8 shrink-0 items-center rounded-[9px] px-3 text-[13px] font-medium transition-colors duration-150",
+                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+                      selected
+                        ? "bg-[color:var(--project-panel-soft)] text-foreground"
+                        : "text-muted-foreground hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
+                      kind === "pull-request" && "hidden min-[570px]:inline-flex",
+                    )}
+                  >
+                    {tab.label}
+                    {kind === "pull-request" && effectiveStatus === "created" ? (
+                      <span className="ml-1.5 size-1.5 rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
                     ) : null}
                   </button>
-                  {visibleTabs.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => removePanelTab(visibleTab.id)}
-                      className="mr-1 inline-flex size-4 items-center justify-center text-muted-foreground/60 opacity-70 hover:bg-[color:var(--project-panel-soft)] hover:text-foreground group-hover/tab:opacity-100"
-                      aria-label={`Remove ${label} tab`}
-                    >
-                      <X className="size-3" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
-
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-7" aria-label="Add tab" />}>
-                <Plus className="size-3.5" aria-hidden="true" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-40">
-                {THREAD_DIFF_PANEL_TABS.map((tab) => {
-                  const Icon = tab.icon;
-                  const installed = tab.kind !== "terminal" && visibleTabs.some((visibleTab) => visibleTab.kind === tab.kind);
-                  return (
-                    <DropdownMenuItem key={tab.kind} onClick={() => openPanelTab(tab.kind)}>
-                      <Icon className="size-3.5" aria-hidden="true" />
-                      <span className="flex-1">{tab.menuLabel}</span>
-                      {installed ? <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">added</span> : null}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                );
+              })}
+            </nav>
 
             <div className="ml-auto flex shrink-0 items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8 rounded-[8px] text-muted-foreground hover:text-foreground" aria-label="Surface options" />}>
+                  <MoreHorizontal className="size-4" aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => openPanelTab("terminal")}>
+                    <Terminal className="size-3.5" aria-hidden="true" />
+                    New terminal
+                  </DropdownMenuItem>
+                  {activeTabId ? (
+                    <DropdownMenuItem onClick={() => removePanelTab(activeTabId)}>
+                      <X className="size-3.5" aria-hidden="true" />
+                      Close current surface
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -541,15 +540,15 @@ export function ThreadDiffPanel({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className={cn("size-7", panelMaximized && "bg-[color:var(--project-panel-soft)] text-foreground")}
+                      className={cn("size-8 rounded-[8px] text-muted-foreground hover:text-foreground", panelMaximized && "bg-[color:var(--project-panel-soft)] text-foreground")}
                       onClick={() => onMaximizedChange?.(!panelMaximized)}
                       aria-pressed={panelMaximized}
                       aria-label={panelMaximized ? "Restore surface panel size" : "Maximize surface panel"}
                     >
                       {panelMaximized ? (
-                        <Minimize2 className="size-3.5" aria-hidden="true" />
+                        <Minimize2 className="size-4" aria-hidden="true" />
                       ) : (
-                        <Maximize2 className="size-3.5" aria-hidden="true" />
+                        <Maximize2 className="size-4" aria-hidden="true" />
                       )}
                     </Button>
                   }
@@ -559,8 +558,8 @@ export function ThreadDiffPanel({
                 </TooltipContent>
               </Tooltip>
 
-              <Button type="button" variant="ghost" size="icon" className="size-7 lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close panel">
-                <X className="size-3.5" aria-hidden="true" />
+              <Button type="button" variant="ghost" size="icon" className="size-8 rounded-[8px] text-muted-foreground lg:hidden" onClick={() => onOpenChange(false)} aria-label="Close panel">
+                <X className="size-4" aria-hidden="true" />
               </Button>
             </div>
           </div>

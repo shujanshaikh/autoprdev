@@ -201,6 +201,7 @@ export function ThreadDiffCodeView({
   const { diffStyle, lineDiffType } = usePierreDiffPreferences();
   const viewerRef = useRef<CodeViewHandle<undefined> | null>(null);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const collapseAnchorFrameRef = useRef<number | undefined>(undefined);
   const selectionClearFrameRef = useRef<number | undefined>(undefined);
   const appliedDeepLinkRef = useRef<string | undefined>(undefined);
   const [collapsedEntryIds, setCollapsedEntryIds] = useState<Set<string>>(() => new Set());
@@ -226,6 +227,7 @@ export function ThreadDiffCodeView({
 
   useEffect(() => () => {
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    if (collapseAnchorFrameRef.current !== undefined) cancelAnimationFrame(collapseAnchorFrameRef.current);
     if (selectionClearFrameRef.current !== undefined) cancelAnimationFrame(selectionClearFrameRef.current);
   }, []);
 
@@ -236,12 +238,31 @@ export function ThreadDiffCodeView({
   }, []);
 
   const toggleCollapsed = useCallback((entryId: string) => {
+    const viewer = viewerRef.current?.getInstance();
+    const itemTop = viewer?.getTopForItem(entryId);
+    const shouldAnchor = viewer != null && itemTop != null && itemTop < viewer.getScrollTop();
+
     setCollapsedEntryIds((current) => {
       const next = new Set(current);
       if (next.has(entryId)) next.delete(entryId);
       else next.add(entryId);
       return next;
     });
+
+    if (shouldAnchor) {
+      if (collapseAnchorFrameRef.current !== undefined) {
+        cancelAnimationFrame(collapseAnchorFrameRef.current);
+      }
+      collapseAnchorFrameRef.current = requestAnimationFrame(() => {
+        collapseAnchorFrameRef.current = undefined;
+        viewerRef.current?.scrollTo({
+          type: "item",
+          id: entryId,
+          align: "start",
+          behavior: "instant",
+        });
+      });
+    }
   }, []);
 
   const copyEntryLink = useCallback(async (entry: ThreadDiffEntry, range?: SelectedLineRange) => {

@@ -40,6 +40,66 @@ const CODE_VIEW_CSS = `
 }
 `;
 
+function highlightedRange(element: HTMLElement, fallback: SelectedLineRange): SelectedLineRange {
+  const selectedRows = element.querySelectorAll<HTMLElement>(
+    "[data-gutter] [data-selected-line][data-column-number]",
+  );
+  const additions = new Set<number>();
+  const deletions = new Set<number>();
+  const context = new Set<number>();
+
+  for (const row of selectedRows) {
+    const lineNumber = Number.parseInt(row.dataset.columnNumber ?? "", 10);
+    if (!Number.isFinite(lineNumber)) continue;
+    const lineType = row.dataset.lineType;
+    if (lineType === "change-addition") additions.add(lineNumber);
+    else if (lineType === "change-deletion") deletions.add(lineNumber);
+    else if (lineType === "context" || lineType === "context-expanded") context.add(lineNumber);
+  }
+
+  const fallbackSide = fallback.side ?? "additions";
+  const fallbackEndSide = fallback.endSide ?? fallbackSide;
+  let side = fallbackSide;
+  let numbers: number[];
+
+  if (additions.size > 0 && deletions.size === 0) {
+    side = "additions";
+    numbers = [...additions, ...context];
+  } else if (deletions.size > 0 && additions.size === 0) {
+    side = "deletions";
+    numbers = [...deletions, ...context];
+  } else if (fallbackSide === fallbackEndSide) {
+    side = fallbackSide;
+    numbers = [
+      ...(side === "additions" ? additions : deletions),
+      ...context,
+    ];
+  } else if (additions.size >= deletions.size && additions.size > 0) {
+    side = "additions";
+    numbers = [...additions, ...context];
+  } else if (deletions.size > 0) {
+    side = "deletions";
+    numbers = [...deletions, ...context];
+  } else {
+    numbers = [...context];
+  }
+
+  if (numbers.length === 0) {
+    if (fallbackSide !== fallbackEndSide) return fallback;
+    return {
+      start: Math.min(fallback.start, fallback.end),
+      end: Math.max(fallback.start, fallback.end),
+      side: fallbackSide,
+    };
+  }
+
+  return {
+    start: Math.min(...numbers),
+    end: Math.max(...numbers),
+    side,
+  };
+}
+
 function linkForSelection(entry: ThreadDiffEntry, range?: SelectedLineRange) {
   const url = new URL(window.location.href);
   url.searchParams.set("diff", entry.id);
@@ -222,7 +282,8 @@ export function ThreadDiffCodeView({
       onGutterUtilityClick(range, context) {
         const entry = entryById.get(context.item.id);
         if (entry && context.item.type === "diff") {
-          onAddPromptContext?.(createDiffPromptContext(entry, range));
+          const normalizedRange = context.element ? highlightedRange(context.element, range) : range;
+          onAddPromptContext?.(createDiffPromptContext(entry, normalizedRange));
           if (selectionClearFrameRef.current !== undefined) {
             cancelAnimationFrame(selectionClearFrameRef.current);
           }

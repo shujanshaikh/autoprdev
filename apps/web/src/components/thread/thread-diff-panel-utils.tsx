@@ -187,8 +187,10 @@ export function createDiffPromptContext(
 ): DiffPromptContext {
   const side = range.side ?? "additions";
   const endSide = range.endSide ?? side;
-  const start = Math.max(1, range.start);
-  const end = Math.max(1, range.end);
+  const rawStart = Math.max(1, range.start);
+  const rawEnd = Math.max(1, range.end);
+  const start = side === endSide ? Math.min(rawStart, rawEnd) : rawStart;
+  const end = side === endSide ? Math.max(rawStart, rawEnd) : rawEnd;
   let content: string;
 
   if (side === endSide) {

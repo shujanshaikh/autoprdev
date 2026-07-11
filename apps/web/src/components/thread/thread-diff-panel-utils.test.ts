@@ -41,6 +41,17 @@ describe("diff prompt contexts", () => {
     expect(context.content).toBe("2: const value = 2;\n3: const last = 3;");
   });
 
+  it("normalizes a reverse-direction selection before creating its label", () => {
+    const context = createDiffPromptContext(entry, {
+      start: 58,
+      end: 40,
+      side: "additions",
+    });
+
+    expect(context.start).toBe(40);
+    expect(context.end).toBe(58);
+  });
+
   it("serializes references after the user's prompt", () => {
     const context = createDiffPromptContext(entry, {
       start: 2,

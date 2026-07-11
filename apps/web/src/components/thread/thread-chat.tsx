@@ -28,9 +28,10 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
-import { FileCode2, Video, X } from "lucide-react";
+import { Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
 import {
   AGENT_CHAT_OPERATION_HEADER,
@@ -329,7 +330,7 @@ function DiffPromptContextChips({
       className="inline-flex h-7 max-w-full items-center gap-1 rounded-[6px] border border-blue-500/20 bg-blue-500/15 pl-2 pr-1 text-blue-700 dark:text-blue-200"
       title={`${context.file}:${context.start}-${context.end}`}
     >
-      <FileCode2 className="size-3.5 shrink-0 text-blue-500" aria-hidden="true" />
+      <FileTypeIcon file={context.file} className="size-3.5 shrink-0" />
       <span className="truncate font-mono text-[11px] font-medium">
         {formatDiffPromptContextLabel(context)}
       </span>

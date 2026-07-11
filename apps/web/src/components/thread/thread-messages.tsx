@@ -175,11 +175,11 @@ function UserMessageCopyButton({ text }: { text: string }) {
   const Icon = copied ? Check : Copy;
 
   return (
-    <MessageFooter className="absolute -bottom-8 right-0 p-0 opacity-0 transition group-hover/user-message:opacity-100 focus-within:opacity-100">
+    <MessageFooter className="mt-1 p-0 opacity-0 transition-opacity duration-150 group-hover/user-message:opacity-100 focus-within:opacity-100">
       <MessageActions>
         <MessageAction
           aria-label={copied ? "Copied message" : "Copy message"}
-          className="size-6 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+          className="size-6 disabled:cursor-not-allowed disabled:opacity-30"
           disabled={!text}
           label={copied ? "Copied message" : "Copy message"}
           onClick={() => void copyMessage()}
@@ -208,7 +208,7 @@ function ImageAttachmentPreview({
           <button
             type="button"
             className={cn(
-              "block overflow-hidden rounded-sm border border-border bg-[color:var(--project-panel-soft)] transition hover:border-border hover:bg-[color:var(--project-panel-soft)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+              "block overflow-hidden rounded-[var(--radius-lg)] border border-border/50 bg-muted/30 transition hover:border-border/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/40",
               className
             )}
             aria-label="Open image preview"
@@ -221,7 +221,7 @@ function ImageAttachmentPreview({
           src={src}
         />
       </DialogTrigger>
-      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden border-border bg-background p-0 sm:max-w-[calc(100vw-2rem)]" showCloseButton>
+      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-[var(--radius-xl)] border-border/60 bg-background p-0 sm:max-w-[calc(100vw-2rem)]" showCloseButton>
         <DialogTitle className="sr-only">{alt}</DialogTitle>
         <div className="max-h-[calc(100vh-2rem)] overflow-auto bg-muted/30 p-2">
           <img
@@ -289,9 +289,13 @@ function ExploreToolGroup({
 function ThreadHandoffPreview({ prompt }: { prompt: string }) {
   return (
     <div className="message-enter-user">
-      <div className="mx-auto w-full min-w-0 max-w-[680px] px-6 py-4 sm:px-8">
-        <div className="group/user-message relative min-w-0 rounded-sm border border-border bg-card p-4">
-          <p className="break-words text-[15px] leading-[1.7] text-foreground [overflow-wrap:anywhere]">{prompt}</p>
+      <div className="mx-auto flex w-full min-w-0 max-w-[680px] justify-end px-6 py-3 sm:px-8">
+        <div className="group/user-message relative w-fit max-w-[min(100%,36rem)]">
+          <div className="rounded-[var(--radius-xxl)] border border-border/45 bg-muted/45 px-3.5 py-2.5 dark:bg-muted/30">
+            <p className="break-words text-[14px] leading-[1.65] text-foreground [overflow-wrap:anywhere]">
+              {prompt}
+            </p>
+          </div>
           <UserMessageCopyButton text={prompt} />
         </div>
       </div>
@@ -304,13 +308,13 @@ function AwaitingAgentIndicator({ startedAt }: { startedAt?: number }) {
 
   return (
     <output aria-live="polite" aria-label="Agent is thinking">
-      <div className="mx-auto max-w-[680px] px-6 py-2 sm:px-8">
+      <div className="mx-auto max-w-[680px] px-6 py-2.5 sm:px-8">
         <div className="flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.2s]" />
-          <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.1s]" />
-          <span className="size-1.5 rounded-full bg-muted-foreground/55 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite]" />
+          <span className="size-1.5 rounded-full bg-muted-foreground/50 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.2s]" />
+          <span className="size-1.5 rounded-full bg-muted-foreground/50 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite] [animation-delay:-0.1s]" />
+          <span className="size-1.5 rounded-full bg-muted-foreground/50 motion-safe:animate-[pulse_1s_cubic-bezier(0.16,1,0.3,1)_infinite]" />
           {elapsedSeconds !== undefined ? (
-            <span className="ml-2 font-mono text-[11px] text-muted-foreground/70 tabular-nums">
+            <span className="ml-2 text-xs text-muted-foreground/70 tabular-nums">
               Working for {formatRunDuration(elapsedSeconds)}
             </span>
           ) : null}
@@ -389,24 +393,24 @@ function AssistantRunTimerRow({
 
   if (!hasDetails) {
     return (
-      <div className="mb-3 flex w-full flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 pb-3 text-sm font-medium text-muted-foreground/80">
+      <div className="mb-2.5 flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground/75">
         {summary}
       </div>
     );
   }
 
   return (
-    <Collapsible className="group mb-3 w-full border-b border-border/60" defaultOpen={false}>
-      <CollapsibleTrigger className="flex w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 pb-3 text-left text-sm font-medium text-muted-foreground/80 outline-none transition-colors hover:text-foreground/85 focus-visible:ring-1 focus-visible:ring-ring">
+    <Collapsible className="group mb-2.5 w-full" defaultOpen={false}>
+      <CollapsibleTrigger className="flex w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 text-left text-xs font-medium text-muted-foreground/75 outline-none transition-colors hover:text-foreground/85 focus-visible:ring-1 focus-visible:ring-ring/40">
         <ChevronDown
-          className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-data-[state=open]:rotate-180"
+          className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-data-[state=open]:rotate-180"
           aria-hidden="true"
         />
         {summary}
         <span className="sr-only">Toggle run details</span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="overflow-hidden pb-3 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
-        <div className="space-y-1.5 border-l border-border/30 pl-3">
+      <CollapsibleContent className="overflow-hidden pt-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
+        <div className="space-y-1.5 border-l border-border/25 pl-3">
           {children}
         </div>
       </CollapsibleContent>
@@ -787,49 +791,63 @@ export function ThreadMessages({
             <Message
               from={message.role}
               className={cn(
-                "mx-auto w-full min-w-0 max-w-[680px] px-6 py-4 sm:px-8",
-                isUser && imageFileItems.length > 0 && "pt-28 sm:pt-32"
+                "mx-auto w-full min-w-0 max-w-[680px] px-6 py-3 sm:px-8",
+                isUser ? "py-2.5" : "py-3.5",
               )}
             >
-              {imageFileItems.length > 0 ? (
-                <div className="absolute right-8 top-4 z-10 flex max-w-[calc(100%-4rem)] flex-row-reverse flex-wrap gap-2 sm:right-10">
-                  {imageFileItems.map((item) => {
-                    if (item.kind !== "single" || !isFileUIPart(item.part)) {
-                      return null;
-                    }
+              <MessageContent
+                className={cn(
+                  "gap-1.5 overflow-visible",
+                  isUser && "group/user-message relative",
+                )}
+              >
+                {imageFileItems.length > 0 ? (
+                  <div className="flex max-w-full flex-row-reverse flex-wrap gap-2">
+                    {imageFileItems.map((item) => {
+                      if (item.kind !== "single" || !isFileUIPart(item.part)) {
+                        return null;
+                      }
 
-                    return (
-                      <ImageAttachmentPreview
-                        key={`${message.id}-floating-file-${item.stableKey}`}
-                        alt={item.part.filename ?? "Attached image"}
-                        className="h-20 w-28 sm:h-24 sm:w-36"
-                        src={item.part.url}
-                      />
-                    );
-                  })}
-                </div>
-              ) : null}
-              <MessageContent className={cn("gap-1 overflow-visible", isUser && "group/user-message relative")}>
-                <div className={cn("min-w-0 max-w-full", isUser && "rounded-sm border border-border bg-card p-4 [overflow-wrap:anywhere]")}>
-                {!isUser ? (
-                  <MessageHeader className="block max-w-none p-0 text-inherit">
-                    <AssistantRunTimerRow
-                      active={message.id === activeAssistantMessageId}
-                      detailsCount={runDetailItems.length}
-                      metadata={message.metadata}
-                      modelId={modelId}
-                      startedAt={activeRunStartedAt}
-                    >
-                      {runDetailItems.map((item) => renderGroupedItem(item, "run-details"))}
-                    </AssistantRunTimerRow>
-                  </MessageHeader>
+                      return (
+                        <ImageAttachmentPreview
+                          key={`${message.id}-floating-file-${item.stableKey}`}
+                          alt={item.part.filename ?? "Attached image"}
+                          className="h-20 w-28 sm:h-24 sm:w-36"
+                          src={item.part.url}
+                        />
+                      );
+                    })}
+                  </div>
                 ) : null}
-                {!isUser ? recordingItems.map(renderRecordingItem) : null}
-                {mainDisplayGrouped.map((item) => renderGroupedItem(item, "main"))}
-                {!isUser ? (
-                  <ThreadChangedFiles files={changedFiles} onSelect={onSelectChangedFile} />
+                {!isUser || mainDisplayGrouped.length > 0 ? (
+                  <div
+                    className={cn(
+                      "min-w-0 max-w-full",
+                      isUser
+                        ? "rounded-[var(--radius-xxl)] border border-border/45 bg-muted/45 px-3.5 py-2.5 text-[14px] leading-[1.65] text-foreground [overflow-wrap:anywhere] dark:bg-muted/30"
+                        : "w-full",
+                    )}
+                  >
+                    {!isUser ? (
+                      <MessageHeader className="block max-w-none p-0 text-inherit">
+                        <AssistantRunTimerRow
+                          active={message.id === activeAssistantMessageId}
+                          detailsCount={runDetailItems.length}
+                          metadata={message.metadata}
+                          modelId={modelId}
+                          startedAt={activeRunStartedAt}
+                        >
+                          {runDetailItems.map((item) => renderGroupedItem(item, "run-details"))}
+                        </AssistantRunTimerRow>
+                      </MessageHeader>
+                    ) : null}
+                    {!isUser ? recordingItems.map(renderRecordingItem) : null}
+                    {mainDisplayGrouped.map((item) => renderGroupedItem(item, "main"))}
+                    {!isUser ? (
+                      <ThreadChangedFiles files={changedFiles} onSelect={onSelectChangedFile} />
+                    ) : null}
+                  </div>
                 ) : null}
-                </div>
                 {isUser ? <UserMessageCopyButton text={messageText} /> : null}
               </MessageContent>
             </Message>
@@ -840,8 +858,10 @@ export function ThreadMessages({
   
     {error ? (
       <div className="w-full min-w-0 max-w-full" role="alert">
-        <div className="mx-auto w-full min-w-0 max-w-[680px] px-6 py-4 sm:px-8">
-          <p className="break-words text-[13px] font-medium text-destructive [overflow-wrap:anywhere]">{error.message}</p>
+        <div className="mx-auto w-full min-w-0 max-w-[680px] px-6 py-3 sm:px-8">
+          <div className="rounded-[var(--radius-lg)] border border-destructive/25 bg-destructive/5 px-3.5 py-2.5">
+            <p className="break-words text-[13px] text-destructive [overflow-wrap:anywhere]">{error.message}</p>
+          </div>
         </div>
       </div>
     ) : null}

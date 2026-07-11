@@ -73,11 +73,11 @@ export const ConversationEmptyState = ({
   >
     {children ?? (
       <>
-        {icon && <div className="text-muted-foreground/50">{icon}</div>}
-        <div className="space-y-1">
-          <h3 className="font-medium text-sm">{title}</h3>
+        {icon && <div className="text-muted-foreground/45">{icon}</div>}
+        <div className="space-y-1.5">
+          <h3 className="text-sm font-medium text-foreground/90">{title}</h3>
           {description && (
-            <p className="text-muted-foreground text-sm">{description}</p>
+            <p className="max-w-xs text-sm text-muted-foreground/80">{description}</p>
           )}
         </div>
       </>
@@ -110,7 +110,7 @@ export const ConversationScrollButton = ({
         />
       }
       className={cn(
-        "absolute bottom-4 left-[50%] z-10 translate-x-[-50%] rounded-full transition data-[active=false]:pointer-events-none data-[active=false]:opacity-0",
+        "absolute bottom-4 left-[50%] z-10 size-9 translate-x-[-50%] rounded-full border-border/60 bg-background/90 shadow-sm backdrop-blur-sm transition data-[active=false]:pointer-events-none data-[active=false]:opacity-0",
         className
       )}
       {...props}

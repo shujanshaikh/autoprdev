@@ -729,18 +729,18 @@ function ProjectOverviewPage() {
                           onChange={handlePromptImageInputChange}
                         />
                         <div
-                          className={`rounded-sm border bg-card transition-shadow ${isFocused
-                            ? "border-primary/40 shadow-[0_0_0_3px_color-mix(in_srgb,var(--ring)_16%,transparent)]"
-                            : "border-border hover:border-border/80"
+                          className={`overflow-hidden rounded-[var(--radius-xxl)] border bg-muted/35 transition-[border-color,background-color,box-shadow] duration-200 dark:bg-muted/20 ${isFocused
+                            ? "border-border/80 bg-muted/45 shadow-[0_0_0_3px_color-mix(in_srgb,var(--ring)_12%,transparent)] dark:bg-muted/30"
+                            : "border-border/55 hover:border-border/70"
                             }`}
                         >
-                          <CodexPromptConnectionLine issue={codexPromptIssue} />
+                          <CodexPromptConnectionLine issue={codexPromptIssue} className="rounded-t-[var(--radius-xxl)] border-b-border/40 bg-transparent px-3.5" />
                           {promptImages.length > 0 ? (
-                            <div className="flex flex-wrap gap-2 px-3.5 pt-3.5">
+                            <div className="flex flex-wrap gap-2 px-3.5 pt-3">
                               {promptImages.map((image) => (
                                 <div
                                   key={image.id}
-                                  className="group/image relative size-16 overflow-hidden border border-border bg-muted"
+                                  className="group/image relative size-14 overflow-hidden rounded-[var(--radius-md)] border border-border/50 bg-muted"
                                 >
                                   <img
                                     alt={image.filename}
@@ -778,7 +778,7 @@ function ProjectOverviewPage() {
                             </div>
                           ) : null}
 
-                          <div className={`px-4 pb-2 ${promptImages.length > 0 ? "pt-2.5" : "pt-3.5"}`}>
+                          <div className={`px-3.5 pb-1 ${promptImages.length > 0 ? "pt-2" : "pt-3"}`}>
                             <textarea
                               aria-label="Thread prompt"
                               ref={textareaRef}
@@ -797,19 +797,19 @@ function ProjectOverviewPage() {
                                 }
                               }}
                               className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50"
-                              style={{ minHeight: "24px", maxHeight: "160px" }}
+                              style={{ minHeight: "28px", maxHeight: "160px" }}
                             />
                           </div>
 
-                          <div className="flex items-center justify-between gap-2 px-3 py-2">
-                            <div className="flex min-w-0 flex-wrap items-center gap-1">
+                          <div className="flex items-center justify-between gap-1.5 px-2 pb-2 pt-0.5">
+                            <div className="flex min-w-0 flex-wrap items-center gap-0.5">
                               <button
                                 type="button"
                                 aria-label="Add photos"
                                 title="Add photos"
                                 onClick={() => promptImageInputRef.current?.click()}
                                 disabled={promptControlsDisabled}
-                                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-transparent bg-transparent text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/70 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 dark:bg-muted/40"
                               >
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
                               </button>
@@ -819,7 +819,7 @@ function ProjectOverviewPage() {
                               >
                                 <SelectTrigger
                                   size="sm"
-                                  className="h-7 max-w-[10rem] border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
+                                  className="h-7 max-w-[10rem] gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5"
                                   disabled={promptControlsDisabled || modelOptions.length === 0}
                                   aria-label="Model"
                                 >
@@ -827,9 +827,9 @@ function ProjectOverviewPage() {
                                     {formatCodexModelLabel(selectedModel)}
                                   </SelectValue>
                                 </SelectTrigger>
-                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-52 min-w-52 p-1">
+                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-52 min-w-52 rounded-[var(--radius-lg)] p-1">
                                   {modelOptions.map((model) => (
-                                    <SelectItem key={model} value={model} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                                    <SelectItem key={model} value={model} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
                                       <span className="min-w-0 truncate font-medium">
                                         {formatCodexModelLabel(model)}
                                       </span>
@@ -843,7 +843,7 @@ function ProjectOverviewPage() {
                               >
                                 <SelectTrigger
                                   size="sm"
-                                  className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
+                                  className="h-7 max-w-24 gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5"
                                   disabled={promptControlsDisabled}
                                   aria-label="Reasoning level"
                                 >
@@ -851,9 +851,9 @@ function ProjectOverviewPage() {
                                     {getCodexReasoningEffortLabel(selectedReasoningEffort)}
                                   </SelectValue>
                                 </SelectTrigger>
-                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-36 min-w-36 p-1">
+                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-36 min-w-36 rounded-[var(--radius-lg)] p-1">
                                   {selectedReasoningEfforts.map((effort) => (
-                                    <SelectItem key={effort} value={effort} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                                    <SelectItem key={effort} value={effort} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
                                       <span className="font-medium">
                                         {getCodexReasoningEffortLabel(effort)}
                                       </span>
@@ -871,10 +871,10 @@ function ProjectOverviewPage() {
                                       aria-checked={effectiveDemoEnabled}
                                       onClick={() => setDemoEnabled((enabled) => !enabled)}
                                       disabled={promptControlsDisabled}
-                                      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] border px-2 font-mono text-[10px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                      className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-pill)] px-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                                         effectiveDemoEnabled
-                                          ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
-                                          : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                                          ? "text-primary hover:text-primary"
+                                          : "text-muted-foreground hover:text-foreground"
                                       }`}
                                     >
                                       <Video className="size-3.5" aria-hidden="true" />
@@ -882,7 +882,7 @@ function ProjectOverviewPage() {
                                     </button>
                                   }
                                 />
-                                <TooltipContent side="top" align="start" className="max-w-64 rounded-none">
+                                <TooltipContent side="top" align="start" className="max-w-64 rounded-[var(--radius-md)]">
                                   {effectiveDemoEnabled
                                     ? "Experimental: new threads will record a Daytona browser demo and may fail."
                                     : "Allow the agent to record an experimental Daytona browser demo for new threads."}
@@ -893,7 +893,7 @@ function ProjectOverviewPage() {
                             <button
                               type="submit"
                               disabled={promptControlsDisabled}
-                              className="inline-flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+                              className="inline-flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-none transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
                             >
                               <ArrowUp className="size-3.5" aria-hidden="true" />
                             </button>

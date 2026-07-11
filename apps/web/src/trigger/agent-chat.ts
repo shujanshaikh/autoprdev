@@ -3,14 +3,19 @@ import {
   CodingHarness,
   createCachedSystemMessage,
   createDaytonaTools,
+  DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { chat } from "@trigger.dev/sdk/ai";
 import { fetchAction } from "convex/nextjs";
-import { stepCountIs, streamText, type UIMessage } from "ai";
+import { stepCountIs, streamText, type UIMessage, wrapLanguageModel } from "ai";
 import { z } from "zod";
 
+import {
+  createAgentContextCompactor,
+  createContextOverflowRecoveryMiddleware,
+} from "#/lib/agent-context-compaction";
 import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
 import {
   agentRunIssueFromError,
@@ -27,6 +32,7 @@ import {
   type StoredMessageRow,
 } from "#/lib/chat-messages";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
+import { getCodexContextLimit } from "#/lib/codex-models";
 import {
   AGENT_CHAT_TASK_ID,
   type AgentChatClientData,
@@ -97,7 +103,7 @@ function codexPromptCacheKey(clientData: AgentChatClientData) {
 
 function demoInstructions(clientData: AgentChatClientData) {
   return clientData.demoEnabled
-    ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview in Google Chrome and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly. The chat UI embeds the recording automatically from tool output; do not print raw recording URLs, IDs, file paths, or metadata unless the user explicitly asks for them. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+    ? DEMO_RECORDING_INSTRUCTIONS
     : undefined;
 }
 
@@ -230,7 +236,10 @@ export const agentChatTask = chat.agent({
     };
     const startedAt = Date.now();
     const { instructions } = await harness.prepare();
-    const model = await createCodexResponsesModel(codex);
+    const model = wrapLanguageModel({
+      model: await createCodexResponsesModel(codex),
+      middleware: createContextOverflowRecoveryMiddleware(),
+    });
 
     return streamText({
       ...chat.toStreamTextOptions({ tools }),
@@ -242,6 +251,11 @@ export const agentChatTask = chat.agent({
       stopWhen: stepCountIs(MAX_AGENT_STEPS),
       maxRetries: 1,
       abortSignal: signal,
+      prepareStep: createAgentContextCompactor({
+        contextWindow: getCodexContextLimit(codex.modelId),
+        systemPrompt: instructions,
+        abortSignal: signal,
+      }),
       onFinish: ({ steps }) => {
         turnState.usageMetadata = createAssistantUsageMetadata(
           steps,

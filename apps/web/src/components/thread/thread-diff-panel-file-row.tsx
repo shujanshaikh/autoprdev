@@ -36,25 +36,29 @@ function StatusIcon({ status, file }: { status: ThreadDiffEntry["status"]; file:
   return <FileTypeIcon file={file} className={shared} />;
 }
 
-import { ChevronDown, ChevronRight, FilePlus2, FileX2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FilePlus2, FileX2 } from "lucide-react";
 
 export function ThreadDiffFileRow({
   entry,
   active,
   expanded,
   onSelect,
+  viewed,
+  onViewedChange,
   showTurn,
 }: {
   entry: ThreadDiffEntry;
   active: boolean;
   expanded: boolean;
   onSelect: () => void;
+  viewed: boolean;
+  onViewedChange: (viewed: boolean) => void;
   showTurn: boolean;
 }) {
   const { name } = pathParts(entry.file);
 
   return (
-    <div>
+    <div className="group/row relative flex items-stretch">
       <button
         type="button"
         role="option"
@@ -62,7 +66,7 @@ export function ThreadDiffFileRow({
         title={entry.file}
         onClick={onSelect}
         className={cn(
-          "group/row relative flex w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+          "relative flex min-w-0 flex-1 items-center gap-2 rounded-l-sm py-2 pr-1 pl-2.5 text-left transition-colors duration-150 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
           active ? "bg-[color:var(--project-selected)]" : "bg-card hover:bg-[color:var(--project-panel-soft)]",
         )}
       >
@@ -91,6 +95,22 @@ export function ThreadDiffFileRow({
           ) : null}
           <InlineStatDots additions={entry.additions} deletions={entry.deletions} />
         </span>
+      </button>
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={viewed}
+        aria-label={viewed ? `Mark ${entry.file} unviewed` : `Mark ${entry.file} viewed`}
+        title={viewed ? "Mark unviewed" : "Mark viewed"}
+        onClick={() => onViewedChange(!viewed)}
+        className={cn(
+          "m-1.5 ml-0 inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--cohere-form-focus)]",
+          viewed
+            ? "border-blue-500/70 bg-blue-500 text-white hover:bg-blue-500/85"
+            : "border-border bg-background text-transparent hover:border-blue-500/60 hover:text-blue-500/35",
+        )}
+      >
+        <Check className="size-4" strokeWidth={2.5} aria-hidden="true" />
       </button>
     </div>
   );

@@ -1,10 +1,19 @@
 import { Button } from "@autopr/ui/components/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
-import { MessageScroller } from "@shadcn/react/message-scroller";
+import {
+  MessageScroller,
+  useMessageScroller,
+  useMessageScrollerVisibility,
+} from "@shadcn/react/message-scroller";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 export type ConversationProps = ComponentProps<typeof MessageScroller.Root>;
 
@@ -73,11 +82,11 @@ export const ConversationEmptyState = ({
   >
     {children ?? (
       <>
-        {icon && <div className="text-muted-foreground/50">{icon}</div>}
-        <div className="space-y-1">
-          <h3 className="font-medium text-sm">{title}</h3>
+        {icon && <div className="text-muted-foreground/45">{icon}</div>}
+        <div className="space-y-1.5">
+          <h3 className="text-sm font-medium text-foreground/90">{title}</h3>
           {description && (
-            <p className="text-muted-foreground text-sm">{description}</p>
+            <p className="max-w-xs text-sm text-muted-foreground/80">{description}</p>
           )}
         </div>
       </>
@@ -110,13 +119,96 @@ export const ConversationScrollButton = ({
         />
       }
       className={cn(
-        "absolute bottom-4 left-[50%] z-10 translate-x-[-50%] rounded-full transition data-[active=false]:pointer-events-none data-[active=false]:opacity-0",
+        "absolute bottom-4 left-[50%] z-10 size-9 translate-x-[-50%] rounded-full border-border/60 bg-background/90 shadow-sm backdrop-blur-sm transition data-[active=false]:pointer-events-none data-[active=false]:opacity-0",
         className
       )}
       {...props}
     >
       {children ?? <ArrowDownIcon className="size-4" />}
     </MessageScroller.Button>
+  );
+};
+
+export type ConversationMessageNavigationProps = ComponentProps<"nav"> & {
+  messages: Array<{ id: string; preview: string }>;
+};
+
+export const ConversationMessageNavigation = ({
+  className,
+  messages,
+  ...props
+}: ConversationMessageNavigationProps) => {
+  const { scrollToMessage } = useMessageScroller();
+  const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
+  const messageIds = useMemo(() => messages.map(({ id }) => id), [messages]);
+  const visibleMessageIdSet = useMemo(() => new Set(visibleMessageIds), [visibleMessageIds]);
+  const currentIndex = useMemo(() => {
+    const anchorIndex = currentAnchorId ? messageIds.indexOf(currentAnchorId) : -1;
+    if (anchorIndex >= 0) {
+      return anchorIndex;
+    }
+
+    const firstVisibleIndex = messageIds.findIndex((id) => visibleMessageIdSet.has(id));
+    return firstVisibleIndex >= 0 ? firstVisibleIndex : messageIds.length - 1;
+  }, [currentAnchorId, messageIds, visibleMessageIdSet]);
+  const goToMessage = useCallback(
+    (index: number) => {
+      const messageId = messageIds[index];
+      if (messageId) {
+        scrollToMessage(messageId, { align: "start", behavior: "smooth" });
+      }
+    },
+    [messageIds, scrollToMessage],
+  );
+
+  if (messageIds.length < 2) {
+    return null;
+  }
+
+  return (
+    <nav
+      aria-label="Navigate user messages"
+      className={cn(
+        "absolute left-1.5 top-1/2 z-10 flex max-h-1/2 -translate-y-1/2 flex-col items-start overflow-y-auto py-1 sm:left-2",
+        className,
+      )}
+      {...props}
+    >
+      {messages.map(({ id: messageId, preview }, index) => {
+        const isCurrent = index === currentIndex;
+
+        return (
+          <Tooltip key={messageId}>
+            <TooltipTrigger
+              render={
+                <button
+                  aria-current={isCurrent ? "step" : undefined}
+                  aria-label={`Go to user message ${index + 1} of ${messageIds.length}: ${preview}`}
+                  className="group flex h-3 w-8 items-center rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+                  onClick={() => goToMessage(index)}
+                  type="button"
+                >
+                  <span
+                    className={cn(
+                      "h-0.5 rounded-full bg-muted-foreground/35 transition-[width,background-color] duration-150 motion-reduce:transition-none group-hover:bg-muted-foreground/70",
+                      isCurrent ? "w-6 bg-foreground/60" : "w-3.5",
+                    )}
+                  />
+                </button>
+              }
+            />
+            <TooltipContent
+              align="center"
+              className="max-w-72 rounded-[var(--radius-md)] px-2.5 py-2 text-[11px] leading-relaxed"
+              side="right"
+              sideOffset={7}
+            >
+              <span className="line-clamp-4 [overflow-wrap:anywhere]">{preview}</span>
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </nav>
   );
 };
 

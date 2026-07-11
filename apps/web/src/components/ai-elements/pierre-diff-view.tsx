@@ -3,9 +3,10 @@ import {
   PatchDiff,
   Virtualizer,
   WorkerPoolContextProvider,
+  useWorkerPool,
   type FileContents,
 } from "@pierre/diffs/react";
-import { DEFAULT_THEMES, type FileDiffOptions, type ThemeTypes } from "@pierre/diffs";
+import { DEFAULT_THEMES, type FileDiffOptions, type SelectedLineRange, type ThemeTypes } from "@pierre/diffs";
 import { useTheme } from "next-themes";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -75,6 +76,16 @@ const DIFF_HIGHLIGHTER_OPTIONS = {
   tokenizeMaxLineLength: 1000,
 };
 
+function WorkerRenderOptionsSync({ lineDiffType }: { lineDiffType: PierreLineDiffType }) {
+  const workerPool = useWorkerPool();
+
+  useEffect(() => {
+    void workerPool?.setRenderOptions({ lineDiffType });
+  }, [lineDiffType, workerPool]);
+
+  return null;
+}
+
 export function PierreDiffWorkerPoolProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<PierreDiffPreferenceState>(readStoredDiffPreferences);
 
@@ -106,6 +117,7 @@ export function PierreDiffWorkerPoolProvider({ children }: { children: ReactNode
 
   return (
     <WorkerPoolContextProvider poolOptions={DIFF_WORKER_POOL_OPTIONS} highlighterOptions={DIFF_HIGHLIGHTER_OPTIONS}>
+      <WorkerRenderOptionsSync lineDiffType={preferences.lineDiffType} />
       <PierreDiffPreferencesContext.Provider value={preferenceValue}>
         {children}
       </PierreDiffPreferencesContext.Provider>
@@ -163,6 +175,7 @@ export function PierreDiffView({
   newContent,
   diffStyle = "unified",
   lineDiffType = "none",
+  onAddLineContext,
 }: {
   patch?: string;
   fileName?: string;
@@ -170,10 +183,10 @@ export function PierreDiffView({
   newContent?: string;
   diffStyle?: PierreDiffStyle;
   lineDiffType?: PierreLineDiffType;
+  onAddLineContext?: (range: SelectedLineRange) => void;
 }) {
   const { resolvedTheme } = useTheme();
   const themeType: ThemeTypes = resolvedTheme === "light" ? "light" : "dark";
-  const disableWorkerPool = lineDiffType !== "none";
   const changes = changedLineCount(patch);
   const requiresOptIn = changes > MAX_AUTO_RENDERED_CHANGED_LINES;
   const [optedIn, setOptedIn] = useState(false);
@@ -188,6 +201,9 @@ export function PierreDiffView({
       diffStyle,
       diffIndicators: "bars",
       lineHoverHighlight: "both",
+      enableLineSelection: Boolean(onAddLineContext),
+      enableGutterUtility: Boolean(onAddLineContext),
+      onGutterUtilityClick: onAddLineContext,
       disableBackground: false,
       expansionLineCount: 20,
       hunkSeparators: "line-info-basic",
@@ -196,7 +212,7 @@ export function PierreDiffView({
       tokenizeMaxLineLength: 1000,
       disableFileHeader: true,
     }),
-    [diffStyle, lineDiffType, themeType],
+    [diffStyle, lineDiffType, onAddLineContext, themeType],
   );
 
   if (requiresOptIn && !optedIn) {
@@ -238,14 +254,14 @@ export function PierreDiffView({
 
   return (
     <Virtualizer
-      className="pierre-diff-virtualizer minimal-scrollbar max-h-[min(65vh,620px)] min-h-0 overflow-auto overscroll-contain bg-background"
+      className="pierre-diff-virtualizer minimal-scrollbar max-h-[min(65vh,620px)] min-h-0 overflow-auto overscroll-contain bg-background [contain:layout_paint_style] [overflow-anchor:none] [will-change:scroll-position]"
       contentClassName="min-w-0"
     >
       <div className="pierre-diff-view min-w-0">
         {patch ? (
-          <PatchDiff patch={patch} options={diffOptions} disableWorkerPool={disableWorkerPool} />
+          <PatchDiff patch={patch} options={diffOptions} />
         ) : (
-          <MultiFileDiff oldFile={before} newFile={after} options={diffOptions} disableWorkerPool={disableWorkerPool} />
+          <MultiFileDiff oldFile={before} newFile={after} options={diffOptions} />
         )}
       </div>
     </Virtualizer>

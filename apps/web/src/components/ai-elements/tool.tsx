@@ -6,7 +6,7 @@ import {
 import { cn } from "@autopr/ui/lib/utils";
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import { ChevronDown } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
@@ -16,6 +16,7 @@ import {
   isDemoRecordingMetadata,
   type DemoRecordingMetadata,
 } from "@/lib/chat-messages";
+import { FileTypeIcon, pathParts } from "@/lib/file-type-icon";
 import { CodeBlock } from "./code-block";
 import { PierreDiffView, usePierreDiffPreferences } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
@@ -536,7 +537,15 @@ function ToolDiffPartialNotice() {
   );
 }
 
-export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
+export function ToolDiffView({
+  diff,
+  pathLine,
+  onAddLineContext,
+}: {
+  diff: ToolDiffPayload;
+  pathLine?: string;
+  onAddLineContext?: (range: import("@pierre/diffs").SelectedLineRange) => void;
+}) {
   const { diffStyle, lineDiffType } = usePierreDiffPreferences();
 
   if (diff.patchOmitted) {
@@ -571,6 +580,7 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
           newContent={diff.newContent}
           diffStyle={diffStyle}
           lineDiffType={lineDiffType}
+          onAddLineContext={onAddLineContext}
         />
       </div>
     );
@@ -587,6 +597,7 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
           newContent={diff.newContent}
           diffStyle={diffStyle}
           lineDiffType={lineDiffType}
+          onAddLineContext={onAddLineContext}
         />
       </div>
     </div>
@@ -875,15 +886,15 @@ function ContentDetailsBody({
 
   if (slug === "bash") {
     return content.trim().length > 0 ? (
-      <div className="max-h-[min(45vh,360px)] overflow-auto">
+      <div className="max-h-[min(40vh,320px)] overflow-auto">
         <CodeBlock
-          className="rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+          className="rounded-none border-0 bg-transparent text-muted-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[12px] [&_code]:!leading-relaxed dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
           code={content}
           language={PLAIN_TEXT_LANG}
         />
       </div>
     ) : (
-      <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>
+      <div className="font-sans text-[12px] leading-relaxed text-muted-foreground/60">No output</div>
     );
   }
 
@@ -1014,7 +1025,9 @@ export const ToolHeader = ({
     : slug === "bash"
       ? bashHeaderLabel(input)
     : title ? fallbackName : displayToolLabel(slug);
-  const summary = slug === "bash" ? "" : formatToolSummaryLine(slug, input);
+  const summary = slug === "bash" || slug === "edit" || slug === "write"
+    ? ""
+    : formatToolSummaryLine(slug, input);
   const streaming = isToolStreamingState(state);
   const recordingHeader = slug === "computer";
   const lineText = [label, summary].filter(Boolean).join(" ");
@@ -1024,29 +1037,121 @@ export const ToolHeader = ({
     return (
       <CollapsibleTrigger
         className={cn(
-          "flex w-full cursor-pointer items-center gap-2 border-b border-border/70 bg-card px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-muted/20 focus-visible:ring-1 focus-visible:ring-ring",
+          "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left outline-none",
+          "font-sans text-[13px] font-medium tracking-tight text-foreground/80",
+          "transition-colors hover:text-foreground",
+          "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+          "group-data-open:border-b group-data-open:border-border/60",
           className
         )}
         {...props}
       >
-        <ChevronDown
-          className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-data-[state=closed]:-rotate-90"
+        <ChevronRight
+          className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-data-open:rotate-90 motion-reduce:transition-none"
           aria-hidden="true"
         />
         <span className="min-w-0 flex-1 overflow-hidden text-left">
           {streaming ? (
-            <Shimmer as="span" className="block max-w-full truncate align-baseline text-[13px]" duration={2} spread={2}>
+            <Shimmer
+              as="span"
+              className="block max-w-full truncate align-baseline"
+              duration={2}
+              spread={2}
+            >
               {label}
             </Shimmer>
           ) : (
-            <span className="block truncate font-sans text-[13px] font-medium leading-none text-muted-foreground">
-              {label}
-            </span>
+            <span className="block truncate">{label}</span>
           )}
         </span>
         {status}
         <span className="sr-only">
           {fallbackName}, {statusLabel[state]}. Toggle for arguments and result.
+        </span>
+      </CollapsibleTrigger>
+    );
+  }
+
+  if (slug === "edit" || slug === "write") {
+    const filePath = pathFromToolInput(input) ?? "";
+    const { name, dir } = pathParts(filePath || "file");
+    const displayDir = shortDir(dir);
+    const action = fileOpActionLabel(slug, state);
+    const failed = state === "output-error";
+
+    return (
+      <CollapsibleTrigger
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left outline-none",
+          "transition-colors hover:bg-muted/15",
+          "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+          "group-data-open:border-b group-data-open:border-border/60",
+          className
+        )}
+        {...props}
+      >
+        <ChevronRight
+          className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-data-open:rotate-90 motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+        {filePath ? (
+          <FileTypeIcon file={filePath} className="size-3.5 shrink-0 opacity-80" />
+        ) : null}
+        <span className="min-w-0 flex-1 overflow-hidden">
+          {streaming ? (
+            <Shimmer
+              as="span"
+              className="flex min-w-0 items-baseline gap-1.5"
+              duration={2}
+              spread={2}
+            >
+              <span className="shrink-0 font-mono text-[12px] font-medium tracking-tight text-foreground/90">
+                {name}
+              </span>
+              {displayDir ? (
+                <span className="truncate font-mono text-[10px] text-muted-foreground/50">
+                  {displayDir}
+                </span>
+              ) : null}
+            </Shimmer>
+          ) : (
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              <span className="shrink-0 font-mono text-[12px] font-medium tracking-tight text-foreground/90">
+                {name}
+              </span>
+              {displayDir ? (
+                <span className="truncate font-mono text-[10px] text-muted-foreground/50">
+                  {displayDir}
+                </span>
+              ) : null}
+            </span>
+          )}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 font-sans text-[11px] font-medium tracking-tight",
+            failed
+              ? "text-destructive"
+              : streaming
+                ? "text-muted-foreground/70"
+                : "text-muted-foreground/65",
+          )}
+        >
+          {streaming ? (
+            <Shimmer as="span" duration={2} spread={2}>
+              {action}
+            </Shimmer>
+          ) : (
+            action
+          )}
+        </span>
+        {state === "approval-requested" ||
+        state === "approval-responded" ||
+        state === "output-denied"
+          ? status
+          : null}
+        <span className="sr-only">
+          {action} {filePath || fallbackName}, {statusLabel[state]}. Toggle for arguments and result.
         </span>
       </CollapsibleTrigger>
     );
@@ -1112,7 +1217,13 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in group-data-[tool=bash]:m-0 group-data-[tool=bash]:p-0",
+      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 outline-none",
+      "data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-top-1",
+      "data-open:animate-in data-open:slide-in-from-top-1",
+      "group-data-[tool=bash]:m-0 group-data-[tool=bash]:space-y-0 group-data-[tool=bash]:p-0",
+      "group-data-[tool=edit]:m-0 group-data-[tool=edit]:p-0 group-data-[tool=edit]:pt-0",
+      "group-data-[tool=write]:m-0 group-data-[tool=write]:p-0 group-data-[tool=write]:pt-0",
+      "motion-reduce:animate-none",
       className
     )}
     {...props}
@@ -1223,6 +1334,25 @@ function pathFromToolInput(input: unknown): string | undefined {
   return input.path;
 }
 
+/** Keep long absolute paths readable: last 2 segments only. */
+function shortDir(dir: string) {
+  if (!dir) return "";
+  const parts = dir.replace(/\\/g, "/").split("/").filter(Boolean);
+  if (parts.length <= 2) return parts.join("/");
+  return parts.slice(-2).join("/");
+}
+
+function fileOpActionLabel(slug: "edit" | "write", state: ToolPart["state"]): string {
+  if (slug === "write") {
+    if (isToolStreamingState(state)) return "Writing";
+    if (state === "output-error") return "Write failed";
+    return "Created";
+  }
+  if (isToolStreamingState(state)) return "Editing";
+  if (state === "output-error") return "Edit failed";
+  return "Edited";
+}
+
 function editPreviewsFromInput(input: unknown) {
   if (!isRecord(input) || !Array.isArray(input.edits)) {
     return [];
@@ -1310,8 +1440,8 @@ export const ToolInput = ({
 
     return (
       <div className={cn("px-3.5 pt-3", className)} {...props}>
-        <div className="flex min-w-0 items-start gap-2.5 font-mono text-[13px] leading-relaxed text-foreground/90">
-          <span className="shrink-0 select-none text-muted-foreground">$</span>
+        <div className="flex min-w-0 items-start gap-2 font-mono text-[12px] leading-relaxed text-muted-foreground">
+          <span className="shrink-0 select-none text-muted-foreground/55">$</span>
           <code className="min-w-0 flex-1 whitespace-pre-wrap break-words bg-transparent p-0 text-[inherit] leading-[inherit]">
             {command}
           </code>
@@ -1377,9 +1507,9 @@ export const ToolOutput = ({
   let body: ReactNode;
 
   if (errorText) {
-    body = <div className="py-0.5 text-[11px] leading-relaxed text-destructive">{errorText}</div>;
+    body = <div className="py-0.5 text-[12px] leading-relaxed text-destructive">{errorText}</div>;
   } else if (slug === "bash" && !output) {
-    body = <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>;
+    body = <div className="font-sans text-[12px] leading-relaxed text-muted-foreground/60">No output</div>;
   } else if (computerContentDetails) {
     body = (
       <ContentDetailsBody
@@ -1410,7 +1540,7 @@ export const ToolOutput = ({
         <CodeBlock
           className={cn(
             slug === "bash" &&
-              "rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+              "rounded-none border-0 bg-transparent text-muted-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[12px] [&_code]:!leading-relaxed dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
           )}
           code={output}
           language={slug === "bash" ? PLAIN_TEXT_LANG : "json"}
@@ -1422,8 +1552,22 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("mt-1.5 space-y-0.5 pt-1", slug === "bash" && "m-0 px-3.5 pb-3 pt-2.5", className)} {...props}>
-      <div className={cn("overflow-x-auto text-[13px] [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/80")}>
+    <div
+      className={cn(
+        "mt-1.5 space-y-0.5 pt-1",
+        slug === "bash" && "m-0 px-3.5 pb-3 pt-2.5",
+        (slug === "edit" || slug === "write") && "m-0 p-0",
+        className,
+      )}
+      {...props}
+    >
+      <div
+        className={cn(
+          "overflow-x-auto [&_table]:w-full",
+          slug === "bash" ? "text-[12px]" : "text-[13px]",
+          errorText ? "text-destructive" : slug === "bash" ? "text-muted-foreground" : "text-foreground/80",
+        )}
+      >
         {body}
       </div>
     </div>

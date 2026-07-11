@@ -10,6 +10,7 @@ import Loader from "@/components/loader";
 import { toUIMessage, type StoredMessageRow } from "@/lib/chat-messages";
 import type { CodexPromptConnectionIssue } from "#/components/codex-prompt-connection-line";
 import { ThreadChat } from "#/components/thread/thread-chat";
+import { parseThreadDiffDeepLink } from "#/components/thread/thread-diff-panel-utils";
 import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
 import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
@@ -109,20 +110,24 @@ function assistantBlobDescriptor(message: StoredMessageRow): AssistantBlobDescri
 
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
-  const search = useSearch({ strict: false }) as { prompt?: string; model?: string; reasoningEffort?: string };
+  const search = useSearch({ strict: false }) as Record<string, unknown> & { prompt?: string; model?: string; reasoningEffort?: string };
   const { isAuthenticated } = useConvexAuth();
   const initialPrompt = search.prompt?.trim() || undefined;
   const initialModel = isCodexModelId(search.model) ? search.model : undefined;
   const initialReasoningEffort = isCodexReasoningEffortForModel(initialModel, search.reasoningEffort)
     ? search.reasoningEffort
     : undefined;
+  const diffDeepLink = useMemo(
+    () => parseThreadDiffDeepLink(search),
+    [search.diff, search.diffFile, search.endSide, search.line, search.lineEnd, search.side],
+  );
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
   const thread = useQuery(api.threads.get, isAuthenticated ? { threadId } : "skip");
   const dbMessages = useQuery(api.messages.listByThread, isAuthenticated ? { threadId } : "skip");
   const hydrateAssistantParts = useAction(api.messages.hydrateAssistantParts);
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const codexStatusQuery = useCodexStatus(isAuthenticated);
-  const [diffPanelOpen, setDiffPanelOpen] = useState(false);
+  const [diffPanelOpen, setDiffPanelOpen] = useState(() => Boolean(diffDeepLink));
   const [diffCount, setDiffCount] = useState(0);
   const [{ threadId: hydratedThreadId, partsByCacheKey, messageLoadError }, dispatchMessageLoad] = useReducer(
     messageLoadReducer,
@@ -258,8 +263,8 @@ function ProjectThreadPageContent() {
 
   useEffect(() => {
     setDiffCount(0);
-    setDiffPanelOpen(false);
-  }, [threadId]);
+    setDiffPanelOpen(Boolean(diffDeepLink));
+  }, [diffDeepLink, threadId]);
 
   const handleDiffCountChange = useCallback((count: number) => {
     setDiffCount(count);
@@ -363,6 +368,7 @@ function ProjectThreadPageContent() {
               disabled={chatDisabled}
               codexPromptIssue={codexPromptIssue}
               diffPanelOpen={diffPanelOpen}
+              diffDeepLink={diffDeepLink}
               demoRecordingExperimentEnabled={demoRecordingExperimentEnabled}
               onDiffPanelOpenChange={setDiffPanelOpen}
               onDiffCountChange={handleDiffCountChange}

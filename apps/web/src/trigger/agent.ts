@@ -2,14 +2,18 @@ import {
   applyAgenticCache,
   CodingHarness,
   createCachedSystemMessage,
+  DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
-import { stepCountIs, streamText } from "ai";
+import { stepCountIs, streamText, wrapLanguageModel } from "ai";
 
-import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
+import {
+  createAgentContextCompactor,
+  createContextOverflowRecoveryMiddleware,
+} from "#/lib/agent-context-compaction";
 import {
   createAssistantUsageMetadata,
   type AssistantUsageMetadata,
@@ -20,6 +24,7 @@ import {
 } from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import { createCodexResponsesModel } from "#/lib/codex-auth-server";
+import { getCodexContextLimit } from "#/lib/codex-models";
 import {
   AGENT_TASK_ID,
   type AgentTaskOptions,
@@ -194,7 +199,7 @@ async function runAgentTask(
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
       demoRecordingEnabled
-        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview in Google Chrome and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly. The chat UI embeds the recording automatically from tool output; do not print raw recording URLs, IDs, file paths, or metadata unless the user explicitly asks for them. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+        ? DEMO_RECORDING_INSTRUCTIONS
         : undefined,
     ]
       .filter(Boolean)
@@ -217,7 +222,10 @@ async function runAgentTask(
 
   try {
     await harness.run(async ({ instructions, tools }) => {
-      const model = await createCodexResponsesModel(codexOptions);
+      const model = wrapLanguageModel({
+        model: await createCodexResponsesModel(codexOptions),
+        middleware: createContextOverflowRecoveryMiddleware(),
+      });
       const result = streamText({
         model,
         system: createCachedSystemMessage(instructions),
@@ -227,8 +235,10 @@ async function runAgentTask(
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
         maxRetries: 1,
         abortSignal: signal,
-        prepareStep: ({ messages }) => ({
-          messages: compactPromptMessagesForModel(messages),
+        prepareStep: createAgentContextCompactor({
+          contextWindow: getCodexContextLimit(codexOptions.modelId),
+          systemPrompt: instructions,
+          abortSignal: signal,
         }),
         providerOptions: {
           openai: {

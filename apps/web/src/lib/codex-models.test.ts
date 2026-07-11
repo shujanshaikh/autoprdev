@@ -5,6 +5,7 @@ import {
   addCodexUsageCosts,
   calculateCodexUsageCost,
   formatCodexModelLabel,
+  getCodexContextLimit,
   getCodexModelOptions,
   getCodexReasoningEfforts,
   isCodexModelId,
@@ -49,6 +50,11 @@ describe("Codex model cost helpers", () => {
     }
 
     expect(getCodexReasoningEfforts("gpt-future-account-model")).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
+  it("uses a conservative context limit for dynamically discovered models", () => {
+    expect(getCodexContextLimit("gpt-5.6-sol")).toBe(372_000);
+    expect(getCodexContextLimit("gpt-account-only")).toBe(128_000);
   });
 
   it("formats the exact Codex display names", () => {

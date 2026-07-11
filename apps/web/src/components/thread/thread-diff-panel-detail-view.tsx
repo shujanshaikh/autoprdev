@@ -1,11 +1,28 @@
 import { cn } from "@autopr/ui/lib/utils";
+import { useCallback } from "react";
 import { ToolDiffView } from "@/components/ai-elements/tool";
 
 import { pathParts } from "#/lib/file-type-icon";
-import { type ThreadDiffEntry } from "./thread-diff-panel-utils";
+import { createDiffPromptContext, type DiffPromptContext, type ThreadDiffEntry } from "./thread-diff-panel-utils";
 import { ThreadDiffStatusIcon } from "./thread-diff-panel-status-icon";
 
-export function ThreadDiffDetailView({ entry, showTurn, compact = false }: { entry: ThreadDiffEntry; showTurn: boolean; compact?: boolean }) {
+export function ThreadDiffDetailView({
+  entry,
+  showTurn,
+  compact = false,
+  onAddPromptContext,
+}: {
+  entry: ThreadDiffEntry;
+  showTurn: boolean;
+  compact?: boolean;
+  onAddPromptContext?: (context: DiffPromptContext) => void;
+}) {
+  const handleAddLineContext = useCallback(
+    (range: import("@pierre/diffs").SelectedLineRange) => {
+      onAddPromptContext?.(createDiffPromptContext(entry, range));
+    },
+    [entry, onAddPromptContext],
+  );
   const { name, dir } = pathParts(entry.file);
   const statusClass =
     entry.status === "added"
@@ -33,7 +50,12 @@ export function ThreadDiffDetailView({ entry, showTurn, compact = false }: { ent
       </div> : null}
 
       <div className="diff-panel-view px-2 pb-2">
-        <ToolDiffView key={entry.id} diff={entry.diff} pathLine={compact ? name : entry.file} />
+        <ToolDiffView
+          key={entry.id}
+          diff={entry.diff}
+          pathLine={compact ? name : entry.file}
+          onAddLineContext={onAddPromptContext ? handleAddLineContext : undefined}
+        />
       </div>
     </div>
   );

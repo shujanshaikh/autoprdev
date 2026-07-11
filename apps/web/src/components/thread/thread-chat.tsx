@@ -1,6 +1,5 @@
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { Badge } from "@autopr/ui/components/badge";
 import {
   Select,
   SelectContent,
@@ -28,9 +27,10 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
-import { Video } from "lucide-react";
+import { Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
 import {
   AGENT_CHAT_OPERATION_HEADER,
@@ -88,7 +88,14 @@ import {
 } from "#/lib/codex-models";
 export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
 export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
-import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
+import {
+  appendDiffPromptContexts,
+  formatDiffPromptContextLabel,
+  type DiffPromptContext,
+  type ThreadChangedFile,
+  type ThreadDiffDeepLink,
+  type ThreadDiffEntry,
+} from "#/components/thread/thread-diff-panel-utils";
 import {
   contextTokensFromUsage,
   formatRunCost,
@@ -114,6 +121,7 @@ type ThreadChatProps = {
   disabled: boolean;
   codexPromptIssue?: CodexPromptConnectionIssue;
   diffPanelOpen: boolean;
+  diffDeepLink?: ThreadDiffDeepLink;
   demoRecordingExperimentEnabled: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
   onDiffCountChange: (count: number) => void;
@@ -291,6 +299,9 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
   return entries;
 }
 
+const promptControlTriggerClassName =
+  "h-7 max-w-[10rem] gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5";
+
 function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -299,11 +310,42 @@ function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
       <PromptInputTextarea
         ref={textareaRef}
         disabled={disabled}
-        placeholder="Message this thread..."
-        className="max-h-40 min-h-14 resize-none px-3.5 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/55"
+        placeholder="Add a follow up..."
+        className="max-h-40 min-h-11 resize-none px-3.5 py-2 text-[14px] leading-relaxed"
       />
     </div>
   );
+}
+
+function DiffPromptContextChips({
+  contexts,
+  onRemove,
+}: {
+  contexts: DiffPromptContext[];
+  onRemove: (id: string) => void;
+}) {
+  if (contexts.length === 0) return null;
+
+  return contexts.map((context) => (
+    <span
+      key={context.id}
+      className="inline-flex h-7 max-w-full items-center gap-1 rounded-[var(--radius-pill)] border border-blue-500/15 bg-blue-500/10 pl-2.5 pr-1 text-blue-700 dark:text-blue-200"
+      title={`${context.file}:${context.start}-${context.end}`}
+    >
+      <FileTypeIcon file={context.file} className="size-3.5 shrink-0" />
+      <span className="truncate font-mono text-[11px] font-medium">
+        {formatDiffPromptContextLabel(context)}
+      </span>
+      <button
+        type="button"
+        onClick={() => onRemove(context.id)}
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-current/60 transition-colors hover:bg-blue-500/15 hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+        aria-label={`Remove ${formatDiffPromptContextLabel(context)} from prompt`}
+      >
+        <X className="size-3" aria-hidden="true" />
+      </button>
+    </span>
+  ));
 }
 
 type AgentRunIssue = {
@@ -371,15 +413,14 @@ function ThreadContextRemainingIndicator({
   return (
     <Tooltip>
       <TooltipTrigger>
-        <Badge
-          variant="outline"
+        <span
           aria-label={`Context remaining: ${formatTokens(remainingTokens)}`}
-          className="h-7 shrink-0 cursor-help items-center rounded-[var(--radius-pill)] border-border/55 bg-background/70 px-2 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-muted/40"
+          className="inline-flex h-7 shrink-0 cursor-help items-center px-1.5 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
         >
-          <span className="text-foreground/85 tabular-nums">{formatTokens(remainingTokens)}</span>
-        </Badge>
+          {formatTokens(remainingTokens)}
+        </span>
       </TooltipTrigger>
-      <TooltipContent side="top" align="start" className="rounded-none">
+      <TooltipContent side="top" align="start" className="rounded-[var(--radius-md)]">
         <div className="grid grid-cols-[max-content_max-content] gap-x-6 gap-y-1.5 font-mono text-[11px]">
           <div className="contents">
             <span className="text-muted-foreground">Remaining</span>
@@ -579,6 +620,7 @@ function ThreadChatRuntime({
   disabled,
   codexPromptIssue,
   diffPanelOpen,
+  diffDeepLink,
   demoRecordingExperimentEnabled,
   onDiffPanelOpenChange,
   onDiffCountChange,
@@ -612,8 +654,19 @@ function ThreadChatRuntime({
   };
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
-  const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
+  const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
+  const changedFileRequestRef = useRef(0);
+  const [diffPromptContexts, setDiffPromptContexts] = useState<DiffPromptContext[]>([]);
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
+  const [selectedDiffLink, setSelectedDiffLink] = useState<ThreadDiffDeepLink | undefined>();
+  const addDiffPromptContext = useCallback((context: DiffPromptContext) => {
+    setDiffPromptContexts((current) => current.some((item) => item.id === context.id)
+      ? current
+      : [...current, context]);
+  }, []);
+  const removeDiffPromptContext = useCallback((id: string) => {
+    setDiffPromptContexts((current) => current.filter((context) => context.id !== id));
+  }, []);
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(initialModel);
   const availableCodexModels = useMemo(
     () => normalizeCodexModelList(availableModels),
@@ -885,11 +938,15 @@ function ThreadChatRuntime({
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
   const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
-  const selectedDiffEntry = selectedDiffEntryId
-    ? diffEntries.find((entry) => entry.id === selectedDiffEntryId)
-    : undefined;
-  const effectiveSelectedDiffEntryId = selectedDiffEntry?.id ?? diffEntries.at(-1)?.id;
-
+  const handleSelectChangedFile = useCallback((file: ThreadChangedFile) => {
+    changedFileRequestRef.current += 1;
+    setSelectedDiffLink({
+      entryId: file.entry.id,
+      file: file.entry.file,
+      requestId: changedFileRequestRef.current,
+    });
+    onDiffPanelOpenChange(true);
+  }, [onDiffPanelOpenChange]);
   useEffect(() => {
     onDiffCountChange(diffEntries.length);
   }, [diffEntries.length, onDiffCountChange]);
@@ -1152,12 +1209,21 @@ function ThreadChatRuntime({
     setPendingDemoEnabled(nextDemoEnabled);
     setDemoSaving(true);
 
+    const savePromise = setDemoEnabled({ threadId, demoEnabled: nextDemoEnabled })
+      .then(() => true)
+      .catch((toggleError) => {
+        setPendingDemoEnabled(undefined);
+        console.error("Failed to update demo mode", toggleError);
+        return false;
+      });
+    pendingDemoSaveRef.current = savePromise;
+
     try {
-      await setDemoEnabled({ threadId, demoEnabled: nextDemoEnabled });
-    } catch (toggleError) {
-      setPendingDemoEnabled(undefined);
-      console.error("Failed to update demo mode", toggleError);
+      await savePromise;
     } finally {
+      if (pendingDemoSaveRef.current === savePromise) {
+        pendingDemoSaveRef.current = null;
+      }
       setDemoSaving(false);
     }
   }, [demoRecordingExperimentEnabled, pendingDemoEnabled, setDemoEnabled, thread?.demoEnabled, threadId]);
@@ -1227,7 +1293,7 @@ function ThreadChatRuntime({
   const submitMessage = useCallback(async (message: string | PromptInputMessage) => {
     const text = typeof message === "string" ? message : message.text;
     const files = typeof message === "string" ? [] : message.files;
-    const nextMessage = text.trim();
+    const nextMessage = appendDiffPromptContexts(text, diffPromptContexts);
 
     if ((!nextMessage && files.length === 0) || disabled || serverStreaming) {
       return;
@@ -1235,6 +1301,11 @@ function ThreadChatRuntime({
 
     if (pendingStopRef.current) {
       await pendingStopRef.current;
+    }
+
+    const pendingDemoSave = pendingDemoSaveRef.current;
+    if (pendingDemoSave && !(await pendingDemoSave)) {
+      return;
     }
 
     if (status !== "ready") {
@@ -1252,6 +1323,7 @@ function ThreadChatRuntime({
       } else {
         await sendMessage({ files: uploadedFiles });
       }
+      setDiffPromptContexts([]);
       return;
     }
 
@@ -1260,7 +1332,8 @@ function ThreadChatRuntime({
     }
 
     await sendMessage({ text: nextMessage });
-  }, [clearError, disabled, imageUploads, sendMessage, serverStreaming, status]);
+    setDiffPromptContexts([]);
+  }, [clearError, diffPromptContexts, disabled, imageUploads, sendMessage, serverStreaming, status]);
 
   useEffect(() => {
     if (hasAutoSubmittedInitialPromptRef.current || !ready) {
@@ -1332,6 +1405,8 @@ function ThreadChatRuntime({
             modelId={selectedModel}
             recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
+            diffEntries={diffEntries}
+            onSelectChangedFile={handleSelectChangedFile}
           />
         </div>
 
@@ -1340,17 +1415,21 @@ function ThreadChatRuntime({
             <AgentRunIssuePanel issue={thread?.agentRunIssue ?? thread?.workflowIssue} />
             <PromptInputProvider>
               <PromptInput
-                className={cn(
-                  "min-w-0 max-w-full overflow-visible rounded-sm border border-border bg-card shadow-none transition-colors",
-                  "focus-within:border-[color:var(--cohere-form-focus)]",
-                )}
+                className="min-w-0 max-w-full"
                 accept="image/*"
                 clearOnSubmit="submit"
                 multiple
                 onSubmit={(message) => submitMessage(message)}
               >
-                <CodexPromptConnectionLine issue={codexPromptIssue} />
-                <PromptInputHeader className="px-2.5 pt-2.5 pb-0">
+                <CodexPromptConnectionLine
+                  issue={codexPromptIssue}
+                  className="rounded-t-[var(--radius-xxl)] border-b-border/40 bg-transparent px-3.5"
+                />
+                <PromptInputHeader>
+                  <DiffPromptContextChips
+                    contexts={diffPromptContexts}
+                    onRemove={removeDiffPromptContext}
+                  />
                   <PromptImageAttachments
                     disabled={!ready}
                     manager={imageUploads}
@@ -1359,7 +1438,7 @@ function ThreadChatRuntime({
                 <PromptInputBody>
                   <ThreadChatTextarea disabled={!ready} />
                 </PromptInputBody>
-                <PromptInputFooter className="min-w-0 items-end bg-transparent px-2 py-1.5">
+                <PromptInputFooter className="min-w-0">
                   <PromptInputTools className="min-w-0 flex-1 flex-wrap">
                     <PromptImageUploadButton disabled={!ready} />
                     <Select
@@ -1368,7 +1447,7 @@ function ThreadChatRuntime({
                     >
                       <SelectTrigger
                         size="sm"
-                        className="h-7 max-w-[10rem] border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
+                        className={promptControlTriggerClassName}
                         disabled={!ready || modelOptions.length === 0}
                         aria-label="Model"
                       >
@@ -1376,9 +1455,9 @@ function ThreadChatRuntime({
                           {formatCodexModelLabel(selectedModel)}
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-52 min-w-52 p-1">
+                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-52 min-w-52 rounded-[var(--radius-lg)] p-1">
                         {modelOptions.map((model) => (
-                          <SelectItem key={model} value={model} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                          <SelectItem key={model} value={model} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
                             <span className="min-w-0 truncate font-medium">
                               {formatCodexModelLabel(model)}
                             </span>
@@ -1392,16 +1471,17 @@ function ThreadChatRuntime({
                     >
                       <SelectTrigger
                         size="sm"
-                        className="h-7 max-w-24 border-border/40 bg-muted/25 px-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-border/70 hover:bg-muted/60 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
+                        className={cn(promptControlTriggerClassName, "max-w-24")}
+                        disabled={!ready}
                         aria-label="Reasoning level"
                       >
                         <SelectValue>
                           {getCodexReasoningEffortLabel(selectedReasoningEffort)}
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={6} className="w-36 min-w-36 p-1">
+                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-36 min-w-36 rounded-[var(--radius-lg)] p-1">
                         {selectedReasoningEfforts.map((effort) => (
-                          <SelectItem key={effort} value={effort} className="rounded-sm py-1.5 pr-7 pl-2 text-xs">
+                          <SelectItem key={effort} value={effort} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
                             <span className="font-medium">
                               {getCodexReasoningEffortLabel(effort)}
                             </span>
@@ -1420,9 +1500,9 @@ function ThreadChatRuntime({
                               disabled={demoSaving}
                               onClick={() => void toggleDemoEnabled()}
                               className={cn(
-                                "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] border border-transparent px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition",
-                                "hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
-                                optimisticDemoEnabled && "border-[color:var(--project-selected-strong)] bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-[color:var(--project-selected-strong)]",
+                                "inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-pill)] px-1.5 text-xs font-medium text-muted-foreground transition-colors",
+                                "hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                                optimisticDemoEnabled && "text-[color:var(--project-selected-strong)] hover:text-[color:var(--project-selected-strong)]",
                               )}
                             >
                               <Video className="size-3.5" aria-hidden />
@@ -1430,7 +1510,7 @@ function ThreadChatRuntime({
                             </button>
                           }
                         />
-                        <TooltipContent side="top" align="start" className="max-w-64 rounded-none">
+                        <TooltipContent side="top" align="start" className="max-w-64 rounded-[var(--radius-md)]">
                           {optimisticDemoEnabled
                             ? "Experimental: future runs in this thread will record a Daytona browser demo and may fail."
                             : "Allow future runs to record an experimental Daytona browser demo."}
@@ -1444,7 +1524,6 @@ function ThreadChatRuntime({
                     />
                   </PromptInputTools>
                   <PromptInputSubmit
-                    className="size-8 shrink-0 rounded-full"
                     disabled={!ready && !busy}
                     onStop={stopGeneration}
                     status={status}
@@ -1457,8 +1536,6 @@ function ThreadChatRuntime({
       </div>
       <ThreadDiffPanel
         entries={diffEntries}
-        selectedEntryId={effectiveSelectedDiffEntryId}
-        onSelectEntry={setSelectedDiffEntryId}
         open={diffPanelOpen}
         onOpenChange={onDiffPanelOpenChange}
         isLoading={status === "submitted" || status === "streaming"}
@@ -1473,6 +1550,8 @@ function ThreadChatRuntime({
         pullRequestError={thread?.pullRequestError}
         maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
+        onAddPromptContext={addDiffPromptContext}
+        deepLink={diffDeepLink ?? selectedDiffLink}
       />
     </section>
   );

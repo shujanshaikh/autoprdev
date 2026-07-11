@@ -28,7 +28,7 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
-import { Video } from "lucide-react";
+import { FileCode2, Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
@@ -88,7 +88,12 @@ import {
 } from "#/lib/codex-models";
 export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
 export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
-import type { ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
+import {
+  appendDiffPromptContexts,
+  formatDiffPromptContextLabel,
+  type DiffPromptContext,
+  type ThreadDiffEntry,
+} from "#/components/thread/thread-diff-panel-utils";
 import {
   contextTokensFromUsage,
   formatRunCost,
@@ -304,6 +309,37 @@ function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
       />
     </div>
   );
+}
+
+function DiffPromptContextChips({
+  contexts,
+  onRemove,
+}: {
+  contexts: DiffPromptContext[];
+  onRemove: (id: string) => void;
+}) {
+  if (contexts.length === 0) return null;
+
+  return contexts.map((context) => (
+    <span
+      key={context.id}
+      className="inline-flex h-7 max-w-full items-center gap-1 rounded-[6px] border border-blue-500/20 bg-blue-500/15 pl-2 pr-1 text-blue-700 dark:text-blue-200"
+      title={`${context.file}:${context.start}-${context.end}`}
+    >
+      <FileCode2 className="size-3.5 shrink-0 text-blue-500" aria-hidden="true" />
+      <span className="truncate font-mono text-[11px] font-medium">
+        {formatDiffPromptContextLabel(context)}
+      </span>
+      <button
+        type="button"
+        onClick={() => onRemove(context.id)}
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-[4px] text-current/60 transition-colors hover:bg-blue-500/15 hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+        aria-label={`Remove ${formatDiffPromptContextLabel(context)} from prompt`}
+      >
+        <X className="size-3" aria-hidden="true" />
+      </button>
+    </span>
+  ));
 }
 
 type AgentRunIssue = {
@@ -614,7 +650,16 @@ function ThreadChatRuntime({
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
+  const [diffPromptContexts, setDiffPromptContexts] = useState<DiffPromptContext[]>([]);
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
+  const addDiffPromptContext = useCallback((context: DiffPromptContext) => {
+    setDiffPromptContexts((current) => current.some((item) => item.id === context.id)
+      ? current
+      : [...current, context]);
+  }, []);
+  const removeDiffPromptContext = useCallback((id: string) => {
+    setDiffPromptContexts((current) => current.filter((context) => context.id !== id));
+  }, []);
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(initialModel);
   const availableCodexModels = useMemo(
     () => normalizeCodexModelList(availableModels),
@@ -1237,7 +1282,7 @@ function ThreadChatRuntime({
   const submitMessage = useCallback(async (message: string | PromptInputMessage) => {
     const text = typeof message === "string" ? message : message.text;
     const files = typeof message === "string" ? [] : message.files;
-    const nextMessage = text.trim();
+    const nextMessage = appendDiffPromptContexts(text, diffPromptContexts);
 
     if ((!nextMessage && files.length === 0) || disabled || serverStreaming) {
       return;
@@ -1267,6 +1312,7 @@ function ThreadChatRuntime({
       } else {
         await sendMessage({ files: uploadedFiles });
       }
+      setDiffPromptContexts([]);
       return;
     }
 
@@ -1275,7 +1321,8 @@ function ThreadChatRuntime({
     }
 
     await sendMessage({ text: nextMessage });
-  }, [clearError, disabled, imageUploads, sendMessage, serverStreaming, status]);
+    setDiffPromptContexts([]);
+  }, [clearError, diffPromptContexts, disabled, imageUploads, sendMessage, serverStreaming, status]);
 
   useEffect(() => {
     if (hasAutoSubmittedInitialPromptRef.current || !ready) {
@@ -1366,6 +1413,10 @@ function ThreadChatRuntime({
               >
                 <CodexPromptConnectionLine issue={codexPromptIssue} />
                 <PromptInputHeader className="px-2.5 pt-2.5 pb-0">
+                  <DiffPromptContextChips
+                    contexts={diffPromptContexts}
+                    onRemove={removeDiffPromptContext}
+                  />
                   <PromptImageAttachments
                     disabled={!ready}
                     manager={imageUploads}
@@ -1488,6 +1539,7 @@ function ThreadChatRuntime({
         pullRequestError={thread?.pullRequestError}
         maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
+        onAddPromptContext={addDiffPromptContext}
       />
     </section>
   );

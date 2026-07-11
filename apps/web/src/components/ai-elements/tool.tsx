@@ -536,7 +536,15 @@ function ToolDiffPartialNotice() {
   );
 }
 
-export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLine?: string }) {
+export function ToolDiffView({
+  diff,
+  pathLine,
+  onAddLineContext,
+}: {
+  diff: ToolDiffPayload;
+  pathLine?: string;
+  onAddLineContext?: (range: import("@pierre/diffs").SelectedLineRange) => void;
+}) {
   const { diffStyle, lineDiffType } = usePierreDiffPreferences();
 
   if (diff.patchOmitted) {
@@ -571,6 +579,7 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
           newContent={diff.newContent}
           diffStyle={diffStyle}
           lineDiffType={lineDiffType}
+          onAddLineContext={onAddLineContext}
         />
       </div>
     );
@@ -587,6 +596,7 @@ export function ToolDiffView({ diff, pathLine }: { diff: ToolDiffPayload; pathLi
           newContent={diff.newContent}
           diffStyle={diffStyle}
           lineDiffType={lineDiffType}
+          onAddLineContext={onAddLineContext}
         />
       </div>
     </div>

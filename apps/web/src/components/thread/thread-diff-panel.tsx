@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, TextSearch, X } from "lucide-react";
+import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, TextSearch, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
@@ -14,7 +14,7 @@ import { DaytonaTerminalView } from "./daytona-terminal-view";
 import { ThreadDiffDetailView } from "./thread-diff-panel-detail-view";
 import { ThreadDiffEmptyState, ThreadDiffLoadingList } from "./thread-diff-panel-states";
 import { ThreadDiffFileRow } from "./thread-diff-panel-file-row";
-import type { ThreadDiffEntry } from "./thread-diff-panel-utils";
+import type { DiffPromptContext, ThreadDiffEntry } from "./thread-diff-panel-utils";
 
 export type ThreadDiffPanelProps = {
   entries: ThreadDiffEntry[];
@@ -34,11 +34,23 @@ export type ThreadDiffPanelProps = {
   pullRequestError?: string;
   maximized?: boolean;
   onMaximizedChange?: (maximized: boolean) => void;
+  onAddPromptContext?: (context: DiffPromptContext) => void;
 };
 
 const MIN_PANEL_WIDTH = 380;
 const DOCKED_MAIN_MIN_WIDTH = 420;
 const DEFAULT_PANEL_WIDTH = 640;
+const VIEWED_DIFFS_STORAGE_PREFIX = "autopr.viewed-diffs.v1";
+
+function readViewedDiffs(threadId: string) {
+  if (typeof window === "undefined") return new Set<string>();
+  try {
+    const value = JSON.parse(window.localStorage.getItem(`${VIEWED_DIFFS_STORAGE_PREFIX}:${threadId}`) ?? "[]");
+    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set<string>();
+  }
+}
 
 type ThreadDiffPanelTabKind = "diff" | "pull-request" | "desktop" | "terminal";
 
@@ -135,10 +147,13 @@ export function ThreadDiffPanel({
   pullRequestError,
   maximized = false,
   onMaximizedChange,
+  onAddPromptContext,
 }: ThreadDiffPanelProps) {
   const [panelWidth, setPanelWidth] = useState(() => getMaxPanelWidth());
   const [isResizingPanel, setIsResizingPanel] = useState(false);
   const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
+  const [viewedEntryIds, setViewedEntryIds] = useState<Set<string>>(() => readViewedDiffs(threadId));
+  const viewedThreadIdRef = useRef(threadId);
   const [visibleTabs, setVisibleTabs] = useState<ThreadDiffPanelVisibleTab[]>(DEFAULT_VISIBLE_TABS);
   const [activeTabId, setActiveTabId] = useState("");
   const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
@@ -162,6 +177,31 @@ export function ThreadDiffPanel({
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
+
+  useEffect(() => {
+    if (viewedThreadIdRef.current !== threadId) {
+      viewedThreadIdRef.current = threadId;
+      setViewedEntryIds(readViewedDiffs(threadId));
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        `${VIEWED_DIFFS_STORAGE_PREFIX}:${threadId}`,
+        JSON.stringify([...viewedEntryIds]),
+      );
+    } catch {
+      // Viewed state is a local review convenience and should never block the panel.
+    }
+  }, [threadId, viewedEntryIds]);
+
+  const setEntryViewed = useCallback((entryId: string, viewed: boolean) => {
+    setViewedEntryIds((current) => {
+      const next = new Set(current);
+      if (viewed) next.add(entryId);
+      else next.delete(entryId);
+      return next;
+    });
+  }, []);
 
   const activeTab = visibleTabs.find((tab) => tab.id === activeTabId)?.kind ?? visibleTabs[0]?.kind;
   const terminalTabs = useMemo(() => visibleTabs.filter((tab) => tab.kind === "terminal"), [visibleTabs]);
@@ -214,6 +254,7 @@ export function ThreadDiffPanel({
     }
     return { additions, deletions, files: new Set(entries.map((entry) => entry.file)).size };
   }, [entries]);
+  const allEntriesViewed = entries.length > 0 && entries.every((entry) => viewedEntryIds.has(entry.id));
 
   const startResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -555,6 +596,28 @@ export function ThreadDiffPanel({
                     <span className="text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]">+{totals.additions}</span>
                     <span className="text-[color:var(--cohere-coral)]">−{totals.deletions}</span>
                   </div>
+                ) : null}
+
+                {entries.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-pressed={allEntriesViewed}
+                    onClick={() => {
+                      const markViewed = !allEntriesViewed;
+                      setViewedEntryIds(markViewed ? new Set(entries.map((entry) => entry.id)) : new Set());
+                    }}
+                    className={cn(
+                      "h-7 border border-border/60 px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground",
+                      "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
+                      allEntriesViewed && "border-blue-500/40 bg-blue-500/10 text-blue-500 hover:bg-blue-500/15 hover:text-blue-500",
+                    )}
+                    title={allEntriesViewed ? "Mark all files unviewed" : "Mark all files viewed"}
+                  >
+                    <CheckCheck className="size-3.5" aria-hidden="true" />
+                    <span className="hidden min-[680px]:inline">{allEntriesViewed ? "Unview all" : "View all"}</span>
+                  </Button>
                 ) : null}
 
                 <ButtonGroup aria-label="Diff layout" className="h-7">
@@ -965,6 +1028,8 @@ export function ThreadDiffPanel({
                       entry={entry}
                       active={active}
                       expanded={expanded}
+                      viewed={viewedEntryIds.has(entry.id)}
+                      onViewedChange={(viewed) => setEntryViewed(entry.id, viewed)}
                       showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1}
                       onSelect={() => {
                         onSelectEntry(entry.id);
@@ -973,7 +1038,12 @@ export function ThreadDiffPanel({
                     />
                     {expanded ? (
                       <div className="border-t border-border/45 bg-background">
-                        <ThreadDiffDetailView entry={entry} showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1} compact />
+                        <ThreadDiffDetailView
+                          entry={entry}
+                          showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1}
+                          compact
+                          onAddPromptContext={onAddPromptContext}
+                        />
                       </div>
                     ) : null}
                   </div>

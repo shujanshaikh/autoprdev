@@ -26,7 +26,7 @@
     "@opencoredev/loginwithchatgpt-ai": "^0.1.1",
     "@opencoredev/loginwithchatgpt-react": "^0.1.1",
     "@opencoredev/loginwithchatgpt-server": "^0.1.1",
-    "@pierre/diffs": "^1.1.16",
+    "@pierre/diffs": "^1.2.12",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@radix-ui/themes": "^3.3.0",
     "@shadcn/react": "^0.1.0",

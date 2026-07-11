@@ -181,6 +181,54 @@ describe("chat message persistence helpers", () => {
     expect(findDemoRecordingMetadataInParts(sanitized, "rec-456")?.title).toBe("Gallery Walkthrough");
   });
 
+  it("renders recordings from wrapped static computer tool output", () => {
+    const metadata = {
+      actions: ["stop_recording(rec-789, Portfolio Walkthrough)"],
+      recording: {
+        type: "daytona_recording",
+        id: "rec-789",
+        title: "Portfolio Walkthrough",
+        fileName: "portfolio-walkthrough.mp4",
+        status: "completed",
+      },
+    };
+    const parts = [
+      {
+        type: "tool-computer",
+        toolCallId: "tool-3",
+        state: "output-available",
+        input: {
+          actions: [
+            {
+              type: "stop_recording",
+              recordingId: "rec-789",
+              title: "Portfolio Walkthrough",
+            },
+          ],
+        },
+        output: {
+          type: "content",
+          value: [
+            { type: "text", text: "Recording completed." },
+            {
+              type: "text",
+              text: `${COMPUTER_METADATA_PREFIX}${JSON.stringify(metadata)}`,
+            },
+          ],
+        },
+      },
+    ] as any;
+
+    const sanitized = sanitizeAssistantPartsForPersistence(parts);
+    const output = (sanitized[0] as any).output;
+
+    expect(output.content).toBe("Recording completed.");
+    expect(output.details.recording).toEqual(metadata.recording);
+    expect(findDemoRecordingMetadataInParts(sanitized, "rec-789")?.title).toBe(
+      "Portfolio Walkthrough",
+    );
+  });
+
   it("compacts long file mutation payloads before model conversion", () => {
     const longContent = "x".repeat(5_000);
     const message = {

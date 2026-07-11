@@ -26,12 +26,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function dynamicToolName(part: UIMessage["parts"][number]): string | undefined {
-  if (part.type !== "dynamic-tool" || !("toolName" in part)) {
-    return undefined;
+function toolNameFromPart(part: UIMessage["parts"][number]): string | undefined {
+  if (part.type === "dynamic-tool" && "toolName" in part) {
+    return typeof part.toolName === "string" ? part.toolName : undefined;
   }
 
-  return typeof part.toolName === "string" ? part.toolName : undefined;
+  return part.type.startsWith("tool-")
+    ? part.type.slice("tool-".length)
+    : undefined;
 }
 
 export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
@@ -146,7 +148,13 @@ export function computerContentOutputToContentDetails(
     return output;
   }
 
-  if (!Array.isArray(output)) {
+  const contentItems = Array.isArray(output)
+    ? output
+    : isRecord(output) && output.type === "content" && Array.isArray(output.value)
+      ? output.value
+      : null;
+
+  if (!contentItems) {
     return null;
   }
 
@@ -154,7 +162,7 @@ export function computerContentOutputToContentDetails(
   let details: Record<string, unknown> | null = null;
   let screenshotImage: { data: string; mediaType: string } | null = null;
 
-  for (const item of output) {
+  for (const item of contentItems) {
     if (isRecord(item) && item.type === "text" && typeof item.text === "string") {
       const metadata = parseComputerMetadata(item.text);
       if (metadata) {
@@ -228,7 +236,7 @@ export function findDemoRecordingMetadataInParts(
   recordingId: string,
 ): DemoRecordingMetadata | null {
   for (const part of parts) {
-    if (dynamicToolName(part) !== "computer" || !("output" in part)) {
+    if (toolNameFromPart(part) !== "computer" || !("output" in part)) {
       continue;
     }
 
@@ -247,7 +255,7 @@ export function findDemoRecordingMetadataInParts(
 
 export function sanitizeAssistantPartsForPersistence(parts: UIMessage["parts"]): UIMessage["parts"] {
   return parts.map((part) => {
-    if (dynamicToolName(part) !== "computer" || !("output" in part)) {
+    if (toolNameFromPart(part) !== "computer" || !("output" in part)) {
       return part;
     }
 

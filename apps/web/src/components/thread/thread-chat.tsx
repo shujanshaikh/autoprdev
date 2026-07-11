@@ -1551,7 +1551,7 @@ function ThreadChatRuntime({
         maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
         onAddPromptContext={addDiffPromptContext}
-        deepLink={selectedDiffLink ?? diffDeepLink}
+        deepLink={diffDeepLink ?? selectedDiffLink}
       />
     </section>
   );

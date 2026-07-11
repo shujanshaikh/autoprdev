@@ -6,7 +6,7 @@ import {
   useMessageScrollerVisibility,
 } from "@shadcn/react/message-scroller";
 import type { UIMessage } from "ai";
-import { ArrowDownIcon, ChevronDownIcon, ChevronUpIcon, DownloadIcon } from "lucide-react";
+import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 
@@ -145,8 +145,6 @@ export const ConversationMessageNavigation = ({
     const firstVisibleIndex = messageIds.findIndex((id) => visibleMessageIdSet.has(id));
     return firstVisibleIndex >= 0 ? firstVisibleIndex : messageIds.length - 1;
   }, [currentAnchorId, messageIds, visibleMessageIdSet]);
-  const hasPrevious = currentIndex > 0;
-  const hasNext = currentIndex >= 0 && currentIndex < messageIds.length - 1;
   const goToMessage = useCallback(
     (index: number) => {
       const messageId = messageIds[index];
@@ -165,39 +163,32 @@ export const ConversationMessageNavigation = ({
     <nav
       aria-label="Navigate user messages"
       className={cn(
-        "absolute bottom-4 right-4 z-10 flex items-center overflow-hidden rounded-full border border-border/60 bg-background/90 shadow-sm backdrop-blur-sm",
+        "absolute left-2 top-1/2 z-10 flex max-h-[60%] -translate-y-1/2 flex-col items-start overflow-y-auto py-2 sm:left-3",
         className,
       )}
       {...props}
     >
-      <Button
-        aria-label="Go to previous user message"
-        className="size-8 rounded-none border-0"
-        disabled={!hasPrevious}
-        onClick={() => goToMessage(currentIndex - 1)}
-        size="icon"
-        type="button"
-        variant="ghost"
-      >
-        <ChevronUpIcon className="size-3.5" />
-      </Button>
-      <span
-        aria-live="polite"
-        className="min-w-11 border-x border-border/50 px-2 text-center font-mono text-[10px] tabular-nums text-muted-foreground"
-      >
-        {currentIndex + 1}/{messageIds.length}
-      </span>
-      <Button
-        aria-label="Go to next user message"
-        className="size-8 rounded-none border-0"
-        disabled={!hasNext}
-        onClick={() => goToMessage(currentIndex + 1)}
-        size="icon"
-        type="button"
-        variant="ghost"
-      >
-        <ChevronDownIcon className="size-3.5" />
-      </Button>
+      {messageIds.map((messageId, index) => {
+        const isCurrent = index === currentIndex;
+
+        return (
+          <button
+            key={messageId}
+            aria-current={isCurrent ? "step" : undefined}
+            aria-label={`Go to user message ${index + 1} of ${messageIds.length}`}
+            className="group flex h-4 w-12 items-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            onClick={() => goToMessage(index)}
+            type="button"
+          >
+            <span
+              className={cn(
+                "h-[3px] rounded-full bg-muted-foreground/45 transition-[width,background-color] duration-200 motion-reduce:transition-none group-hover:bg-muted-foreground/75",
+                isCurrent ? "w-10 bg-foreground/65" : "w-6",
+              )}
+            />
+          </button>
+        );
+      })}
     </nav>
   );
 };

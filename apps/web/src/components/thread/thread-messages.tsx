@@ -726,7 +726,7 @@ export function ThreadMessages({
             <Tool
               key={`${keyScope}-tool-${stableKey}`}
               className={cn(
-                toolSlug === "bash" &&
+                (toolSlug === "bash" || toolSlug === "edit" || toolSlug === "write") &&
                   "my-1.5 overflow-hidden rounded-lg border border-border/70 bg-card text-muted-foreground shadow-none",
               )}
               data-tool={toolSlug}

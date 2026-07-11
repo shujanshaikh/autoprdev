@@ -16,6 +16,7 @@ import {
   isDemoRecordingMetadata,
   type DemoRecordingMetadata,
 } from "@/lib/chat-messages";
+import { FileTypeIcon, pathParts } from "@/lib/file-type-icon";
 import { CodeBlock } from "./code-block";
 import { PierreDiffView, usePierreDiffPreferences } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
@@ -1024,7 +1025,9 @@ export const ToolHeader = ({
     : slug === "bash"
       ? bashHeaderLabel(input)
     : title ? fallbackName : displayToolLabel(slug);
-  const summary = slug === "bash" ? "" : formatToolSummaryLine(slug, input);
+  const summary = slug === "bash" || slug === "edit" || slug === "write"
+    ? ""
+    : formatToolSummaryLine(slug, input);
   const streaming = isToolStreamingState(state);
   const recordingHeader = slug === "computer";
   const lineText = [label, summary].filter(Boolean).join(" ");
@@ -1064,6 +1067,91 @@ export const ToolHeader = ({
         {status}
         <span className="sr-only">
           {fallbackName}, {statusLabel[state]}. Toggle for arguments and result.
+        </span>
+      </CollapsibleTrigger>
+    );
+  }
+
+  if (slug === "edit" || slug === "write") {
+    const filePath = pathFromToolInput(input) ?? "";
+    const { name, dir } = pathParts(filePath || "file");
+    const displayDir = shortDir(dir);
+    const action = fileOpActionLabel(slug, state);
+    const failed = state === "output-error";
+
+    return (
+      <CollapsibleTrigger
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left outline-none",
+          "transition-colors hover:bg-muted/15",
+          "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+          "group-data-open:border-b group-data-open:border-border/60",
+          className
+        )}
+        {...props}
+      >
+        <ChevronRight
+          className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-data-open:rotate-90 motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+        {filePath ? (
+          <FileTypeIcon file={filePath} className="size-3.5 shrink-0 opacity-80" />
+        ) : null}
+        <span className="min-w-0 flex-1 overflow-hidden">
+          {streaming ? (
+            <Shimmer
+              as="span"
+              className="flex min-w-0 items-baseline gap-1.5"
+              duration={2}
+              spread={2}
+            >
+              <span className="shrink-0 font-mono text-[12px] font-medium tracking-tight text-foreground/90">
+                {name}
+              </span>
+              {displayDir ? (
+                <span className="truncate font-mono text-[10px] text-muted-foreground/50">
+                  {displayDir}
+                </span>
+              ) : null}
+            </Shimmer>
+          ) : (
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              <span className="shrink-0 font-mono text-[12px] font-medium tracking-tight text-foreground/90">
+                {name}
+              </span>
+              {displayDir ? (
+                <span className="truncate font-mono text-[10px] text-muted-foreground/50">
+                  {displayDir}
+                </span>
+              ) : null}
+            </span>
+          )}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 font-sans text-[11px] font-medium tracking-tight",
+            failed
+              ? "text-destructive"
+              : streaming
+                ? "text-muted-foreground/70"
+                : "text-muted-foreground/65",
+          )}
+        >
+          {streaming ? (
+            <Shimmer as="span" duration={2} spread={2}>
+              {action}
+            </Shimmer>
+          ) : (
+            action
+          )}
+        </span>
+        {state === "approval-requested" ||
+        state === "approval-responded" ||
+        state === "output-denied"
+          ? status
+          : null}
+        <span className="sr-only">
+          {action} {filePath || fallbackName}, {statusLabel[state]}. Toggle for arguments and result.
         </span>
       </CollapsibleTrigger>
     );
@@ -1133,6 +1221,8 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
       "data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-top-1",
       "data-open:animate-in data-open:slide-in-from-top-1",
       "group-data-[tool=bash]:m-0 group-data-[tool=bash]:space-y-0 group-data-[tool=bash]:p-0",
+      "group-data-[tool=edit]:m-0 group-data-[tool=edit]:p-0 group-data-[tool=edit]:pt-0",
+      "group-data-[tool=write]:m-0 group-data-[tool=write]:p-0 group-data-[tool=write]:pt-0",
       "motion-reduce:animate-none",
       className
     )}
@@ -1242,6 +1332,25 @@ function pathFromToolInput(input: unknown): string | undefined {
   }
 
   return input.path;
+}
+
+/** Keep long absolute paths readable: last 2 segments only. */
+function shortDir(dir: string) {
+  if (!dir) return "";
+  const parts = dir.replace(/\\/g, "/").split("/").filter(Boolean);
+  if (parts.length <= 2) return parts.join("/");
+  return parts.slice(-2).join("/");
+}
+
+function fileOpActionLabel(slug: "edit" | "write", state: ToolPart["state"]): string {
+  if (slug === "write") {
+    if (isToolStreamingState(state)) return "Writing";
+    if (state === "output-error") return "Write failed";
+    return "Created";
+  }
+  if (isToolStreamingState(state)) return "Editing";
+  if (state === "output-error") return "Edit failed";
+  return "Edited";
 }
 
 function editPreviewsFromInput(input: unknown) {
@@ -1447,6 +1556,7 @@ export const ToolOutput = ({
       className={cn(
         "mt-1.5 space-y-0.5 pt-1",
         slug === "bash" && "m-0 px-3.5 pb-3 pt-2.5",
+        (slug === "edit" || slug === "write") && "m-0 p-0",
         className,
       )}
       {...props}

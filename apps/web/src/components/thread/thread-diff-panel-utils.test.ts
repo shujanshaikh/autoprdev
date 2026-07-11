@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   appendDiffPromptContexts,
   createDiffPromptContext,
+  createThreadDiffCodeViewItem,
+  parseThreadDiffDeepLink,
   type ThreadDiffEntry,
 } from "./thread-diff-panel-utils";
 
@@ -49,5 +51,49 @@ describe("diff prompt contexts", () => {
     expect(appendDiffPromptContexts("Explain this", [context])).toContain(
       "Explain this\n\n<code_context path=\"src/example.ts\" lines=\"2\" side=\"deletions\">\n2: const value = 1;",
     );
+  });
+
+  it("parses a shareable line-range target", () => {
+    expect(parseThreadDiffDeepLink({
+      diff: "message:0",
+      diffFile: "src/example.ts",
+      line: "2",
+      lineEnd: "3",
+      side: "deletions",
+      endSide: "additions",
+    })).toEqual({
+      entryId: "message:0",
+      file: "src/example.ts",
+      start: 2,
+      end: 3,
+      side: "deletions",
+      endSide: "additions",
+    });
+  });
+
+  it("ignores invalid line values in a file-only target", () => {
+    expect(parseThreadDiffDeepLink({ diff: "message:0", line: "zero" })).toEqual({
+      entryId: "message:0",
+      file: undefined,
+      start: undefined,
+      end: undefined,
+      side: undefined,
+      endSide: undefined,
+    });
+  });
+
+  it("assigns stable worker cache keys and versions to CodeView items", () => {
+    const first = createThreadDiffCodeViewItem(entry, "thread-1", false);
+    const second = createThreadDiffCodeViewItem(entry, "thread-1", false);
+    expect(first.type).toBe("diff");
+    expect(second.type).toBe("diff");
+    if (first.type !== "diff" || second.type !== "diff") return;
+
+    expect(first.fileDiff.cacheKey).toBe(second.fileDiff.cacheKey);
+    expect(first.fileDiff.cacheKey).toContain("autopr:thread-1:message:0:");
+    expect(first.version).toBe(second.version);
+
+    const collapsed = createThreadDiffCodeViewItem(entry, "thread-1", true);
+    expect(collapsed.version).toBe((first.version ?? 0) + 1);
   });
 });

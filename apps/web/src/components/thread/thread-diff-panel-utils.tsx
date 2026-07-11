@@ -1,3 +1,6 @@
+import { parseDiffFromFile, parsePatchFiles, type CodeViewItem } from "@pierre/diffs";
+import { parsePatch } from "diff";
+
 export type ThreadDiffEntry = {
   id: string;
   messageId: string;
@@ -23,6 +26,95 @@ export type DiffPromptContext = {
   endSide: "additions" | "deletions";
   content: string;
 };
+
+export type ThreadDiffDeepLink = {
+  entryId: string;
+  file?: string;
+  start?: number;
+  end?: number;
+  side?: "additions" | "deletions";
+  endSide?: "additions" | "deletions";
+};
+
+function positiveLineNumber(value: unknown) {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function parseThreadDiffDeepLink(search: Record<string, unknown>): ThreadDiffDeepLink | undefined {
+  if (typeof search.diff !== "string" || search.diff.length === 0) return undefined;
+  const side = search.side === "deletions" ? "deletions" : search.side === "additions" ? "additions" : undefined;
+  const endSide = search.endSide === "deletions" ? "deletions" : search.endSide === "additions" ? "additions" : undefined;
+  return {
+    entryId: search.diff,
+    file: typeof search.diffFile === "string" ? search.diffFile : undefined,
+    start: positiveLineNumber(search.line),
+    end: positiveLineNumber(search.lineEnd),
+    side,
+    endSide,
+  };
+}
+
+function stringHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function createThreadDiffCodeViewItem(
+  entry: ThreadDiffEntry,
+  threadId: string,
+  collapsed: boolean,
+): CodeViewItem {
+  const source = entry.patch || `${entry.oldContent ?? ""}\0${entry.newContent ?? ""}`;
+  const contentHash = stringHash(source);
+  const cacheKey = `autopr:${threadId}:${entry.id}:${contentHash.toString(36)}`;
+  const version = contentHash * 2 + (collapsed ? 1 : 0);
+
+  if (entry.patch) {
+    try {
+      const fileDiff = parsePatchFiles(entry.patch, cacheKey, true)[0]?.files[0];
+      if (fileDiff) {
+        return { id: entry.id, type: "diff", fileDiff, collapsed, version };
+      }
+    } catch {
+      // Fall through to full contents or a lightweight unavailable item.
+    }
+  }
+
+  if (typeof entry.newContent === "string") {
+    const fileDiff = parseDiffFromFile(
+      {
+        name: entry.file,
+        contents: entry.oldContent ?? "",
+        cacheKey: `${cacheKey}:before`,
+      },
+      {
+        name: entry.file,
+        contents: entry.newContent,
+        cacheKey: `${cacheKey}:after`,
+      },
+    );
+    fileDiff.cacheKey = cacheKey;
+    return { id: entry.id, type: "diff", fileDiff, collapsed, version };
+  }
+
+  return {
+    id: entry.id,
+    type: "file",
+    file: {
+      name: entry.file,
+      contents: "Diff content is unavailable for this stored change.",
+      cacheKey,
+    },
+    collapsed,
+    version,
+  };
+}
 
 type SelectedLineRange = import("@pierre/diffs").SelectedLineRange;
 
@@ -155,4 +247,3 @@ export function appendDiffPromptContexts(message: string, contexts: DiffPromptCo
 
   return message.trim() ? `${message.trim()}\n\n${serialized}` : serialized;
 }
-import { parsePatch } from "diff";

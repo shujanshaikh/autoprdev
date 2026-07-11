@@ -11,15 +11,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import { DaytonaTerminalView } from "./daytona-terminal-view";
-import { ThreadDiffDetailView } from "./thread-diff-panel-detail-view";
+import { ThreadDiffCodeView } from "./thread-diff-code-view";
 import { ThreadDiffEmptyState, ThreadDiffLoadingList } from "./thread-diff-panel-states";
-import { ThreadDiffFileRow } from "./thread-diff-panel-file-row";
-import type { DiffPromptContext, ThreadDiffEntry } from "./thread-diff-panel-utils";
+import type { DiffPromptContext, ThreadDiffDeepLink, ThreadDiffEntry } from "./thread-diff-panel-utils";
 
 export type ThreadDiffPanelProps = {
   entries: ThreadDiffEntry[];
-  selectedEntryId?: string;
-  onSelectEntry: (id: string) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isLoading?: boolean;
@@ -35,6 +32,7 @@ export type ThreadDiffPanelProps = {
   maximized?: boolean;
   onMaximizedChange?: (maximized: boolean) => void;
   onAddPromptContext?: (context: DiffPromptContext) => void;
+  deepLink?: ThreadDiffDeepLink;
 };
 
 const MIN_PANEL_WIDTH = 380;
@@ -131,8 +129,6 @@ function autoprBranchName(value: string) {
 
 export function ThreadDiffPanel({
   entries,
-  selectedEntryId,
-  onSelectEntry,
   open,
   onOpenChange,
   isLoading = false,
@@ -148,14 +144,15 @@ export function ThreadDiffPanel({
   maximized = false,
   onMaximizedChange,
   onAddPromptContext,
+  deepLink,
 }: ThreadDiffPanelProps) {
   const [panelWidth, setPanelWidth] = useState(() => getMaxPanelWidth());
   const [isResizingPanel, setIsResizingPanel] = useState(false);
-  const [expandedEntryId, setExpandedEntryId] = useState<string | undefined>();
   const [viewedEntryIds, setViewedEntryIds] = useState<Set<string>>(() => readViewedDiffs(threadId));
-  const viewedThreadIdRef = useRef(threadId);
-  const [visibleTabs, setVisibleTabs] = useState<ThreadDiffPanelVisibleTab[]>(DEFAULT_VISIBLE_TABS);
-  const [activeTabId, setActiveTabId] = useState("");
+  const [visibleTabs, setVisibleTabs] = useState<ThreadDiffPanelVisibleTab[]>(() => deepLink
+    ? [{ id: SINGLETON_TAB_IDS.diff, kind: "diff" }]
+    : DEFAULT_VISIBLE_TABS);
+  const [activeTabId, setActiveTabId] = useState(() => deepLink ? SINGLETON_TAB_IDS.diff : "");
   const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
   const [desktopLoading, setDesktopLoading] = useState(false);
@@ -179,11 +176,6 @@ export function ThreadDiffPanel({
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
   useEffect(() => {
-    if (viewedThreadIdRef.current !== threadId) {
-      viewedThreadIdRef.current = threadId;
-      setViewedEntryIds(readViewedDiffs(threadId));
-      return;
-    }
     try {
       window.localStorage.setItem(
         `${VIEWED_DIFFS_STORAGE_PREFIX}:${threadId}`,
@@ -236,14 +228,6 @@ export function ThreadDiffPanel({
     resizeObserver.observe(container);
     panelResizeObserverRef.current = resizeObserver;
   }, []);
-
-  const fileEntryCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const entry of entries) {
-      counts.set(entry.file, (counts.get(entry.file) ?? 0) + 1);
-    }
-    return counts;
-  }, [entries]);
 
   const totals = useMemo(() => {
     let additions = 0;
@@ -1017,40 +1001,14 @@ export function ThreadDiffPanel({
         ) : showLoadingList ? (
           <ThreadDiffLoadingList />
         ) : (
-          <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background p-2">
-            <div aria-label="Changed files" className="flex min-h-0 flex-col gap-1.5">
-              {entries.map((entry) => {
-                const expanded = expandedEntryId === entry.id;
-                const active = selectedEntryId === entry.id || expanded;
-                return (
-                  <div key={entry.id} className="overflow-hidden rounded-sm border border-border bg-card">
-                    <ThreadDiffFileRow
-                      entry={entry}
-                      active={active}
-                      expanded={expanded}
-                      viewed={viewedEntryIds.has(entry.id)}
-                      onViewedChange={(viewed) => setEntryViewed(entry.id, viewed)}
-                      showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1}
-                      onSelect={() => {
-                        onSelectEntry(entry.id);
-                        setExpandedEntryId((current) => (current === entry.id ? undefined : entry.id));
-                      }}
-                    />
-                    {expanded ? (
-                      <div className="border-t border-border/45 bg-background">
-                        <ThreadDiffDetailView
-                          entry={entry}
-                          showTurn={(fileEntryCounts.get(entry.file) ?? 0) > 1}
-                          compact
-                          onAddPromptContext={onAddPromptContext}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <ThreadDiffCodeView
+            entries={entries}
+            threadId={threadId}
+            viewedEntryIds={viewedEntryIds}
+            deepLink={deepLink}
+            onViewedChange={setEntryViewed}
+            onAddPromptContext={onAddPromptContext}
+          />
           )
         ) : null}
       </aside>

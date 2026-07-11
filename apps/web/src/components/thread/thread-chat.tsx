@@ -92,6 +92,7 @@ import {
   appendDiffPromptContexts,
   formatDiffPromptContextLabel,
   type DiffPromptContext,
+  type ThreadDiffDeepLink,
   type ThreadDiffEntry,
 } from "#/components/thread/thread-diff-panel-utils";
 import {
@@ -119,6 +120,7 @@ type ThreadChatProps = {
   disabled: boolean;
   codexPromptIssue?: CodexPromptConnectionIssue;
   diffPanelOpen: boolean;
+  diffDeepLink?: ThreadDiffDeepLink;
   demoRecordingExperimentEnabled: boolean;
   onDiffPanelOpenChange: (open: boolean) => void;
   onDiffCountChange: (count: number) => void;
@@ -615,6 +617,7 @@ function ThreadChatRuntime({
   disabled,
   codexPromptIssue,
   diffPanelOpen,
+  diffDeepLink,
   demoRecordingExperimentEnabled,
   onDiffPanelOpenChange,
   onDiffCountChange,
@@ -649,7 +652,6 @@ function ThreadChatRuntime({
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
-  const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [diffPromptContexts, setDiffPromptContexts] = useState<DiffPromptContext[]>([]);
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const addDiffPromptContext = useCallback((context: DiffPromptContext) => {
@@ -931,11 +933,6 @@ function ThreadChatRuntime({
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
   const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
-  const selectedDiffEntry = selectedDiffEntryId
-    ? diffEntries.find((entry) => entry.id === selectedDiffEntryId)
-    : undefined;
-  const effectiveSelectedDiffEntryId = selectedDiffEntry?.id ?? diffEntries.at(-1)?.id;
-
   useEffect(() => {
     onDiffCountChange(diffEntries.length);
   }, [diffEntries.length, onDiffCountChange]);
@@ -1523,8 +1520,6 @@ function ThreadChatRuntime({
       </div>
       <ThreadDiffPanel
         entries={diffEntries}
-        selectedEntryId={effectiveSelectedDiffEntryId}
-        onSelectEntry={setSelectedDiffEntryId}
         open={diffPanelOpen}
         onOpenChange={onDiffPanelOpenChange}
         isLoading={status === "submitted" || status === "streaming"}
@@ -1540,6 +1535,7 @@ function ThreadChatRuntime({
         maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
         onAddPromptContext={addDiffPromptContext}
+        deepLink={diffDeepLink}
       />
     </section>
   );

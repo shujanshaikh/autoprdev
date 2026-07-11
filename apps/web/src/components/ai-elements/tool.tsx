@@ -6,7 +6,7 @@ import {
 import { cn } from "@autopr/ui/lib/utils";
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import { ChevronDown } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
@@ -885,15 +885,15 @@ function ContentDetailsBody({
 
   if (slug === "bash") {
     return content.trim().length > 0 ? (
-      <div className="max-h-[min(45vh,360px)] overflow-auto">
+      <div className="max-h-[min(40vh,320px)] overflow-auto">
         <CodeBlock
-          className="rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+          className="rounded-none border-0 bg-transparent text-muted-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[12px] [&_code]:!leading-relaxed dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
           code={content}
           language={PLAIN_TEXT_LANG}
         />
       </div>
     ) : (
-      <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>
+      <div className="font-sans text-[12px] leading-relaxed text-muted-foreground/60">No output</div>
     );
   }
 
@@ -1034,24 +1034,31 @@ export const ToolHeader = ({
     return (
       <CollapsibleTrigger
         className={cn(
-          "flex w-full cursor-pointer items-center gap-2 border-b border-border/70 bg-card px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-muted/20 focus-visible:ring-1 focus-visible:ring-ring",
+          "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left outline-none",
+          "font-sans text-[13px] font-medium tracking-tight text-foreground/80",
+          "transition-colors hover:text-foreground",
+          "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+          "group-data-open:border-b group-data-open:border-border/60",
           className
         )}
         {...props}
       >
-        <ChevronDown
-          className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-data-[state=closed]:-rotate-90"
+        <ChevronRight
+          className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-data-open:rotate-90 motion-reduce:transition-none"
           aria-hidden="true"
         />
         <span className="min-w-0 flex-1 overflow-hidden text-left">
           {streaming ? (
-            <Shimmer as="span" className="block max-w-full truncate align-baseline text-[13px]" duration={2} spread={2}>
+            <Shimmer
+              as="span"
+              className="block max-w-full truncate align-baseline"
+              duration={2}
+              spread={2}
+            >
               {label}
             </Shimmer>
           ) : (
-            <span className="block truncate font-sans text-[13px] font-medium leading-none text-muted-foreground">
-              {label}
-            </span>
+            <span className="block truncate">{label}</span>
           )}
         </span>
         {status}
@@ -1122,7 +1129,11 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=open]:animate-in group-data-[tool=bash]:m-0 group-data-[tool=bash]:p-0",
+      "mt-1 pt-1.5 text-[11px] text-muted-foreground/70 outline-none",
+      "data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-top-1",
+      "data-open:animate-in data-open:slide-in-from-top-1",
+      "group-data-[tool=bash]:m-0 group-data-[tool=bash]:space-y-0 group-data-[tool=bash]:p-0",
+      "motion-reduce:animate-none",
       className
     )}
     {...props}
@@ -1320,8 +1331,8 @@ export const ToolInput = ({
 
     return (
       <div className={cn("px-3.5 pt-3", className)} {...props}>
-        <div className="flex min-w-0 items-start gap-2.5 font-mono text-[13px] leading-relaxed text-foreground/90">
-          <span className="shrink-0 select-none text-muted-foreground">$</span>
+        <div className="flex min-w-0 items-start gap-2 font-mono text-[12px] leading-relaxed text-muted-foreground">
+          <span className="shrink-0 select-none text-muted-foreground/55">$</span>
           <code className="min-w-0 flex-1 whitespace-pre-wrap break-words bg-transparent p-0 text-[inherit] leading-[inherit]">
             {command}
           </code>
@@ -1387,9 +1398,9 @@ export const ToolOutput = ({
   let body: ReactNode;
 
   if (errorText) {
-    body = <div className="py-0.5 text-[11px] leading-relaxed text-destructive">{errorText}</div>;
+    body = <div className="py-0.5 text-[12px] leading-relaxed text-destructive">{errorText}</div>;
   } else if (slug === "bash" && !output) {
-    body = <div className="font-sans text-[13px] leading-relaxed text-muted-foreground">No output</div>;
+    body = <div className="font-sans text-[12px] leading-relaxed text-muted-foreground/60">No output</div>;
   } else if (computerContentDetails) {
     body = (
       <ContentDetailsBody
@@ -1420,7 +1431,7 @@ export const ToolOutput = ({
         <CodeBlock
           className={cn(
             slug === "bash" &&
-              "rounded-none border-0 bg-transparent text-foreground/90 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[13px] dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
+              "rounded-none border-0 bg-transparent text-muted-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!text-inherit [&_code]:!text-[12px] [&_code]:!leading-relaxed dark:[&_pre]:!bg-transparent dark:[&_pre]:!text-inherit"
           )}
           code={output}
           language={slug === "bash" ? PLAIN_TEXT_LANG : "json"}
@@ -1432,8 +1443,21 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("mt-1.5 space-y-0.5 pt-1", slug === "bash" && "m-0 px-3.5 pb-3 pt-2.5", className)} {...props}>
-      <div className={cn("overflow-x-auto text-[13px] [&_table]:w-full", errorText ? "text-destructive" : "text-foreground/80")}>
+    <div
+      className={cn(
+        "mt-1.5 space-y-0.5 pt-1",
+        slug === "bash" && "m-0 px-3.5 pb-3 pt-2.5",
+        className,
+      )}
+      {...props}
+    >
+      <div
+        className={cn(
+          "overflow-x-auto [&_table]:w-full",
+          slug === "bash" ? "text-[12px]" : "text-[13px]",
+          errorText ? "text-destructive" : slug === "bash" ? "text-muted-foreground" : "text-foreground/80",
+        )}
+      >
         {body}
       </div>
     </div>

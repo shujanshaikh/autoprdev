@@ -727,7 +727,7 @@ export function ThreadMessages({
               key={`${keyScope}-tool-${stableKey}`}
               className={cn(
                 toolSlug === "bash" &&
-                  "my-1.5 rounded-sm border border-border bg-card text-muted-foreground shadow-none"
+                  "my-1.5 overflow-hidden rounded-lg border border-border/70 bg-card text-muted-foreground shadow-none",
               )}
               data-tool={toolSlug}
               defaultOpen={defaultToolOpen}

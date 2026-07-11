@@ -40,6 +40,23 @@ const CODE_VIEW_CSS = `
 }
 `;
 
+function getStickyList(codeViewRoot: HTMLDivElement) {
+  const scrollScaffold = codeViewRoot.firstElementChild;
+  const stickyList = scrollScaffold?.lastElementChild;
+  return stickyList instanceof HTMLDivElement ? stickyList : undefined;
+}
+
+function alignShortListToTop(stickyList: HTMLDivElement) {
+  const top = Number.parseFloat(stickyList.style.top);
+  if (!Number.isFinite(top) || top <= 0) return;
+
+  // Pierre bottom-aligns its sticky virtual window when the rendered list is
+  // shorter than the viewport. Positive offsets only occur in that short-list
+  // case; negative offsets are required for normal virtualized scrolling.
+  stickyList.style.setProperty("top", "0px");
+  stickyList.style.setProperty("bottom", "auto");
+}
+
 function highlightedRange(element: HTMLElement, fallback: SelectedLineRange): SelectedLineRange {
   const selectedRows = element.querySelectorAll<HTMLElement>(
     "[data-gutter] [data-selected-line][data-column-number]",
@@ -200,6 +217,7 @@ export function ThreadDiffCodeView({
   const { resolvedTheme } = useTheme();
   const { diffStyle, lineDiffType } = usePierreDiffPreferences();
   const viewerRef = useRef<CodeViewHandle<undefined> | null>(null);
+  const codeViewRootRef = useRef<HTMLDivElement | null>(null);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const collapseAnchorFrameRef = useRef<number | undefined>(undefined);
   const selectionClearFrameRef = useRef<number | undefined>(undefined);
@@ -229,6 +247,19 @@ export function ThreadDiffCodeView({
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     if (collapseAnchorFrameRef.current !== undefined) cancelAnimationFrame(collapseAnchorFrameRef.current);
     if (selectionClearFrameRef.current !== undefined) cancelAnimationFrame(selectionClearFrameRef.current);
+  }, []);
+
+  useEffect(() => {
+    const root = codeViewRootRef.current;
+    if (!root) return;
+
+    const stickyList = getStickyList(root);
+    if (!stickyList) return;
+
+    alignShortListToTop(stickyList);
+    const observer = new MutationObserver(() => alignShortListToTop(stickyList));
+    observer.observe(stickyList, { attributes: true, attributeFilter: ["style"] });
+    return () => observer.disconnect();
   }, []);
 
   const showCopied = useCallback((target: string) => {
@@ -418,6 +449,7 @@ export function ThreadDiffCodeView({
       ) : null}
       <CodeView
         ref={viewerRef}
+        containerRef={codeViewRootRef}
         className="thread-diff-code-view diff-panel-view minimal-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain bg-background [contain:strict] [overflow-anchor:none] [will-change:scroll-position]"
         items={items}
         options={options}

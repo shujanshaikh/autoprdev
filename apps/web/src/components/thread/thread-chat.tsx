@@ -612,6 +612,7 @@ function ThreadChatRuntime({
   };
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
+  const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
   const [selectedDiffEntryId, setSelectedDiffEntryId] = useState<string | undefined>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(initialModel);
@@ -1152,12 +1153,21 @@ function ThreadChatRuntime({
     setPendingDemoEnabled(nextDemoEnabled);
     setDemoSaving(true);
 
+    const savePromise = setDemoEnabled({ threadId, demoEnabled: nextDemoEnabled })
+      .then(() => true)
+      .catch((toggleError) => {
+        setPendingDemoEnabled(undefined);
+        console.error("Failed to update demo mode", toggleError);
+        return false;
+      });
+    pendingDemoSaveRef.current = savePromise;
+
     try {
-      await setDemoEnabled({ threadId, demoEnabled: nextDemoEnabled });
-    } catch (toggleError) {
-      setPendingDemoEnabled(undefined);
-      console.error("Failed to update demo mode", toggleError);
+      await savePromise;
     } finally {
+      if (pendingDemoSaveRef.current === savePromise) {
+        pendingDemoSaveRef.current = null;
+      }
       setDemoSaving(false);
     }
   }, [demoRecordingExperimentEnabled, pendingDemoEnabled, setDemoEnabled, thread?.demoEnabled, threadId]);
@@ -1235,6 +1245,11 @@ function ThreadChatRuntime({
 
     if (pendingStopRef.current) {
       await pendingStopRef.current;
+    }
+
+    const pendingDemoSave = pendingDemoSaveRef.current;
+    if (pendingDemoSave && !(await pendingDemoSave)) {
+      return;
     }
 
     if (status !== "ready") {

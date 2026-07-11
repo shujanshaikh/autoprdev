@@ -2,6 +2,7 @@ import {
   applyAgenticCache,
   CodingHarness,
   createCachedSystemMessage,
+  DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
@@ -198,7 +199,7 @@ async function runAgentTask(
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
       demoRecordingEnabled
-        ? "Demo mode is enabled for this thread. After completing the requested work, use the computer tool inside Daytona to open the browser preview in Google Chrome and record a concise final demo video. Start recording only after the app is ready and the demo path is clear; give start_recording and stop_recording the same concise descriptive title for the final embedded video. Stop recording promptly. The chat UI embeds the recording automatically from tool output; do not print raw recording URLs, IDs, file paths, or metadata unless the user explicitly asks for them. Skip this only if no meaningful browser preview is possible, and explain the concrete blocker."
+        ? DEMO_RECORDING_INSTRUCTIONS
         : undefined,
     ]
       .filter(Boolean)

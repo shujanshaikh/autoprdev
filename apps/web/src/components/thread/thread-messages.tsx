@@ -19,6 +19,7 @@ import {
   ConversationContent,
   ConversationEmptyState,
   ConversationMessage,
+  ConversationMessageNavigation,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import {
@@ -483,6 +484,13 @@ export function ThreadMessages({
   diffEntries: ThreadDiffEntry[];
   onSelectChangedFile: (file: ThreadChangedFile) => void;
 }) {
+  const userMessageIds: string[] = [];
+  for (const { message } of keyedMessages) {
+    if (message.role === "user") {
+      userMessageIds.push(message.id);
+    }
+  }
+
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
     <ConversationContent>
@@ -786,6 +794,7 @@ export function ThreadMessages({
         <ConversationMessage
           key={messageKey}
           messageId={message.id}
+          scrollAnchor={isUser}
         >
           <MessageGroup className="gap-0">
             <Message
@@ -870,6 +879,7 @@ export function ThreadMessages({
     {awaitingAgentResponse ? <AwaitingAgentIndicator startedAt={activeRunStartedAt} /> : null}
     <div className="h-8 shrink-0" />
     </ConversationContent>
+    <ConversationMessageNavigation messageIds={userMessageIds} />
     <ConversationScrollButton className="bottom-4" />
   </Conversation>
   );

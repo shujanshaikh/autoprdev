@@ -1,10 +1,14 @@
 import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
-import { MessageScroller } from "@shadcn/react/message-scroller";
+import {
+  MessageScroller,
+  useMessageScroller,
+  useMessageScrollerVisibility,
+} from "@shadcn/react/message-scroller";
 import type { UIMessage } from "ai";
-import { ArrowDownIcon, DownloadIcon } from "lucide-react";
+import { ArrowDownIcon, ChevronDownIcon, ChevronUpIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 export type ConversationProps = ComponentProps<typeof MessageScroller.Root>;
 
@@ -117,6 +121,84 @@ export const ConversationScrollButton = ({
     >
       {children ?? <ArrowDownIcon className="size-4" />}
     </MessageScroller.Button>
+  );
+};
+
+export type ConversationMessageNavigationProps = ComponentProps<"nav"> & {
+  messageIds: string[];
+};
+
+export const ConversationMessageNavigation = ({
+  className,
+  messageIds,
+  ...props
+}: ConversationMessageNavigationProps) => {
+  const { scrollToMessage } = useMessageScroller();
+  const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
+  const visibleMessageIdSet = useMemo(() => new Set(visibleMessageIds), [visibleMessageIds]);
+  const currentIndex = useMemo(() => {
+    const anchorIndex = currentAnchorId ? messageIds.indexOf(currentAnchorId) : -1;
+    if (anchorIndex >= 0) {
+      return anchorIndex;
+    }
+
+    const firstVisibleIndex = messageIds.findIndex((id) => visibleMessageIdSet.has(id));
+    return firstVisibleIndex >= 0 ? firstVisibleIndex : messageIds.length - 1;
+  }, [currentAnchorId, messageIds, visibleMessageIdSet]);
+  const hasPrevious = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex < messageIds.length - 1;
+  const goToMessage = useCallback(
+    (index: number) => {
+      const messageId = messageIds[index];
+      if (messageId) {
+        scrollToMessage(messageId, { align: "start", behavior: "smooth" });
+      }
+    },
+    [messageIds, scrollToMessage],
+  );
+
+  if (messageIds.length < 2) {
+    return null;
+  }
+
+  return (
+    <nav
+      aria-label="Navigate user messages"
+      className={cn(
+        "absolute bottom-4 right-4 z-10 flex items-center overflow-hidden rounded-full border border-border/60 bg-background/90 shadow-sm backdrop-blur-sm",
+        className,
+      )}
+      {...props}
+    >
+      <Button
+        aria-label="Go to previous user message"
+        className="size-8 rounded-none border-0"
+        disabled={!hasPrevious}
+        onClick={() => goToMessage(currentIndex - 1)}
+        size="icon"
+        type="button"
+        variant="ghost"
+      >
+        <ChevronUpIcon className="size-3.5" />
+      </Button>
+      <span
+        aria-live="polite"
+        className="min-w-11 border-x border-border/50 px-2 text-center font-mono text-[10px] tabular-nums text-muted-foreground"
+      >
+        {currentIndex + 1}/{messageIds.length}
+      </span>
+      <Button
+        aria-label="Go to next user message"
+        className="size-8 rounded-none border-0"
+        disabled={!hasNext}
+        onClick={() => goToMessage(currentIndex + 1)}
+        size="icon"
+        type="button"
+        variant="ghost"
+      >
+        <ChevronDownIcon className="size-3.5" />
+      </Button>
+    </nav>
   );
 };
 

@@ -484,10 +484,14 @@ export function ThreadMessages({
   diffEntries: ThreadDiffEntry[];
   onSelectChangedFile: (file: ThreadChangedFile) => void;
 }) {
-  const userMessageIds: string[] = [];
+  const userMessageNavigation: Array<{ id: string; preview: string }> = [];
   for (const { message } of keyedMessages) {
     if (message.role === "user") {
-      userMessageIds.push(message.id);
+      const text = getTextParts(message.parts).replace(/\s+/g, " ").trim();
+      userMessageNavigation.push({
+        id: message.id,
+        preview: text || "Message with an attachment",
+      });
     }
   }
 
@@ -879,7 +883,7 @@ export function ThreadMessages({
     {awaitingAgentResponse ? <AwaitingAgentIndicator startedAt={activeRunStartedAt} /> : null}
     <div className="h-8 shrink-0" />
     </ConversationContent>
-    <ConversationMessageNavigation messageIds={userMessageIds} />
+    <ConversationMessageNavigation messages={userMessageNavigation} />
     <ConversationScrollButton className="bottom-4" />
   </Conversation>
   );

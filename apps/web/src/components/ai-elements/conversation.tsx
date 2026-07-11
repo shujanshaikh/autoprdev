@@ -1,4 +1,9 @@
 import { Button } from "@autopr/ui/components/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import {
   MessageScroller,
@@ -125,16 +130,17 @@ export const ConversationScrollButton = ({
 };
 
 export type ConversationMessageNavigationProps = ComponentProps<"nav"> & {
-  messageIds: string[];
+  messages: Array<{ id: string; preview: string }>;
 };
 
 export const ConversationMessageNavigation = ({
   className,
-  messageIds,
+  messages,
   ...props
 }: ConversationMessageNavigationProps) => {
   const { scrollToMessage } = useMessageScroller();
   const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
+  const messageIds = useMemo(() => messages.map(({ id }) => id), [messages]);
   const visibleMessageIdSet = useMemo(() => new Set(visibleMessageIds), [visibleMessageIds]);
   const currentIndex = useMemo(() => {
     const anchorIndex = currentAnchorId ? messageIds.indexOf(currentAnchorId) : -1;
@@ -163,30 +169,43 @@ export const ConversationMessageNavigation = ({
     <nav
       aria-label="Navigate user messages"
       className={cn(
-        "absolute left-2 top-1/2 z-10 flex max-h-[60%] -translate-y-1/2 flex-col items-start overflow-y-auto py-2 sm:left-3",
+        "absolute left-1.5 top-1/2 z-10 flex max-h-1/2 -translate-y-1/2 flex-col items-start overflow-y-auto py-1 sm:left-2",
         className,
       )}
       {...props}
     >
-      {messageIds.map((messageId, index) => {
+      {messages.map(({ id: messageId, preview }, index) => {
         const isCurrent = index === currentIndex;
 
         return (
-          <button
-            key={messageId}
-            aria-current={isCurrent ? "step" : undefined}
-            aria-label={`Go to user message ${index + 1} of ${messageIds.length}`}
-            className="group flex h-4 w-12 items-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            onClick={() => goToMessage(index)}
-            type="button"
-          >
-            <span
-              className={cn(
-                "h-[3px] rounded-full bg-muted-foreground/45 transition-[width,background-color] duration-200 motion-reduce:transition-none group-hover:bg-muted-foreground/75",
-                isCurrent ? "w-10 bg-foreground/65" : "w-6",
-              )}
+          <Tooltip key={messageId}>
+            <TooltipTrigger
+              render={
+                <button
+                  aria-current={isCurrent ? "step" : undefined}
+                  aria-label={`Go to user message ${index + 1} of ${messageIds.length}: ${preview}`}
+                  className="group flex h-3 w-8 items-center rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+                  onClick={() => goToMessage(index)}
+                  type="button"
+                >
+                  <span
+                    className={cn(
+                      "h-0.5 rounded-full bg-muted-foreground/35 transition-[width,background-color] duration-150 motion-reduce:transition-none group-hover:bg-muted-foreground/70",
+                      isCurrent ? "w-6 bg-foreground/60" : "w-3.5",
+                    )}
+                  />
+                </button>
+              }
             />
-          </button>
+            <TooltipContent
+              align="center"
+              className="max-w-72 rounded-[var(--radius-md)] px-2.5 py-2 text-[11px] leading-relaxed"
+              side="right"
+              sideOffset={7}
+            >
+              <span className="line-clamp-4 [overflow-wrap:anywhere]">{preview}</span>
+            </TooltipContent>
+          </Tooltip>
         );
       })}
     </nav>

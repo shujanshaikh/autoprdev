@@ -187,13 +187,13 @@ function HeaderMetadata({
         title={viewed ? "Mark unviewed" : "Mark viewed"}
         onClick={() => onViewedChange(!viewed)}
         className={cn(
-          "inline-flex size-6 items-center justify-center rounded-[6px] border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--cohere-form-focus)]",
+          "inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
           viewed
             ? "border-blue-500/70 bg-blue-500 text-white hover:bg-blue-500/85"
             : "border-border bg-background text-transparent hover:border-blue-500/60 hover:text-blue-500/35",
         )}
       >
-        <Check className="size-4" strokeWidth={2.5} aria-hidden="true" />
+        <Check className="size-2.5" strokeWidth={3} aria-hidden="true" />
       </button>
     </span>
   );

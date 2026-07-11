@@ -973,7 +973,16 @@ export const PromptInput = ({
         ref={formRef}
         {...props}
       >
-        <InputGroup className={cn("overflow-hidden", className)}>{children}</InputGroup>
+        <InputGroup
+          className={cn(
+            "h-auto overflow-hidden rounded-[var(--radius-xxl)] border-border/55 bg-muted/35 shadow-none transition-[border-color,background-color,box-shadow] duration-200",
+            "has-[[data-slot=input-group-control]:focus-visible]:border-border/80 has-[[data-slot=input-group-control]:focus-visible]:bg-muted/45 has-[[data-slot=input-group-control]:focus-visible]:ring-0",
+            "dark:bg-muted/20 dark:has-[[data-slot=input-group-control]:focus-visible]:bg-muted/30",
+            className,
+          )}
+        >
+          {children}
+        </InputGroup>
       </form>
     </>
   );
@@ -1111,7 +1120,10 @@ export const PromptInputTextarea = ({
 
   return (
     <InputGroupTextarea
-      className={cn("field-sizing-content max-h-48 min-h-16", className)}
+      className={cn(
+        "field-sizing-content max-h-48 min-h-12 px-3.5 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/50",
+        className,
+      )}
       name="message"
       onCompositionEnd={handleCompositionEnd}
       onCompositionStart={handleCompositionStart}
@@ -1135,7 +1147,10 @@ export const PromptInputHeader = ({
 }: PromptInputHeaderProps) => (
   <InputGroupAddon
     align="block-end"
-    className={cn("order-first flex-wrap gap-1", className)}
+    className={cn(
+      "order-first flex-wrap gap-1.5 px-3 pt-3 pb-0 empty:hidden",
+      className,
+    )}
     {...props}
   />
 );
@@ -1151,7 +1166,7 @@ export const PromptInputFooter = ({
 }: PromptInputFooterProps) => (
   <InputGroupAddon
     align="block-end"
-    className={cn("justify-between gap-1", className)}
+    className={cn("items-center justify-between gap-1.5 px-2 pb-2 pt-0.5", className)}
     {...props}
   />
 );
@@ -1163,7 +1178,7 @@ export const PromptInputTools = ({
   ...props
 }: PromptInputToolsProps) => (
   <div
-    className={cn("flex min-w-0 items-center gap-1", className)}
+    className={cn("flex min-w-0 items-center gap-0.5", className)}
     {...props}
   />
 );
@@ -1277,14 +1292,14 @@ export const PromptInputSubmit = ({
 }: PromptInputSubmitProps) => {
   const isGenerating = status === "submitted" || status === "streaming";
 
-  let Icon = <ArrowUpIcon className="size-4" />;
+  let Icon = <ArrowUpIcon className="size-3.5" />;
 
   if (status === "submitted") {
     Icon = <Spinner />;
   } else if (status === "streaming") {
-    Icon = <SquareIcon className="size-4" />;
+    Icon = <SquareIcon className="size-3.5" />;
   } else if (status === "error") {
-    Icon = <XIcon className="size-4" />;
+    Icon = <XIcon className="size-3.5" />;
   }
 
   const submitOrStopGeneration = useCallback<NonNullable<PromptInputSubmitProps["onClick"]>>(
@@ -1302,7 +1317,11 @@ export const PromptInputSubmit = ({
   return (
     <InputGroupButton
       aria-label={isGenerating ? "Stop" : "Submit"}
-      className={cn("rounded-full", className)}
+      className={cn(
+        "size-8 shrink-0 rounded-full shadow-none transition-opacity",
+        "disabled:opacity-30",
+        className,
+      )}
       onClick={submitOrStopGeneration}
       size={size}
       type={isGenerating && onStop ? "button" : "submit"}
@@ -1330,8 +1349,10 @@ const PromptInputSelectTrigger = ({
 }: PromptInputSelectTriggerProps) => (
   <SelectTrigger
     className={cn(
-      "border-none bg-transparent font-medium text-muted-foreground shadow-none transition-colors",
-      "hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
+      "h-7 gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors",
+      "hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent aria-expanded:text-foreground",
+      "focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent dark:hover:bg-transparent",
+      "data-[size=sm]:h-7 [&_svg:not([class*='size-'])]:size-3.5",
       className
     )}
     {...props}

@@ -155,6 +155,7 @@ export function ThreadDiffPanel({
     ? [{ id: SINGLETON_TAB_IDS.diff, kind: "diff" }]
     : DEFAULT_VISIBLE_TABS);
   const [activeTabId, setActiveTabId] = useState(() => deepLink ? SINGLETON_TAB_IDS.diff : "");
+  const [handledDeepLink, setHandledDeepLink] = useState(deepLink);
   const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
   const [desktopLoading, setDesktopLoading] = useState(false);
@@ -187,6 +188,14 @@ export function ThreadDiffPanel({
       // Viewed state is a local review convenience and should never block the panel.
     }
   }, [threadId, viewedEntryIds]);
+
+  if (deepLink !== handledDeepLink) {
+    setHandledDeepLink(deepLink);
+    setVisibleTabs((current) => current.some((tab) => tab.kind === "diff")
+      ? current
+      : [{ id: SINGLETON_TAB_IDS.diff, kind: "diff" }, ...current]);
+    setActiveTabId(SINGLETON_TAB_IDS.diff);
+  }
 
   const setEntryViewed = useCallback((entryId: string, viewed: boolean) => {
     setViewedEntryIds((current) => {

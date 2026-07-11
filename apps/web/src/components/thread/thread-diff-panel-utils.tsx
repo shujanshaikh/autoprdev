@@ -17,6 +17,32 @@ export type ThreadDiffEntry = {
   diff: import("@/components/ai-elements/tool").ToolDiffPayload;
 };
 
+export type ThreadChangedFile = {
+  entry: ThreadDiffEntry;
+  additions: number;
+  deletions: number;
+};
+
+export function changedFilesForMessage(
+  entries: ThreadDiffEntry[],
+  messageId: string,
+): ThreadChangedFile[] {
+  const files = new Map<string, ThreadChangedFile>();
+
+  for (const entry of entries) {
+    if (entry.messageId !== messageId) continue;
+
+    const existing = files.get(entry.file);
+    files.set(entry.file, {
+      entry,
+      additions: (existing?.additions ?? 0) + entry.additions,
+      deletions: (existing?.deletions ?? 0) + entry.deletions,
+    });
+  }
+
+  return [...files.values()];
+}
+
 export type DiffPromptContext = {
   id: string;
   file: string;
@@ -30,6 +56,7 @@ export type DiffPromptContext = {
 export type ThreadDiffDeepLink = {
   entryId: string;
   file?: string;
+  requestId?: number;
   start?: number;
   end?: number;
   side?: "additions" | "deletions";

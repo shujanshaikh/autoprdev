@@ -55,6 +55,12 @@ import {
   toolSlugFromPart,
   type ToolPart,
 } from "@/components/ai-elements/tool";
+import { ThreadChangedFiles } from "./thread-changed-files";
+import {
+  changedFilesForMessage,
+  type ThreadChangedFile,
+  type ThreadDiffEntry,
+} from "./thread-diff-panel-utils";
 
 function getPartState(part: object) {
   return "state" in part ? part.state : undefined;
@@ -456,6 +462,8 @@ export function ThreadMessages({
   modelId,
   recordingPlaybackBasePath,
   onSubmitMessage,
+  diffEntries,
+  onSelectChangedFile,
 }: {
   keyedMessages: KeyedMessage[];
   ready: boolean;
@@ -468,6 +476,8 @@ export function ThreadMessages({
   modelId?: string;
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
+  diffEntries: ThreadDiffEntry[];
+  onSelectChangedFile: (file: ThreadChangedFile) => void;
 }) {
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
@@ -540,6 +550,9 @@ export function ThreadMessages({
       }
   
       const isUser = message.role === "user";
+      const changedFiles = !isUser && message.id !== activeAssistantMessageId
+        ? changedFilesForMessage(diffEntries, message.id)
+        : [];
       const messageText = isUser ? getTextParts(message.parts) : "";
       const isImageFileItem = (item: GroupedItem) =>
         item.kind === "single" && isFileUIPart(item.part) && item.part.mediaType.startsWith("image/");
@@ -813,6 +826,9 @@ export function ThreadMessages({
                 ) : null}
                 {!isUser ? recordingItems.map(renderRecordingItem) : null}
                 {mainDisplayGrouped.map((item) => renderGroupedItem(item, "main"))}
+                {!isUser ? (
+                  <ThreadChangedFiles files={changedFiles} onSelect={onSelectChangedFile} />
+                ) : null}
                 </div>
                 {isUser ? <UserMessageCopyButton text={messageText} /> : null}
               </MessageContent>

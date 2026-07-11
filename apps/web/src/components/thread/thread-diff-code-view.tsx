@@ -328,7 +328,14 @@ export function ThreadDiffCodeView({
       ?? entries.find((entry) => entry.file === deepLink.file);
     if (!targetEntry) return;
 
-    const targetKey = JSON.stringify([targetEntry.id, deepLink.start, deepLink.end, deepLink.side, deepLink.endSide]);
+    const targetKey = JSON.stringify([
+      targetEntry.id,
+      deepLink.requestId,
+      deepLink.start,
+      deepLink.end,
+      deepLink.side,
+      deepLink.endSide,
+    ]);
     if (appliedDeepLinkRef.current === targetKey) return;
     if (collapsedEntryIds.has(targetEntry.id)) {
       setCollapsedEntryIds((current) => {

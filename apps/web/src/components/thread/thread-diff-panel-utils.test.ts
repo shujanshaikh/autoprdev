@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendDiffPromptContexts,
+  changedFilesForMessage,
   createDiffPromptContext,
   createThreadDiffCodeViewItem,
   parseThreadDiffDeepLink,
@@ -31,6 +32,30 @@ const entry: ThreadDiffEntry = {
 };
 
 describe("diff prompt contexts", () => {
+  it("groups a completed run by path and points to the latest change", () => {
+    const secondChange = {
+      ...entry,
+      id: "message:1",
+      partIndex: 1,
+      additions: 3,
+      deletions: 2,
+    };
+    const otherMessage = {
+      ...entry,
+      id: "other:0",
+      messageId: "other",
+      additions: 20,
+    };
+
+    const files = changedFilesForMessage([entry, secondChange, otherMessage], "message");
+
+    expect(files).toEqual([{
+      entry: secondChange,
+      additions: 4,
+      deletions: 3,
+    }]);
+  });
+
   it("extracts visible selected lines from a patch when full contents are omitted", () => {
     const context = createDiffPromptContext(entry, {
       start: 2,

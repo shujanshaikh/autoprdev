@@ -92,6 +92,7 @@ import {
   appendDiffPromptContexts,
   formatDiffPromptContextLabel,
   type DiffPromptContext,
+  type ThreadChangedFile,
   type ThreadDiffDeepLink,
   type ThreadDiffEntry,
 } from "#/components/thread/thread-diff-panel-utils";
@@ -652,8 +653,10 @@ function ThreadChatRuntime({
   const hasAutoSubmittedInitialPromptRef = useRef(false);
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
+  const changedFileRequestRef = useRef(0);
   const [diffPromptContexts, setDiffPromptContexts] = useState<DiffPromptContext[]>([]);
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
+  const [selectedDiffLink, setSelectedDiffLink] = useState<ThreadDiffDeepLink | undefined>();
   const addDiffPromptContext = useCallback((context: DiffPromptContext) => {
     setDiffPromptContexts((current) => current.some((item) => item.id === context.id)
       ? current
@@ -933,6 +936,15 @@ function ThreadChatRuntime({
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
   const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
+  const handleSelectChangedFile = useCallback((file: ThreadChangedFile) => {
+    changedFileRequestRef.current += 1;
+    setSelectedDiffLink({
+      entryId: file.entry.id,
+      file: file.entry.file,
+      requestId: changedFileRequestRef.current,
+    });
+    onDiffPanelOpenChange(true);
+  }, [onDiffPanelOpenChange]);
   useEffect(() => {
     onDiffCountChange(diffEntries.length);
   }, [diffEntries.length, onDiffCountChange]);
@@ -1391,6 +1403,8 @@ function ThreadChatRuntime({
             modelId={selectedModel}
             recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
+            diffEntries={diffEntries}
+            onSelectChangedFile={handleSelectChangedFile}
           />
         </div>
 
@@ -1535,7 +1549,7 @@ function ThreadChatRuntime({
         maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
         onAddPromptContext={addDiffPromptContext}
-        deepLink={diffDeepLink}
+        deepLink={selectedDiffLink ?? diffDeepLink}
       />
     </section>
   );

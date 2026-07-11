@@ -13,7 +13,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { usePierreDiffPreferences } from "@/components/ai-elements/pierre-diff-view";
 import { pathParts } from "#/lib/file-type-icon";
-import { ThreadDiffStatusIcon } from "./thread-diff-panel-status-icon";
 import {
   createDiffPromptContext,
   createThreadDiffCodeViewItem,
@@ -94,10 +93,6 @@ function HeaderMetadata({
 }) {
   return (
     <span className="flex items-center gap-1.5 pr-1">
-      <span className="hidden items-center gap-1.5 font-mono text-[10px] tabular-nums min-[520px]:flex">
-        <span className="text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]">+{entry.additions}</span>
-        <span className="text-[color:var(--cohere-coral)]">−{entry.deletions}</span>
-      </span>
       <button
         type="button"
         onClick={onCopy}
@@ -146,6 +141,7 @@ export function ThreadDiffCodeView({
   const { diffStyle, lineDiffType } = usePierreDiffPreferences();
   const viewerRef = useRef<CodeViewHandle<undefined> | null>(null);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const selectionClearFrameRef = useRef<number | undefined>(undefined);
   const appliedDeepLinkRef = useRef<string | undefined>(undefined);
   const [collapsedEntryIds, setCollapsedEntryIds] = useState<Set<string>>(() => new Set());
   const [selectedLines, setSelectedLines] = useState<CodeViewLineSelection | null>(null);
@@ -170,6 +166,7 @@ export function ThreadDiffCodeView({
 
   useEffect(() => () => {
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    if (selectionClearFrameRef.current !== undefined) cancelAnimationFrame(selectionClearFrameRef.current);
   }, []);
 
   const showCopied = useCallback((target: string) => {
@@ -226,6 +223,14 @@ export function ThreadDiffCodeView({
         const entry = entryById.get(context.item.id);
         if (entry && context.item.type === "diff") {
           onAddPromptContext?.(createDiffPromptContext(entry, range));
+          if (selectionClearFrameRef.current !== undefined) {
+            cancelAnimationFrame(selectionClearFrameRef.current);
+          }
+          selectionClearFrameRef.current = requestAnimationFrame(() => {
+            selectionClearFrameRef.current = undefined;
+            setSelectedLines(null);
+            viewerRef.current?.clearSelectedLines();
+          });
         }
       },
       onLineSelectionEnd(range, context) {
@@ -277,9 +282,8 @@ export function ThreadDiffCodeView({
     const entry = entryById.get(item.id);
     if (!entry) return null;
     return (
-      <span className="flex items-center gap-1">
+      <span className="flex items-center">
         <CollapseButton collapsed={item.collapsed === true} onClick={() => toggleCollapsed(item.id)} />
-        <ThreadDiffStatusIcon status={entry.status} file={entry.file} />
       </span>
     );
   }, [entryById, toggleCollapsed]);
@@ -325,7 +329,7 @@ export function ThreadDiffCodeView({
       ) : null}
       <CodeView
         ref={viewerRef}
-        className="thread-diff-code-view minimal-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain bg-background [contain:strict] [overflow-anchor:none] [will-change:scroll-position]"
+        className="thread-diff-code-view diff-panel-view minimal-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain bg-background [contain:strict] [overflow-anchor:none] [will-change:scroll-position]"
         items={items}
         options={options}
         selectedLines={selectedLines}

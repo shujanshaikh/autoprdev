@@ -806,7 +806,7 @@ export function ThreadDiffPanel({
 
           return (
             <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[color:var(--cohere-primary)]", isActiveTerminal ? "flex" : "hidden")}>
-              {isActiveTerminal ? <DaytonaTerminalView projectId={projectId} /> : null}
+              <DaytonaTerminalView projectId={projectId} />
             </div>
           );
         })}

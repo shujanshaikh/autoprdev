@@ -9,10 +9,13 @@ import {
 } from "@autopr/ui/components/dialog";
 import { Input } from "@autopr/ui/components/input";
 import { Label } from "@autopr/ui/components/label";
+import { Textarea } from "@autopr/ui/components/textarea";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction, useQuery } from "convex/react";
-import { Check, Eye, EyeOff, KeyRound, Loader2, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { Check, ClipboardPaste, Eye, EyeOff, KeyRound, Loader2, Pencil, Plus, ShieldCheck, Trash2, Upload, X } from "lucide-react";
+import { useMemo, useState, type ClipboardEvent, type FormEvent } from "react";
+
+import { parseEnvFile } from "#/lib/env-file";
 
 type DaytonaEnvironmentViewProps = {
   projectId: string;
@@ -23,6 +26,7 @@ type DaytonaEnvironmentDialogProps = DaytonaEnvironmentViewProps & {
 };
 
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_BULK_VARIABLES = 50;
 
 function parseHosts(value: string): string[] {
   return [...new Set(value.split(/[\n,]/).map((host) => host.trim()).filter(Boolean))];
@@ -35,6 +39,7 @@ function actionError(error: unknown, fallback: string): string {
 export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProps) {
   const project = useQuery(api.projects.get, { projectId });
   const upsertSecret = useAction(api.projectActions.upsertSandboxSecret);
+  const importSecrets = useAction(api.projectActions.importSandboxSecrets);
   const removeSecret = useAction(api.projectActions.removeSandboxSecret);
   const secrets = useMemo(() => project?.sandboxSecrets ?? [], [project?.sandboxSecrets]);
   const [envName, setEnvName] = useState("");
@@ -47,6 +52,12 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
   const [confirmRemoveName, setConfirmRemoveName] = useState<string>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkHosts, setBulkHosts] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkError, setBulkError] = useState<string>();
+  const parsedBulkEnv = useMemo(() => parseEnvFile(bulkText), [bulkText]);
 
   const resetForm = () => {
     setEnvName("");
@@ -64,6 +75,55 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
     setHosts(secret.hosts.join(", "));
     setNotice(undefined);
     setError(undefined);
+  };
+
+  const openBulkImport = (text = "") => {
+    setBulkText(text);
+    setBulkOpen(true);
+    setBulkError(undefined);
+    setNotice(undefined);
+    setEditingName(undefined);
+  };
+
+  const handleVariableNamePaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const pastedText = event.clipboardData.getData("text");
+    if (!pastedText.includes("=")) return;
+
+    event.preventDefault();
+    openBulkImport(pastedText);
+  };
+
+  const handleBulkSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (
+      parsedBulkEnv.errors.length > 0 ||
+      parsedBulkEnv.entries.length === 0 ||
+      parsedBulkEnv.entries.length > MAX_BULK_VARIABLES
+    ) {
+      setBulkError("Fix the highlighted .env lines before importing.");
+      return;
+    }
+
+    setBulkSaving(true);
+    setBulkError(undefined);
+    setNotice(undefined);
+    try {
+      const result = await importSecrets({
+        projectId,
+        entries: parsedBulkEnv.entries,
+        hosts: parseHosts(bulkHosts),
+      });
+      setBulkText("");
+      setBulkHosts("");
+      setBulkOpen(false);
+      setNotice(
+        `${result.importedCount} ${result.importedCount === 1 ? "variable" : "variables"} imported.${result.restarted ? " Daytona restarted the sandbox so new processes can read them." : " Start a new terminal or restart the app process to read the updates."}`,
+      );
+    } catch (importError) {
+      setBulkError(actionError(importError, "Could not import the environment file."));
+    } finally {
+      setBulkSaving(false);
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -124,13 +184,123 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
           <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-[10px] border border-border bg-[color:var(--project-panel-soft)]">
             <KeyRound className="size-4 text-foreground/80" aria-hidden="true" />
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold tracking-[-0.01em] text-foreground">Sandbox environment</h2>
             <p className="mt-1 max-w-[560px] text-[13px] leading-relaxed text-muted-foreground">
               Store project credentials as Daytona secrets. The sandbox receives an opaque placeholder, and Daytona substitutes the real value only in outbound HTTP(S) requests.
             </p>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => bulkOpen ? setBulkOpen(false) : openBulkImport()}
+            className={cn("h-8 shrink-0 gap-1.5 px-2.5 font-mono text-[10px]", bulkOpen && "bg-muted text-foreground")}
+          >
+            {bulkOpen ? <X className="size-3.5" aria-hidden="true" /> : <ClipboardPaste className="size-3.5" aria-hidden="true" />}
+            {bulkOpen ? "Close import" : "Paste .env"}
+          </Button>
         </div>
+
+        {bulkOpen ? (
+          <form onSubmit={handleBulkSubmit} className="border border-[color:var(--project-selected-strong)]/35 bg-card">
+            <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-[color:var(--project-selected)] px-4 py-2.5">
+              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-foreground/75">
+                <ClipboardPaste className="size-3.5" aria-hidden="true" />
+                Import .env file
+              </div>
+              <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                {parsedBulkEnv.entries.length} detected
+              </span>
+            </div>
+            <div className="grid gap-4 p-4">
+              <div className="grid gap-1.5">
+                <Label htmlFor="sandbox-env-bulk" className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Environment file
+                </Label>
+                <Textarea
+                  id="sandbox-env-bulk"
+                  value={bulkText}
+                  onChange={(event) => {
+                    setBulkText(event.target.value);
+                    setBulkError(undefined);
+                  }}
+                  disabled={bulkSaving}
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  spellCheck={false}
+                  rows={8}
+                  placeholder={"DATABASE_URL=postgres://…\nAPI_TOKEN=secret\n# Comments are ignored"}
+                  className="min-h-40 resize-y font-mono text-xs leading-relaxed"
+                  autoFocus
+                />
+              </div>
+
+              {parsedBulkEnv.entries.length > 0 ? (
+                <div className="border border-border bg-muted/15">
+                  <div className="flex items-center justify-between border-b border-border/70 px-3 py-2 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <span>Detected keys</span>
+                    {parsedBulkEnv.duplicateNames.length > 0 ? <span>last duplicate wins</span> : null}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 p-2.5">
+                    {parsedBulkEnv.entries.slice(0, 12).map((entry) => (
+                      <span key={entry.envName} className="inline-flex items-center gap-1.5 border border-border bg-background px-2 py-1 font-mono text-[10px] text-foreground/80">
+                        <Check className="size-3 text-emerald-500" aria-hidden="true" />
+                        {entry.envName}
+                        {secrets.some((secret) => secret.envName === entry.envName) ? <span className="text-muted-foreground">· replace</span> : null}
+                      </span>
+                    ))}
+                    {parsedBulkEnv.entries.length > 12 ? (
+                      <span className="px-2 py-1 font-mono text-[10px] text-muted-foreground">+{parsedBulkEnv.entries.length - 12} more</span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {parsedBulkEnv.errors.length > 0 ? (
+                <div role="alert" className="border border-destructive/35 bg-destructive/[0.04] px-3 py-2 text-xs leading-relaxed text-destructive">
+                  <p className="font-medium">Could not parse {parsedBulkEnv.errors.length} {parsedBulkEnv.errors.length === 1 ? "line" : "lines"}:</p>
+                  <ul className="mt-1 list-inside list-disc font-mono text-[10px]">
+                    {parsedBulkEnv.errors.slice(0, 4).map((parseError) => <li key={parseError}>{parseError}</li>)}
+                  </ul>
+                </div>
+              ) : null}
+
+              {parsedBulkEnv.entries.length > MAX_BULK_VARIABLES ? (
+                <p role="alert" className="border border-destructive/35 bg-destructive/[0.04] px-3 py-2 text-xs text-destructive">
+                  Import at most {MAX_BULK_VARIABLES} variables at a time.
+                </p>
+              ) : null}
+
+              <div className="grid gap-1.5">
+                <Label htmlFor="sandbox-env-bulk-hosts" className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Allowed hosts for all imported values <span className="normal-case tracking-normal text-muted-foreground/65">— optional</span>
+                </Label>
+                <Input
+                  id="sandbox-env-bulk-hosts"
+                  value={bulkHosts}
+                  onChange={(event) => setBulkHosts(event.target.value)}
+                  disabled={bulkSaving}
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="api.example.com, *.example.org"
+                  className="font-mono"
+                />
+              </div>
+
+              {bulkError ? <p role="alert" className="border border-destructive/35 bg-destructive/[0.04] px-3 py-2 text-xs text-destructive">{bulkError}</p> : null}
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[11px] leading-relaxed text-muted-foreground">Existing keys are rotated. Values are never shown again.</p>
+                <Button type="submit" size="sm" disabled={bulkSaving || parsedBulkEnv.entries.length === 0 || parsedBulkEnv.entries.length > MAX_BULK_VARIABLES || parsedBulkEnv.errors.length > 0} className="h-8 gap-1.5 px-3">
+                  {bulkSaving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Upload className="size-3.5" aria-hidden="true" />}
+                  Import {parsedBulkEnv.entries.length || "variables"}
+                </Button>
+              </div>
+            </div>
+          </form>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="border border-border bg-card">
           <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-4 py-2.5">
@@ -155,6 +325,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
                 id="sandbox-env-name"
                 value={envName}
                 onChange={(event) => setEnvName(event.target.value)}
+                onPaste={handleVariableNamePaste}
                 disabled={Boolean(editingName) || saving}
                 autoCapitalize="none"
                 autoComplete="off"

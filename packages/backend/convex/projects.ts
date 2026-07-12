@@ -636,6 +636,38 @@ export const upsertSandboxSecretInternal = internalMutation({
   },
 });
 
+export const upsertSandboxSecretsInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    secrets: v.array(sandboxSecretValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const importedNames = new Set(args.secrets.map((secret) => secret.envName));
+    const sandboxSecrets = (project.sandboxSecrets ?? []).filter(
+      (secret) => !importedNames.has(secret.envName),
+    );
+    sandboxSecrets.push(...args.secrets);
+    sandboxSecrets.sort((left, right) => left.envName.localeCompare(right.envName));
+
+    await ctx.db.patch(project._id, {
+      sandboxSecrets,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
 export const removeSandboxSecretInternal = internalMutation({
   args: {
     authorId: v.string(),

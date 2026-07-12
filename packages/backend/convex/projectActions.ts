@@ -30,6 +30,8 @@ const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
 const MAX_SECRET_VALUE_LENGTH = 64 * 1024;
 const MAX_SECRET_HOSTS = 50;
+const MAX_BULK_SECRET_COUNT = 50;
+const MAX_BULK_SECRET_VALUE_LENGTH = 512 * 1024;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SECRET_HOST_PATTERN = /^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
@@ -1046,6 +1048,142 @@ export const upsertSandboxSecret = action({
       if (error instanceof ConvexError) throw error;
       throw new ConvexError({
         code: "DAYTONA_SECRET_UPDATE_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const importSandboxSecrets = action({
+  args: {
+    projectId: v.string(),
+    entries: v.array(v.object({
+      envName: v.string(),
+      value: v.string(),
+    })),
+    hosts: v.array(v.string()),
+  },
+  returns: v.object({
+    importedCount: v.number(),
+    restarted: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{ importedCount: number; restarted: boolean }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (args.entries.length === 0 || args.entries.length > MAX_BULK_SECRET_COUNT) {
+      throw new ConvexError({
+        code: "INVALID_BULK_SECRET_COUNT",
+        message: `Import between 1 and ${MAX_BULK_SECRET_COUNT} variables at a time.`,
+      });
+    }
+    if (args.entries.reduce((length, entry) => length + entry.value.length, 0) > MAX_BULK_SECRET_VALUE_LENGTH) {
+      throw new ConvexError({
+        code: "BULK_SECRET_VALUES_TOO_LARGE",
+        message: "The pasted environment file is too large to import at once.",
+      });
+    }
+
+    const hosts = normalizeSecretHosts(args.hosts);
+    const normalizedEntries = args.entries.map((entry) => ({
+      ...validateSandboxSecretInput(entry.envName, entry.value, hosts),
+      value: entry.value,
+    }));
+    if (new Set(normalizedEntries.map((entry) => entry.envName)).size !== normalizedEntries.length) {
+      throw new ConvexError({ code: "DUPLICATE_ENV_NAMES", message: "Each imported variable name must be unique." });
+    }
+
+    const project = await ctx.runQuery(internal.projects.getSandboxSecretsInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+    const daytona = createDaytonaClient();
+    const createdSecretIds: string[] = [];
+    const importedSecrets: Array<{
+      envName: string;
+      secretId: string;
+      secretName: string;
+      hosts: string[];
+      updatedAt: number;
+    }> = [];
+
+    try {
+      for (const entry of normalizedEntries) {
+        const existing = project.sandboxSecrets.find((secret) => secret.envName === entry.envName);
+        if (existing) {
+          const updated = await daytona.secret.update(existing.secretId, {
+            value: entry.value,
+            hosts,
+            description: `AutoPR project ${project.repoFullName} · ${entry.envName}`,
+          });
+          importedSecrets.push({
+            ...existing,
+            secretId: updated.id,
+            hosts,
+            updatedAt: Date.now(),
+          });
+          continue;
+        }
+
+        const secretName = daytonaSecretName(args.projectId, entry.envName);
+        const matchingSecrets = await daytona.secret.list({ name: secretName, limit: 10 });
+        const orphanedSecret = matchingSecrets.items.find((secret) => secret.name === secretName);
+        const secret = orphanedSecret
+          ? await daytona.secret.update(orphanedSecret.id, {
+              value: entry.value,
+              hosts,
+              description: `AutoPR project ${project.repoFullName} · ${entry.envName}`,
+            })
+          : await daytona.secret.create({
+              name: secretName,
+              value: entry.value,
+              hosts: hosts.length > 0 ? hosts : undefined,
+              description: `AutoPR project ${project.repoFullName} · ${entry.envName}`,
+            });
+        if (!orphanedSecret) createdSecretIds.push(secret.id);
+        importedSecrets.push({
+          envName: entry.envName,
+          secretId: secret.id,
+          secretName,
+          hosts,
+          updatedAt: Date.now(),
+        });
+      }
+
+      const importedNames = new Set(importedSecrets.map((secret) => secret.envName));
+      const completeSecretMap = Object.fromEntries([
+        ...project.sandboxSecrets
+          .filter((secret) => !importedNames.has(secret.envName))
+          .map((secret) => [secret.envName, secret.secretName] as const),
+        ...importedSecrets.map((secret) => [secret.envName, secret.secretName] as const),
+      ]);
+      const sandbox = await ensureSandboxStarted(project.sandboxId);
+      await sandbox.updateSecrets(completeSecretMap);
+
+      const restarted = project.sandboxSecrets.length === 0;
+      if (restarted) {
+        await sandbox.stop();
+        await sandbox.start(SANDBOX_START_TIMEOUT_SECONDS);
+      }
+
+      await ctx.runMutation(internal.projects.upsertSandboxSecretsInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        secrets: importedSecrets,
+      });
+      return { importedCount: importedSecrets.length, restarted };
+    } catch (error) {
+      const sandbox = await daytona.get(project.sandboxId).catch(() => undefined);
+      await sandbox?.updateSecrets(Object.fromEntries(
+        project.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
+      )).catch(() => undefined);
+      for (const secretId of createdSecretIds) {
+        await daytona.secret.delete(secretId).catch(() => undefined);
+      }
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError({
+        code: "DAYTONA_SECRET_IMPORT_FAILED",
         message: errorMessage(error),
       });
     }

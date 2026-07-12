@@ -13,9 +13,9 @@ export default defineConfig({
   machine: "small-1x",
   maxDuration: 3_600,
   build: {
-    // Daytona is CommonJS. Loading it as an external package preserves its
-    // constructor exports instead of wrapping them in the Trigger bundle.
-    external: ["@daytona/sdk"],
+    // Daytona relies on runtime-loaded CommonJS modules. Keep both the SDK and
+    // its multipart parser available in node_modules for Trigger task runs.
+    external: ["@daytona/sdk", "busboy"],
   },
   retries: {
     enabledInDev: false,

@@ -165,6 +165,9 @@ importers:
       babel-plugin-react-compiler:
         specifier: ^1.0.0
         version: 1.0.0
+      busboy:
+        specifier: ^1.6.0
+        version: 1.6.0
       convex:
         specifier: 'catalog:'
         version: 1.41.0(react@19.2.5)

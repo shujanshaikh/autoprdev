@@ -28,6 +28,10 @@ const SANDBOX_START_POLL_MS = 1_000;
 const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
 const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
+const MAX_SECRET_VALUE_LENGTH = 64 * 1024;
+const MAX_SECRET_HOSTS = 50;
+const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SECRET_HOST_PATTERN = /^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 
 interface EnsureProjectResult {
@@ -170,6 +174,44 @@ function createDaytonaClient() {
     apiKey: process.env.DAYTONA_API_KEY,
     apiUrl: process.env.DAYTONA_API_URL,
   });
+}
+
+function normalizeSecretHosts(hosts: string[]): string[] {
+  if (hosts.length > MAX_SECRET_HOSTS) {
+    throw new ConvexError({ code: "TOO_MANY_SECRET_HOSTS", message: `Use at most ${MAX_SECRET_HOSTS} allowed hosts.` });
+  }
+
+  const normalized = [...new Set(hosts.map((host) => host.trim().toLowerCase()).filter(Boolean))];
+  const invalid = normalized.find((host) => !SECRET_HOST_PATTERN.test(host));
+  if (invalid) {
+    throw new ConvexError({
+      code: "INVALID_SECRET_HOST",
+      message: `\"${invalid}\" is not a valid hostname. Omit protocols, paths, ports, and query strings.`,
+    });
+  }
+  return normalized;
+}
+
+function validateSandboxSecretInput(envName: string, value: string, hosts: string[]) {
+  const normalizedEnvName = envName.trim();
+  if (!ENV_NAME_PATTERN.test(normalizedEnvName) || normalizedEnvName.length > 128) {
+    throw new ConvexError({
+      code: "INVALID_ENV_NAME",
+      message: "Variable names must start with a letter or underscore and contain only letters, numbers, and underscores.",
+    });
+  }
+  if (!value || value.length > MAX_SECRET_VALUE_LENGTH) {
+    throw new ConvexError({
+      code: "INVALID_SECRET_VALUE",
+      message: `Secret values must be between 1 and ${MAX_SECRET_VALUE_LENGTH.toLocaleString()} characters.`,
+    });
+  }
+  return { envName: normalizedEnvName, hosts: normalizeSecretHosts(hosts) };
+}
+
+function daytonaSecretName(projectId: string, envName: string): string {
+  const projectPart = projectId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 80);
+  return `autopr_${projectPart}_${envName}`.slice(0, 240);
 }
 
 async function deleteDaytonaSandbox(sandboxId: string) {
@@ -892,6 +934,176 @@ export const getTerminalPreview = action({
   },
 });
 
+export const upsertSandboxSecret = action({
+  args: {
+    projectId: v.string(),
+    envName: v.string(),
+    value: v.string(),
+    hosts: v.array(v.string()),
+  },
+  returns: v.object({
+    envName: v.string(),
+    restarted: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{ envName: string; restarted: boolean }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const input = validateSandboxSecretInput(args.envName, args.value, args.hosts);
+    const project = await ctx.runQuery(internal.projects.getSandboxSecretsInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+    const existing = project.sandboxSecrets.find((secret) => secret.envName === input.envName);
+    const daytona = createDaytonaClient();
+
+    try {
+      if (existing) {
+        await daytona.secret.update(existing.secretId, {
+          value: args.value,
+          hosts: input.hosts,
+          description: `AutoPR project ${project.repoFullName} · ${input.envName}`,
+        });
+        await ctx.runMutation(internal.projects.upsertSandboxSecretInternal, {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          secret: {
+            ...existing,
+            hosts: input.hosts,
+            updatedAt: Date.now(),
+          },
+        });
+        return { envName: input.envName, restarted: false };
+      }
+
+      const secretName = daytonaSecretName(args.projectId, input.envName);
+      const matchingSecrets = await daytona.secret.list({ name: secretName, limit: 10 });
+      const orphanedSecret = matchingSecrets.items.find((secret) => secret.name === secretName);
+      const secret = orphanedSecret
+        ? await daytona.secret.update(orphanedSecret.id, {
+            value: args.value,
+            description: `AutoPR project ${project.repoFullName} · ${input.envName}`,
+            hosts: input.hosts,
+          })
+        : await daytona.secret.create({
+            name: secretName,
+            value: args.value,
+            description: `AutoPR project ${project.repoFullName} · ${input.envName}`,
+            hosts: input.hosts.length > 0 ? input.hosts : undefined,
+          });
+
+      try {
+        const sandbox = await ensureSandboxStarted(project.sandboxId);
+        const mountedSecrets = Object.fromEntries([
+          ...project.sandboxSecrets.map((item) => [item.envName, item.secretName] as const),
+          [input.envName, secretName] as const,
+        ]);
+        await sandbox.updateSecrets(mountedSecrets);
+
+        const restarted = project.sandboxSecrets.length === 0;
+        if (restarted) {
+          await sandbox.stop();
+          await sandbox.start(SANDBOX_START_TIMEOUT_SECONDS);
+        }
+
+        await ctx.runMutation(internal.projects.upsertSandboxSecretInternal, {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          secret: {
+            envName: input.envName,
+            secretId: secret.id,
+            secretName,
+            hosts: input.hosts,
+            updatedAt: Date.now(),
+          },
+        });
+        try {
+          const latestProject = await ctx.runQuery(internal.projects.getSandboxSecretsInternal, {
+            authorId: identity.subject,
+            projectId: args.projectId,
+          });
+          await sandbox.updateSecrets(Object.fromEntries(
+            latestProject.sandboxSecrets.map((item) => [item.envName, item.secretName]),
+          ));
+        } catch {
+          // The new secret is already mounted and recorded. A later update reconciles the full map.
+        }
+        return { envName: input.envName, restarted };
+      } catch (error) {
+        const originalMap = Object.fromEntries(
+          project.sandboxSecrets.map((item) => [item.envName, item.secretName]),
+        );
+        const sandbox = await daytona.get(project.sandboxId).catch(() => undefined);
+        await sandbox?.updateSecrets(originalMap).catch(() => undefined);
+        if (!orphanedSecret) {
+          await daytona.secret.delete(secret.id).catch(() => undefined);
+        }
+        throw error;
+      }
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError({
+        code: "DAYTONA_SECRET_UPDATE_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const removeSandboxSecret = action({
+  args: {
+    projectId: v.string(),
+    envName: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project = await ctx.runQuery(internal.projects.getSandboxSecretsInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+    const existing = project.sandboxSecrets.find((secret) => secret.envName === args.envName);
+    if (!existing) return null;
+
+    const daytona = createDaytonaClient();
+    const sandbox = await ensureSandboxStarted(project.sandboxId);
+    const remaining = project.sandboxSecrets.filter((secret) => secret.envName !== existing.envName);
+    const remainingMap = Object.fromEntries(remaining.map((secret) => [secret.envName, secret.secretName]));
+
+    try {
+      await sandbox.updateSecrets(remainingMap);
+      try {
+        await daytona.secret.delete(existing.secretId);
+      } catch (error) {
+        if (!isSandboxNotFoundError(error)) {
+          const originalMap = Object.fromEntries(
+            project.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
+          );
+          await sandbox.updateSecrets(originalMap).catch(() => undefined);
+          throw error;
+        }
+      }
+      await ctx.runMutation(internal.projects.removeSandboxSecretInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        envName: existing.envName,
+      });
+      return null;
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_SECRET_DELETE_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
 export const removeWithSandbox = action({
   args: {
     projectId: v.string(),
@@ -926,6 +1138,22 @@ export const removeWithSandbox = action({
             code: "DAYTONA_SANDBOX_DELETE_FAILED",
             message: errorMessage(error),
           });
+        }
+      }
+    }
+
+    if (project.sandboxSecrets.length > 0) {
+      const daytona = createDaytonaClient();
+      for (const secret of project.sandboxSecrets) {
+        try {
+          await daytona.secret.delete(secret.secretId);
+        } catch (error) {
+          if (!isSandboxNotFoundError(error)) {
+            throw new ConvexError({
+              code: "DAYTONA_SECRET_DELETE_FAILED",
+              message: errorMessage(error),
+            });
+          }
         }
       }
     }

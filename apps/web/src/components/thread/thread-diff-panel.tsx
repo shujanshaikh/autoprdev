@@ -5,11 +5,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, List, Loader2, Maximize2, Minimize2, Monitor, MoreHorizontal, Send, Terminal, TextSearch, X } from "lucide-react";
+import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, MoreHorizontal, Send, Terminal, TextSearch, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
 import { DaytonaDesktopView } from "./daytona-desktop-view";
+import { DaytonaEnvironmentView } from "./daytona-environment-view";
 import { DaytonaTerminalView } from "./daytona-terminal-view";
 import { ThreadDiffCodeView } from "./thread-diff-code-view";
 import { ThreadDiffEmptyState, ThreadDiffLoadingList } from "./thread-diff-panel-states";
@@ -50,7 +51,7 @@ function readViewedDiffs(threadId: string) {
   }
 }
 
-type ThreadDiffPanelTabKind = "diff" | "pull-request" | "desktop" | "terminal";
+type ThreadDiffPanelTabKind = "diff" | "pull-request" | "desktop" | "terminal" | "environment";
 
 type ThreadDiffPanelVisibleTab = {
   id: string;
@@ -67,14 +68,16 @@ const THREAD_DIFF_PANEL_TABS: Array<{
   { kind: "pull-request", label: "Pull request", menuLabel: "PR", icon: GitPullRequest },
   { kind: "desktop", label: "Desktop", menuLabel: "Desktop", icon: Monitor },
   { kind: "terminal", label: "Terminal", menuLabel: "New terminal", icon: Terminal },
+  { kind: "environment", label: "Environment", menuLabel: "Environment", icon: KeyRound },
 ];
 
-const HEADER_SURFACE_KINDS: ThreadDiffPanelTabKind[] = ["diff", "desktop", "terminal", "pull-request"];
+const HEADER_SURFACE_KINDS: ThreadDiffPanelTabKind[] = ["diff", "desktop", "terminal", "environment", "pull-request"];
 
 const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, string> = {
   diff: "diff",
   "pull-request": "pull-request",
   desktop: "desktop",
+  environment: "environment",
 };
 
 const DEFAULT_VISIBLE_TABS: ThreadDiffPanelVisibleTab[] = [];
@@ -92,6 +95,7 @@ const SURFACE_PICKER_ITEMS: Array<{
   { kind: "diff", title: "Diff", description: "Review changes in this thread.", icon: FileDiff },
   { kind: "desktop", title: "Desktop", description: "Open the workspace desktop.", icon: Monitor },
   { kind: "terminal", title: "Terminal", description: "Start a shell in this workspace.", icon: Terminal },
+  { kind: "environment", title: "Environment", description: "Mount project secrets in this sandbox.", icon: KeyRound },
   { kind: "pull-request", title: "Pull request", description: "Create or open a PR for these changes.", icon: GitPullRequest },
 ];
 
@@ -806,6 +810,8 @@ export function ThreadDiffPanel({
             </div>
           );
         })}
+
+        {activeTab === "environment" ? <DaytonaEnvironmentView projectId={projectId} /> : null}
 
         {activeTab === "pull-request" ? (
           <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background">

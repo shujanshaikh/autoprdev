@@ -27,6 +27,13 @@ export default defineSchema({
     sandboxRuntimeStatus: v.optional(v.union(v.literal("started"), v.literal("stopped"), v.literal("archived"), v.literal("unknown"))),
     sandboxRuntimeCheckedAt: v.optional(v.number()),
     sandboxError: v.optional(v.string()),
+    sandboxSecrets: v.optional(v.array(v.object({
+      envName: v.string(),
+      secretId: v.string(),
+      secretName: v.string(),
+      hosts: v.array(v.string()),
+      updatedAt: v.number(),
+    }))),
     createdAt: v.number(),
     updatedAt: v.number(),
     lastOpenedAt: v.optional(v.number()),

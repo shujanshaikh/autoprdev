@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@daytona/sdk": "^0.164.0",
+    "@daytona/sdk": "^0.196.0",
     "ai": "^6.0.168",
     "diff": "^8.0.2",
     "zod": "catalog:"

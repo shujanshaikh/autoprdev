@@ -1,5 +1,12 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@autopr/ui/components/dialog";
 import { Input } from "@autopr/ui/components/input";
 import { Label } from "@autopr/ui/components/label";
 import { cn } from "@autopr/ui/lib/utils";
@@ -9,6 +16,10 @@ import { useMemo, useState, type FormEvent } from "react";
 
 type DaytonaEnvironmentViewProps = {
   projectId: string;
+};
+
+type DaytonaEnvironmentDialogProps = DaytonaEnvironmentViewProps & {
+  disabled?: boolean;
 };
 
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -283,5 +294,43 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
         </section>
       </div>
     </div>
+  );
+}
+
+export function DaytonaEnvironmentDialog({ projectId, disabled = false }: DaytonaEnvironmentDialogProps) {
+  const project = useQuery(api.projects.get, { projectId });
+  const secretCount = project?.sandboxSecrets?.length ?? 0;
+
+  return (
+    <Dialog>
+      <DialogTrigger
+        disabled={disabled}
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-2 font-mono text-[11px]"
+          />
+        }
+      >
+        <KeyRound className="size-3.5" aria-hidden="true" />
+        Add env
+        {secretCount > 0 ? (
+          <span className="grid min-w-4 place-items-center rounded-full bg-[color:var(--project-selected)] px-1 text-[9px] tabular-nums text-foreground/75">
+            {secretCount}
+          </span>
+        ) : null}
+      </DialogTrigger>
+      <DialogContent className="h-[min(82vh,760px)] gap-0 overflow-hidden p-0 sm:max-w-[720px]">
+        <DialogTitle className="sr-only">Sandbox environment</DialogTitle>
+        <DialogDescription className="sr-only">
+          Add, rotate, or delete environment secrets mounted in this project sandbox.
+        </DialogDescription>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <DaytonaEnvironmentView projectId={projectId} />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

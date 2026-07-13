@@ -13,9 +13,9 @@ export default defineConfig({
   machine: "small-1x",
   maxDuration: 3_600,
   build: {
-    // Daytona relies on runtime-loaded CommonJS modules. Keep both the SDK and
-    // its multipart parser available in node_modules for Trigger task runs.
-    external: ["@daytona/sdk", "busboy"],
+    // Daytona relies on runtime-loaded CommonJS modules. Keep the SDK and its
+    // multipart upload/download dependencies available to Trigger task runs.
+    external: ["@daytona/sdk", "busboy", "form-data"],
   },
   retries: {
     enabledInDev: false,

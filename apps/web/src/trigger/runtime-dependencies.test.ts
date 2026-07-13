@@ -12,10 +12,11 @@ function createTriggerRuntimeRequire() {
 }
 
 describe("Trigger runtime dependencies", () => {
-  it("can resolve Daytona and its runtime-loaded multipart parser from a task bundle", () => {
+  it("can resolve Daytona and its runtime-loaded multipart dependencies from a task bundle", () => {
     const runtimeRequire = createTriggerRuntimeRequire();
 
     expect(runtimeRequire.resolve("@daytona/sdk")).toContain("@daytona/sdk");
     expect(runtimeRequire.resolve("busboy")).toContain("busboy");
+    expect(runtimeRequire.resolve("form-data")).toContain("form-data");
   });
 });

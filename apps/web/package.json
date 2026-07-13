@@ -52,6 +52,7 @@
     "convex": "catalog:",
     "diff": "^8.0.2",
     "dotenv": "catalog:",
+    "form-data": "^4.0.4",
     "lucide-react": "^0.545.0",
     "material-file-icons": "2.4.0",
     "motion": "^12.38.0",

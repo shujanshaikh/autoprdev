@@ -87,6 +87,9 @@ importers:
       '@convex-dev/r2':
         specifier: ^0.10.1
         version: 0.10.1(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.5))(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)(zod@4.3.6)
+      '@daytona/sdk':
+        specifier: ^0.196.0
+        version: 0.196.0(ws@8.21.0)
       '@novnc/novnc':
         specifier: ^1.7.0
         version: 1.7.0

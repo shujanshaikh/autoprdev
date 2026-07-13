@@ -34,6 +34,10 @@ export default defineSchema({
       hosts: v.array(v.string()),
       updatedAt: v.number(),
     }))),
+    sandboxEnvironmentVariables: v.optional(v.array(v.object({
+      envName: v.string(),
+      updatedAt: v.number(),
+    }))),
     createdAt: v.number(),
     updatedAt: v.number(),
     lastOpenedAt: v.optional(v.number()),

@@ -36,21 +36,40 @@ function emptyDraftVariable(id = "environment-variable-initial"): DraftEnvironme
   return { id, envName: "", value: "" };
 }
 
-function parseHosts(value: string): string[] {
-  return [...new Set(value.split(/[\n,]/).map((host) => host.trim()).filter(Boolean))];
-}
-
 function actionError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProps) {
   const project = useQuery(api.projects.get, { projectId });
-  const importSecrets = useAction(api.projectActions.importSandboxSecrets);
-  const removeSecret = useAction(api.projectActions.removeSandboxSecret);
-  const secrets = useMemo(() => project?.sandboxSecrets ?? [], [project?.sandboxSecrets]);
+  const importEnvironmentVariables = useAction(api.projectActions.importSandboxEnvironmentVariables);
+  const removeEnvironmentVariable = useAction(api.projectActions.removeSandboxEnvironmentVariable);
+  const variables = useMemo(() => {
+    const environmentVariables = (project?.sandboxEnvironmentVariables ?? []).map((variable) => ({
+      ...variable,
+      legacyPlaceholder: false,
+    }));
+    const environmentNames = new Set(environmentVariables.map((variable) => variable.envName));
+    const legacyVariables = (project?.sandboxSecrets ?? []).reduce<Array<{
+      envName: string;
+      updatedAt: number;
+      legacyPlaceholder: boolean;
+    }>>((result, secret) => {
+      if (!environmentNames.has(secret.envName)) {
+        result.push({
+          envName: secret.envName,
+          updatedAt: secret.updatedAt,
+          legacyPlaceholder: true,
+        });
+      }
+      return result;
+    }, []);
+    return [
+      ...environmentVariables,
+      ...legacyVariables,
+    ].sort((left, right) => left.envName.localeCompare(right.envName));
+  }, [project?.sandboxEnvironmentVariables, project?.sandboxSecrets]);
   const [draftVariables, setDraftVariables] = useState<DraftEnvironmentVariable[]>(() => [emptyDraftVariable()]);
-  const [hosts, setHosts] = useState("");
   const [visibleValueIds, setVisibleValueIds] = useState<Set<string>>(() => new Set());
   const [saving, setSaving] = useState(false);
   const [removingName, setRemovingName] = useState<string>();
@@ -119,15 +138,14 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
     replaceDraftsFromEnv(pastedText);
   };
 
-  const beginRotate = (secret: (typeof secrets)[number]) => {
+  const beginRotate = (variable: (typeof variables)[number]) => {
     setDraftVariables([{
-      id: `rotating-environment-variable-${secret.envName}`,
-      envName: secret.envName,
+      id: `rotating-environment-variable-${variable.envName}`,
+      envName: variable.envName,
       value: "",
     }]);
-    setHosts(secret.hosts.join(", "));
     setVisibleValueIds(new Set());
-    setNotice(`Enter a new value for ${secret.envName}, then save.`);
+    setNotice(`Enter a new value for ${variable.envName}, then save.`);
     setError(undefined);
   };
 
@@ -160,9 +178,8 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
     setError(undefined);
     setNotice(undefined);
     try {
-      const result = await importSecrets({ projectId, entries, hosts: parseHosts(hosts) });
+      const result = await importEnvironmentVariables({ projectId, entries });
       setDraftVariables([emptyDraftVariable()]);
-      setHosts("");
       setVisibleValueIds(new Set());
       setNotice(
         `${result.importedCount} ${result.importedCount === 1 ? "variable" : "variables"} saved.${result.restarted ? " Daytona restarted the sandbox so new processes can read them." : " Start a new terminal or restart the app process to read the updates."}`,
@@ -179,7 +196,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
     setError(undefined);
     setNotice(undefined);
     try {
-      await removeSecret({ projectId, envName: name });
+      await removeEnvironmentVariable({ projectId, envName: name });
       setConfirmRemoveName(undefined);
       setNotice(`${name} was detached from the sandbox and deleted from Daytona.`);
     } catch (removeError) {
@@ -230,7 +247,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
 
               {draftVariables.map((variable, index) => {
                 const valueVisible = visibleValueIds.has(variable.id);
-                const replacesExisting = secrets.some((secret) => secret.envName === variable.envName.trim());
+                const replacesExisting = variables.some((savedVariable) => savedVariable.envName === variable.envName.trim());
                 return (
                   <div key={variable.id} className="grid gap-2 sm:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)_2rem] sm:items-start">
                     <div className="grid gap-1">
@@ -261,7 +278,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
                           disabled={saving}
                           autoComplete="new-password"
                           spellCheck={false}
-                          placeholder="Secret value"
+                          placeholder="Value"
                           className="pr-9 font-mono"
                         />
                         <button
@@ -307,26 +324,6 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
               Add another
             </Button>
 
-            <div className="grid gap-1.5 border-t border-border/70 pt-4">
-              <Label htmlFor="sandbox-env-hosts" className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                Allowed hosts for these values <span className="normal-case tracking-normal text-muted-foreground/65">— optional</span>
-              </Label>
-              <Input
-                id="sandbox-env-hosts"
-                value={hosts}
-                onChange={(event) => setHosts(event.target.value)}
-                disabled={saving}
-                autoCapitalize="none"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder="api.example.com, *.example.org"
-                className="font-mono"
-              />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Daytona substitutes secrets only for these HTTP(S) hosts. Leave empty to allow any host.
-              </p>
-            </div>
-
             {error ? <p role="alert" className="border border-destructive/35 bg-destructive/[0.04] px-3 py-2 text-xs leading-relaxed text-destructive">{error}</p> : null}
             {notice ? (
               <p role="status" className="flex items-start gap-2 border border-emerald-500/25 bg-emerald-500/[0.04] px-3 py-2 text-xs leading-relaxed text-foreground/80">
@@ -338,7 +335,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <ShieldCheck className="size-3.5" aria-hidden="true" />
-                Values are write-only and never saved to the AutoPR database.
+                Values are stored in the Daytona sandbox environment, not the AutoPR database.
               </p>
               <Button type="submit" size="sm" disabled={saving} className="h-8 gap-1.5 px-3">
                 {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
@@ -348,53 +345,53 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
           </div>
         </form>
 
-        <section aria-labelledby="mounted-secrets-title" className="grid gap-2.5">
+        <section aria-labelledby="mounted-variables-title" className="grid gap-2.5">
           <div className="flex items-center justify-between gap-3">
-            <h3 id="mounted-secrets-title" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Mounted variables</h3>
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground/65">{secrets.length}</span>
+            <h3 id="mounted-variables-title" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Mounted variables</h3>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground/65">{variables.length}</span>
           </div>
 
           {project === undefined ? (
             <div className="grid h-20 place-items-center border border-border bg-card text-muted-foreground">
               <Loader2 className="size-4 animate-spin" aria-label="Loading mounted variables" />
             </div>
-          ) : secrets.length === 0 ? (
+          ) : variables.length === 0 ? (
             <div className="border border-dashed border-border bg-muted/10 px-4 py-6 text-center">
               <p className="font-mono text-xs text-foreground/75">No variables mounted</p>
               <p className="mt-1 text-xs text-muted-foreground">Add a variable or paste your .env file above.</p>
             </div>
           ) : (
             <div className="divide-y divide-border border border-border bg-card">
-              {secrets.map((secret) => {
-                const removing = removingName === secret.envName;
-                const confirming = confirmRemoveName === secret.envName;
+              {variables.map((variable) => {
+                const removing = removingName === variable.envName;
+                const confirming = confirmRemoveName === variable.envName;
                 return (
-                  <div key={secret.envName} className="grid gap-2.5 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div key={variable.envName} className="grid gap-2.5 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2 font-mono text-xs">
-                        <span className="truncate font-semibold text-foreground">{secret.envName}</span>
+                        <span className="truncate font-semibold text-foreground">{variable.envName}</span>
                         <span className="select-none text-muted-foreground/45" aria-label="Secret value hidden">••••••••</span>
                       </div>
                       <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-                        {secret.hosts.length > 0 ? secret.hosts.join(", ") : "all hosts · unrestricted"}
+                        {variable.legacyPlaceholder ? "Placeholder only · re-enter value to enable" : "Available to new sandbox processes"}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {confirming ? (
                         <>
                           <span className="mr-1 text-[11px] text-destructive">Delete permanently?</span>
-                          <Button type="button" variant="destructive" size="sm" disabled={removing} onClick={() => void handleRemove(secret.envName)} className="h-7 px-2 text-xs">
+                          <Button type="button" variant="destructive" size="sm" disabled={removing} onClick={() => void handleRemove(variable.envName)} className="h-7 px-2 text-xs">
                             {removing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : "Delete"}
                           </Button>
                           <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={() => setConfirmRemoveName(undefined)} className="h-7 px-2 text-xs">Cancel</Button>
                         </>
                       ) : (
                         <>
-                          <Button type="button" variant="ghost" size="sm" onClick={() => beginRotate(secret)} className="h-7 gap-1.5 px-2 text-xs text-muted-foreground">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => beginRotate(variable)} className="h-7 gap-1.5 px-2 text-xs text-muted-foreground">
                             <Pencil className="size-3.5" aria-hidden="true" />
                             Rotate
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => setConfirmRemoveName(secret.envName)} className="size-7 text-muted-foreground hover:text-destructive" aria-label={`Delete ${secret.envName}`}>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => setConfirmRemoveName(variable.envName)} className="size-7 text-muted-foreground hover:text-destructive" aria-label={`Delete ${variable.envName}`}>
                             <Trash2 className="size-3.5" aria-hidden="true" />
                           </Button>
                         </>
@@ -413,7 +410,10 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
 
 export function DaytonaEnvironmentDialog({ projectId, disabled = false }: DaytonaEnvironmentDialogProps) {
   const project = useQuery(api.projects.get, { projectId });
-  const secretCount = project?.sandboxSecrets?.length ?? 0;
+  const secretCount = new Set([
+    ...(project?.sandboxEnvironmentVariables ?? []).map((variable) => variable.envName),
+    ...(project?.sandboxSecrets ?? []).map((secret) => secret.envName),
+  ]).size;
 
   return (
     <Dialog>
@@ -429,7 +429,7 @@ export function DaytonaEnvironmentDialog({ projectId, disabled = false }: Dayton
       </DialogTrigger>
       <DialogContent className="h-[min(82vh,760px)] gap-0 overflow-hidden p-0 sm:max-w-[720px]">
         <DialogTitle className="sr-only">Sandbox environment</DialogTitle>
-        <DialogDescription className="sr-only">Add, rotate, or delete environment secrets mounted in this project sandbox.</DialogDescription>
+        <DialogDescription className="sr-only">Add, update, or delete environment variables available to this project sandbox.</DialogDescription>
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <DaytonaEnvironmentView projectId={projectId} />
         </div>

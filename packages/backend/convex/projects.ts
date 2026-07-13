@@ -25,6 +25,10 @@ const sandboxSecretValidator = v.object({
   hosts: v.array(v.string()),
   updatedAt: v.number(),
 });
+const sandboxEnvironmentVariableValidator = v.object({
+  envName: v.string(),
+  updatedAt: v.number(),
+});
 type SandboxStatus = "creating" | "ready" | "failed";
 
 function projectRecency(project: { lastOpenedAt?: number; updatedAt: number; createdAt: number }) {
@@ -573,7 +577,7 @@ export const getDesktopSandboxInternal = internalQuery({
   },
 });
 
-export const getSandboxSecretsInternal = internalQuery({
+export const getSandboxEnvironmentInternal = internalQuery({
   args: {
     authorId: v.string(),
     projectId: v.string(),
@@ -582,6 +586,7 @@ export const getSandboxSecretsInternal = internalQuery({
     sandboxId: v.string(),
     repoFullName: v.string(),
     sandboxSecrets: v.array(sandboxSecretValidator),
+    sandboxEnvironmentVariables: v.array(sandboxEnvironmentVariableValidator),
   }),
   handler: async (ctx, args) => {
     const project = await ctx.db
@@ -601,15 +606,16 @@ export const getSandboxSecretsInternal = internalQuery({
       sandboxId: project.sandboxId,
       repoFullName: project.repoFullName,
       sandboxSecrets: project.sandboxSecrets ?? [],
+      sandboxEnvironmentVariables: project.sandboxEnvironmentVariables ?? [],
     };
   },
 });
 
-export const upsertSandboxSecretInternal = internalMutation({
+export const upsertSandboxEnvironmentVariablesInternal = internalMutation({
   args: {
     authorId: v.string(),
     projectId: v.string(),
-    secret: sandboxSecretValidator,
+    variables: v.array(sandboxEnvironmentVariableValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -622,53 +628,25 @@ export const upsertSandboxSecretInternal = internalMutation({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const sandboxSecrets = (project.sandboxSecrets ?? []).filter(
-      (secret) => secret.envName !== args.secret.envName,
+    const updatedNames = new Set(args.variables.map((variable) => variable.envName));
+    const sandboxEnvironmentVariables = (project.sandboxEnvironmentVariables ?? []).filter(
+      (variable) => !updatedNames.has(variable.envName),
     );
-    sandboxSecrets.push(args.secret);
-    sandboxSecrets.sort((left, right) => left.envName.localeCompare(right.envName));
+    sandboxEnvironmentVariables.push(...args.variables);
+    sandboxEnvironmentVariables.sort((left, right) => left.envName.localeCompare(right.envName));
 
     await ctx.db.patch(project._id, {
-      sandboxSecrets,
+      sandboxEnvironmentVariables,
+      sandboxSecrets: (project.sandboxSecrets ?? []).filter(
+        (secret) => !updatedNames.has(secret.envName),
+      ),
       updatedAt: Date.now(),
     });
     return null;
   },
 });
 
-export const upsertSandboxSecretsInternal = internalMutation({
-  args: {
-    authorId: v.string(),
-    projectId: v.string(),
-    secrets: v.array(sandboxSecretValidator),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const project = await ctx.db
-      .query("projects")
-      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
-      .unique();
-
-    if (!project || project.authorId !== args.authorId) {
-      throw new ConvexError({ code: "UNAUTHORIZED" });
-    }
-
-    const importedNames = new Set(args.secrets.map((secret) => secret.envName));
-    const sandboxSecrets = (project.sandboxSecrets ?? []).filter(
-      (secret) => !importedNames.has(secret.envName),
-    );
-    sandboxSecrets.push(...args.secrets);
-    sandboxSecrets.sort((left, right) => left.envName.localeCompare(right.envName));
-
-    await ctx.db.patch(project._id, {
-      sandboxSecrets,
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
-});
-
-export const removeSandboxSecretInternal = internalMutation({
+export const removeSandboxEnvironmentVariableInternal = internalMutation({
   args: {
     authorId: v.string(),
     projectId: v.string(),
@@ -688,6 +666,9 @@ export const removeSandboxSecretInternal = internalMutation({
     await ctx.db.patch(project._id, {
       sandboxSecrets: (project.sandboxSecrets ?? []).filter(
         (secret) => secret.envName !== args.envName,
+      ),
+      sandboxEnvironmentVariables: (project.sandboxEnvironmentVariables ?? []).filter(
+        (variable) => variable.envName !== args.envName,
       ),
       updatedAt: Date.now(),
     });

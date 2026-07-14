@@ -4,6 +4,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -1501,24 +1502,26 @@ function ThreadChatRuntime({
                         sideOffset={8}
                         className="w-52 rounded-[var(--radius-xl)] p-1.5 shadow-lg"
                       >
-                        <DropdownMenuLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
-                          Reasoning
-                        </DropdownMenuLabel>
-                        <DropdownMenuRadioGroup
-                          value={selectedReasoningEffort}
-                          onValueChange={(value) => setSelectedReasoningEffort(value as CodexReasoningEffort)}
-                        >
-                          {selectedReasoningEfforts.map((effort) => (
-                            <DropdownMenuRadioItem
-                              key={effort}
-                              value={effort}
-                              disabled={!ready}
-                              className="rounded-[var(--radius-md)] py-2 text-sm"
-                            >
-                              {getCodexReasoningEffortLabel(effort)}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
+                        <DropdownMenuGroup>
+                          <DropdownMenuLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
+                            Reasoning
+                          </DropdownMenuLabel>
+                          <DropdownMenuRadioGroup
+                            value={selectedReasoningEffort}
+                            onValueChange={(value) => setSelectedReasoningEffort(value as CodexReasoningEffort)}
+                          >
+                            {selectedReasoningEfforts.map((effort) => (
+                              <DropdownMenuRadioItem
+                                key={effort}
+                                value={effort}
+                                disabled={!ready}
+                                className="rounded-[var(--radius-md)] py-2 text-sm"
+                              >
+                                {getCodexReasoningEffortLabel(effort)}
+                              </DropdownMenuRadioItem>
+                            ))}
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuGroup>
                         {demoRecordingExperimentEnabled ? (
                           <>
                             <DropdownMenuSeparator className="my-1" />

@@ -11,6 +11,14 @@ export type EnvFileParseResult = {
 
 const ENV_ASSIGNMENT_PATTERN = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
 
+export function hasEnvAssignmentLine(input: string): boolean {
+  return input
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .some((line) => ENV_ASSIGNMENT_PATTERN.test(line.trim()));
+}
+
 function decodeDoubleQuotedValue(value: string): string {
   let decoded = "";
   for (let index = 0; index < value.length; index += 1) {

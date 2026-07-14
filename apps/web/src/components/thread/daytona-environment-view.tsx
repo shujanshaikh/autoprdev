@@ -13,7 +13,7 @@ import { useAction, useQuery } from "convex/react";
 import { Check, ClipboardPaste, Eye, EyeOff, KeyRound, Loader2, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useMemo, useState, type ClipboardEvent, type FormEvent } from "react";
 
-import { parseEnvFile } from "#/lib/env-file";
+import { hasEnvAssignmentLine, parseEnvFile } from "#/lib/env-file";
 
 type DaytonaEnvironmentViewProps = {
   projectId: string;
@@ -133,7 +133,9 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
 
   const handleEnvPaste = (event: ClipboardEvent<HTMLInputElement>) => {
     const pastedText = event.clipboardData.getData("text");
-    if (!pastedText.includes("=")) return;
+    const isMultiline = /[\r\n]/.test(pastedText);
+    const isValueField = event.currentTarget.dataset.environmentField === "value";
+    if (!hasEnvAssignmentLine(pastedText) || (isValueField && !isMultiline)) return;
     event.preventDefault();
     replaceDraftsFromEnv(pastedText);
   };
@@ -235,7 +237,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
           <div className="grid gap-4 p-4">
             <div className="flex items-start gap-2 border border-dashed border-border bg-muted/10 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
               <ClipboardPaste className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              <span>Paste <span className="font-mono text-foreground/80">KEY=value</span> lines into any key or value field. They will automatically become separate rows.</span>
+              <span>Paste <span className="font-mono text-foreground/80">KEY=value</span> lines into a key field, or paste a multiline .env file into any field. They will automatically become separate rows.</span>
             </div>
 
             <div className="grid gap-2">
@@ -254,6 +256,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
                       <Label htmlFor={`${variable.id}-key`} className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground sm:sr-only">Key</Label>
                       <Input
                         id={`${variable.id}-key`}
+                        data-environment-field="envName"
                         value={variable.envName}
                         onChange={(event) => updateDraftVariable(variable.id, "envName", event.target.value)}
                         onPaste={handleEnvPaste}
@@ -271,6 +274,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
                       <div className="relative">
                         <Input
                           id={`${variable.id}-value`}
+                          data-environment-field="value"
                           type={valueVisible ? "text" : "password"}
                           value={variable.value}
                           onChange={(event) => updateDraftVariable(variable.id, "value", event.target.value)}

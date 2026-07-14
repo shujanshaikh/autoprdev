@@ -1386,8 +1386,10 @@ function ThreadChatRuntime({
       className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden lg:flex-row"
     >
       <div
+        id="thread-chat-panel"
         className={cn(
-          "grid h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden transition-opacity duration-200 ease-out motion-reduce:transition-none",
+          "h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden transition-opacity duration-200 ease-out motion-reduce:transition-none",
+          diffPanelOpen ? "hidden lg:grid" : "grid",
           showMaximizedDiffPanel && "lg:pointer-events-none lg:opacity-0",
         )}
         aria-hidden={showMaximizedDiffPanel || undefined}

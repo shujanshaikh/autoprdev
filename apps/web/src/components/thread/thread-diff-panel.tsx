@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/t
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
 import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, MoreHorizontal, Send, Terminal, TextSearch, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
 import { DaytonaDesktopView } from "./daytona-desktop-view";
@@ -40,6 +40,22 @@ const MIN_PANEL_WIDTH = 380;
 const DOCKED_MAIN_MIN_WIDTH = 420;
 const DEFAULT_PANEL_WIDTH = 640;
 const VIEWED_DIFFS_STORAGE_PREFIX = "autopr.viewed-diffs.v1";
+const MOBILE_THREAD_VIEW_QUERY = "(max-width: 1023px)";
+
+function subscribeToMobileThreadView(onChange: () => void) {
+  if (typeof window === "undefined") return () => undefined;
+  const query = window.matchMedia(MOBILE_THREAD_VIEW_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function getMobileThreadViewSnapshot() {
+  return typeof window !== "undefined" && window.matchMedia(MOBILE_THREAD_VIEW_QUERY).matches;
+}
+
+function getMobileThreadViewServerSnapshot() {
+  return false;
+}
 
 function readViewedDiffs(threadId: string) {
   if (typeof window === "undefined") return new Set<string>();
@@ -175,6 +191,11 @@ export function ThreadDiffPanel({
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
   const { diffStyle, similarChanges, setDiffStyle, setSimilarChanges } = usePierreDiffPreferences();
+  const mobileDiffOnly = useSyncExternalStore(
+    subscribeToMobileThreadView,
+    getMobileThreadViewSnapshot,
+    getMobileThreadViewServerSnapshot,
+  );
   const panelRef = useRef<HTMLElement | null>(null);
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
@@ -254,6 +275,7 @@ export function ThreadDiffPanel({
     return { additions, deletions, files: new Set(entries.map((entry) => entry.file)).size };
   }, [entries]);
   const allEntriesViewed = entries.length > 0 && entries.every((entry) => viewedEntryIds.has(entry.id));
+  const renderedActiveTab = mobileDiffOnly ? "diff" : activeTab;
 
   const startResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -453,30 +475,21 @@ export function ThreadDiffPanel({
   }, [body, canCreatePullRequest, projectId, requestedBranch, threadId, title]);
 
   return (
-    <>
-      {open ? (
-        <button
-          type="button"
-          aria-label="Close changes panel"
-          className="fixed inset-0 z-30 bg-background/60 backdrop-blur-[6px] lg:hidden"
-          onClick={() => onOpenChange(false)}
-        />
-      ) : null}
-      <aside
-        ref={setPanelElement}
-        id="thread-changes-panel"
-        aria-hidden={!open}
-        className={cn(
-          "fixed inset-y-0 right-0 z-40 flex h-full max-h-full min-w-0 flex-col overflow-hidden border-l border-border bg-background transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:static lg:z-auto lg:shrink-0 lg:will-change-[width]",
-          isResizingPanel && "transition-none",
-          panelMaximized
-            ? "inset-x-0 w-full lg:w-full"
-            : "w-[min(96vw,720px)] lg:w-[var(--thread-diff-width)] lg:shrink-0",
-          open ? "translate-x-0" : "translate-x-full lg:hidden",
-        )}
-        style={{ "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
-      >
-        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-px bg-border" />
+    <aside
+      ref={setPanelElement}
+      id="thread-changes-panel"
+      aria-hidden={!open}
+      className={cn(
+        "relative h-full max-h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:static lg:z-auto lg:shrink-0 lg:flex-none lg:border-l lg:border-border lg:transition-[width] lg:duration-300 lg:ease-[cubic-bezier(0.22,1,0.36,1)] lg:will-change-[width] motion-reduce:transition-none",
+        isResizingPanel && "transition-none",
+        panelMaximized
+          ? "w-full lg:w-full"
+          : "w-full lg:w-[var(--thread-diff-width)] lg:shrink-0",
+        open ? "flex" : "hidden",
+      )}
+      style={{ "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
+    >
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-px bg-border lg:block" />
 
         <button
           type="button"
@@ -490,13 +503,13 @@ export function ThreadDiffPanel({
           <span className="block h-12 w-0.5 rounded-full bg-border transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-[color:var(--project-selected-strong)] group-focus-visible/resize:bg-[color:var(--project-selected-strong)]" />
         </button>
 
-        <header className="relative flex shrink-0 flex-col border-b border-border bg-background">
+        <header className="relative hidden shrink-0 flex-col border-b border-border bg-background lg:flex">
           <div className="flex h-11 items-center gap-1 border-b border-border px-2.5">
             <nav aria-label="Workspace surfaces" className="flex min-w-0 items-center gap-0.5 overflow-hidden">
               {HEADER_SURFACE_KINDS.map((kind) => {
                 const tab = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === kind);
                 if (!tab) return null;
-                const selected = activeTab === kind;
+                const selected = renderedActiveTab === kind;
                 return (
                   <button
                     key={kind}
@@ -577,7 +590,7 @@ export function ThreadDiffPanel({
             </div>
           </div>
 
-          {activeTab === "diff" ? (
+          {renderedActiveTab === "diff" ? (
             <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="inline-flex size-6 items-center justify-center border border-border bg-[color:var(--project-panel-soft)]">
@@ -680,7 +693,7 @@ export function ThreadDiffPanel({
 
         </header>
 
-        {!activeTab ? (
+        {!renderedActiveTab ? (
           <div className="minimal-scrollbar flex min-h-0 flex-1 overflow-auto bg-background">
             <div className="mx-auto flex w-full max-w-[540px] flex-col justify-center px-6 py-10">
               <div className="mb-7 text-center">
@@ -715,7 +728,7 @@ export function ThreadDiffPanel({
           </div>
         ) : null}
 
-        <div className={cn("min-h-0 flex-1 flex-col bg-background", activeTab === "desktop" ? "flex" : "hidden")}>
+        <div className={cn("min-h-0 flex-1 flex-col bg-background", renderedActiveTab === "desktop" ? "flex" : "hidden")}>
           {hasOpenedDesktop ? (
           <>
             {desktopWebsocketUrl ? (
@@ -802,7 +815,7 @@ export function ThreadDiffPanel({
         </div>
 
         {terminalTabs.map((terminalTab) => {
-          const isActiveTerminal = activeTabId === terminalTab.id;
+          const isActiveTerminal = renderedActiveTab === "terminal" && activeTabId === terminalTab.id;
 
           return (
             <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[color:var(--cohere-primary)]", isActiveTerminal ? "flex" : "hidden")}>
@@ -811,9 +824,9 @@ export function ThreadDiffPanel({
           );
         })}
 
-        {activeTab === "environment" ? <DaytonaEnvironmentView projectId={projectId} /> : null}
+        {renderedActiveTab === "environment" ? <DaytonaEnvironmentView projectId={projectId} /> : null}
 
-        {activeTab === "pull-request" ? (
+        {renderedActiveTab === "pull-request" ? (
           <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background">
             <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5 px-5 py-6">
               {effectiveStatus === "created" && effectiveUrl ? (
@@ -1009,7 +1022,7 @@ export function ThreadDiffPanel({
               )}
             </div>
           </div>
-        ) : activeTab === "diff" ? (
+        ) : renderedActiveTab === "diff" ? (
           showEmpty ? (
           <ThreadDiffEmptyState />
         ) : showLoadingList ? (
@@ -1026,6 +1039,5 @@ export function ThreadDiffPanel({
           )
         ) : null}
       </aside>
-    </>
     );
   }

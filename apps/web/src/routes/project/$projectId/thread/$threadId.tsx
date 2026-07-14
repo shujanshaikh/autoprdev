@@ -288,7 +288,11 @@ function ProjectThreadPageContent() {
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-border bg-background">
-        <div className="min-w-0 flex-1" />
+        <div className="min-w-0 flex-1 pl-14 pr-2 lg:pl-0">
+          <p className="truncate text-sm font-medium text-foreground lg:hidden">
+            {thread?.title ?? "Untitled conversation"}
+          </p>
+        </div>
 
         <ThreadCommitButton
           key={`${projectId}:${threadId}`}
@@ -309,7 +313,7 @@ function ProjectThreadPageContent() {
                 data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
                 onClick={() => handleDiffPanelOpenChange(!diffPanelOpen)}
                 className={cn(
-                  "group/changes-trigger relative flex h-full w-12 shrink-0 items-center justify-center border-l border-border text-muted-foreground/85",
+                  "group/changes-trigger relative hidden h-full w-12 shrink-0 items-center justify-center border-l border-border text-muted-foreground/85 lg:flex",
                   "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
                   "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground active:bg-[color:var(--project-selected)]",
                   "focus-visible:bg-[color:var(--project-panel-soft)] focus-visible:ring-[1.5px] focus-visible:ring-[color:var(--cohere-form-focus)] focus-visible:ring-offset-0",
@@ -356,6 +360,47 @@ function ProjectThreadPageContent() {
           </TooltipContent>
         </Tooltip>
       </header>
+
+      <nav
+        aria-label="Thread view"
+        className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background px-3 lg:hidden"
+      >
+        <button
+          type="button"
+          aria-controls="thread-chat-panel"
+          aria-pressed={!diffPanelOpen}
+          onClick={() => handleDiffPanelOpenChange(false)}
+          className={cn(
+            "inline-flex h-9 items-center rounded-[10px] px-4 text-sm font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--cohere-form-focus)]",
+            !diffPanelOpen
+              ? "bg-[color:var(--project-panel-soft)] text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Chat
+        </button>
+        <button
+          type="button"
+          aria-controls="thread-changes-panel"
+          aria-pressed={diffPanelOpen}
+          onClick={() => handleDiffPanelOpenChange(true)}
+          className={cn(
+            "inline-flex h-9 items-center rounded-[10px] px-4 text-sm font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--cohere-form-focus)]",
+            diffPanelOpen
+              ? "bg-[color:var(--project-panel-soft)] text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Diff
+          {diffCount > 0 ? (
+            <span className="ml-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+              {diffCount > 99 ? "99+" : diffCount}
+            </span>
+          ) : null}
+        </button>
+      </nav>
 
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <PierreDiffWorkerPoolProvider>

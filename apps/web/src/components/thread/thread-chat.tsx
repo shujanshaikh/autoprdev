@@ -451,12 +451,12 @@ function ThreadContextWindowIndicator({
       <PopoverContent
         align="end"
         side="top"
-        sideOffset={10}
-        className="w-[min(22rem,calc(100vw-2rem))] rounded-[var(--radius-xl)] p-4"
+        sideOffset={8}
+        className="w-[min(16.5rem,calc(100vw-1.5rem))] rounded-[var(--radius-lg)] p-3"
       >
-        <div className="flex items-baseline justify-between gap-4">
-          <h3 className="text-sm font-semibold text-foreground">Context window</h3>
-          <p className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="text-[13px] font-semibold text-foreground">Context window</h3>
+          <p className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
             {percentageUsed}% · {formatTokens(contextTokens)}/{formatTokens(contextLimit)}
           </p>
         </div>
@@ -467,7 +467,7 @@ function ThreadContextWindowIndicator({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percentageUsed}
-          className="mt-3 h-2 overflow-hidden rounded-full bg-muted"
+          className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
         >
           <div
             className="h-full rounded-full bg-blue-500 transition-[width] duration-300 motion-reduce:transition-none"
@@ -475,14 +475,14 @@ function ThreadContextWindowIndicator({
           />
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-4 text-sm">
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-muted-foreground">Total processed</span>
           <span className="font-medium tabular-nums text-foreground">
             {formatTokens(totalProcessedTokens)}
           </span>
         </div>
 
-        <p className="mt-4 border-t border-border/60 pt-4 text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-3 border-t border-border/60 pt-3 text-xs leading-5 text-muted-foreground">
           Codex automatically compacts its context when needed.
         </p>
       </PopoverContent>

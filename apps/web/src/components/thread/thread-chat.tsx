@@ -300,7 +300,7 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 }
 
 const promptControlTriggerClassName =
-  "h-7 max-w-[10rem] gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5";
+  "h-7 gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5";
 
 function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -395,10 +395,12 @@ function ThreadContextRemainingIndicator({
   usage,
   threadCost,
   contextLimit,
+  className,
 }: {
   usage: TokenUsage;
   threadCost?: TokenCost | null;
   contextLimit: number;
+  className?: string;
 }) {
   if (contextLimit <= 0) {
     return null;
@@ -415,9 +417,13 @@ function ThreadContextRemainingIndicator({
       <TooltipTrigger>
         <span
           aria-label={`Context remaining: ${formatTokens(remainingTokens)}`}
-          className="inline-flex h-7 shrink-0 cursor-help items-center px-1.5 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+          className={cn(
+            "inline-flex h-7 shrink-0 cursor-help items-center px-1.5 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground",
+            className,
+          )}
         >
-          {formatTokens(remainingTokens)}
+          <span className="lg:hidden">{formatTokens(remainingTokens)} left</span>
+          <span className="hidden lg:inline">{formatTokens(remainingTokens)}</span>
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" align="start" className="rounded-[var(--radius-md)]">
@@ -1440,8 +1446,8 @@ function ThreadChatRuntime({
                 <PromptInputBody>
                   <ThreadChatTextarea disabled={!ready} />
                 </PromptInputBody>
-                <PromptInputFooter className="min-w-0">
-                  <PromptInputTools className="min-w-0 flex-1 flex-wrap">
+                <PromptInputFooter className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 lg:flex lg:items-center lg:gap-1.5">
+                  <PromptInputTools className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-1 gap-y-0.5 lg:flex lg:flex-wrap">
                     <PromptImageUploadButton disabled={!ready} />
                     <Select
                       value={selectedModel ?? ""}
@@ -1449,7 +1455,7 @@ function ThreadChatRuntime({
                     >
                       <SelectTrigger
                         size="sm"
-                        className={promptControlTriggerClassName}
+                        className={cn(promptControlTriggerClassName, "w-full min-w-0 max-w-none lg:w-auto lg:max-w-[10rem]")}
                         disabled={!ready || modelOptions.length === 0}
                         aria-label="Model"
                       >
@@ -1473,7 +1479,7 @@ function ThreadChatRuntime({
                     >
                       <SelectTrigger
                         size="sm"
-                        className={cn(promptControlTriggerClassName, "max-w-24")}
+                        className={cn(promptControlTriggerClassName, "max-w-24 justify-self-end lg:justify-self-auto")}
                         disabled={!ready}
                         aria-label="Reasoning level"
                       >
@@ -1491,41 +1497,45 @@ function ThreadChatRuntime({
                         ))}
                       </SelectContent>
                     </Select>
-                    {demoRecordingExperimentEnabled ? (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={optimisticDemoEnabled}
-                              disabled={demoSaving}
-                              onClick={() => void toggleDemoEnabled()}
-                              className={cn(
-                                "inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-pill)] px-1.5 text-xs font-medium text-muted-foreground transition-colors",
-                                "hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
-                                optimisticDemoEnabled && "text-[color:var(--project-selected-strong)] hover:text-[color:var(--project-selected-strong)]",
-                              )}
-                            >
-                              <Video className="size-3.5" aria-hidden />
-                              <span>Demo</span>
-                            </button>
-                          }
-                        />
-                        <TooltipContent side="top" align="start" className="max-w-64 rounded-[var(--radius-md)]">
-                          {optimisticDemoEnabled
-                            ? "Experimental: future runs in this thread will record a Daytona browser demo and may fail."
-                            : "Allow future runs to record an experimental Daytona browser demo."}
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : null}
-                    <ThreadContextRemainingIndicator
-                      usage={currentContextUsage}
-                      threadCost={threadTotalCost}
-                      contextLimit={selectedModelContextLimit}
-                    />
+                    <div className="col-span-3 mt-0.5 flex min-w-0 items-center gap-1.5 border-t border-border/40 pt-1 lg:contents lg:border-0 lg:pt-0">
+                      {demoRecordingExperimentEnabled ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={optimisticDemoEnabled}
+                                disabled={demoSaving}
+                                onClick={() => void toggleDemoEnabled()}
+                                className={cn(
+                                  "inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-pill)] px-1.5 text-xs font-medium text-muted-foreground transition-colors",
+                                  "hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                                  optimisticDemoEnabled && "text-[color:var(--project-selected-strong)] hover:text-[color:var(--project-selected-strong)]",
+                                )}
+                              >
+                                <Video className="size-3.5" aria-hidden />
+                                <span>Demo</span>
+                              </button>
+                            }
+                          />
+                          <TooltipContent side="top" align="start" className="max-w-64 rounded-[var(--radius-md)]">
+                            {optimisticDemoEnabled
+                              ? "Experimental: future runs in this thread will record a Daytona browser demo and may fail."
+                              : "Allow future runs to record an experimental Daytona browser demo."}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                      <ThreadContextRemainingIndicator
+                        usage={currentContextUsage}
+                        threadCost={threadTotalCost}
+                        contextLimit={selectedModelContextLimit}
+                        className="ml-auto lg:ml-0"
+                      />
+                    </div>
                   </PromptInputTools>
                   <PromptInputSubmit
+                    className="self-center"
                     disabled={!ready && !busy}
                     onStop={stopGeneration}
                     status={status}

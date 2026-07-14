@@ -1,17 +1,27 @@
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@autopr/ui/components/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@autopr/ui/components/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@autopr/ui/components/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import {
   useTriggerChatTransport,
@@ -27,7 +37,7 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
-import { Video, X } from "lucide-react";
+import { MoreHorizontal, Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
@@ -69,14 +79,12 @@ import {
   CodexPromptConnectionLine,
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
+import { CodexLogo } from "#/components/icons/codex-logo";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
   CODEX_MODELS,
   DEFAULT_CODEX_REASONING_EFFORT,
-  addCodexUsageCosts,
-  calculateCodexUsageCost,
-  emptyCodexUsageCost,
   formatCodexModelLabel,
   getCodexModelOptions,
   getCodexReasoningEffortLabel,
@@ -98,13 +106,10 @@ import {
 } from "#/components/thread/thread-diff-panel-utils";
 import {
   contextTokensFromUsage,
-  formatRunCost,
   formatTokens,
   getAssistantContextUsage,
-  getAssistantRunCost,
   getAssistantRunUsage,
   withAssistantRunMetadata,
-  type TokenCost,
   type TokenUsage,
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
@@ -300,7 +305,7 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 }
 
 const promptControlTriggerClassName =
-  "h-7 gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5";
+  "h-8 min-w-0 max-w-[36vw] gap-1.5 border-none bg-transparent px-1 text-sm font-semibold text-foreground/80 shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-8 dark:bg-transparent dark:hover:bg-transparent lg:max-w-[10rem] [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5";
 
 function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -391,16 +396,17 @@ function AgentRunIssuePanel({ issue }: { issue: AgentRunIssue | undefined }) {
   );
 }
 
-function ThreadContextRemainingIndicator({
+const CONTEXT_RING_RADIUS = 9;
+const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
+
+function ThreadContextWindowIndicator({
   usage,
-  threadCost,
+  totalProcessedTokens,
   contextLimit,
-  className,
 }: {
   usage: TokenUsage;
-  threadCost?: TokenCost | null;
+  totalProcessedTokens: number;
   contextLimit: number;
-  className?: string;
 }) {
   if (contextLimit <= 0) {
     return null;
@@ -409,79 +415,77 @@ function ThreadContextRemainingIndicator({
   const contextTokens = contextTokensFromUsage(usage);
   const remainingTokens = Math.max(0, contextLimit - contextTokens);
   const percentageUsed = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
-  const uncachedInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
-  const hasThreadCost = threadCost !== null && threadCost !== undefined && threadCost.total > 0;
+  const ringOffset = CONTEXT_RING_CIRCUMFERENCE * (1 - percentageUsed / 100);
 
   return (
-    <Tooltip>
-      <TooltipTrigger>
-        <span
-          aria-label={`Context remaining: ${formatTokens(remainingTokens)}`}
-          className={cn(
-            "inline-flex h-7 shrink-0 cursor-help items-center px-1.5 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground",
-            className,
-          )}
-        >
-          <span className="lg:hidden">{formatTokens(remainingTokens)} left</span>
-          <span className="hidden lg:inline">{formatTokens(remainingTokens)}</span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top" align="start" className="rounded-[var(--radius-md)]">
-        <div className="grid grid-cols-[max-content_max-content] gap-x-6 gap-y-1.5 font-mono text-[11px]">
-          <div className="contents">
-            <span className="text-muted-foreground">Remaining</span>
-            <span className="text-right tabular-nums">{formatTokens(remainingTokens)}</span>
-          </div>
-          <div className="contents">
-            <span className="text-muted-foreground">Context / limit</span>
-            <span className="text-right tabular-nums">
-              {formatTokens(contextTokens)} / {formatTokens(contextLimit)}
-            </span>
-          </div>
-          <div className="contents">
-            <span className="text-muted-foreground">Input</span>
-            <span className="text-right tabular-nums">{formatTokens(usage.inputTokens)}</span>
-          </div>
-          <div className="contents">
-            <span className="text-muted-foreground">Cached input</span>
-            <span className="text-right tabular-nums">{formatTokens(usage.cachedInputTokens)}</span>
-          </div>
-          <div className="contents">
-            <span className="text-muted-foreground">Cache write</span>
-            <span className="text-right tabular-nums">{formatTokens(usage.cacheWriteTokens)}</span>
-          </div>
-          <div className="contents">
-            <span className="text-muted-foreground">Uncached input</span>
-            <span className="text-right tabular-nums">{formatTokens(uncachedInputTokens)}</span>
-          </div>
-          <div className="contents">
-            <span className="text-muted-foreground">Output</span>
-            <span className="text-right tabular-nums">{formatTokens(usage.outputTokens)}</span>
-          </div>
-          {hasThreadCost ? (
-            <>
-              <div className="col-span-2 my-0.5 h-px bg-border/70" />
-              <div className="contents">
-                <span className="text-muted-foreground">Thread cost</span>
-                <span className="text-right tabular-nums">{formatRunCost(threadCost.total)}</span>
-              </div>
-              <div className="contents">
-                <span className="text-muted-foreground">Input cost</span>
-                <span className="text-right tabular-nums">{formatRunCost(threadCost.input)}</span>
-              </div>
-              <div className="contents">
-                <span className="text-muted-foreground">Cached cost</span>
-                <span className="text-right tabular-nums">{formatRunCost(threadCost.cacheRead)}</span>
-              </div>
-              <div className="contents">
-                <span className="text-muted-foreground">Output cost</span>
-                <span className="text-right tabular-nums">{formatRunCost(threadCost.output)}</span>
-              </div>
-            </>
-          ) : null}
+    <Popover>
+      <PopoverTrigger
+        aria-label={`Context window: ${percentageUsed}% used, ${formatTokens(remainingTokens)} remaining`}
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+      >
+        <svg viewBox="0 0 24 24" className="size-6 -rotate-90" aria-hidden="true">
+          <circle
+            cx="12"
+            cy="12"
+            r={CONTEXT_RING_RADIUS}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            className="text-border/80"
+          />
+          <circle
+            cx="12"
+            cy="12"
+            r={CONTEXT_RING_RADIUS}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
+            strokeDashoffset={ringOffset}
+            className="text-blue-500 transition-[stroke-dashoffset] duration-300 motion-reduce:transition-none"
+          />
+        </svg>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="top"
+        sideOffset={10}
+        className="w-[min(22rem,calc(100vw-2rem))] rounded-[var(--radius-xl)] p-4"
+      >
+        <div className="flex items-baseline justify-between gap-4">
+          <h3 className="text-sm font-semibold text-foreground">Context window</h3>
+          <p className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {percentageUsed}% · {formatTokens(contextTokens)}/{formatTokens(contextLimit)}
+          </p>
         </div>
-      </TooltipContent>
-    </Tooltip>
+
+        <div
+          role="progressbar"
+          aria-label="Context window used"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percentageUsed}
+          className="mt-3 h-2 overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className="h-full rounded-full bg-blue-500 transition-[width] duration-300 motion-reduce:transition-none"
+            style={{ width: `${percentageUsed}%` }}
+          />
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-4 text-sm">
+          <span className="text-muted-foreground">Total processed</span>
+          <span className="font-medium tabular-nums text-foreground">
+            {formatTokens(totalProcessedTokens)}
+          </span>
+        </div>
+
+        <p className="mt-4 border-t border-border/60 pt-4 text-sm leading-relaxed text-muted-foreground">
+          Codex automatically compacts its context when needed.
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1262,21 +1266,15 @@ function ThreadChatRuntime({
       cacheWriteTokens: 0,
     };
   }, [messages]);
-  const threadTotalCost = useMemo(() => {
+  const threadTotalProcessedTokens = useMemo(() => {
     return messages.reduce((total, message) => {
       if (message.role !== "assistant") {
         return total;
       }
 
-      const savedCost = getAssistantRunCost(message.metadata);
-      if (savedCost) {
-        return addCodexUsageCosts(total, savedCost);
-      }
-
-      const runUsage = getAssistantRunUsage(message.metadata);
-      return runUsage ? addCodexUsageCosts(total, calculateCodexUsageCost(selectedModel, runUsage)) : total;
-    }, emptyCodexUsageCost());
-  }, [messages, selectedModel]);
+      return total + (getAssistantRunUsage(message.metadata)?.totalTokens ?? 0);
+    }, 0);
+  }, [messages]);
   const selectedModelContextLimit =
     CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
 
@@ -1446,96 +1444,108 @@ function ThreadChatRuntime({
                 <PromptInputBody>
                   <ThreadChatTextarea disabled={!ready} />
                 </PromptInputBody>
-                <PromptInputFooter className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 lg:flex lg:items-center lg:gap-1.5">
-                  <PromptInputTools className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-1 gap-y-0.5 lg:flex lg:flex-wrap">
-                    <PromptImageUploadButton disabled={!ready} />
+                <PromptInputFooter className="min-w-0 gap-1.5">
+                  <PromptInputTools className="min-w-0 flex-1 gap-1">
                     <Select
                       value={selectedModel ?? ""}
                       onValueChange={(value) => value && setSelectedModelChoice(value)}
                     >
                       <SelectTrigger
                         size="sm"
-                        className={cn(promptControlTriggerClassName, "w-full min-w-0 max-w-none lg:w-auto lg:max-w-[10rem]")}
+                        className={promptControlTriggerClassName}
                         disabled={!ready || modelOptions.length === 0}
                         aria-label="Model"
                       >
+                        <CodexLogo className="size-4 shrink-0" />
                         <SelectValue>
-                          {formatCodexModelLabel(selectedModel)}
+                          <span className="truncate">{formatCodexModelLabel(selectedModel)}</span>
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-52 min-w-52 rounded-[var(--radius-lg)] p-1">
+                      <SelectContent
+                        align="start"
+                        alignItemWithTrigger={false}
+                        side="top"
+                        sideOffset={8}
+                        className="w-[min(18rem,calc(100vw-2rem))] min-w-0 rounded-[var(--radius-xl)] p-1.5 shadow-lg"
+                      >
                         {modelOptions.map((model) => (
-                          <SelectItem key={model} value={model} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
-                            <span className="min-w-0 truncate font-medium">
+                          <SelectItem
+                            key={model}
+                            value={model}
+                            className="rounded-[var(--radius-lg)] py-2.5 pr-8 pl-2.5 text-sm"
+                          >
+                            <CodexLogo className="size-4 text-muted-foreground" />
+                            <span className="min-w-0 truncate font-medium text-foreground/90">
                               {formatCodexModelLabel(model)}
                             </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Select
-                      value={selectedReasoningEffort}
-                      onValueChange={(value) => value && setSelectedReasoningEffort(value as CodexReasoningEffort)}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className={cn(promptControlTriggerClassName, "max-w-24 justify-self-end lg:justify-self-auto")}
-                        disabled={!ready}
-                        aria-label="Reasoning level"
-                      >
-                        <SelectValue>
-                          {getCodexReasoningEffortLabel(selectedReasoningEffort)}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-36 min-w-36 rounded-[var(--radius-lg)] p-1">
-                        {selectedReasoningEfforts.map((effort) => (
-                          <SelectItem key={effort} value={effort} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
-                            <span className="font-medium">
-                              {getCodexReasoningEffortLabel(effort)}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <div className="col-span-3 mt-0.5 flex min-w-0 items-center gap-1.5 border-t border-border/40 pt-1 lg:contents lg:border-0 lg:pt-0">
-                      {demoRecordingExperimentEnabled ? (
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <button
-                                type="button"
-                                role="switch"
-                                aria-checked={optimisticDemoEnabled}
-                                disabled={demoSaving}
-                                onClick={() => void toggleDemoEnabled()}
-                                className={cn(
-                                  "inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-pill)] px-1.5 text-xs font-medium text-muted-foreground transition-colors",
-                                  "hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
-                                  optimisticDemoEnabled && "text-[color:var(--project-selected-strong)] hover:text-[color:var(--project-selected-strong)]",
-                                )}
-                              >
-                                <Video className="size-3.5" aria-hidden />
-                                <span>Demo</span>
-                              </button>
-                            }
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label="Composer options"
+                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-muted/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
                           />
-                          <TooltipContent side="top" align="start" className="max-w-64 rounded-[var(--radius-md)]">
-                            {optimisticDemoEnabled
-                              ? "Experimental: future runs in this thread will record a Daytona browser demo and may fail."
-                              : "Allow future runs to record an experimental Daytona browser demo."}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null}
-                      <ThreadContextRemainingIndicator
-                        usage={currentContextUsage}
-                        threadCost={threadTotalCost}
-                        contextLimit={selectedModelContextLimit}
-                        className="ml-auto lg:ml-0"
-                      />
-                    </div>
+                        }
+                      >
+                        <MoreHorizontal className="size-4" aria-hidden="true" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        side="top"
+                        sideOffset={8}
+                        className="w-52 rounded-[var(--radius-xl)] p-1.5 shadow-lg"
+                      >
+                        <DropdownMenuLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
+                          Reasoning
+                        </DropdownMenuLabel>
+                        <DropdownMenuRadioGroup
+                          value={selectedReasoningEffort}
+                          onValueChange={(value) => setSelectedReasoningEffort(value as CodexReasoningEffort)}
+                        >
+                          {selectedReasoningEfforts.map((effort) => (
+                            <DropdownMenuRadioItem
+                              key={effort}
+                              value={effort}
+                              disabled={!ready}
+                              className="rounded-[var(--radius-md)] py-2 text-sm"
+                            >
+                              {getCodexReasoningEffortLabel(effort)}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                        {demoRecordingExperimentEnabled ? (
+                          <>
+                            <DropdownMenuSeparator className="my-1" />
+                            <DropdownMenuCheckboxItem
+                              checked={optimisticDemoEnabled}
+                              disabled={demoSaving}
+                              onCheckedChange={() => void toggleDemoEnabled()}
+                              className="rounded-[var(--radius-md)] py-2 text-sm"
+                            >
+                              <Video className="size-4 text-muted-foreground" aria-hidden="true" />
+                              Record demo
+                            </DropdownMenuCheckboxItem>
+                          </>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <PromptImageUploadButton disabled={!ready} />
+                    <span className="min-w-0 flex-1" />
+                    <ThreadContextWindowIndicator
+                      usage={currentContextUsage}
+                      totalProcessedTokens={threadTotalProcessedTokens}
+                      contextLimit={selectedModelContextLimit}
+                    />
                   </PromptInputTools>
                   <PromptInputSubmit
-                    className="self-center"
+                    className="size-9 lg:size-8"
                     disabled={!ready && !busy}
                     onStop={stopGeneration}
                     status={status}

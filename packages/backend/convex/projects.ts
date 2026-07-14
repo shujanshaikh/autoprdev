@@ -18,6 +18,17 @@ const sandboxRuntimeStatusValidator = v.union(
   v.literal("archived"),
   v.literal("unknown"),
 );
+const sandboxSecretValidator = v.object({
+  envName: v.string(),
+  secretId: v.string(),
+  secretName: v.string(),
+  hosts: v.array(v.string()),
+  updatedAt: v.number(),
+});
+const sandboxEnvironmentVariableValidator = v.object({
+  envName: v.string(),
+  updatedAt: v.number(),
+});
 type SandboxStatus = "creating" | "ready" | "failed";
 
 function projectRecency(project: { lastOpenedAt?: number; updatedAt: number; createdAt: number }) {
@@ -566,6 +577,105 @@ export const getDesktopSandboxInternal = internalQuery({
   },
 });
 
+export const getSandboxEnvironmentInternal = internalQuery({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+  },
+  returns: v.object({
+    sandboxId: v.string(),
+    repoFullName: v.string(),
+    sandboxSecrets: v.array(sandboxSecretValidator),
+    sandboxEnvironmentVariables: v.array(sandboxEnvironmentVariableValidator),
+  }),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+      throw new ConvexError({ code: "PROJECT_SANDBOX_NOT_READY" });
+    }
+
+    return {
+      sandboxId: project.sandboxId,
+      repoFullName: project.repoFullName,
+      sandboxSecrets: project.sandboxSecrets ?? [],
+      sandboxEnvironmentVariables: project.sandboxEnvironmentVariables ?? [],
+    };
+  },
+});
+
+export const upsertSandboxEnvironmentVariablesInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    variables: v.array(sandboxEnvironmentVariableValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const updatedNames = new Set(args.variables.map((variable) => variable.envName));
+    const sandboxEnvironmentVariables = (project.sandboxEnvironmentVariables ?? []).filter(
+      (variable) => !updatedNames.has(variable.envName),
+    );
+    sandboxEnvironmentVariables.push(...args.variables);
+    sandboxEnvironmentVariables.sort((left, right) => left.envName.localeCompare(right.envName));
+
+    await ctx.db.patch(project._id, {
+      sandboxEnvironmentVariables,
+      sandboxSecrets: (project.sandboxSecrets ?? []).filter(
+        (secret) => !updatedNames.has(secret.envName),
+      ),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const removeSandboxEnvironmentVariableInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    envName: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(project._id, {
+      sandboxSecrets: (project.sandboxSecrets ?? []).filter(
+        (secret) => secret.envName !== args.envName,
+      ),
+      sandboxEnvironmentVariables: (project.sandboxEnvironmentVariables ?? []).filter(
+        (variable) => variable.envName !== args.envName,
+      ),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
 export const getForRemovalInternal = internalQuery({
   args: {
     authorId: v.string(),
@@ -587,6 +697,7 @@ export const getForRemovalInternal = internalQuery({
       sandboxName: project.sandboxName,
       repoFullName: project.repoFullName,
       createdAt: project.createdAt,
+      sandboxSecrets: project.sandboxSecrets ?? [],
     };
   },
 });

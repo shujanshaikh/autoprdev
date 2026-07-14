@@ -878,11 +878,23 @@ function computerContentOutput(content: string, details: ComputerOutputDetails) 
   ];
 
   if (details.screenshot?.data) {
-    value.push({
+    const image = {
       type: "image-data",
-      data: details.screenshot.data,
       mediaType: details.screenshot.mimeType,
+    } as { type: "image-data"; data: string; mediaType: string };
+
+    // Trigger.dev chat sessions serialize each tool output into one realtime
+    // record with a ~1 MiB cap. The screenshot is only needed by the model;
+    // the chat UI and persisted message use the compact metadata above.
+    // Keeping the bytes non-enumerable lets AI SDK's toModelOutput read them
+    // in-process without putting the base64 payload on the realtime wire.
+    Object.defineProperty(image, "data", {
+      configurable: false,
+      enumerable: false,
+      value: details.screenshot.data,
+      writable: false,
     });
+    value.push(image);
   }
 
   return {
@@ -1089,11 +1101,12 @@ export function createDaytonaComputerTool(
   sandboxOptions: SandboxSessionOptions,
   computerOptions: DaytonaComputerToolOptions = {},
 ) {
-  return tool({
+  return tool<ComputerInput, Awaited<ReturnType<typeof executeDaytonaComputer>>>({
     title: "computer",
     description:
       "Inspect and operate the Daytona sandbox desktop for browser previews, screenshots, GUI interaction, and demo recordings. Use after choosing a relevant app URL or desktop target. Accepts one or more GUI actions and returns a fresh screenshot as image content when screen state is relevant. Mutates GUI/recording state; keep action batches small and re-check screenshots before coordinate-sensitive actions.",
     inputSchema: computerInputSchema,
+    toModelOutput: ({ output }) => output,
     execute: (input) => executeDaytonaComputer(input, sandboxOptions, computerOptions),
   });
 }

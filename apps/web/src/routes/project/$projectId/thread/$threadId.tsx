@@ -1,6 +1,7 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { cn } from "@autopr/ui/lib/utils";
+import { useSidebar } from "@autopr/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -112,6 +113,7 @@ function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
   const search = useSearch({ strict: false }) as Record<string, unknown> & { prompt?: string; model?: string; reasoningEffort?: string };
   const { isAuthenticated } = useConvexAuth();
+  const { openMobile: sidebarOpen, setOpenMobile: setSidebarOpen } = useSidebar();
   const initialPrompt = search.prompt?.trim() || undefined;
   const initialModel = isCodexModelId(search.model) ? search.model : undefined;
   const initialReasoningEffort = isCodexReasoningEffortForModel(initialModel, search.reasoningEffort)
@@ -266,6 +268,19 @@ function ProjectThreadPageContent() {
     setDiffPanelOpen(Boolean(diffDeepLink));
   }, [diffDeepLink, threadId]);
 
+  useEffect(() => {
+    if (sidebarOpen) {
+      setDiffPanelOpen(false);
+    }
+  }, [sidebarOpen]);
+
+  const handleDiffPanelOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      setSidebarOpen(false);
+    }
+    setDiffPanelOpen(open);
+  }, [setSidebarOpen]);
+
   const handleDiffCountChange = useCallback((count: number) => {
     setDiffCount(count);
   }, []);
@@ -292,7 +307,7 @@ function ProjectThreadPageContent() {
                 aria-expanded={diffPanelOpen}
                 aria-label={diffPanelOpen ? "Hide changes" : "Show changes"}
                 data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
-                onClick={() => setDiffPanelOpen((open) => !open)}
+                onClick={() => handleDiffPanelOpenChange(!diffPanelOpen)}
                 className={cn(
                   "group/changes-trigger relative flex h-full w-12 shrink-0 items-center justify-center border-l border-border text-muted-foreground/85",
                   "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
@@ -370,7 +385,7 @@ function ProjectThreadPageContent() {
               diffPanelOpen={diffPanelOpen}
               diffDeepLink={diffDeepLink}
               demoRecordingExperimentEnabled={demoRecordingExperimentEnabled}
-              onDiffPanelOpenChange={setDiffPanelOpen}
+              onDiffPanelOpenChange={handleDiffPanelOpenChange}
               onDiffCountChange={handleDiffCountChange}
               project={project}
               thread={thread}

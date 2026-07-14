@@ -57,6 +57,7 @@ import {
   CodexPromptConnectionLine,
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
+import { DaytonaEnvironmentDialog } from "#/components/thread/daytona-environment-view";
 import {
   DEFAULT_CODEX_REASONING_EFFORT,
   formatCodexModelLabel,
@@ -901,7 +902,7 @@ function ProjectOverviewPage() {
                         </div>
                       </form>
 
-                      <div className="mt-3 flex justify-center">
+                      <div className="mt-3 flex flex-wrap justify-center gap-2">
                         <Button
                           type="button"
                           variant={sandboxRuntimeButton.variant}
@@ -916,6 +917,10 @@ function ProjectOverviewPage() {
                           />
                           {sandboxRuntimeButton.label}
                         </Button>
+                        <DaytonaEnvironmentDialog
+                          projectId={projectId}
+                          disabled={project.sandboxStatus !== "ready" || isTogglingSandbox}
+                        />
                       </div>
 
                       <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">

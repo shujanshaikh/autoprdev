@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { action, internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
 import {
   collectAssistantPartsBlobKeys,
   deleteAssistantPartsBlobKeys,
@@ -16,6 +16,11 @@ import {
 import { requireUserId } from "./lib/auth";
 import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
+import {
+  createThreadFeatureBranch,
+  createThreadWorktreePath,
+  resolveThreadBaseBranch,
+} from "./lib/threadWorktree";
 
 const shortError = (message: string) => message.slice(0, 700);
 const longError = (message: string) => message.slice(0, 8_000);
@@ -48,19 +53,148 @@ export const create = mutation({
 
     const now = Date.now();
     const threadId = randomUuid();
+    const title = args.title?.trim() || "New thread";
+    const baseBranch = resolveThreadBaseBranch({}, project);
+    const featureBranch = createThreadFeatureBranch(title, threadId);
+    const worktreePath = project.sandboxWorkDir
+      ? createThreadWorktreePath(project.sandboxWorkDir, project.repoName, threadId)
+      : undefined;
 
     await ctx.db.insert("threads", {
       threadId,
       projectId: args.projectId,
       authorId,
-      title: args.title?.trim() || "New thread",
+      title,
       createdAt: now,
       updatedAt: now,
       isLive: false,
       demoEnabled: args.demoEnabled ?? false,
+      baseBranch,
+      featureBranch,
+      worktreePath,
+      worktreeStatus: "pending",
+      worktreeUpdatedAt: now,
     });
 
     return threadId;
+  },
+});
+
+export const getWorktreeContextInternal = internalQuery({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    threadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const [project, thread] = await Promise.all([
+      ctx.db.query("projects").withIndex("by_project_id", (q) => q.eq("projectId", args.projectId)).unique(),
+      ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique(),
+    ]);
+
+    if (
+      !project ||
+      !thread ||
+      project.authorId !== args.authorId ||
+      thread.authorId !== args.authorId ||
+      thread.projectId !== args.projectId
+    ) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    return { project, thread };
+  },
+});
+
+export const reserveWorktreeInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    threadId: v.string(),
+    baseBranch: v.string(),
+    featureBranch: v.string(),
+    worktreePath: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique();
+    if (!thread || thread.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (
+      (thread.baseBranch && thread.baseBranch !== args.baseBranch) ||
+      (thread.featureBranch && thread.featureBranch !== args.featureBranch) ||
+      (thread.worktreePath && thread.worktreePath !== args.worktreePath)
+    ) {
+      throw new ConvexError({ code: "THREAD_WORKTREE_METADATA_CONFLICT" });
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      baseBranch: thread.baseBranch ?? args.baseBranch,
+      featureBranch: thread.featureBranch ?? args.featureBranch,
+      worktreePath: thread.worktreePath ?? args.worktreePath,
+      worktreeStatus: "provisioning",
+      worktreeError: undefined,
+      worktreeUpdatedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const markWorktreeReadyInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    threadId: v.string(),
+    worktreePath: v.string(),
+    headSha: v.string(),
+    upstreamBranch: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique();
+    if (!thread || thread.authorId !== args.authorId) throw new ConvexError({ code: "UNAUTHORIZED" });
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      worktreePath: args.worktreePath,
+      headSha: args.headSha,
+      upstreamBranch: args.upstreamBranch,
+      worktreeStatus: "ready",
+      worktreeError: undefined,
+      worktreeUpdatedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const markWorktreeFailedInternal = internalMutation({
+  args: { authorId: v.string(), threadId: v.string(), error: v.string() },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique();
+    if (!thread || thread.authorId !== args.authorId) throw new ConvexError({ code: "UNAUTHORIZED" });
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      worktreeStatus: "failed",
+      worktreeError: shortError(args.error),
+      worktreeUpdatedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const markWorktreeCleanedInternal = internalMutation({
+  args: { authorId: v.string(), threadId: v.string() },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique();
+    if (!thread || thread.authorId !== args.authorId) throw new ConvexError({ code: "UNAUTHORIZED" });
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      worktreeStatus: "cleaned",
+      worktreeError: undefined,
+      worktreeUpdatedAt: now,
+      updatedAt: now,
+    });
+    return null;
   },
 });
 
@@ -565,6 +699,8 @@ export const markChangesCommitted = mutation({
       commitBranch: args.branch,
       commitSha: args.commitSha,
       commitMessage: args.commitMessage,
+      headSha: args.commitSha,
+      upstreamBranch: args.status === "pushed" ? `origin/${args.branch}` : thread.upstreamBranch,
       committedAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -573,18 +709,18 @@ export const markChangesCommitted = mutation({
   },
 });
 
-export const remove = mutation({
+export const removeInternal = internalMutation({
   args: {
+    authorId: v.string(),
     threadId: v.string(),
   },
   handler: async (ctx, args) => {
-    const authorId = await requireUserId(ctx);
     const thread = await ctx.db
       .query("threads")
       .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
       .unique();
 
-    if (!thread || thread.authorId !== authorId) {
+    if (!thread || thread.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 

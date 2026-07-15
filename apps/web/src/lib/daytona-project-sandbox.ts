@@ -257,38 +257,41 @@ export async function commitAndPushProjectSandboxChanges(options: {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
-  const quotedBranch = shellEscape(options.branch);
-  const quotedBaseBranch = shellEscape(options.baseBranch);
 
-  const status = await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`);
-  if (!commandOutput(status).trim()) {
-    throw new SandboxNoChangesError();
+  const currentBranch = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+  ).trim();
+  if (currentBranch !== options.branch) {
+    throw new Error(`Thread worktree branch mismatch: expected ${options.branch}, found ${currentBranch || "detached HEAD"}.`);
   }
 
-  const commit = await runSandboxCommand(
-    sandbox,
-    [
-      `cd ${quotedRepoPath}`,
-      "git fetch origin --prune",
-      `git checkout -B ${quotedBranch}`,
-      "git config push.autoSetupRemote true",
-    ].join(" && "),
-  )
-    .then(() => sandbox.git.add(repoGitPath, ["."]))
-    .then(() =>
-      sandbox.git.commit(
-        repoGitPath,
-        options.commitMessage,
-        options.authorName,
-        options.authorEmail,
-      ),
-    )
-    .then(async (createdCommit) => {
-      await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken);
-      return createdCommit;
-    });
+  const status = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`),
+  ).trim();
+  let commitSha: string;
+  if (status) {
+    await sandbox.git.add(repoGitPath, ["."]);
+    commitSha = (await sandbox.git.commit(
+      repoGitPath,
+      options.commitMessage,
+      options.authorName,
+      options.authorEmail,
+    )).sha;
+  } else {
+    const aheadCount = Number(commandOutput(await runSandboxCommand(
+      sandbox,
+      `cd ${quotedRepoPath} && git rev-list --count ${shellEscape(options.baseBranch)}..HEAD`,
+    )).trim());
+    if (!Number.isFinite(aheadCount) || aheadCount < 1) {
+      throw new SandboxNoChangesError();
+    }
+    commitSha = commandOutput(
+      await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
+    ).trim();
+  }
 
-  await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git checkout ${quotedBaseBranch}`).catch(() => undefined);
+  await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git config push.autoSetupRemote true`);
+  await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken);
 
-  return { branch: options.branch, commitSha: commit.sha };
+  return { branch: options.branch, commitSha };
 }

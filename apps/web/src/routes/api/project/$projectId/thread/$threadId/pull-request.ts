@@ -3,7 +3,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { createGithubPullRequest } from "@autopr/backend/convex/lib/github_oauth";
 import { z } from "zod";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { commitAndPushProjectSandboxChanges, SandboxNoChangesError } from "#/lib/daytona-project-sandbox";
 import {
   getGithubOAuthToken,
@@ -16,24 +16,8 @@ import {
 const requestSchema = z.object({
   title: z.string().trim().min(1).max(180).optional(),
   body: z.string().trim().max(5000).optional(),
-  branch: z.string().trim().min(1).max(120),
   draft: z.boolean().optional(),
 });
-
-function autoprBranchName(value: string) {
-  const withoutPrefix = value.trim().replace(/^autopr[/-]*/i, "");
-  const slug = withoutPrefix
-    .replace(/\\/g, "/")
-    .replace(/\s+/g, "-")
-    .replace(/[^A-Za-z0-9._/-]+/g, "-")
-    .replace(/\.{2,}/g, ".")
-    .replace(/\/+/g, "/")
-    .replace(/^[/.-]+|[/.-]+$/g, "")
-    .replace(/\.lock$/i, "-lock")
-    .slice(0, 96);
-
-  return slug ? `autopr/${slug}` : undefined;
-}
 
 async function POST(
   req: Request,
@@ -42,11 +26,6 @@ async function POST(
   const parsed = requestSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
     return Response.json({ error: "Invalid pull request details." }, { status: 400 });
-  }
-
-  const requestedBranch = autoprBranchName(parsed.data.branch);
-  if (!requestedBranch) {
-    return Response.json({ error: "Enter a branch name after autopr/." }, { status: 400 });
   }
 
   const { projectId, threadId } = await params;
@@ -75,14 +54,7 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
-    const baseBranch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch;
-    if (!baseBranch) {
-      return Response.json({ error: "Project base branch is unknown." }, { status: 409 });
-    }
-
     const title = parsed.data.title || thread.title || "AutoPR changes";
-    const existingFailedBranch = thread.pullRequestStatus === "failed" ? thread.pullRequestBranch : undefined;
-    const branch = requestedBranch;
     const body =
       parsed.data.body ||
       [`Created from AutoPR thread \`${threadId}\`.`, "", "This PR contains the changes currently staged in the thread sandbox."].join("\n");
@@ -91,11 +63,18 @@ async function POST(
       const authState = await requireWorkOSAuth();
       const token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
       const gitIdentity = await getGithubUserIdentity(authState.user, token);
+      const worktree = await convexAction(api.projectActions.ensureThreadWorktree, {
+        projectId,
+        threadId,
+      });
+      const baseBranch = worktree.baseBranch;
+      const branch = worktree.featureBranch;
+      const existingFailedBranch = thread.pullRequestStatus === "failed" ? thread.pullRequestBranch : undefined;
       await convexMutation(api.threads.markPullRequestCreating, { threadId, branch });
 
       try {
         try {
-          await commitAndPushProjectSandboxChanges({
+          const commit = await commitAndPushProjectSandboxChanges({
             sandboxId: project.sandboxId,
             githubToken: token,
             githubUsername: gitIdentity.username,
@@ -105,7 +84,14 @@ async function POST(
             baseBranch,
             commitMessage: title,
             repoName: project.repoName,
-            sandboxWorkDir: project.sandboxWorkDir,
+            sandboxWorkDir: worktree.worktreePath,
+          });
+          await convexMutation(api.threads.markChangesCommitted, {
+            threadId,
+            status: "pushed",
+            branch,
+            commitSha: commit.commitSha,
+            commitMessage: title,
           });
         } catch (error) {
           if (!(error instanceof SandboxNoChangesError && existingFailedBranch === branch)) {

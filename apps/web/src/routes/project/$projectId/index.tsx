@@ -69,6 +69,7 @@ import {
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
+import { deleteThreadWithCleanup } from "#/lib/delete-thread";
 import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
 
 function relativeTime(date: number) {
@@ -195,7 +196,6 @@ function ProjectOverviewPage() {
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const codexStatusQuery = useCodexStatus(isAuthenticated);
   const createThread = useMutation(api.threads.create);
-  const removeThread = useMutation(api.threads.remove);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const startSandbox = useAction(api.projectActions.startSandbox);
   const stopSandbox = useAction(api.projectActions.stopSandbox);
@@ -592,14 +592,14 @@ function ProjectOverviewPage() {
     setDeletingThreadId(pendingDeleteThread.threadId);
     setError(undefined);
     try {
-      await removeThread({ threadId: pendingDeleteThread.threadId });
+      await deleteThreadWithCleanup(projectId, pendingDeleteThread.threadId);
       setPendingDeleteThread(undefined);
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not delete the thread.");
     } finally {
       setDeletingThreadId(undefined);
     }
-  }, [pendingDeleteThread, removeThread]);
+  }, [pendingDeleteThread, projectId]);
 
   const isConfirmingDelete = Boolean(pendingDeleteThread);
   const isDeletingPendingThread = Boolean(pendingDeleteThread && deletingThreadId === pendingDeleteThread.threadId);

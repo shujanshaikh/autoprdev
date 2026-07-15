@@ -33,6 +33,7 @@ const TERMINAL_THEME = {
 
 type DaytonaTerminalViewProps = {
   projectId: string;
+  threadId: string;
 };
 
 function decodeTerminalData(data: MessageEvent["data"]): Promise<string> {
@@ -52,7 +53,7 @@ function decodeTerminalData(data: MessageEvent["data"]): Promise<string> {
   return Promise.resolve("");
 }
 
-export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
+export function DaytonaTerminalView({ projectId, threadId }: DaytonaTerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | undefined>(undefined);
@@ -98,7 +99,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
         terminal.dispose();
         return;
       }
-      const terminalInfo = await getPtyTerminal({ projectId, cols: terminal.cols || 100, rows: terminal.rows || 30 });
+      const terminalInfo = await getPtyTerminal({ projectId, threadId, cols: terminal.cols || 100, rows: terminal.rows || 30 });
       const terminalInfoConnectionActive = isActiveConnection();
       if (!terminalInfoConnectionActive) {
         terminal.dispose();
@@ -199,7 +200,7 @@ export function DaytonaTerminalView({ projectId }: DaytonaTerminalViewProps) {
       setError(err instanceof Error ? err.message : "Could not start terminal.");
       setLoading(false);
     }
-  }, [getPtyTerminal, projectId, resizePtyTerminal]);
+  }, [getPtyTerminal, projectId, resizePtyTerminal, threadId]);
 
   useEffect(() => {
     const container = containerRef.current;

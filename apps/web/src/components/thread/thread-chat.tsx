@@ -1646,7 +1646,8 @@ function ThreadChatRuntime({
         projectId={projectId}
         threadId={threadId}
         threadTitle={thread?.title}
-        baseBranch={project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch}
+        baseBranch={thread?.baseBranch ?? project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch}
+        featureBranch={thread?.featureBranch}
         pullRequestStatus={thread?.pullRequestStatus}
         pullRequestUrl={thread?.pullRequestUrl}
         pullRequestNumber={thread?.pullRequestNumber}

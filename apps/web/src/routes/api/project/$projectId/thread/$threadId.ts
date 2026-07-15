@@ -273,7 +273,14 @@ async function DELETE(
     return Response.json({ error: "Thread not found." }, { status: 404 });
   }
 
-  await convexMutation(api.threads.remove, { threadId });
+  try {
+    await convexAction(api.projectActions.removeThreadWithWorktree, { projectId, threadId });
+  } catch (error) {
+    return Response.json(
+      { error: safeErrorMessage(error, "Could not safely clean up the thread worktree.") },
+      { status: 409 },
+    );
+  }
 
   return Response.json({ projectId, threadId });
 }
@@ -315,6 +322,10 @@ async function POST(
   }
 
   try {
+    const worktree = await convexAction(api.projectActions.ensureThreadWorktree, {
+      projectId,
+      threadId,
+    });
     const authState = await requireWorkOSAuth();
     let gitIdentity = workOSCommitIdentity(authState.user);
     let githubUsername: string | undefined;
@@ -341,7 +352,7 @@ async function POST(
     const prepared = await prepareProjectSandboxCommit({
       sandboxId: project.sandboxId,
       repoName: project.repoName,
-      sandboxWorkDir: project.sandboxWorkDir,
+      sandboxWorkDir: worktree.worktreePath,
     });
     const commitMessage = parsed.data.commitMessage ?? await generateCommitMessage({
       request: req,
@@ -360,7 +371,7 @@ async function POST(
       githubUsername,
       githubToken,
       repoName: project.repoName,
-      sandboxWorkDir: project.sandboxWorkDir,
+      sandboxWorkDir: worktree.worktreePath,
     });
     const status = result.pushed ? "pushed" : "committed";
 

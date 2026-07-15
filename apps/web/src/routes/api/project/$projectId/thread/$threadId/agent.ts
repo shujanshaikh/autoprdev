@@ -14,6 +14,7 @@ import {
   AGENT_TASK_ID,
   agentProjectTag,
   agentThreadTag,
+  threadSandboxCacheKey,
 } from "#/lib/trigger-agent-contract";
 import {
   lookupTriggerAgentRun,
@@ -132,6 +133,16 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
+    let worktree: Awaited<ReturnType<typeof ensureThreadWorktreeForRun>>;
+    try {
+      worktree = await ensureThreadWorktreeForRun(projectId, threadId);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Could not prepare the thread worktree." },
+        { status: 409 },
+      );
+    }
+
     const requiredRunTags = [agentProjectTag(projectId), agentThreadTag(threadId)];
     if (thread.currentRunId) {
       const currentRunLookup = await lookupTriggerAgentRun(thread.currentRunId, requiredRunTags);
@@ -200,12 +211,13 @@ async function POST(
         sanitizedMessagesForModel.push(sanitizedMessage);
       }
     }
-    const modelMessages = await convertToModelMessages(sanitizedMessagesForModel);
-
-    const idempotencyKey = await idempotencyKeys.create(
-      ["agent", threadId, assistantMessageId],
-      { scope: "global" },
-    );
+    const [modelMessages, idempotencyKey] = await Promise.all([
+      convertToModelMessages(sanitizedMessagesForModel),
+      idempotencyKeys.create(
+        ["agent", threadId, assistantMessageId],
+        { scope: "global" },
+      ),
+    ]);
     const run = await tasks.trigger<typeof agentTask>(
       AGENT_TASK_ID,
       {
@@ -213,11 +225,11 @@ async function POST(
         options: {
           projectId,
           threadId,
-          sandboxCacheKey: project.sandboxCacheKey,
+          sandboxCacheKey: threadSandboxCacheKey(project.sandboxCacheKey, threadId),
           sandboxId: project.sandboxId,
-          sandboxWorkDir: project.sandboxWorkDir,
+          sandboxWorkDir: worktree.worktreePath,
           repoUrl: project.cloneUrl,
-          repoBranch: project.repoBranch,
+          repoBranch: worktree.featureBranch,
           repoName: project.repoName,
           assistantMessageId,
           persistenceToken: persistenceGrant.token,
@@ -252,3 +264,7 @@ export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/a
     handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, { params: Promise.resolve(params) } as any) },
   },
 });
+
+function ensureThreadWorktreeForRun(projectId: string, threadId: string) {
+  return convexAction(api.projectActions.ensureThreadWorktree, { projectId, threadId });
+}

@@ -1,0 +1,138 @@
+export interface ThreadBranchMetadata {
+  baseBranch?: string;
+  featureBranch?: string;
+  worktreePath?: string;
+}
+
+export interface ProjectBranchMetadata {
+  currentBranch?: string;
+  repoBranch?: string;
+  defaultBranch?: string;
+}
+
+export interface GitWorktreeEntry {
+  path: string;
+  branch?: string;
+  headSha?: string;
+}
+
+const MAX_BRANCH_LENGTH = 120;
+const MAX_SLUG_LENGTH = 72;
+
+function safeIdentifier(value: string, fallback: string) {
+  const normalized = value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_SLUG_LENGTH)
+    .replace(/-+$/g, "");
+
+  return normalized || fallback;
+}
+
+export function createThreadFeatureBranch(title: string, threadId: string) {
+  const slug = safeIdentifier(title, "thread");
+  const suffix = safeIdentifier(threadId, "thread").replace(/^thread-/, "").slice(-10) || "thread";
+  const availableSlugLength = Math.max(1, MAX_BRANCH_LENGTH - "autopr//-".length - suffix.length);
+  const trimmedSlug = slug.slice(0, availableSlugLength).replace(/-+$/g, "") || "thread";
+  return `autopr/${trimmedSlug}-${suffix}`;
+}
+
+export function resolveThreadBaseBranch(
+  thread: Pick<ThreadBranchMetadata, "baseBranch">,
+  project: ProjectBranchMetadata,
+) {
+  return thread.baseBranch ?? project.currentBranch ?? project.repoBranch ?? project.defaultBranch;
+}
+
+function pathSegment(value: string, fallback: string) {
+  return safeIdentifier(value, fallback).slice(0, 80);
+}
+
+export function createThreadWorktreePath(
+  repositoryPath: string,
+  repoName: string,
+  threadId: string,
+) {
+  const normalizedRepositoryPath = repositoryPath.replace(/\/+$/, "");
+  const lastSlash = normalizedRepositoryPath.lastIndexOf("/");
+  const sandboxDirectory = lastSlash > 0 ? normalizedRepositoryPath.slice(0, lastSlash) : "/home";
+  return `${sandboxDirectory}/.autopr/worktrees/${pathSegment(repoName, "repository")}/${pathSegment(threadId, "thread")}`;
+}
+
+export function resolveThreadExecutionPath(
+  thread: Pick<ThreadBranchMetadata, "worktreePath">,
+  projectRepositoryPath: string,
+) {
+  return thread.worktreePath?.trim() || projectRepositoryPath;
+}
+
+export function parseGitWorktreeList(output: string): GitWorktreeEntry[] {
+  const entries: GitWorktreeEntry[] = [];
+  let current: GitWorktreeEntry | undefined;
+
+  for (const line of output.split(/\r?\n/)) {
+    if (line.startsWith("worktree ")) {
+      if (current) entries.push(current);
+      current = { path: line.slice("worktree ".length) };
+    } else if (current && line.startsWith("HEAD ")) {
+      current.headSha = line.slice("HEAD ".length);
+    } else if (current && line.startsWith("branch refs/heads/")) {
+      current.branch = line.slice("branch refs/heads/".length);
+    } else if (!line && current) {
+      entries.push(current);
+      current = undefined;
+    }
+  }
+
+  if (current) entries.push(current);
+  return entries;
+}
+
+export type WorktreeProvisionDecision =
+  | { kind: "ready"; path: string }
+  | { kind: "create-from-existing-branch"; path: string }
+  | { kind: "create-branch-and-worktree"; path: string }
+  | { kind: "conflict"; message: string };
+
+export function decideWorktreeProvision(options: {
+  entries: GitWorktreeEntry[];
+  desiredPath: string;
+  featureBranch: string;
+  branchExists: boolean;
+}): WorktreeProvisionDecision {
+  const atPath = options.entries.find((entry) => entry.path === options.desiredPath);
+  if (atPath) {
+    return atPath.branch === options.featureBranch
+      ? { kind: "ready", path: atPath.path }
+      : {
+          kind: "conflict",
+          message: `The thread worktree path is already attached to ${atPath.branch ?? "a detached checkout"}.`,
+        };
+  }
+
+  const forBranch = options.entries.find((entry) => entry.branch === options.featureBranch);
+  if (forBranch) {
+    return {
+      kind: "conflict",
+      message: `The thread branch is already attached to a different worktree at ${forBranch.path}.`,
+    };
+  }
+
+  return options.branchExists
+    ? { kind: "create-from-existing-branch", path: options.desiredPath }
+    : { kind: "create-branch-and-worktree", path: options.desiredPath };
+}
+
+export function assessWorktreeCleanup(statusPorcelain: string) {
+  const hasUncommittedChanges = statusPorcelain.trim().length > 0;
+  return {
+    canRemoveWorktree: !hasUncommittedChanges,
+    preserveBranch: true as const,
+    reason: hasUncommittedChanges
+      ? "The thread worktree has uncommitted changes. Commit or discard them before deleting the thread."
+      : undefined,
+  };
+}

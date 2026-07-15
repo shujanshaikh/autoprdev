@@ -71,6 +71,7 @@ import {
 } from "#/components/dashboard/types";
 import { RouteTransition } from "#/components/route-transition";
 import { useCodexStatus } from "#/lib/codex-status";
+import { deleteThreadWithCleanup } from "#/lib/delete-thread";
 
 const EMPTY_REPOSITORIES: GithubRepository[] = [];
 const EMPTY_BRANCHES: GithubBranch[] = [];
@@ -328,10 +329,10 @@ function WorkspaceSidebar({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
-  const removeThread = useConvexMutation(api.threads.remove);
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<WorkspaceThread | undefined>();
+  const [deleteThreadError, setDeleteThreadError] = useState<string | undefined>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const activeProjectTabRef = useRef<HTMLAnchorElement>(null);
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -377,20 +378,23 @@ function WorkspaceSidebar({
     event.preventDefault();
     event.stopPropagation();
     setPendingDeleteThread(thread);
+    setDeleteThreadError(undefined);
   }
 
   async function confirmDeleteThread() {
-    if (!pendingDeleteThread) return;
+    if (!pendingDeleteThread || !activeProjectId) return;
 
     const thread = pendingDeleteThread;
     setDeletingThreadId(thread.threadId);
     try {
-      await removeThread({ threadId: thread.threadId });
+      await deleteThreadWithCleanup(activeProjectId, thread.threadId);
       setPendingDeleteThread(undefined);
       if (thread.threadId === activeThreadId && activeProjectId) {
         navigate({ to: "/project/$projectId", params: { projectId: activeProjectId } });
       }
       router.invalidate();
+    } catch (error) {
+      setDeleteThreadError(error instanceof Error ? error.message : "Could not delete the thread.");
     } finally {
       setDeletingThreadId(undefined);
     }
@@ -692,6 +696,9 @@ function WorkspaceSidebar({
               {pendingDeleteThread?.title ?? pendingDeleteThread?.threadId}
             </DialogDescription>
           </DialogHeader>
+          {deleteThreadError ? (
+            <p className="text-xs text-destructive" role="alert">{deleteThreadError}</p>
+          ) : null}
           <DialogFooter className="flex-row justify-end gap-2">
             <Button
               type="button"

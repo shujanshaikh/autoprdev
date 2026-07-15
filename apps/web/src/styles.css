@@ -201,6 +201,354 @@
   }
 }
 
+/* Landing page v2 — product-native agent workspace */
+
+.landing-v2 {
+  --landing-v2-bg: var(--framer-canvas);
+  --landing-v2-panel: var(--framer-surface-1);
+  --landing-v2-subtle: color-mix(in srgb, var(--framer-surface-1) 72%, var(--framer-canvas));
+  --landing-v2-active: var(--framer-surface-2);
+  --landing-v2-user: var(--framer-surface-2);
+  --landing-v2-ink: var(--framer-ink);
+  --landing-v2-muted: var(--framer-ink-muted);
+  --landing-v2-faint: color-mix(in srgb, var(--framer-ink-muted) 62%, transparent);
+  --landing-v2-line: var(--framer-hairline-soft);
+  --landing-v2-line-strong: var(--framer-hairline);
+  --landing-v2-blue: var(--framer-accent-blue);
+  background: var(--landing-v2-bg);
+  color: var(--landing-v2-ink);
+  scroll-behavior: smooth;
+}
+
+.dark .landing-v2 {
+  --landing-v2-bg: #0d0d0d;
+  --landing-v2-panel: #141414;
+  --landing-v2-subtle: #111111;
+  --landing-v2-active: #202020;
+  --landing-v2-user: #242424;
+  --landing-v2-line: #242424;
+  --landing-v2-line-strong: #343434;
+}
+
+.landing-v2-header {
+  position: sticky;
+  z-index: 50;
+  top: 0;
+  height: 76px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--landing-v2-bg) 88%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.landing-v2-header-shell {
+  display: flex;
+  height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 0;
+  padding: 0 0.5rem 0 0.75rem;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.dark .landing-v2-header-shell {
+  box-shadow: none;
+}
+
+.landing-v2-nav-rail {
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.landing-nav-link {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  padding: 0 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--landing-v2-muted);
+  transition: color 150ms var(--ease-ui-smooth), background-color 150ms var(--ease-ui-smooth);
+}
+
+.landing-nav-link:hover {
+  background: var(--landing-v2-panel);
+  color: var(--landing-v2-ink);
+}
+
+.landing-v2-sign-in {
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  padding: 0 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--landing-v2-muted);
+}
+
+.landing-v2-sign-in:hover {
+  color: var(--landing-v2-ink);
+}
+
+.landing-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  border-radius: var(--radius-pill);
+  padding: 0 1rem;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.landing-button-primary {
+  border: 0;
+  background: var(--landing-v2-ink);
+  color: var(--landing-v2-bg);
+}
+
+.landing-button-primary:hover {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--landing-v2-blue) 13%, transparent);
+  transform: translateY(-1px);
+}
+
+.landing-button-quiet {
+  border: 1px solid var(--landing-v2-line-strong);
+  background: color-mix(in srgb, var(--landing-v2-panel) 80%, transparent);
+  color: var(--landing-v2-ink);
+}
+
+.landing-button-quiet:hover {
+  border-color: color-mix(in srgb, var(--landing-v2-ink) 28%, var(--landing-v2-line));
+  background: var(--landing-v2-active);
+}
+
+.landing-v2-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 55% 40% at 50% 12%, color-mix(in srgb, var(--landing-v2-blue) 7%, transparent), transparent 72%),
+    var(--landing-v2-bg);
+}
+
+.landing-v2-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--landing-v2-line) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--landing-v2-line) 55%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 60%);
+}
+
+.landing-v2-outline-text {
+  color: transparent;
+  -webkit-text-stroke: 1.25px color-mix(in srgb, var(--landing-v2-ink) 74%, transparent);
+}
+
+.landing-v2-mascot {
+  position: absolute;
+  z-index: 2;
+  top: -3.75rem;
+  right: -0.75rem;
+  width: clamp(5rem, 8vw, 7.5rem);
+  aspect-ratio: 199 / 234;
+  opacity: 1;
+  filter: none;
+  transform: none;
+  animation: landing-mascot-in 680ms 160ms var(--ease-ui-snappy) both;
+}
+
+.landing-workspace {
+  position: relative;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: var(--landing-v2-panel);
+  color: var(--landing-v2-ink);
+}
+
+.landing-hero-workspace {
+  animation: landing-workspace-in 760ms 240ms var(--ease-ui-snappy) both;
+  box-shadow:
+    0 0 0 1px var(--landing-v2-line),
+    0 32px 90px rgb(0 0 0 / 0.13);
+}
+
+.dark .landing-hero-workspace {
+  box-shadow:
+    0 0 0 1px var(--landing-v2-line),
+    0 32px 100px rgb(0 0 0 / 0.48);
+}
+
+.landing-workspace-glow {
+  position: absolute;
+  inset: -3rem 12% auto;
+  height: 10rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--landing-v2-blue) 16%, transparent);
+  filter: blur(70px);
+  pointer-events: none;
+}
+
+.landing-chat-appbar {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--landing-v2-line);
+  padding: 0 0.75rem;
+  background: var(--landing-v2-subtle);
+}
+
+.landing-chat-commit {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: var(--radius-pill);
+  padding: 0 0.65rem;
+  background: var(--landing-v2-active);
+  font-size: 9px;
+}
+
+.landing-chat-sidebar {
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--landing-v2-line);
+  background: var(--landing-v2-subtle);
+}
+
+.landing-chat-projects {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+  border-block: 1px solid var(--landing-v2-line);
+  padding: 0.55rem;
+  background: color-mix(in srgb, var(--landing-v2-active) 24%, transparent);
+}
+
+.landing-chat-project {
+  display: flex;
+  height: 32px;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 5px;
+  padding: 0 0.45rem;
+  font-size: 9px;
+  color: var(--landing-v2-muted);
+}
+
+.landing-chat-project.is-active {
+  background: var(--landing-v2-panel);
+  box-shadow: 0 0 0 1px var(--landing-v2-line-strong);
+  color: var(--landing-v2-ink);
+}
+
+.landing-chat-thread {
+  min-height: 58px;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  font-size: 10px;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--landing-v2-ink) 65%, transparent);
+}
+
+.landing-chat-thread.is-active {
+  background: var(--landing-v2-active);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--landing-v2-ink) 30%, transparent);
+  color: var(--landing-v2-ink);
+}
+
+.landing-chat-conversation {
+  background: radial-gradient(circle at 50% 0, color-mix(in srgb, var(--landing-v2-blue) 2.5%, transparent), transparent 44%);
+}
+
+.landing-chat-composer {
+  border-radius: 18px;
+  background: var(--landing-v2-subtle);
+  box-shadow: 0 0 0 1px var(--landing-v2-line-strong);
+}
+
+.landing-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--landing-v2-blue);
+}
+
+@keyframes landing-workspace-in {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landing-mascot-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 767px) {
+  .landing-v2-header {
+    height: 72px;
+  }
+
+  .landing-v2-header > div:last-child {
+    pointer-events: auto;
+  }
+
+  .landing-workspace {
+    border-radius: 10px;
+  }
+
+  .landing-v2-grid {
+    background-size: 36px 36px;
+  }
+
+  .landing-v2-mascot {
+    top: -3.25rem;
+    right: 0;
+    width: 4.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-v2 {
+    scroll-behavior: auto;
+  }
+
+  .landing-hero-workspace {
+    animation: none;
+  }
+
+  .landing-v2-mascot {
+    animation: none;
+  }
+}
+
 /* ─── Sidebar ─── */
 
 @keyframes sidebar-item-in {

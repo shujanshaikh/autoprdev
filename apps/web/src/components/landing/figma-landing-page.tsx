@@ -1,106 +1,69 @@
 import { cn } from "@autopr/ui/lib/utils";
-import { Bot, GitCompareArrows, Github, ShieldCheck } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  ArrowRight,
+  ArrowUp,
+  ChevronDown,
+  CircleDot,
+  Code2,
+  GitBranch,
+  Github,
+  Image,
+  Menu,
+  MessageSquareText,
+  Moon,
+  MoreHorizontal,
+  PanelLeft,
+  Pencil,
+  Play,
+  Plus,
+  Search,
+  Settings,
+  ShieldCheck,
+  Terminal,
+  Trash2,
+  X,
+} from "lucide-react";
+import { useState } from "react";
 
+import { CodexLogo } from "#/components/icons/codex-logo";
 import { ModeToggle } from "#/components/mode-toggle";
 
-function u(px: number) {
-  return `${px}px`;
-}
+const signInHref = "/api/auth/sign-in?returnTo=%2Fdashboard";
 
-function place(x: number, y: number, width: number, height?: number) {
-  return {
-    left: u(x),
-    top: u(y),
-    width: u(width),
-    ...(height == null ? {} : { height: u(height) }),
-  };
-}
-
-const featureCards = [
+const workflow = [
   {
-    x: 548,
-    y: 68,
+    label: "Connect",
+    title: "Your repo, ready in seconds.",
+    copy: "Choose a GitHub repository and branch. AutoPR creates an isolated Daytona workspace with the full project context.",
     icon: Github,
-    title: "Connect a GitHub repo",
-    body: "Choose a repository and branch so each run starts from real project context.",
   },
   {
-    x: 548,
-    y: 178,
-    icon: ShieldCheck,
-    title: "Run in an isolated sandbox",
-    body: "AutoPR prepares a Daytona workspace where the agent can inspect, edit, and run commands.",
+    label: "Delegate",
+    title: "Describe the change. Stay in control.",
+    copy: "Start a Codex thread in plain language, attach visual context, and watch the agent inspect, edit, and validate the code.",
+    icon: MessageSquareText,
   },
   {
-    x: 548,
-    y: 288,
-    icon: Bot,
-    title: "Guide a Codex thread",
-    body: "Describe the task, attach context, and follow the agent conversation as work happens.",
-  },
-  {
-    x: 548,
-    y: 398,
-    icon: GitCompareArrows,
-    title: "Review and open a PR",
-    body: "Inspect diffs and runtime output, then create a GitHub pull request when the changes are ready.",
+    label: "Ship",
+    title: "Review the work, not the busywork.",
+    copy: "See every changed file, inspect the diff, and open a pull request without losing the conversation behind it.",
+    icon: GitBranch,
   },
 ] as const;
 
-function AutoPrLogo({
-  x,
-  y,
-  scale = 1,
-}: {
-  x: number;
-  y: number;
-  scale?: number;
-}) {
+function Logo({ compact = false }: { compact?: boolean }) {
   return (
-    <a
-      href="#top"
-      aria-label="AUTOPR"
-      className="absolute flex items-center text-[color:var(--landing-ink)]"
-      style={place(x, y, 219 * scale, 61 * scale)}
-    >
-      <img
-        src="/images/landing/autopr-mark.png"
-        alt=""
-        aria-hidden="true"
-        className="landing-logo-mark block shrink-0 object-contain"
-        style={{ width: u(44 * scale), height: u(44 * scale) }}
-      />
-      <span
-        className="font-display font-medium leading-none"
-        style={{
-          marginLeft: u(11 * scale),
-          fontSize: u(26 * scale),
-          lineHeight: u(28 * scale),
-          letterSpacing: u(-1 * scale),
-        }}
-      >
-        AUTOPR
+    <a href="#top" className="flex items-center gap-2.5" aria-label="AutoPR home">
+      <span className="flex size-7 items-center justify-center rounded-[7px] bg-[var(--landing-v2-ink)]">
+        <img
+          src="/images/landing/autopr-mark.png"
+          alt=""
+          aria-hidden="true"
+          className="size-5 object-contain invert dark:invert-0"
+        />
       </span>
-    </a>
-  );
-}
-
-function MobileLogo() {
-  return (
-    <a
-      href="#top"
-      aria-label="AUTOPR"
-      className="flex min-w-0 items-center text-[color:var(--landing-ink)]"
-    >
-      <img
-        src="/images/landing/autopr-mark.png"
-        alt=""
-        aria-hidden="true"
-        className="landing-logo-mark block h-7 w-7 shrink-0 object-contain"
-      />
-      <span className="ml-2 font-display text-lg font-medium leading-none tracking-[-0.04em] min-[380px]:text-xl">
-        AUTOPR
+      <span className={cn("font-display font-semibold tracking-[-0.045em]", compact ? "text-base" : "text-lg")}>
+        AutoPR
       </span>
     </a>
   );
@@ -108,326 +71,248 @@ function MobileLogo() {
 
 function HeroMascot() {
   return (
-    <>
-      <img src="/images/landing/mascot-spark.svg" alt="" aria-hidden="true" className="absolute landing-muted-asset" style={place(488, 152, 85, 83)} />
-      <img src="/images/landing/mascot-body.svg" alt="" aria-hidden="true" className="absolute landing-muted-asset" style={place(518, 178, 169, 208)} />
-      <img src="/images/landing/mascot-leg-right.svg" alt="" aria-hidden="true" className="absolute landing-muted-asset" style={place(564.5, 282.3, 30.3, 44.2)} />
-      <img src="/images/landing/mascot-leg-left.svg" alt="" aria-hidden="true" className="absolute landing-muted-asset" style={place(614.3, 282.3, 30.3, 44.2)} />
-    </>
-  );
-}
-
-function MobileHeroMascot() {
-  return (
-    <div
-      aria-hidden="true"
-      className="relative mt-0 h-[7.4rem] w-[7.3rem] shrink-0 min-[380px]:h-[8.5rem] min-[380px]:w-[8.4rem] md:h-[11rem] md:w-[10.9rem]"
-    >
-      <img
-        src="/images/landing/mascot-spark.svg"
-        alt=""
-        className="landing-muted-asset absolute left-0 top-0 h-[39.9%] w-[41.9%]"
-      />
-      <img
-        src="/images/landing/mascot-body.svg"
-        alt=""
-        className="landing-muted-asset absolute left-[14.8%] top-[12.5%] h-[100%] w-[83.3%]"
-      />
-      <img
-        src="/images/landing/mascot-leg-right.svg"
-        alt=""
-        className="landing-muted-asset absolute left-[37.7%] top-[62.7%] h-[21.2%] w-[14.9%]"
-      />
-      <img
-        src="/images/landing/mascot-leg-left.svg"
-        alt=""
-        className="landing-muted-asset absolute left-[62.3%] top-[62.7%] h-[21.2%] w-[14.9%]"
-      />
+    <div className="landing-v2-mascot" aria-hidden="true">
+      <img src="/images/landing/mascot-spark.svg" alt="" className="absolute left-0 top-0 h-[35.47%] w-[42.71%]" />
+      <img src="/images/landing/mascot-body.svg" alt="" className="absolute left-[15.08%] top-[11.11%] h-[88.89%] w-[84.92%]" />
+      <img src="/images/landing/mascot-leg-right.svg" alt="" className="absolute left-[38.44%] top-[55.68%] h-[18.89%] w-[15.23%]" />
+      <img src="/images/landing/mascot-leg-left.svg" alt="" className="absolute left-[63.47%] top-[55.68%] h-[18.89%] w-[15.23%]" />
     </div>
   );
 }
 
-function FigmaButton({
-  href,
-  children,
-  x,
-  y,
-  width,
-  height,
-  variant = "primary",
-}: {
-  href: string;
-  children: ReactNode;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  variant?: "primary" | "secondary";
-}) {
+function AgentWorkspace() {
   return (
-    <a
-      href={href}
-      className={cn(
-        "absolute flex items-center justify-center rounded-[var(--radius-pill)] border border-[color:var(--landing-line)] font-medium",
-        "transition-transform hover:-translate-y-0.5 active:translate-y-px",
-        variant === "primary"
-          ? "border-[color:var(--landing-strong-line)] bg-[color:var(--landing-button)] text-[color:var(--landing-button-fg)] hover:bg-[color:var(--landing-button-hover)]"
-          : "bg-[color:var(--landing-panel)] text-[color:var(--landing-ink)] hover:border-[color:var(--landing-strong-line)] hover:bg-[color:var(--landing-accent-panel)]",
-      )}
-      style={{
-        ...place(x, y, width, height),
-        fontSize: u(18),
-        lineHeight: u(28),
-      }}
-    >
-      {children}
-    </a>
+    <div className="landing-workspace landing-hero-workspace" aria-label="Preview of the AutoPR chat workspace">
+      <div className="landing-chat-appbar">
+        <div className="flex items-center gap-2.5">
+          <PanelLeft className="size-3.5 text-[var(--landing-v2-muted)]" aria-hidden="true" />
+          <span className="font-display text-[11px] font-semibold tracking-[-0.03em]">AUTOPR</span>
+        </div>
+        <button type="button" className="landing-chat-commit">⌘ Commit <ChevronDown className="size-3" /></button>
+      </div>
+
+      <div className="grid min-h-[620px] grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)]">
+        <aside className="landing-chat-sidebar hidden md:flex">
+          <div className="space-y-1 px-3 pb-3 pt-4">
+            <div className="flex h-8 items-center gap-2 px-2 text-[11px] text-[var(--landing-v2-muted)]">
+              <Search className="size-3.5" aria-hidden="true" /><span>Search threads</span><kbd className="ml-auto rounded bg-[var(--landing-v2-active)] px-1.5 py-0.5 font-mono text-[8px] opacity-60">⌘K</kbd>
+            </div>
+            <div className="flex h-8 items-center gap-2 px-2 text-[11px] font-medium">
+              <Pencil className="size-3.5 text-[var(--landing-v2-muted)]" aria-hidden="true" /><span>New thread</span><span className="ml-auto font-mono text-[8px] uppercase text-[var(--landing-v2-faint)]">AutoPR</span>
+            </div>
+          </div>
+
+          <div className="landing-chat-projects">
+            <div className="landing-chat-project"><span className="grid size-5 place-items-center rounded bg-sky-500 text-[8px] font-semibold text-white">DS</span><span>deskcloud</span></div>
+            <div className="landing-chat-project is-active"><span className="grid size-5 place-items-center rounded bg-violet-600 text-[8px] font-semibold text-white">AP</span><span>autopr</span></div>
+            <div className="grid size-8 shrink-0 place-items-center rounded border border-dashed border-[var(--landing-v2-line-strong)] text-[var(--landing-v2-muted)]"><Plus className="size-3" /></div>
+          </div>
+
+          <div className="flex h-10 items-center px-3 font-mono text-[8px] uppercase tracking-[0.15em] text-[var(--landing-v2-faint)]">
+            AutoPR threads <span className="ml-auto tabular-nums">12</span><Trash2 className="ml-2 size-3" />
+          </div>
+          <div className="min-h-0 flex-1 space-y-1 overflow-hidden px-2">
+            {[
+              ["Improve landing page hierarchy", "now", true],
+              ["Review authentication flow", "1d", false],
+              ["Fix mobile sidebar spacing", "3d", false],
+              ["Summarize latest changes", "4d", false],
+              ["Add loading states", "5d", false],
+              ["Refactor project settings", "5d", false],
+            ].map(([title, age, active]) => (
+              <div key={title as string} className={cn("landing-chat-thread", active && "is-active")}>
+                <div className="flex items-start gap-2"><span className="line-clamp-2 flex-1">{title as string}</span><span className="font-mono text-[8px] text-[var(--landing-v2-faint)]">{age as string}</span></div>
+                <div className="mt-2 flex items-center gap-1 font-mono text-[8px] text-[var(--landing-v2-faint)]"><GitBranch className="size-2.5" />main</div>
+              </div>
+            ))}
+          </div>
+          <div className="flex h-12 items-center border-t border-[var(--landing-v2-line)] px-3 text-[10px] text-[var(--landing-v2-muted)]">
+            <Settings className="mr-2 size-3.5" />Settings<Moon className="ml-auto size-3.5" /><span className="ml-3 size-5 rounded-full bg-gradient-to-br from-amber-200 via-orange-400 to-violet-700" />
+          </div>
+        </aside>
+
+        <div className="relative flex min-w-0 flex-col bg-[var(--landing-v2-panel)]">
+          <div className="landing-chat-conversation mx-auto w-full max-w-[650px] flex-1 px-5 pb-32 pt-6 sm:px-8 sm:pt-8">
+            <div className="ml-auto w-fit max-w-[80%] rounded-full bg-[var(--landing-v2-user)] px-4 py-2.5 text-[11px]">Make the landing page feel like the actual product.</div>
+
+            <div className="mt-12 text-[11px] leading-[1.65]">
+              <div className="mb-3 flex items-center gap-2 font-mono text-[9px] text-[var(--landing-v2-faint)]"><ChevronDown className="size-3" /> Worked for 28s <span>·</span> 31.4k tokens</div>
+              <p>I’ll inspect the current interface and align the landing page with the real AutoPR workspace.</p>
+              <p className="mt-2">The preview now mirrors the product’s core structure:</p>
+              <ul className="mt-3 list-disc space-y-2 pl-5">
+                <li><strong>Workspace sidebar:</strong> project tabs, searchable threads, branch context, and settings.</li>
+                <li><strong>Focused conversation:</strong> a calm reading column with visible run metadata.</li>
+                <li><strong>Persistent composer:</strong> model controls and follow-up actions stay within reach.</li>
+              </ul>
+            </div>
+
+            <div className="mt-9 ml-auto w-fit rounded-full bg-[var(--landing-v2-user)] px-4 py-2.5 text-[11px]">Keep it minimal and accurate.</div>
+            <div className="mt-10 text-[11px] leading-[1.65]">
+              <div className="mb-3 flex items-center gap-2 font-mono text-[9px] text-[var(--landing-v2-faint)]"><ChevronDown className="size-3" /> Worked for 7s <span>·</span> 11.2k tokens</div>
+              <p><strong>Done.</strong> The marketing surface now feels like the same product developers use after signing in.</p>
+            </div>
+          </div>
+
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[var(--landing-v2-panel)] via-[var(--landing-v2-panel)] to-transparent px-4 pb-4 pt-12 sm:px-8">
+            <div className="landing-chat-composer mx-auto max-w-[650px]">
+              <p className="px-3 pb-6 pt-2 text-[10px] text-[var(--landing-v2-faint)]">Add a follow up…</p>
+              <div className="flex items-center gap-2 px-2 pb-2">
+                <CodexLogo className="size-3.5 text-[var(--landing-v2-muted)]" />
+                <span className="text-[9px] font-medium">GPT-5.6</span><ChevronDown className="size-3 text-[var(--landing-v2-muted)]" />
+                <button type="button" className="grid size-6 place-items-center rounded-full bg-[var(--landing-v2-active)]" aria-label="More options"><MoreHorizontal className="size-3" /></button>
+                <Image className="size-3 text-[var(--landing-v2-muted)]" aria-hidden="true" />
+                <span className="ml-auto size-3 rounded-full border-2 border-[var(--landing-v2-line-strong)] border-t-[var(--landing-v2-blue)]" />
+                <button type="button" className="grid size-7 place-items-center rounded-full bg-[var(--landing-v2-ink)] text-[var(--landing-v2-bg)]" aria-label="Send message"><ArrowUp className="size-3" /></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function MobileLandingPage() {
-  return (
-    <main className="landing-mobile w-full lg:hidden">
-      <header className="sticky top-0 z-20 border-b border-[color:var(--landing-line)] bg-[color:var(--landing-paper)]/88 backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full max-w-[430px] items-center justify-between px-4 md:max-w-[760px] md:px-6">
-          <MobileLogo />
-          <div className="flex shrink-0 items-center gap-2">
-            <ModeToggle
-              presentation="switch"
-              className="border-[color:var(--landing-strong-line)] bg-[color:var(--landing-panel)] text-[color:var(--landing-ink)] hover:border-[color:var(--landing-highlight)] hover:bg-[color:var(--landing-accent-panel)] hover:text-[color:var(--landing-ink)]"
-            />
-            <a
-              href="/api/auth/sign-in?returnTo=%2Fdashboard"
-              className="flex h-8 items-center justify-center rounded-[var(--radius-pill)] bg-[color:var(--landing-button)] px-3 text-sm font-medium text-[color:var(--landing-button-fg)]"
-            >
-              Start
-            </a>
-          </div>
-        </div>
-      </header>
-
-      <section aria-label="Hero" className="mx-auto w-full max-w-[430px] px-5 pb-8 pt-8 md:max-w-[760px] md:px-6 md:pb-12 md:pt-10">
-        <p className="font-mono text-xs font-normal uppercase tracking-[0.18em] text-[color:var(--landing-highlight)]">
-          Meet
-        </p>
-        <div className="mt-4 flex items-start justify-between gap-3 md:items-center md:gap-8">
-          <div className="min-w-0">
-            <h1 className="font-display text-5xl font-medium leading-none tracking-[-0.05em] text-[color:var(--landing-ink)] min-[380px]:text-6xl md:text-7xl">
-              AUTOPR<span className="text-[color:var(--landing-highlight)]">.</span>
-            </h1>
-            <p className="mt-3 max-w-[17rem] text-xl font-normal leading-tight text-[color:var(--landing-ink)] min-[380px]:text-2xl md:max-w-[24rem] md:text-3xl">
-              Your autonomous code companion.
-            </p>
-          </div>
-          <MobileHeroMascot />
-        </div>
-        <p className="mt-4 text-[15px] leading-6 text-[color:var(--landing-muted)] md:max-w-[38rem] md:text-base md:leading-7">
-          AutoPR reviews, refactors, and ships pull requests for you, so your team stays in flow while the busywork takes care of itself.
-        </p>
-        <div className="mt-5 grid gap-3 min-[420px]:grid-cols-2 md:max-w-[34rem]">
-          <a
-            href="/api/auth/sign-in?returnTo=%2Fdashboard"
-            className="flex h-11 items-center justify-center rounded-[var(--radius-pill)] border border-[color:var(--landing-strong-line)] bg-[color:var(--landing-button)] px-4 text-sm font-medium text-[color:var(--landing-button-fg)]"
-          >
-            Start Building
-          </a>
-          <a
-            href="#mobile-agents"
-            className="flex h-11 items-center justify-center rounded-[var(--radius-pill)] border border-[color:var(--landing-line)] bg-[color:var(--landing-panel)] px-4 text-sm font-medium text-[color:var(--landing-ink)]"
-          >
-            See Agents
-          </a>
-        </div>
-        <div className="mt-6 overflow-hidden rounded-lg border border-[color:var(--landing-line)] bg-[color:var(--landing-panel)] md:mt-8">
-          <img
-            src="/images/autopr-product-screenshot.jpg"
-            alt="AutoPR product screenshot"
-            className="h-44 w-full object-cover object-left-top min-[420px]:h-52 md:h-[360px]"
-          />
-        </div>
-      </section>
-
-      <section id="mobile-agents" className="mx-auto w-full max-w-[430px] px-5 py-10 md:max-w-[760px] md:px-6 md:py-14">
-        <p className="font-mono text-xs font-normal uppercase tracking-[0.18em] text-[color:var(--landing-highlight)]">
-          Supported workflow
-        </p>
-        <h2 className="mt-3 max-w-[18rem] font-display text-3xl font-medium leading-tight tracking-[-0.04em] text-[color:var(--landing-ink)] md:max-w-[34rem] md:text-4xl">
-          From repo to reviewed PR
-        </h2>
-        <p className="mt-4 text-[15px] leading-6 text-[color:var(--landing-muted)] md:max-w-[36rem] md:text-base md:leading-7">
-          AutoPR connects GitHub, runs Codex in a sandbox, and keeps the review flow visible before you ship.
-        </p>
-
-        <div className="mt-6 divide-y divide-[color:var(--landing-line)] rounded-lg border border-[color:var(--landing-strong-line)] bg-[color:var(--landing-muted-panel)]">
-          {featureCards.map((card, index) => {
-            const Icon = card.icon;
-
-            return (
-              <article key={card.title} className="flex gap-3 p-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-[color:var(--landing-strong-line)] bg-[color:var(--landing-accent-panel)]">
-                  <Icon className="h-5 w-5 text-[color:var(--landing-highlight)]" aria-hidden="true" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <h3 className="text-base font-normal leading-5 text-[color:var(--landing-ink)]">
-                      {card.title}
-                    </h3>
-                    <span className="shrink-0 font-mono text-xs text-[color:var(--landing-highlight)]">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-[color:var(--landing-muted)]">
-                    {card.body}
-                  </p>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section id="mobile-pricing" aria-label="Pricing" className="mx-auto h-3 w-full max-w-[430px] md:max-w-[760px]" />
-
-      <section className="overflow-hidden pb-10 pt-8 text-[color:var(--landing-console-fg)]">
-        <div
-          className="landing-gradient-spotlight mx-5 rounded-[var(--radius-xxl)] py-10 md:mx-auto md:max-w-[760px] md:py-12"
-        >
-          <div className="mx-auto w-full max-w-[430px] px-5 md:max-w-[760px] md:px-8">
-            <h2 className="font-display text-3xl font-medium leading-tight tracking-[-0.04em] min-[380px]:text-4xl">
-              Ship more. Fix less.
-            </h2>
-            <p className="mt-4 max-w-sm text-[15px] leading-6 text-[color:var(--landing-console-muted)]">
-              Connect your repo in under two minutes and meet your new autonomous teammate.
-            </p>
-            <a
-              href="/api/auth/sign-in?returnTo=%2Fdashboard"
-              className="mt-6 flex h-11 w-full max-w-56 items-center justify-center rounded-[var(--radius-pill)] border border-[color:var(--landing-console-line)] bg-[color:var(--landing-console-button)] px-4 text-sm font-medium text-[color:var(--landing-console-button-fg)]"
-            >
-              Start Building Free
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <footer className="border-t border-[color:var(--landing-line)] bg-[color:var(--landing-footer)] pb-9 pt-7 text-[color:var(--landing-ink)]">
-        <div className="mx-auto w-full max-w-[430px] px-5 md:max-w-[760px] md:px-6">
-          <MobileLogo />
-          <p className="mt-5 max-w-xs font-mono text-xs leading-5 text-[color:var(--landing-muted)]">
-            © 2026 AutoPR. Built for developers who'd rather be building.
-          </p>
-        </div>
-      </footer>
-    </main>
-  );
-}
-
-function FeatureCard({ card, index }: { card: (typeof featureCards)[number]; index: number }) {
-  const Icon = card.icon;
+function Header() {
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <article
-      className={cn(
-        "absolute flex items-start border-t border-[color:var(--landing-line)] text-[color:var(--landing-ink)]",
-        index === 0 && "border-t-0",
-      )}
-      style={{
-        ...place(card.x, card.y, 800, 90),
-        paddingTop: u(18),
-      }}
-    >
-      <div className="flex shrink-0 items-center justify-center rounded-[7px] border border-[color:var(--landing-strong-line)] bg-[color:var(--landing-accent-panel)]" style={{ width: u(42), height: u(42) }}>
-        <Icon className="text-[color:var(--landing-highlight)]" aria-hidden="true" style={{ width: u(20), height: u(20) }} />
+    <header className="landing-v2-header">
+      <div className="mx-auto w-full max-w-[1440px] px-3 pt-3 sm:px-6 lg:px-9">
+        <div className="landing-v2-header-shell">
+          <Logo />
+          <nav className="landing-v2-nav-rail hidden items-center md:flex" aria-label="Main navigation">
+            <a href="#workflow" className="landing-nav-link">How it works</a>
+            <a href="#workspace" className="landing-nav-link">Product</a>
+            <a href="#security" className="landing-nav-link">Security</a>
+          </nav>
+          <div className="hidden items-center gap-1.5 md:flex">
+            <ModeToggle className="size-8 bg-transparent text-[var(--landing-v2-muted)] hover:bg-[var(--landing-v2-active)] hover:text-[var(--landing-v2-ink)]" />
+            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
+            <a href={signInHref} className="landing-v2-sign-in">Sign in</a>
+            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
+            <a href={signInHref} className="landing-button landing-button-primary h-8 pl-3.5 pr-2.5">Start building <span className="flex size-5 items-center justify-center rounded-full bg-[var(--landing-v2-bg)] text-[var(--landing-v2-ink)]"><ArrowRight className="size-3" /></span></a>
+          </div>
+          <button type="button" className="flex size-9 items-center justify-center rounded-lg md:hidden" onClick={() => setIsOpen((open) => !open)} aria-label={isOpen ? "Close menu" : "Open menu"} aria-expanded={isOpen}>
+            {isOpen ? <X className="size-4" /> : <Menu className="size-4" />}
+          </button>
+        </div>
       </div>
-      <div style={{ marginLeft: u(22), width: u(560) }}>
-        <h3 className="font-normal" style={{ fontSize: u(23), lineHeight: u(28) }}>
-          {card.title}
-        </h3>
-        <p style={{ marginTop: u(8), fontSize: u(16), lineHeight: u(24), color: "var(--landing-muted)" }}>
-          {card.body}
-        </p>
-      </div>
-      <span className="ml-auto font-mono text-[color:var(--landing-highlight)]" style={{ paddingTop: u(4), fontSize: u(13), lineHeight: u(16) }}>
-        {String(index + 1).padStart(2, "0")}
-      </span>
-    </article>
+      {isOpen ? (
+        <div className="mx-3 mt-2 rounded-xl bg-[var(--landing-v2-bg)] px-5 py-5 shadow-xl md:hidden">
+          <nav className="flex flex-col gap-4 text-sm" aria-label="Mobile navigation">
+            <a href="#workflow" onClick={() => setIsOpen(false)}>How it works</a>
+            <a href="#workspace" onClick={() => setIsOpen(false)}>Product</a>
+            <a href="#security" onClick={() => setIsOpen(false)}>Security</a>
+            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
+            <a href={signInHref} className="landing-button landing-button-primary mt-2">Start building <ArrowRight className="size-3.5" /></a>
+          </nav>
+        </div>
+      ) : null}
+    </header>
   );
 }
 
 export function FigmaLandingPage() {
   return (
-    <div
-      id="top"
-      className="landing-page relative flex min-h-0 flex-1 justify-center overflow-x-clip overflow-y-auto"
-    >
-      <MobileLandingPage />
-      <div className="landing-figma-frame hidden lg:block">
-        <main className="landing-figma-stage">
-        <header className="absolute left-0 right-0 top-0 z-20 bg-[color:var(--landing-paper)]/70 backdrop-blur-md border-b border-[color:var(--landing-line)]/30" style={{ height: u(56) }}>
-          <AutoPrLogo x={28} y={0} scale={0.75} />
-          <nav className="absolute flex items-center gap-8" aria-label="Landing page" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)' }}>
-            <a href="/dashboard" className="font-mono font-medium text-[color:var(--landing-ink)]/60 transition-colors hover:text-[color:var(--landing-ink)]" style={{ fontSize: u(14), lineHeight: u(20) }}>Dashboard</a>
-            <a href="#agents" className="font-mono font-medium text-[color:var(--landing-ink)]/60 transition-colors hover:text-[color:var(--landing-ink)]" style={{ fontSize: u(14), lineHeight: u(20) }}>Agents</a>
-            <a href="#pricing" className="font-mono font-medium text-[color:var(--landing-ink)]/60 transition-colors hover:text-[color:var(--landing-ink)]" style={{ fontSize: u(14), lineHeight: u(20) }}>Pricing</a>
-          </nav>
-          <div className="absolute" style={{ right: u(166), top: "50%", transform: "translateY(-50%)" }}>
-            <ModeToggle
-              presentation="switch"
-              className="border-[color:var(--landing-strong-line)] bg-[color:var(--landing-panel)] text-[color:var(--landing-ink)] hover:border-[color:var(--landing-highlight)] hover:bg-[color:var(--landing-accent-panel)] hover:text-[color:var(--landing-ink)]"
-            />
-          </div>
-          <a href="/api/auth/sign-in?returnTo=%2Fdashboard" className="absolute flex items-center justify-center rounded-[var(--radius-pill)] bg-[color:var(--landing-button)] font-medium text-[color:var(--landing-button-fg)] transition-colors hover:bg-[color:var(--landing-button-hover)]" style={{ right: u(28), top: '50%', transform: 'translateY(-50%)', padding: `${u(7)} ${u(18)}`, fontSize: u(13), lineHeight: u(18) }}>Start Building</a>
-        </header>
+    <div id="top" className="landing-page landing-v2 min-h-full w-full overflow-x-clip">
+      <Header />
 
-        <section aria-label="Hero">
-          <p className="absolute font-mono font-normal uppercase text-[color:var(--landing-highlight)]" style={{ ...place(78, 165, 150), fontSize: u(22), lineHeight: "1" }}>Meet</p>
-          <img src="/images/landing/scribble-arrow.svg" alt="" aria-hidden="true" className="absolute rotate-[50.95deg] landing-muted-asset" style={place(46, 210, 55, 19)} />
-          <h1 className="absolute font-display font-medium text-[color:var(--landing-ink)]" style={{ ...place(118, 211, 520), fontSize: u(100), lineHeight: "0.85", letterSpacing: "-5px" }}>AUTOPR<span className="text-[color:var(--landing-highlight)]">.</span></h1>
-          <HeroMascot />
-          <p className="absolute font-normal text-[color:var(--landing-ink)]" style={{ ...place(99, 304, 360), fontSize: u(34), lineHeight: "1.13", letterSpacing: "-1px" }}>Your autonomous code companion.</p>
-          <p className="absolute text-[color:var(--landing-muted)]" style={{ ...place(96, 404, 633), fontSize: u(18), lineHeight: u(23.4), letterSpacing: "-0.18px" }}>AutoPR reviews, refactors, and ships pull requests for you, so your team stays in flow while the busywork takes care of itself.</p>
-          <FigmaButton href="/api/auth/sign-in?returnTo=%2Fdashboard" x={119} y={496} width={205} height={64}>Start Building</FigmaButton>
-          <FigmaButton href="#agents" x={383} y={496} width={224} height={64} variant="secondary">
-            <img src="/images/landing/watch-demo-icon.svg" alt="" aria-hidden="true" className="mr-[.45em] landing-muted-asset" style={{ width: u(20), height: u(20) }} />
-            See Agents
-          </FigmaButton>
-          <div className="absolute overflow-hidden rounded-lg border border-[color:var(--landing-line)] bg-[color:var(--landing-panel)]" style={place(756, 185, 711, 551)}>
-            <img src="/images/autopr-product-screenshot.jpg" alt="AutoPR product screenshot" className="size-full object-cover object-top" />
-          </div>
-          <div className="absolute overflow-hidden" style={place(1355, 101, 104, 85)}>
-            <img src="/images/landing/hero-peek.png" alt="" aria-hidden="true" className="absolute max-w-none landing-neutral-image" style={{ left: "-13.11%", top: "-12.28%", width: "139.5%", height: "157.55%" }} />
+      <main>
+        <section className="landing-v2-hero">
+          <div className="landing-v2-grid" aria-hidden="true" />
+          <div className="relative mx-auto w-full max-w-[1440px] px-5 pb-16 pt-16 sm:px-8 sm:pt-20 lg:px-12 lg:pb-24 lg:pt-24">
+            <div className="relative mx-auto max-w-4xl text-center">
+              <HeroMascot />
+              <h1 className="landing-hero-in-delayed text-balance font-display text-[clamp(3.1rem,8vw,7.4rem)] font-medium leading-[0.88] tracking-[-0.065em]">
+                Turn tasks into<br /><span className="landing-v2-outline-text">pull requests.</span>
+              </h1>
+              <p className="landing-hero-in-late mx-auto mt-7 max-w-2xl text-balance text-base leading-7 text-[var(--landing-v2-muted)] sm:text-lg">
+                AutoPR gives every GitHub repo an autonomous coding agent—inside a secure workspace you can guide, inspect, and ship from.
+              </p>
+              <div className="landing-hero-in-late mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <a href="#workspace" className="landing-button landing-button-quiet h-11 px-5 text-sm"><Play className="size-3.5 fill-current" /> See AutoPR work</a>
+              </div>
+              <p className="mt-4 font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--landing-v2-faint)]">Bring your Codex subscription · Isolated Daytona runtime</p>
+            </div>
+
+            <div id="workspace" className="relative mx-auto mt-14 max-w-[1180px] scroll-mt-24 sm:mt-20">
+              <div className="landing-workspace-glow" aria-hidden="true" />
+              <AgentWorkspace />
+            </div>
           </div>
         </section>
 
-        <section id="agents" className="absolute left-0 right-0 bg-[color:var(--landing-paper)]" style={{ top: u(780), height: u(520) }}>
-          <p className="absolute font-mono font-normal uppercase text-[color:var(--landing-highlight)]" style={{ ...place(96, 72, 250), fontSize: u(13), lineHeight: u(18), letterSpacing: "0.18em" }}>Supported workflow</p>
-          <h2 className="absolute font-display font-medium text-[color:var(--landing-ink)]" style={{ ...place(96, 108, 420), fontSize: u(43), lineHeight: u(46), letterSpacing: "-2.15px" }}>From repo to reviewed PR</h2>
-          <p className="absolute text-[color:var(--landing-muted)]" style={{ ...place(96, 240, 370), fontSize: u(18), lineHeight: u(23.4), letterSpacing: "-0.18px" }}>AutoPR connects GitHub, runs Codex in a sandbox, and keeps the review flow visible before you ship.</p>
-          <div className="absolute bg-[color:var(--landing-line)]" aria-hidden="true" style={place(506, 68, 1, 420)} />
-          {featureCards.map((card, index) => <FeatureCard key={card.title} card={card} index={index} />)}
-        </section>
-
-        <section id="pricing" aria-label="Pricing" className="absolute left-0 right-0 bg-[color:var(--landing-paper)]" style={{ top: u(1300), height: u(28) }} />
-
-        <section className="absolute left-0 right-0 overflow-hidden" style={{ top: u(1356), height: u(364) }}>
-          <div className="landing-gradient-spotlight absolute rounded-[var(--radius-xxl)]" style={{ left: u(96), top: u(36), width: u(1320), height: u(300) }} />
-          <div className="absolute text-[color:var(--landing-console-fg)]" style={place(112, 111, 520, 180)}>
-            <h2 className="font-display font-medium" style={{ fontSize: u(41), lineHeight: u(42), letterSpacing: "-2px" }}>Ship more. Fix less.</h2>
-            <p style={{ marginTop: u(12), width: u(420), fontSize: u(18), lineHeight: u(23.4), letterSpacing: "-0.18px", color: "var(--landing-console-muted)" }}>Connect your repo in under two minutes and meet your new autonomous teammate.</p>
-            <a href="/api/auth/sign-in?returnTo=%2Fdashboard" className="absolute flex items-center justify-center rounded-[var(--radius-pill)] border border-[color:var(--landing-console-line)] bg-[color:var(--landing-console-button)] font-medium text-[color:var(--landing-console-button-fg)]" style={{ left: 0, top: u(132), width: u(206), height: u(51), fontSize: u(16), lineHeight: u(24) }}>Start Building Free</a>
+        <section id="workflow" className="border-t border-[var(--landing-v2-line)] scroll-mt-20">
+          <div className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 lg:px-12 lg:py-28">
+            <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-24">
+              <div className="lg:sticky lg:top-28 lg:self-start">
+                <p className="landing-kicker">One continuous workflow</p>
+                <h2 className="mt-5 max-w-lg font-display text-4xl font-medium leading-[0.98] tracking-[-0.05em] sm:text-5xl lg:text-6xl">From “can we fix this?” to ready for review.</h2>
+                <p className="mt-6 max-w-md text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">No context switching between a chatbot, terminal, diff viewer, and GitHub. The whole trail stays attached to the work.</p>
+              </div>
+              <div className="border-t border-[var(--landing-v2-line)]">
+                {workflow.map((item, index) => {
+                  const Icon = item.icon;
+                  return (
+                    <article key={item.label} className="group grid gap-5 border-b border-[var(--landing-v2-line)] py-9 sm:grid-cols-[72px_1fr] sm:py-12">
+                      <div className="flex items-center gap-3 sm:block">
+                        <span className="font-mono text-[10px] text-[var(--landing-v2-faint)]">0{index + 1}</span>
+                        <span className="mt-4 hidden size-10 items-center justify-center rounded-lg border border-[var(--landing-v2-line)] bg-[var(--landing-v2-subtle)] transition-transform duration-300 group-hover:-translate-y-1 sm:flex">
+                          <Icon className="size-4 text-[var(--landing-v2-blue)]" aria-hidden="true" />
+                        </span>
+                      </div>
+                      <div>
+                        <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--landing-v2-blue)]">{item.label}</p>
+                        <h3 className="mt-3 font-display text-2xl font-medium tracking-[-0.035em] sm:text-3xl">{item.title}</h3>
+                        <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">{item.copy}</p>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-          <nav className="absolute flex font-mono text-[color:var(--landing-console-fg)]" aria-label="Footer links on dark band" style={{ ...place(730, 174, 230, 24), gap: u(36), fontSize: u(14), lineHeight: u(24) }}>
-            <a href="#top">Docs</a>
-            <a href="#agents">GitHub</a>
-            <a href="#pricing">Privacy</a>
-          </nav>
         </section>
 
-        <footer className="absolute left-0 right-0 border-t border-[color:var(--landing-line)] bg-[color:var(--landing-footer)] text-[color:var(--landing-ink)]" style={{ top: u(1730), height: u(170) }}>
-          <AutoPrLogo x={96} y={62} scale={0.78} />
-          <p className="absolute text-right font-mono" style={{ ...place(740, 75, 640), fontSize: u(13), lineHeight: u(20), color: "var(--landing-muted)" }}>© 2026 AutoPR. Built for developers who'd rather be building.</p>
-        </footer>
-        </main>
-      </div>
+        <section id="security" className="border-t border-[var(--landing-v2-line)] bg-[var(--landing-v2-ink)] text-[var(--landing-v2-bg)] scroll-mt-20">
+          <div className="mx-auto grid max-w-[1440px] gap-14 px-5 py-20 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:px-12 lg:py-28">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--landing-v2-blue)]">Built for real repositories</p>
+              <h2 className="mt-5 max-w-2xl font-display text-4xl font-medium leading-[0.98] tracking-[-0.05em] sm:text-5xl lg:text-6xl">Autonomy with an audit trail.</h2>
+              <p className="mt-6 max-w-xl text-sm leading-6 opacity-60 sm:text-base">The agent works in a disposable sandbox, shows its terminal activity, and leaves every decision attached to the thread. You decide what ships.</p>
+            </div>
+            <div className="grid content-end gap-px overflow-hidden rounded-xl border border-white/15 bg-white/15">
+              {[
+                [ShieldCheck, "Isolated execution", "Every project runs away from your local machine."],
+                [Terminal, "Visible runtime", "Follow commands and validation as they happen."],
+                [Code2, "Review-first shipping", "Inspect every changed line before opening the PR."],
+              ].map(([Icon, title, copy]) => (
+                <div key={title as string} className="grid grid-cols-[32px_1fr] gap-3 bg-[var(--landing-v2-ink)] p-5 sm:p-6">
+                  <Icon className="mt-0.5 size-4 text-[var(--landing-v2-blue)]" aria-hidden="true" />
+                  <div><h3 className="text-sm font-medium">{title as string}</h3><p className="mt-1.5 text-xs leading-5 opacity-55">{copy as string}</p></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="relative overflow-hidden border-b border-[var(--landing-v2-line)]">
+          <div className="landing-v2-grid opacity-50" aria-hidden="true" />
+          <div className="relative mx-auto flex max-w-[1440px] flex-col items-center px-5 py-24 text-center sm:px-8 lg:px-12 lg:py-32">
+            <CircleDot className="size-5 text-[var(--landing-v2-blue)]" aria-hidden="true" />
+            <h2 className="mt-7 max-w-4xl text-balance font-display text-4xl font-medium leading-[0.95] tracking-[-0.055em] sm:text-6xl lg:text-7xl">Your next pull request can start with one sentence.</h2>
+            <p className="mt-6 max-w-xl text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">Connect a repository, describe the outcome, and keep your team focused on the decisions that matter.</p>
+            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
+            <a href={signInHref} className="landing-button landing-button-primary mt-8 h-11 px-5 text-sm">Start building free <ArrowRight className="size-4" /></a>
+          </div>
+        </section>
+      </main>
+
+      <footer className="mx-auto flex max-w-[1440px] flex-col gap-7 px-5 py-9 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-12">
+        <Logo compact />
+        <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--landing-v2-faint)]">© 2026 AutoPR · Built for developers who would rather be building.</p>
+        <div className="flex items-center gap-5 text-xs text-[var(--landing-v2-muted)]"><a href="#workflow">Workflow</a><a href="#security">Security</a><a href="/dashboard">Open app</a></div>
+      </footer>
     </div>
   );
 }

@@ -204,17 +204,18 @@
 /* Landing page v2 — product-native agent workspace */
 
 .landing-v2 {
-  --landing-v2-bg: var(--framer-canvas);
-  --landing-v2-panel: var(--framer-surface-1);
-  --landing-v2-subtle: color-mix(in srgb, var(--framer-surface-1) 72%, var(--framer-canvas));
-  --landing-v2-active: var(--framer-surface-2);
-  --landing-v2-user: var(--framer-surface-2);
-  --landing-v2-ink: var(--framer-ink);
-  --landing-v2-muted: var(--framer-ink-muted);
+  --landing-v2-bg: #f5f9ff;
+  --landing-v2-panel: #ffffff;
+  --landing-v2-subtle: #edf4ff;
+  --landing-v2-active: #e4efff;
+  --landing-v2-user: #e7f0fd;
+  --landing-v2-ink: #14213a;
+  --landing-v2-muted: #61708a;
   --landing-v2-faint: color-mix(in srgb, var(--framer-ink-muted) 62%, transparent);
-  --landing-v2-line: var(--framer-hairline-soft);
-  --landing-v2-line-strong: var(--framer-hairline);
-  --landing-v2-blue: var(--framer-accent-blue);
+  --landing-v2-line: #dce7f6;
+  --landing-v2-line-strong: #c8d8ed;
+  --landing-v2-blue: #2674e8;
+  --landing-v2-blue-soft: #e5f0ff;
   background: var(--landing-v2-bg);
   color: var(--landing-v2-ink);
   scroll-behavior: smooth;
@@ -228,6 +229,7 @@
   --landing-v2-user: #242424;
   --landing-v2-line: #242424;
   --landing-v2-line-strong: #343434;
+  --landing-v2-blue-soft: #172a45;
 }
 
 .landing-v2-header {
@@ -236,8 +238,8 @@
   top: 0;
   height: 76px;
   pointer-events: none;
-  background: color-mix(in srgb, var(--landing-v2-bg) 88%, transparent);
-  backdrop-filter: blur(18px) saturate(1.2);
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .landing-v2-header-shell {
@@ -296,6 +298,15 @@
   color: var(--landing-v2-ink);
 }
 
+.landing-v2-action-cluster {
+  border: 1px solid color-mix(in srgb, var(--landing-v2-line-strong) 75%, transparent);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  background: color-mix(in srgb, var(--landing-v2-panel) 72%, transparent);
+  box-shadow: 0 8px 28px rgb(38 116 232 / 0.08);
+  backdrop-filter: blur(14px);
+}
+
 .landing-button {
   display: inline-flex;
   align-items: center;
@@ -311,13 +322,29 @@
 
 .landing-button-primary {
   border: 0;
-  background: var(--landing-v2-ink);
-  color: var(--landing-v2-bg);
+  background: linear-gradient(135deg, #1d68d7, #3688f4);
+  color: #ffffff;
+  box-shadow: 0 7px 18px rgb(38 116 232 / 0.22);
 }
 
 .landing-button-primary:hover {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--landing-v2-blue) 13%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--landing-v2-blue) 13%, transparent), 0 9px 22px rgb(38 116 232 / 0.28);
   transform: translateY(-1px);
+}
+
+.landing-button-arrow {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.18);
+  transition: transform 180ms var(--ease-ui-snappy), background-color 180ms var(--ease-ui-smooth);
+}
+
+.landing-button-primary:hover .landing-button-arrow {
+  background: rgb(255 255 255 / 0.25);
+  transform: translateX(2px);
 }
 
 .landing-button-quiet {
@@ -487,6 +514,95 @@
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--landing-v2-blue);
+}
+
+.landing-workflow-section {
+  background: linear-gradient(180deg, #f5f9ff 0%, #eef6ff 100%);
+}
+
+.dark .landing-workflow-section {
+  background: var(--landing-v2-bg);
+}
+
+.landing-workflow-chip {
+  border: 1px solid var(--landing-v2-line-strong);
+  border-radius: var(--radius-pill);
+  padding: 0.45rem 0.7rem;
+  background: color-mix(in srgb, var(--landing-v2-panel) 72%, transparent);
+}
+
+.landing-workflow-track {
+  position: relative;
+}
+
+.landing-workflow-card {
+  position: relative;
+  min-height: 285px;
+  border: 1px solid var(--landing-v2-line-strong);
+  border-radius: 18px;
+  padding: 1.4rem;
+  background: color-mix(in srgb, var(--landing-v2-panel) 90%, transparent);
+  box-shadow: 0 16px 45px rgb(69 110 164 / 0.08);
+  transition: transform 220ms var(--ease-ui-snappy), border-color 220ms var(--ease-ui-smooth), box-shadow 220ms var(--ease-ui-smooth);
+}
+
+.landing-workflow-card:hover {
+  border-color: color-mix(in srgb, var(--landing-v2-blue) 42%, var(--landing-v2-line));
+  box-shadow: 0 20px 55px rgb(38 116 232 / 0.13);
+  transform: translateY(-4px);
+}
+
+.landing-workflow-icon {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border: 1px solid var(--landing-v2-line);
+  border-radius: 14px;
+  background: var(--landing-v2-subtle);
+}
+
+.landing-security-section {
+  color: var(--landing-v2-ink);
+  background:
+    radial-gradient(circle at 12% 18%, rgb(255 255 255 / 0.92), transparent 28%),
+    linear-gradient(135deg, #e8f3ff 0%, #dcecff 52%, #edf6ff 100%);
+}
+
+.dark .landing-security-section {
+  background: linear-gradient(135deg, #111c2d, #132743);
+}
+
+.landing-security-emblem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid rgb(38 116 232 / 0.2);
+  border-radius: var(--radius-pill);
+  padding: 0.55rem 0.85rem;
+  background: rgb(255 255 255 / 0.6);
+  color: var(--landing-v2-blue);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  box-shadow: 0 8px 24px rgb(38 116 232 / 0.08);
+}
+
+.dark .landing-security-emblem {
+  background: rgb(255 255 255 / 0.06);
+}
+
+.landing-security-card {
+  border: 1px solid rgb(116 159 211 / 0.24);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.7);
+  box-shadow: 0 12px 32px rgb(68 113 170 / 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.dark .landing-security-card {
+  background: rgb(255 255 255 / 0.05);
 }
 
 @keyframes landing-workspace-in {

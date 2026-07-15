@@ -331,6 +331,85 @@
   -webkit-text-stroke: 1.25px color-mix(in srgb, var(--landing-v2-ink) 74%, transparent);
 }
 
+.landing-cta-mesh {
+  background:
+    radial-gradient(ellipse 46% 62% at 50% 52%, color-mix(in srgb, var(--landing-v2-blue) 12%, transparent), transparent 72%),
+    var(--landing-v2-bg);
+  color: var(--landing-v2-ink);
+}
+
+.landing-cta-mesh::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(to right, var(--landing-v2-bg) 0%, transparent 18%, transparent 82%, var(--landing-v2-bg) 100%),
+    linear-gradient(to bottom, var(--landing-v2-bg) 0%, transparent 24%, transparent 76%, var(--landing-v2-bg) 100%);
+  content: "";
+  pointer-events: none;
+}
+
+.dark .landing-cta-mesh {
+  background:
+    radial-gradient(ellipse 46% 62% at 50% 52%, rgb(10 84 133 / 0.22), transparent 72%),
+    linear-gradient(to bottom, var(--landing-v2-bg) 0%, #090b0d 26%, #090b0d 100%);
+}
+
+.dark .landing-cta-mesh::after {
+  background:
+    linear-gradient(to right, #090b0d 0%, transparent 18%, transparent 82%, #090b0d 100%),
+    linear-gradient(to bottom, var(--landing-v2-bg) 0%, transparent 24%, transparent 76%, #090b0d 100%);
+}
+
+.landing-cta-mesh-grid {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--landing-v2-line-strong) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--landing-v2-line-strong) 70%, transparent) 1px, transparent 1px);
+  background-position: center;
+  background-size: clamp(42px, 5.25vw, 76px) clamp(42px, 5.25vw, 76px);
+  mask-image:
+    linear-gradient(to bottom, transparent 0%, black 24%, black 82%, transparent 100%),
+    radial-gradient(ellipse 92% 105% at 50% 48%, black 38%, transparent 100%);
+  mask-composite: intersect;
+  pointer-events: none;
+}
+
+.landing-cta-outline {
+  color: transparent;
+  -webkit-text-stroke: 1.25px color-mix(in srgb, var(--landing-v2-ink) 48%, transparent);
+}
+
+.landing-cta-copy {
+  color: var(--landing-v2-muted);
+}
+
+.landing-cta-button {
+  background: var(--landing-v2-ink);
+  color: var(--landing-v2-bg);
+}
+
+.landing-cta-button:hover {
+  box-shadow: 0 0 0 4px rgb(39 156 231 / 0.18);
+  transform: translateY(-1px);
+}
+
+.dark .landing-cta-mesh-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.07) 1px, transparent 1px);
+}
+
+.dark .landing-cta-outline {
+  -webkit-text-stroke-color: rgb(247 248 250 / 0.62);
+}
+
+.dark .landing-cta-copy {
+  color: rgb(247 248 250 / 0.58);
+}
+
 .landing-v2-mascot {
   position: absolute;
   z-index: 2;
@@ -525,6 +604,170 @@
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--landing-v2-blue);
+}
+
+.landing-workflow-heading {
+  display: grid;
+  gap: 2rem;
+  align-items: end;
+}
+
+.landing-workflow-track {
+  position: relative;
+  margin-top: clamp(4rem, 8vw, 7rem);
+}
+
+.landing-workflow-lane {
+  position: absolute;
+  z-index: 2;
+  top: -0.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--landing-v2-muted);
+}
+
+.landing-workflow-lane-main {
+  left: 0;
+}
+
+.landing-workflow-lane-result {
+  right: 0;
+  color: var(--landing-v2-blue);
+}
+
+.landing-workflow-graph {
+  position: absolute;
+  top: 1.25rem;
+  left: 0;
+  width: 100%;
+  height: 112px;
+  overflow: visible;
+}
+
+.landing-workflow-mainline,
+.landing-workflow-branchline {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.landing-workflow-mainline {
+  stroke: var(--landing-v2-line-strong);
+  stroke-width: 1;
+}
+
+.landing-workflow-branchline {
+  stroke: var(--landing-v2-blue);
+  stroke-width: 1.5;
+}
+
+.landing-workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding-top: 9.4rem;
+}
+
+.landing-workflow-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 250px;
+  padding: 0 clamp(1.25rem, 3vw, 3rem);
+}
+
+.landing-workflow-stage + .landing-workflow-stage {
+  border-left: 1px solid var(--landing-v2-line);
+}
+
+.landing-workflow-node {
+  position: absolute;
+  z-index: 1;
+  top: -5.7rem;
+  left: 50%;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--landing-v2-line-strong);
+  border-radius: 50%;
+  background: var(--landing-v2-bg);
+  color: var(--landing-v2-blue);
+  transform: translateX(-50%);
+  transition: transform 180ms var(--ease-ui-snappy), background-color 180ms var(--ease-ui-smooth);
+}
+
+.landing-workflow-stage:hover .landing-workflow-node {
+  background: color-mix(in srgb, var(--landing-v2-blue) 8%, var(--landing-v2-subtle));
+  transform: translateX(-50%) translateY(-3px);
+}
+
+@media (min-width: 1024px) {
+  .landing-workflow-heading {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .landing-workflow-track {
+    margin-top: 3.5rem;
+    padding: 2.5rem 0 2.5rem 3.25rem;
+  }
+
+  .landing-workflow-track::before {
+    position: absolute;
+    top: 1.9rem;
+    bottom: 1.9rem;
+    left: 18px;
+    width: 1.5px;
+    background: var(--landing-v2-blue);
+    content: "";
+  }
+
+  .landing-workflow-graph {
+    display: none;
+  }
+
+  .landing-workflow-lane {
+    right: auto;
+    left: 0;
+  }
+
+  .landing-workflow-lane-result {
+    top: auto;
+    bottom: 0;
+  }
+
+  .landing-workflow-steps {
+    display: block;
+    padding-top: 0;
+  }
+
+  .landing-workflow-stage {
+    min-height: 0;
+    border-bottom: 1px solid var(--landing-v2-line);
+    padding: 2rem 0;
+  }
+
+  .landing-workflow-stage + .landing-workflow-stage {
+    border-left: 0;
+  }
+
+  .landing-workflow-stage:last-child {
+    border-bottom: 0;
+  }
+
+  .landing-workflow-node {
+    top: 2rem;
+    left: -3.25rem;
+    transform: none;
+  }
+
+  .landing-workflow-stage:hover .landing-workflow-node {
+    transform: translateY(-3px);
+  }
 }
 
 @keyframes landing-workspace-in {

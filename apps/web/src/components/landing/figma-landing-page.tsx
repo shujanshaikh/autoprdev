@@ -4,8 +4,6 @@ import {
   ArrowRight,
   ArrowUp,
   ChevronDown,
-  CircleDot,
-  Code2,
   GitBranch,
   Github,
   Image,
@@ -17,8 +15,6 @@ import {
   Plus,
   Search,
   Settings,
-  ShieldCheck,
-  Terminal,
   Trash2,
 } from "lucide-react";
 
@@ -48,7 +44,7 @@ const workflow = [
   },
 ] as const;
 
-function Logo({ compact = false }: { compact?: boolean }) {
+function Logo() {
   return (
     <a href="#top" className="flex items-center gap-2.5" aria-label="AutoPR home">
       <span className="flex size-7 items-center justify-center rounded-[7px] bg-[var(--landing-v2-ink)]">
@@ -59,7 +55,7 @@ function Logo({ compact = false }: { compact?: boolean }) {
           className="size-5 object-contain invert dark:invert-0"
         />
       </span>
-      <span className={cn("font-display font-semibold tracking-[-0.045em]", compact ? "text-base" : "text-lg")}>
+      <span className="font-display text-lg font-semibold tracking-[-0.045em]">
         AutoPR
       </span>
     </a>
@@ -226,29 +222,33 @@ export function FigmaLandingPage() {
         </section>
 
         <section id="workflow" className="border-t border-[var(--landing-v2-line)] scroll-mt-20">
-          <div className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 lg:px-12 lg:py-28">
-            <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-24">
-              <div className="lg:sticky lg:top-28 lg:self-start">
+          <div className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
+            <div className="landing-workflow-heading">
+              <div>
                 <p className="landing-kicker">One continuous workflow</p>
-                <h2 className="mt-5 max-w-lg font-display text-4xl font-medium leading-[0.98] tracking-[-0.05em] sm:text-5xl lg:text-6xl">From “can we fix this?” to ready for review.</h2>
-                <p className="mt-6 max-w-md text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">No context switching between a chatbot, terminal, diff viewer, and GitHub. The whole trail stays attached to the work.</p>
+                <h2 className="mt-5 max-w-3xl font-display text-4xl font-medium leading-[0.96] tracking-[-0.05em] sm:text-5xl lg:text-6xl">From “can we fix this?” to ready for review.</h2>
               </div>
-              <div className="border-t border-[var(--landing-v2-line)]">
+              <p className="max-w-md text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">Start with a repo and one sentence. The branch, agent context, diff, and pull request stay on the same trail.</p>
+            </div>
+
+            <div className="landing-workflow-track">
+              <div className="landing-workflow-lane landing-workflow-lane-main"><GitBranch className="size-3.5" aria-hidden="true" /> main</div>
+              <div className="landing-workflow-lane landing-workflow-lane-result"><span className="size-1.5 rounded-full bg-[var(--landing-v2-blue)]" /> pull request ready</div>
+              <svg className="landing-workflow-graph" viewBox="0 0 1200 112" preserveAspectRatio="none" aria-hidden="true">
+                <path className="landing-workflow-mainline" d="M0 24 H1200" />
+                <path className="landing-workflow-branchline" d="M72 24 C132 24 132 88 200 88 H1000 C1068 88 1068 24 1128 24" />
+              </svg>
+
+              <div className="landing-workflow-steps">
                 {workflow.map((item, index) => {
                   const Icon = item.icon;
                   return (
-                    <article key={item.label} className="group grid gap-5 border-b border-[var(--landing-v2-line)] py-9 sm:grid-cols-[72px_1fr] sm:py-12">
-                      <div className="flex items-center gap-3 sm:block">
-                        <span className="font-mono text-[10px] text-[var(--landing-v2-faint)]">0{index + 1}</span>
-                        <span className="mt-4 hidden size-10 items-center justify-center rounded-lg border border-[var(--landing-v2-line)] bg-[var(--landing-v2-subtle)] transition-transform duration-300 group-hover:-translate-y-1 sm:flex">
-                          <Icon className="size-4 text-[var(--landing-v2-blue)]" aria-hidden="true" />
-                        </span>
-                      </div>
-                      <div>
-                        <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--landing-v2-blue)]">{item.label}</p>
-                        <h3 className="mt-3 font-display text-2xl font-medium tracking-[-0.035em] sm:text-3xl">{item.title}</h3>
-                        <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">{item.copy}</p>
-                      </div>
+                    <article key={item.label} className="landing-workflow-stage group">
+                      <span className="landing-workflow-node"><Icon className="size-4" aria-hidden="true" /></span>
+                      <p className="font-mono text-[9px] text-[var(--landing-v2-faint)]">0{index + 1}</p>
+                      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--landing-v2-blue)]">{item.label}</p>
+                      <h3 className="mt-3 max-w-sm font-display text-2xl font-medium leading-tight tracking-[-0.035em]">{item.title}</h3>
+                      <p className="mt-3 max-w-sm text-sm leading-6 text-[var(--landing-v2-muted)]">{item.copy}</p>
                     </article>
                   );
                 })}
@@ -257,45 +257,20 @@ export function FigmaLandingPage() {
           </div>
         </section>
 
-        <section id="security" className="border-t border-[var(--landing-v2-line)] bg-[var(--landing-v2-ink)] text-[var(--landing-v2-bg)] scroll-mt-20">
-          <div className="mx-auto grid max-w-[1440px] gap-14 px-5 py-20 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:px-12 lg:py-28">
-            <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--landing-v2-blue)]">Built for real repositories</p>
-              <h2 className="mt-5 max-w-2xl font-display text-4xl font-medium leading-[0.98] tracking-[-0.05em] sm:text-5xl lg:text-6xl">Autonomy with an audit trail.</h2>
-              <p className="mt-6 max-w-xl text-sm leading-6 opacity-60 sm:text-base">The agent works in a disposable sandbox, shows its terminal activity, and leaves every decision attached to the thread. You decide what ships.</p>
-            </div>
-            <div className="grid content-end gap-px overflow-hidden rounded-xl border border-white/15 bg-white/15">
-              {[
-                [ShieldCheck, "Isolated execution", "Every project runs away from your local machine."],
-                [Terminal, "Visible runtime", "Follow commands and validation as they happen."],
-                [Code2, "Review-first shipping", "Inspect every changed line before opening the PR."],
-              ].map(([Icon, title, copy]) => (
-                <div key={title as string} className="grid grid-cols-[32px_1fr] gap-3 bg-[var(--landing-v2-ink)] p-5 sm:p-6">
-                  <Icon className="mt-0.5 size-4 text-[var(--landing-v2-blue)]" aria-hidden="true" />
-                  <div><h3 className="text-sm font-medium">{title as string}</h3><p className="mt-1.5 text-xs leading-5 opacity-55">{copy as string}</p></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="relative overflow-hidden border-b border-[var(--landing-v2-line)]">
-          <div className="landing-v2-grid opacity-50" aria-hidden="true" />
-          <div className="relative mx-auto flex max-w-[1440px] flex-col items-center px-5 py-24 text-center sm:px-8 lg:px-12 lg:py-32">
-            <CircleDot className="size-5 text-[var(--landing-v2-blue)]" aria-hidden="true" />
-            <h2 className="mt-7 max-w-4xl text-balance font-display text-4xl font-medium leading-[0.95] tracking-[-0.055em] sm:text-6xl lg:text-7xl">Your next pull request can start with one sentence.</h2>
-            <p className="mt-6 max-w-xl text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">Connect a repository, describe the outcome, and keep your team focused on the decisions that matter.</p>
+        <section className="landing-cta-mesh relative isolate overflow-hidden border-b border-[var(--landing-v2-line)]">
+          <div className="landing-cta-mesh-grid" aria-hidden="true" />
+          <div className="relative z-10 mx-auto flex max-w-[1440px] flex-col items-center px-5 py-24 text-center sm:px-8 sm:py-28 lg:px-12 lg:py-36">
+            <h2 className="max-w-5xl text-balance font-display text-[clamp(2.7rem,7vw,6.75rem)] font-medium leading-[0.88] tracking-[-0.065em]">
+              Your next pull request<br />
+              <span className="landing-cta-outline">can start with one sentence.</span>
+            </h2>
+            <p className="landing-cta-copy mt-7 max-w-xl text-sm leading-6 sm:text-base">Connect a repository, describe the outcome, and keep your team focused on the decisions that matter.</p>
             {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-button landing-button-primary mt-8 h-11 px-5 text-sm">Start building free <ArrowRight className="size-4" /></a>
+            <a href={signInHref} className="landing-button landing-cta-button mt-9 h-11 px-5 text-sm">Start building free <ArrowRight className="size-4" /></a>
           </div>
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-[1440px] flex-col gap-7 px-5 py-9 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-12">
-        <Logo compact />
-        <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--landing-v2-faint)]">© 2026 AutoPR · Built for developers who would rather be building.</p>
-        <div className="flex items-center gap-5 text-xs text-[var(--landing-v2-muted)]"><a href="#workflow">Workflow</a><a href="#security">Security</a><a href="/dashboard">Open app</a></div>
-      </footer>
     </div>
   );
 }

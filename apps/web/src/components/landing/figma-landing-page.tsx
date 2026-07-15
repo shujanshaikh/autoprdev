@@ -1,5 +1,6 @@
 import { cn } from "@autopr/ui/lib/utils";
 import {
+  ArrowDown,
   ArrowRight,
   ArrowUp,
   ChevronDown,
@@ -8,22 +9,18 @@ import {
   GitBranch,
   Github,
   Image,
-  Menu,
   MessageSquareText,
   Moon,
   MoreHorizontal,
   PanelLeft,
   Pencil,
-  Play,
   Plus,
   Search,
   Settings,
   ShieldCheck,
   Terminal,
   Trash2,
-  X,
 } from "lucide-react";
-import { useState } from "react";
 
 import { CodexLogo } from "#/components/icons/codex-logo";
 import { ModeToggle } from "#/components/mode-toggle";
@@ -88,16 +85,16 @@ function AgentWorkspace() {
           <PanelLeft className="size-3.5 text-[var(--landing-v2-muted)]" aria-hidden="true" />
           <span className="font-display text-[11px] font-semibold tracking-[-0.03em]">AUTOPR</span>
         </div>
-        <button type="button" className="landing-chat-commit">⌘ Commit <ChevronDown className="size-3" /></button>
+        <button type="button" className="landing-chat-commit"><GitBranch className="size-3" /> Commit <ChevronDown className="size-3" /></button>
       </div>
 
-      <div className="grid min-h-[620px] grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)]">
+      <div className="grid min-h-[650px] grid-cols-1 md:grid-cols-[232px_minmax(0,1fr)] lg:grid-cols-[264px_minmax(0,1fr)]">
         <aside className="landing-chat-sidebar hidden md:flex">
-          <div className="space-y-1 px-3 pb-3 pt-4">
-            <div className="flex h-8 items-center gap-2 px-2 text-[11px] text-[var(--landing-v2-muted)]">
+          <div className="shrink-0 space-y-1 px-3 pb-3 pt-4">
+            <div className="landing-chat-sidebar-action text-[var(--landing-v2-muted)]">
               <Search className="size-3.5" aria-hidden="true" /><span>Search threads</span><kbd className="ml-auto rounded bg-[var(--landing-v2-active)] px-1.5 py-0.5 font-mono text-[8px] opacity-60">⌘K</kbd>
             </div>
-            <div className="flex h-8 items-center gap-2 px-2 text-[11px] font-medium">
+            <div className="landing-chat-sidebar-action font-medium">
               <Pencil className="size-3.5 text-[var(--landing-v2-muted)]" aria-hidden="true" /><span>New thread</span><span className="ml-auto font-mono text-[8px] uppercase text-[var(--landing-v2-faint)]">AutoPR</span>
             </div>
           </div>
@@ -108,10 +105,10 @@ function AgentWorkspace() {
             <div className="grid size-8 shrink-0 place-items-center rounded border border-dashed border-[var(--landing-v2-line-strong)] text-[var(--landing-v2-muted)]"><Plus className="size-3" /></div>
           </div>
 
-          <div className="flex h-10 items-center px-3 font-mono text-[8px] uppercase tracking-[0.15em] text-[var(--landing-v2-faint)]">
+          <div className="flex h-10 shrink-0 items-center px-3 font-mono text-[8px] uppercase tracking-[0.15em] text-[var(--landing-v2-faint)]">
             AutoPR threads <span className="ml-auto tabular-nums">12</span><Trash2 className="ml-2 size-3" />
           </div>
-          <div className="min-h-0 flex-1 space-y-1 overflow-hidden px-2">
+          <div className="min-h-0 flex-1 space-y-1 overflow-hidden px-2 pt-1">
             {[
               ["Improve landing page hierarchy", "now", true],
               ["Review authentication flow", "1d", false],
@@ -121,18 +118,27 @@ function AgentWorkspace() {
               ["Refactor project settings", "5d", false],
             ].map(([title, age, active]) => (
               <div key={title as string} className={cn("landing-chat-thread", active && "is-active")}>
-                <div className="flex items-start gap-2"><span className="line-clamp-2 flex-1">{title as string}</span><span className="font-mono text-[8px] text-[var(--landing-v2-faint)]">{age as string}</span></div>
-                <div className="mt-2 flex items-center gap-1 font-mono text-[8px] text-[var(--landing-v2-faint)]"><GitBranch className="size-2.5" />main</div>
+                <span className="landing-chat-thread-title">{title as string}</span>
+                <div className="landing-chat-thread-meta">
+                  <span className="flex min-w-0 items-center gap-1"><GitBranch className="size-2.5 shrink-0" /><span className="truncate">main</span></span>
+                  {active ? (
+                    <span className="flex shrink-0 items-center gap-1 text-[var(--landing-v2-blue)]">
+                      <span className="size-1.5 rounded-full bg-current" /> Live
+                    </span>
+                  ) : (
+                    <span className="shrink-0">{age as string}</span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-          <div className="flex h-12 items-center border-t border-[var(--landing-v2-line)] px-3 text-[10px] text-[var(--landing-v2-muted)]">
+          <div className="flex h-12 shrink-0 items-center border-t border-[var(--landing-v2-line)] px-3 text-[10px] text-[var(--landing-v2-muted)]">
             <Settings className="mr-2 size-3.5" />Settings<Moon className="ml-auto size-3.5" /><span className="ml-3 size-5 rounded-full bg-gradient-to-br from-amber-200 via-orange-400 to-violet-700" />
           </div>
         </aside>
 
         <div className="relative flex min-w-0 flex-col bg-[var(--landing-v2-panel)]">
-          <div className="landing-chat-conversation mx-auto w-full max-w-[650px] flex-1 px-5 pb-32 pt-6 sm:px-8 sm:pt-8">
+          <div className="landing-chat-conversation mx-auto w-full max-w-[700px] flex-1 px-5 pb-40 pt-7 sm:px-9 sm:pt-10">
             <div className="ml-auto w-fit max-w-[80%] rounded-full bg-[var(--landing-v2-user)] px-4 py-2.5 text-[11px]">Make the landing page feel like the actual product.</div>
 
             <div className="mt-12 text-[11px] leading-[1.65]">
@@ -153,10 +159,11 @@ function AgentWorkspace() {
             </div>
           </div>
 
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[var(--landing-v2-panel)] via-[var(--landing-v2-panel)] to-transparent px-4 pb-4 pt-12 sm:px-8">
-            <div className="landing-chat-composer mx-auto max-w-[650px]">
-              <p className="px-3 pb-6 pt-2 text-[10px] text-[var(--landing-v2-faint)]">Add a follow up…</p>
-              <div className="flex items-center gap-2 px-2 pb-2">
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[var(--landing-v2-panel)] via-[var(--landing-v2-panel)] to-transparent px-4 pb-5 pt-16 sm:px-8">
+            <button type="button" className="landing-chat-scroll-latest" aria-label="Scroll to latest message"><ArrowDown className="size-3" /></button>
+            <div className="landing-chat-composer mx-auto max-w-[700px]">
+              <p className="px-3.5 pb-7 pt-3 text-[10px] text-[var(--landing-v2-faint)]">Add a follow up…</p>
+              <div className="flex items-center gap-2 px-2.5 pb-2.5">
                 <CodexLogo className="size-3.5 text-[var(--landing-v2-muted)]" />
                 <span className="text-[9px] font-medium">GPT-5.6</span><ChevronDown className="size-3 text-[var(--landing-v2-muted)]" />
                 <button type="button" className="grid size-6 place-items-center rounded-full bg-[var(--landing-v2-active)]" aria-label="More options"><MoreHorizontal className="size-3" /></button>
@@ -173,41 +180,20 @@ function AgentWorkspace() {
 }
 
 function Header() {
-  const [isOpen, setIsOpen] = useState(false);
-
   return (
     <header className="landing-v2-header">
       <div className="mx-auto w-full max-w-[1440px] px-3 pt-3 sm:px-6 lg:px-9">
         <div className="landing-v2-header-shell">
           <Logo />
-          <nav className="landing-v2-nav-rail hidden items-center md:flex" aria-label="Main navigation">
-            <a href="#workflow" className="landing-nav-link">How it works</a>
-            <a href="#workspace" className="landing-nav-link">Product</a>
-            <a href="#security" className="landing-nav-link">Security</a>
-          </nav>
-          <div className="hidden items-center gap-1.5 md:flex">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <ModeToggle className="size-8 bg-transparent text-[var(--landing-v2-muted)] hover:bg-[var(--landing-v2-active)] hover:text-[var(--landing-v2-ink)]" />
             {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-v2-sign-in">Sign in</a>
+            <a href={signInHref} className="landing-v2-sign-in hidden sm:inline-flex">Sign in</a>
             {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-button landing-button-primary h-8 pl-3.5 pr-2.5">Start building <span className="flex size-5 items-center justify-center rounded-full bg-[var(--landing-v2-bg)] text-[var(--landing-v2-ink)]"><ArrowRight className="size-3" /></span></a>
+            <a href={signInHref} className="landing-button landing-button-primary h-8 pl-3.5 pr-2.5"><span className="hidden sm:inline">Start building</span><span className="sm:hidden">Start</span><span className="flex size-5 items-center justify-center rounded-full bg-[var(--landing-v2-bg)] text-[var(--landing-v2-ink)]"><ArrowRight className="size-3" /></span></a>
           </div>
-          <button type="button" className="flex size-9 items-center justify-center rounded-lg md:hidden" onClick={() => setIsOpen((open) => !open)} aria-label={isOpen ? "Close menu" : "Open menu"} aria-expanded={isOpen}>
-            {isOpen ? <X className="size-4" /> : <Menu className="size-4" />}
-          </button>
         </div>
       </div>
-      {isOpen ? (
-        <div className="mx-3 mt-2 rounded-xl bg-[var(--landing-v2-bg)] px-5 py-5 shadow-xl md:hidden">
-          <nav className="flex flex-col gap-4 text-sm" aria-label="Mobile navigation">
-            <a href="#workflow" onClick={() => setIsOpen(false)}>How it works</a>
-            <a href="#workspace" onClick={() => setIsOpen(false)}>Product</a>
-            <a href="#security" onClick={() => setIsOpen(false)}>Security</a>
-            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-button landing-button-primary mt-2">Start building <ArrowRight className="size-3.5" /></a>
-          </nav>
-        </div>
-      ) : null}
     </header>
   );
 }
@@ -220,7 +206,7 @@ export function FigmaLandingPage() {
       <main>
         <section className="landing-v2-hero">
           <div className="landing-v2-grid" aria-hidden="true" />
-          <div className="relative mx-auto w-full max-w-[1440px] px-5 pb-16 pt-16 sm:px-8 sm:pt-20 lg:px-12 lg:pb-24 lg:pt-24">
+          <div className="relative mx-auto w-full max-w-[1440px] px-5 pb-16 pt-32 sm:px-8 sm:pt-36 lg:px-12 lg:pb-24 lg:pt-40">
             <div className="relative mx-auto max-w-4xl text-center">
               <HeroMascot />
               <h1 className="landing-hero-in-delayed text-balance font-display text-[clamp(3.1rem,8vw,7.4rem)] font-medium leading-[0.88] tracking-[-0.065em]">
@@ -229,9 +215,6 @@ export function FigmaLandingPage() {
               <p className="landing-hero-in-late mx-auto mt-7 max-w-2xl text-balance text-base leading-7 text-[var(--landing-v2-muted)] sm:text-lg">
                 AutoPR gives every GitHub repo an autonomous coding agent—inside a secure workspace you can guide, inspect, and ship from.
               </p>
-              <div className="landing-hero-in-late mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <a href="#workspace" className="landing-button landing-button-quiet h-11 px-5 text-sm"><Play className="size-3.5 fill-current" /> See AutoPR work</a>
-              </div>
               <p className="mt-4 font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--landing-v2-faint)]">Bring your Codex subscription · Isolated Daytona runtime</p>
             </div>
 

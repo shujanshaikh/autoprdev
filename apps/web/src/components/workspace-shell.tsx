@@ -12,22 +12,16 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSkeleton,
   SidebarProvider,
   SidebarTrigger,
 } from "@autopr/ui/components/sidebar";
 import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import {
-  Folder,
   GitBranch,
   Loader2,
   Pencil,
@@ -70,7 +64,6 @@ import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import { ModeToggle } from "#/components/mode-toggle";
 import {
   readJson,
-  statusStyles,
   type GithubBranch,
   type GithubRepository,
   type SandboxRuntimeStatus,
@@ -316,50 +309,6 @@ function WorkspaceCreateSandboxDialog({
   );
 }
 
-function ProjectSummaryRow({ project }: { project: WorkspaceProject }) {
-  const { owner, name } = projectParts(project.repoFullName);
-  const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch ?? "main";
-  const styles = statusStyles(project.sandboxStatus);
-
-  return (
-    <Link
-      to="/project/$projectId"
-      params={{ projectId: project.projectId }}
-      className="group grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-3 py-2 transition last:border-b-0 hover:bg-muted/45 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_7rem]"
-    >
-      <div className="min-w-0">
-        <p className="truncate text-[13px]">
-          {owner ? (
-            <>
-              <span className="text-muted-foreground">{owner}</span>
-              <span className="text-muted-foreground/45">/</span>
-            </>
-          ) : null}
-          <span className="font-medium text-foreground group-hover:underline group-hover:underline-offset-4">
-            {name}
-          </span>
-        </p>
-        <p className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60 sm:hidden">
-          {branch}
-        </p>
-      </div>
-      <div className="hidden min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground sm:flex">
-        <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-        <span className="truncate">{branch}</span>
-      </div>
-      <div className="flex items-center justify-end gap-2">
-        <span className={cn("font-mono text-[10px] uppercase tracking-[0.16em]", styles.label)}>
-          {project.sandboxStatus}
-        </span>
-        <span className="hidden font-mono text-[10px] tabular-nums text-muted-foreground/55 sm:inline">
-          {formatAge(project.lastOpenedAt ?? project.updatedAt)}
-        </span>
-      </div>
-    </Link>
-  );
-}
-
-
 function WorkspaceSidebar({
   projects,
   activeProjectId,
@@ -383,22 +332,15 @@ function WorkspaceSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<WorkspaceThread | undefined>();
-  const [expandedProjectId, setExpandedProjectId] = useState<string | undefined>(activeProjectId);
-  const [showAllThreadsProjectIds, setShowAllThreadsProjectIds] = useState<Set<string>>(() => new Set());
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const activeProjectTabRef = useRef<HTMLAnchorElement>(null);
   const normalizedSearch = searchQuery.trim().toLowerCase();
-  const expandedProjectThreads = useQuery(
-    api.threads.listByProject,
-    expandedProjectId && expandedProjectId !== activeProjectId
-      ? { projectId: expandedProjectId }
-      : "skip",
-  );
-
-  useEffect(() => {
-    if (activeProjectId) {
-      setExpandedProjectId(activeProjectId);
-    }
-  }, [activeProjectId]);
+  const activeProject = projects?.find((project) => project.projectId === activeProjectId);
+  const activeProjectName = activeProject ? projectParts(activeProject.repoFullName).name : undefined;
+  const activeBranch = activeProject?.currentBranch
+    ?? activeProject?.repoBranch
+    ?? activeProject?.defaultBranch
+    ?? "main";
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -413,49 +355,22 @@ function WorkspaceSidebar({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const filteredProjects = useMemo(() => {
-    if (!projects) return undefined;
-    if (!normalizedSearch) return projects;
-    return projects.filter((project) => {
-      if (project.projectId === activeProjectId) return true;
-      return project.repoFullName.toLowerCase().includes(normalizedSearch);
-    });
-  }, [activeProjectId, normalizedSearch, projects]);
+  useEffect(() => {
+    activeProjectTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeProjectId]);
 
-  const SIDEBAR_MAX_THREADS = 6;
-
-  const getSidebarThreads = useCallback((projectId: string, sourceThreads: WorkspaceThread[] | undefined) => {
-    if (!sourceThreads) return { visibleThreads: undefined, hiddenThreadCount: 0 };
-    const threads = normalizedSearch
-      ? sourceThreads.filter((thread) =>
+  const visibleThreads = useMemo(() => {
+    if (!activeProjectThreads) return undefined;
+    return normalizedSearch
+      ? activeProjectThreads.filter((thread) =>
         `${thread.title ?? ""} ${thread.threadId}`.toLowerCase().includes(normalizedSearch),
       )
-      : sourceThreads;
-    const hiddenThreadCount = Math.max(threads.length - SIDEBAR_MAX_THREADS, 0);
-    const visibleThreads = showAllThreadsProjectIds.has(projectId)
-      ? threads
-      : threads.slice(0, SIDEBAR_MAX_THREADS);
+      : activeProjectThreads;
+  }, [activeProjectThreads, normalizedSearch]);
 
-    return { visibleThreads, hiddenThreadCount };
-  }, [normalizedSearch, showAllThreadsProjectIds]);
-
-  function toggleProjectThreads(projectId: string) {
-    setShowAllThreadsProjectIds((current) => {
-      const next = new Set(current);
-      if (next.has(projectId)) {
-        next.delete(projectId);
-      } else {
-        next.add(projectId);
-      }
-      return next;
-    });
-  }
-
-  function handleProjectNewChat(event: MouseEvent<HTMLButtonElement>, projectId: string) {
-    event.preventDefault();
-    event.stopPropagation();
-    setExpandedProjectId(projectId);
-    navigate({ to: "/project/$projectId", params: { projectId } });
+  function openNewThread() {
+    if (!activeProjectId) return;
+    navigate({ to: "/project/$projectId", params: { projectId: activeProjectId } });
   }
 
   function handleDeleteThread(event: MouseEvent<HTMLButtonElement>, thread: WorkspaceThread) {
@@ -484,34 +399,42 @@ function WorkspaceSidebar({
   return (
     <>
       <Sidebar collapsible="icon" variant="sidebar">
-        <SidebarHeader className="h-12 shrink-0 justify-center gap-0 border-b border-sidebar-border px-2.5 py-0">
+        <SidebarHeader className="h-12 shrink-0 justify-center gap-0 border-b border-sidebar-border/80 px-3 py-0">
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="text-sidebar-foreground/70 hover:text-sidebar-foreground" />
-            <span className="min-w-0 truncate font-display text-[14px] font-normal leading-none text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+            <span className="min-w-0 truncate font-display text-[13px] font-medium tracking-[-0.02em] text-sidebar-foreground group-data-[collapsible=icon]:hidden">
               AUTOPR
             </span>
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="minimal-scrollbar">
-          <SidebarGroup className="min-h-0 flex-1 px-2 py-2">
-            <div className="mb-2 px-2 group-data-[collapsible=icon]:hidden">
-              <button
-                type="button"
-                onClick={onCreateProject}
-                className="inline-flex h-9 w-full items-center gap-2 rounded-xs border border-sidebar-border bg-[color:var(--project-panel)] px-2 text-left type-button text-sidebar-foreground/75 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
-              >
-                <Plus className="size-4 text-sidebar-foreground/50" aria-hidden="true" />
-                <span className="truncate">New project</span>
-              </button>
-            </div>
+        <SidebarContent className="min-h-0 overflow-hidden group-data-[collapsible=icon]:items-center">
+          <div className="hidden flex-col items-center gap-2 py-3 group-data-[collapsible=icon]:flex">
+            <button
+              type="button"
+              onClick={openNewThread}
+              disabled={!activeProjectId}
+              aria-label="New thread"
+              title="New thread"
+              className="inline-flex size-8 items-center justify-center rounded-sm text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:opacity-30"
+            >
+              <Pencil className="size-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={onCreateProject}
+              aria-label="Add project"
+              title="Add project"
+              className="inline-flex size-8 items-center justify-center rounded-sm text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+            </button>
+          </div>
 
-            <div className="mb-3 px-2 group-data-[collapsible=icon]:hidden">
-              <div className="relative flex h-8 items-center rounded-xs border border-sidebar-border bg-[color:var(--project-panel)] transition focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/30">
-                <Search
-                  className="pointer-events-none absolute left-2 size-3.5 text-sidebar-foreground/40"
-                  aria-hidden="true"
-                />
+          <div className="flex min-h-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
+            <div className="shrink-0 space-y-1.5 px-3 pt-3 pb-2">
+              <div className="relative flex h-9 items-center rounded-[6px] transition focus-within:bg-sidebar-accent focus-within:ring-1 focus-within:ring-sidebar-ring/40">
+                <Search className="pointer-events-none absolute left-2.5 size-4 text-sidebar-foreground/45" aria-hidden="true" />
                 <input
                   ref={searchInputRef}
                   type="search"
@@ -523,9 +446,9 @@ function WorkspaceSidebar({
                       event.currentTarget.blur();
                     }
                   }}
-                  placeholder="search projects…"
-                  aria-label="Search projects"
-                  className="h-full min-w-0 flex-1 bg-transparent pr-8 pl-8 text-[12px] text-sidebar-foreground outline-none placeholder:text-sidebar-foreground/40"
+                  placeholder="Search threads"
+                  aria-label="Search threads in active project"
+                  className="h-full min-w-0 flex-1 bg-transparent pr-14 pl-9 text-[13px] text-sidebar-foreground outline-none placeholder:text-sidebar-foreground/45"
                 />
                 {searchQuery ? (
                   <button
@@ -535,175 +458,191 @@ function WorkspaceSidebar({
                       searchInputRef.current?.focus();
                     }}
                     aria-label="Clear search"
-                    className="absolute right-2 inline-flex size-4 items-center justify-center text-sidebar-foreground/35 transition hover:text-sidebar-foreground/70"
+                    className="absolute right-2 inline-flex size-5 items-center justify-center rounded-[4px] text-sidebar-foreground/35 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   >
                     <X className="size-3" aria-hidden="true" />
                   </button>
-                ) : null}
+                ) : (
+                  <kbd className="pointer-events-none absolute right-2 rounded-[4px] bg-sidebar-accent px-1.5 py-0.5 font-mono text-[9px] text-sidebar-foreground/40">
+                    ⌘K
+                  </kbd>
+                )}
               </div>
+
+              <button
+                type="button"
+                onClick={openNewThread}
+                disabled={!activeProjectId}
+                className="flex h-9 w-full items-center gap-2.5 rounded-[6px] px-2.5 text-left text-[13px] font-medium text-sidebar-foreground/75 transition hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring/50 disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <Pencil className="size-4 text-sidebar-foreground/45" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">New thread</span>
+                {activeProjectName ? (
+                  <span className="max-w-24 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-sidebar-foreground/30">
+                    {activeProjectName}
+                  </span>
+                ) : null}
+              </button>
             </div>
 
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-0">
-                {filteredProjects === undefined ? (
-                  <>
-                    <SidebarMenuSkeleton showIcon />
-                    <SidebarMenuSkeleton showIcon />
-                    <SidebarMenuSkeleton showIcon />
-                  </>
-                ) : filteredProjects.length === 0 ? (
-                  <div className="px-2 py-6 text-center group-data-[collapsible=icon]:hidden">
-                    <p className="text-[12px] text-sidebar-foreground/45">No projects</p>
-                    <button
-                      type="button"
-                      onClick={onCreateProject}
-                      className="mt-3 inline-flex h-8 items-center gap-2 rounded-[var(--radius-pill)] border border-sidebar-border px-3 type-button text-sidebar-foreground/70 transition hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
-                    >
-                      <Plus className="size-3.5" aria-hidden="true" />
-                      Create project
-                    </button>
-                  </div>
+            <div className="flex shrink-0 items-stretch border-y border-sidebar-border/80 bg-sidebar-accent/25 p-2 pr-1.5">
+              <div
+                role="tablist"
+                aria-label="Projects"
+                className="workspace-project-rail flex min-w-0 flex-1 gap-1.5 overflow-x-auto overscroll-x-contain pb-1"
+              >
+                {projects === undefined ? (
+                  <div className="h-9 w-32 shrink-0 animate-pulse rounded-[5px] bg-sidebar-accent" />
+                ) : projects.length === 0 ? (
+                  <p className="flex h-9 items-center px-2 text-[11px] text-sidebar-foreground/40">No projects yet</p>
                 ) : (
-                  filteredProjects.map((project) => {
-                    const active = project.projectId === activeProjectId;
-                    const expanded = project.projectId === expandedProjectId;
-                    const projectThreads =
-                      active ? activeProjectThreads : expanded ? expandedProjectThreads : undefined;
-                    const { visibleThreads, hiddenThreadCount } = getSidebarThreads(project.projectId, projectThreads);
-                    const showingAllThreads = showAllThreadsProjectIds.has(project.projectId);
+                  projects.map((project, index) => {
                     const { name } = projectParts(project.repoFullName);
-                    return (
-                      <SidebarMenuItem key={project.projectId} className="mb-1">
-                        {/* ── Folder row ── */}
-                        <SidebarMenuButton
-                          render={<Link to="/project/$projectId" params={{ projectId: project.projectId }} />}
-                          tooltip={project.repoFullName}
-                          onClick={() => setExpandedProjectId(project.projectId)}
-                          className={cn(
-                            "group/project h-8 items-center gap-2 px-2 py-1 pr-12",
-                            active
-                              ? "bg-transparent text-sidebar-foreground hover:bg-transparent"
-                              : "text-sidebar-foreground/55 hover:text-sidebar-foreground",
-                          )}
-                        >
-                          <Folder
-                            className={cn(
-                              "size-[15px] shrink-0",
-                              active ? "text-sidebar-foreground/70" : "text-sidebar-foreground/35",
-                            )}
-                            aria-hidden="true"
-                          />
-                          <span className={cn(
-                            "min-w-0 flex-1 truncate text-[13px] leading-none group-data-[collapsible=icon]:hidden",
-                            active ? "font-medium text-sidebar-foreground" : "font-medium",
-                          )}>
-                            {name}
-                          </span>
-                        </SidebarMenuButton>
-                        <SidebarMenuAction
-                          type="button"
-                          showOnHover
-                          aria-label={`New chat for ${project.repoFullName}`}
-                          title="New chat"
-                          onClick={(event) => {
-                            handleProjectNewChat(event, project.projectId);
-                          }}
-                          className="right-6 text-sidebar-foreground/30 hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground"
-                        >
-                          <Pencil aria-hidden="true" />
-                        </SidebarMenuAction>
-                        <SidebarMenuAction
-                          type="button"
-                          showOnHover
-                          aria-label={`Delete ${project.repoFullName}`}
-                          title="Delete project"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onDeleteProject(project.projectId);
-                          }}
-                          className="text-sidebar-foreground/25 hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 aria-hidden="true" />
-                        </SidebarMenuAction>
+                    const active = project.projectId === activeProjectId;
+                    const markerClasses = [
+                      "bg-[color:var(--framer-accent-blue)]",
+                      "bg-[color:var(--framer-gradient-violet)]",
+                      "bg-[color:var(--framer-gradient-orange)]",
+                      "bg-[color:var(--framer-success)]",
+                    ][index % 4];
 
-                        {/* ── Thread list ── */}
-                        {expanded ? (
-                          <div className="group-data-[collapsible=icon]:hidden">
-                            {visibleThreads === undefined ? (
-                              <div className="flex items-center py-3 pl-8">
-                                <Loader2
-                                  className="size-3.5 animate-spin text-sidebar-foreground/25"
-                                  aria-hidden="true"
-                                />
-                              </div>
-                            ) : visibleThreads.length === 0 ? null : (
-                              <>
-                                <ul className="py-0.5">
-                                  {visibleThreads.map((thread) => {
-                                    const threadActive = thread.threadId === activeThreadId;
-                                    const age = formatAge(thread.updatedAt);
-                                    return (
-                                      <li key={thread.threadId} className="group/thread relative">
-                                        <Link
-                                          to="/project/$projectId/thread/$threadId"
-                                          params={{ projectId: project.projectId, threadId: thread.threadId }}
-                                          className={cn(
-                                            "flex min-w-0 items-center gap-2 border-l-2 py-1.5 pr-8 pl-[30px] text-[13px] leading-snug transition-colors",
-                                            threadActive
-                                              ? "border-[color:var(--project-selected-strong)] bg-[color:var(--project-selected)] font-medium text-sidebar-foreground"
-                                              : "border-transparent text-sidebar-foreground/55 hover:bg-[color:var(--project-selected)] hover:text-sidebar-foreground",
-                                          )}
-                                        >
-                                          <span className="min-w-0 flex-1 truncate">
-                                            {thread.title ?? "Untitled Conversation"}
-                                          </span>
-                                          {thread.isLive ? (
-                                            <Loader2 className="size-3 shrink-0 animate-spin text-sidebar-foreground/40" aria-label="Working" />
-                                          ) : age ? (
-                                            <span className="shrink-0 text-[12px] text-sidebar-foreground/30">
-                                              {age}
-                                            </span>
-                                          ) : null}
-                                        </Link>
-                                        <button
-                                          type="button"
-                                          disabled={deletingThreadId === thread.threadId}
-                                          aria-label={`Delete thread ${thread.title ?? thread.threadId}`}
-                                          title="Delete thread"
-                                          onClick={(event) => handleDeleteThread(event, thread)}
-                                          className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex size-5 items-center justify-center text-sidebar-foreground/25 opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                        >
-                                          {deletingThreadId === thread.threadId ? (
-                                            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                                          ) : (
-                                            <Trash2 className="size-3" aria-hidden="true" />
-                                          )}
-                                        </button>
-                                      </li>
-                                    );
-                                  })}
-                                </ul>
-                                {hiddenThreadCount > 0 ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleProjectThreads(project.projectId)}
-                                    className="block py-1.5 pl-8 text-[13px] font-medium text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/60"
-                                  >
-                                    {showingAllThreads ? "Show fewer" : `See all (${hiddenThreadCount})`}
-                                  </button>
-                                ) : null}
-                              </>
-                            )}
-                          </div>
-                        ) : null}
-                      </SidebarMenuItem>
+                    return (
+                      <Link
+                        key={project.projectId}
+                        ref={active ? activeProjectTabRef : undefined}
+                        to="/project/$projectId"
+                        params={{ projectId: project.projectId }}
+                        role="tab"
+                        aria-selected={active}
+                        title={project.repoFullName}
+                        className={cn(
+                          "relative flex h-9 max-w-36 shrink-0 items-center gap-2 rounded-[5px] border px-2.5 text-[12px] font-medium transition focus-visible:ring-1 focus-visible:ring-sidebar-ring/60",
+                          active
+                            ? "border-sidebar-foreground/20 bg-sidebar text-sidebar-foreground"
+                            : "border-sidebar-border bg-transparent text-sidebar-foreground/50 hover:border-sidebar-foreground/15 hover:bg-sidebar hover:text-sidebar-foreground/80",
+                        )}
+                      >
+                        <span className={cn("grid size-5 shrink-0 place-items-center rounded-[4px] text-[9px] font-semibold uppercase text-white", markerClasses)}>
+                          {name.slice(0, 2)}
+                        </span>
+                        <span className="truncate">{name}</span>
+                        {active ? <span className="absolute inset-x-2 -bottom-[5px] h-0.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" /> : null}
+                      </Link>
                     );
                   })
                 )}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+              </div>
+              <button
+                type="button"
+                onClick={onCreateProject}
+                aria-label="Add project"
+                title="Add project"
+                className="ml-1.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[5px] border border-dashed border-sidebar-foreground/20 text-sidebar-foreground/45 transition hover:border-sidebar-foreground/35 hover:bg-sidebar hover:text-sidebar-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring/60"
+              >
+                <Plus className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex h-10 shrink-0 items-center gap-2 px-3">
+                <p className="min-w-0 flex-1 truncate font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/40">
+                  {activeProjectName ? `${activeProjectName} threads` : "Threads"}
+                </p>
+                {visibleThreads ? (
+                  <span className="font-mono text-[9px] tabular-nums text-sidebar-foreground/30">{visibleThreads.length}</span>
+                ) : null}
+                {activeProject ? (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteProject(activeProject.projectId)}
+                    aria-label={`Delete project ${activeProject.repoFullName}`}
+                    title="Delete project"
+                    className="inline-flex size-6 items-center justify-center rounded-[4px] text-sidebar-foreground/25 transition hover:bg-destructive/10 hover:text-destructive focus-visible:ring-1 focus-visible:ring-sidebar-ring/50"
+                  >
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="minimal-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+                {visibleThreads === undefined && activeProjectId ? (
+                  <div className="flex items-center gap-2 px-2 py-5 text-[12px] text-sidebar-foreground/40">
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    Loading threads
+                  </div>
+                ) : !activeProjectId ? (
+                  <div className="mx-1 border border-dashed border-sidebar-border px-3 py-6 text-center">
+                    <p className="text-[12px] text-sidebar-foreground/45">Add a project to start a thread.</p>
+                    <button type="button" onClick={onCreateProject} className="mt-3 text-[12px] font-medium text-sidebar-foreground/75 hover:text-sidebar-foreground">
+                      Add project
+                    </button>
+                  </div>
+                ) : visibleThreads?.length === 0 ? (
+                  <div className="mx-1 border border-dashed border-sidebar-border px-3 py-6 text-center">
+                    <p className="text-[12px] text-sidebar-foreground/45">
+                      {normalizedSearch ? "No matching threads." : "No threads in this project yet."}
+                    </p>
+                    {!normalizedSearch ? (
+                      <button type="button" onClick={openNewThread} className="mt-3 text-[12px] font-medium text-sidebar-foreground/75 hover:text-sidebar-foreground">
+                        Start the first thread
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {visibleThreads?.map((thread) => {
+                      const threadActive = thread.threadId === activeThreadId;
+                      const age = formatAge(thread.updatedAt);
+
+                      return (
+                        <li key={thread.threadId} className="group/thread relative">
+                          <Link
+                            to="/project/$projectId/thread/$threadId"
+                            params={{ projectId: activeProjectId, threadId: thread.threadId }}
+                            className={cn(
+                              "block min-h-[72px] rounded-[6px] border px-3 py-2.5 pr-9 transition",
+                              threadActive
+                                ? "border-sidebar-foreground/45 bg-sidebar-accent text-sidebar-foreground"
+                                : "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                            )}
+                          >
+                            <span className="flex items-start gap-2">
+                              <span className="min-w-0 flex-1 line-clamp-2 text-[13px] font-medium leading-[1.35]">
+                                {thread.title ?? "Untitled thread"}
+                              </span>
+                              {thread.isLive ? (
+                                <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin text-[color:var(--project-selected-strong)]" aria-label="Working" />
+                              ) : age ? (
+                                <span className="mt-px shrink-0 font-mono text-[9px] tabular-nums text-sidebar-foreground/35">{age}</span>
+                              ) : null}
+                            </span>
+                            <span className="mt-2 flex items-center gap-1.5 font-mono text-[9px] text-sidebar-foreground/35">
+                              <GitBranch className="size-3" aria-hidden="true" />
+                              <span className="truncate">{activeBranch}</span>
+                            </span>
+                          </Link>
+                          <button
+                            type="button"
+                            disabled={deletingThreadId === thread.threadId}
+                            aria-label={`Delete thread ${thread.title ?? thread.threadId}`}
+                            title="Delete thread"
+                            onClick={(event) => handleDeleteThread(event, thread)}
+                            className="absolute right-2 bottom-2 inline-flex size-6 items-center justify-center rounded-[4px] text-sidebar-foreground/25 opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {deletingThreadId === thread.threadId ? (
+                              <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Trash2 className="size-3" aria-hidden="true" />
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
         </SidebarContent>
 
         <SidebarFooter className="border-t border-sidebar-border/70 p-2">

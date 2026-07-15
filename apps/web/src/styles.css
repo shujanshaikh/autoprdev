@@ -30,6 +30,24 @@
   background: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
 }
 
+.workspace-project-rail {
+  scrollbar-color: color-mix(in srgb, var(--sidebar-foreground) 18%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.workspace-project-rail::-webkit-scrollbar {
+  height: 3px;
+}
+
+.workspace-project-rail::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--sidebar-foreground) 18%, transparent);
+  border-radius: 999px;
+}
+
+.workspace-project-rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 :root {
   --ease-ui-snappy: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-ui-smooth: cubic-bezier(0.2, 0, 0, 1);
@@ -180,6 +198,631 @@
 
   .project-shell :is(a, button, [role="button"], input, textarea) {
     transition-duration: 0ms;
+  }
+}
+
+/* Landing page v2 — product-native agent workspace */
+
+.landing-v2 {
+  --landing-v2-bg: var(--framer-canvas);
+  --landing-v2-panel: var(--framer-surface-1);
+  --landing-v2-subtle: color-mix(in srgb, var(--framer-surface-1) 72%, var(--framer-canvas));
+  --landing-v2-active: var(--framer-surface-2);
+  --landing-v2-user: var(--framer-surface-2);
+  --landing-v2-ink: var(--framer-ink);
+  --landing-v2-muted: var(--framer-ink-muted);
+  --landing-v2-faint: color-mix(in srgb, var(--framer-ink-muted) 62%, transparent);
+  --landing-v2-line: var(--framer-hairline-soft);
+  --landing-v2-line-strong: var(--framer-hairline);
+  --landing-v2-blue: var(--framer-accent-blue);
+  background: var(--landing-v2-bg);
+  color: var(--landing-v2-ink);
+  scroll-behavior: smooth;
+}
+
+.dark .landing-v2 {
+  --landing-v2-bg: #0d0d0d;
+  --landing-v2-panel: #141414;
+  --landing-v2-subtle: #111111;
+  --landing-v2-active: #202020;
+  --landing-v2-user: #242424;
+  --landing-v2-line: #242424;
+  --landing-v2-line-strong: #343434;
+}
+
+.landing-v2-header {
+  position: absolute;
+  z-index: 50;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 76px;
+  pointer-events: none;
+  background: transparent;
+}
+
+.landing-v2-header-shell {
+  display: flex;
+  height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 0;
+  padding: 0 0.5rem 0 0.75rem;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.dark .landing-v2-header-shell {
+  box-shadow: none;
+}
+
+.landing-v2-sign-in {
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  padding: 0 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--landing-v2-muted);
+}
+
+.landing-v2-sign-in:hover {
+  color: var(--landing-v2-ink);
+}
+
+.landing-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  border-radius: var(--radius-pill);
+  padding: 0 1rem;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.landing-button-primary {
+  border: 0;
+  background: var(--landing-v2-ink);
+  color: var(--landing-v2-bg);
+}
+
+.landing-button-primary:hover {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--landing-v2-blue) 13%, transparent);
+  transform: translateY(-1px);
+}
+
+.landing-button-quiet {
+  border: 1px solid var(--landing-v2-line-strong);
+  background: color-mix(in srgb, var(--landing-v2-panel) 80%, transparent);
+  color: var(--landing-v2-ink);
+}
+
+.landing-button-quiet:hover {
+  border-color: color-mix(in srgb, var(--landing-v2-ink) 28%, var(--landing-v2-line));
+  background: var(--landing-v2-active);
+}
+
+.landing-v2-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 55% 40% at 50% 12%, color-mix(in srgb, var(--landing-v2-blue) 7%, transparent), transparent 72%),
+    var(--landing-v2-bg);
+}
+
+.landing-v2-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--landing-v2-line) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--landing-v2-line) 55%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 60%);
+}
+
+.landing-v2-outline-text {
+  color: transparent;
+  -webkit-text-stroke: 1.25px color-mix(in srgb, var(--landing-v2-ink) 74%, transparent);
+}
+
+.landing-cta-mesh {
+  background:
+    radial-gradient(ellipse 46% 62% at 50% 52%, color-mix(in srgb, var(--landing-v2-blue) 12%, transparent), transparent 72%),
+    var(--landing-v2-bg);
+  color: var(--landing-v2-ink);
+}
+
+.landing-cta-mesh::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(to right, var(--landing-v2-bg) 0%, transparent 18%, transparent 82%, var(--landing-v2-bg) 100%),
+    linear-gradient(to bottom, var(--landing-v2-bg) 0%, transparent 24%, transparent 76%, var(--landing-v2-bg) 100%);
+  content: "";
+  pointer-events: none;
+}
+
+.dark .landing-cta-mesh {
+  background:
+    radial-gradient(ellipse 46% 62% at 50% 52%, rgb(10 84 133 / 0.22), transparent 72%),
+    linear-gradient(to bottom, var(--landing-v2-bg) 0%, #090b0d 26%, #090b0d 100%);
+}
+
+.dark .landing-cta-mesh::after {
+  background:
+    linear-gradient(to right, #090b0d 0%, transparent 18%, transparent 82%, #090b0d 100%),
+    linear-gradient(to bottom, var(--landing-v2-bg) 0%, transparent 24%, transparent 76%, #090b0d 100%);
+}
+
+.landing-cta-mesh-grid {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--landing-v2-line-strong) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--landing-v2-line-strong) 70%, transparent) 1px, transparent 1px);
+  background-position: center;
+  background-size: clamp(42px, 5.25vw, 76px) clamp(42px, 5.25vw, 76px);
+  mask-image:
+    linear-gradient(to bottom, transparent 0%, black 24%, black 82%, transparent 100%),
+    radial-gradient(ellipse 92% 105% at 50% 48%, black 38%, transparent 100%);
+  mask-composite: intersect;
+  pointer-events: none;
+}
+
+.landing-cta-outline {
+  color: transparent;
+  -webkit-text-stroke: 1.25px color-mix(in srgb, var(--landing-v2-ink) 48%, transparent);
+}
+
+.landing-cta-copy {
+  color: var(--landing-v2-muted);
+}
+
+.landing-cta-button {
+  background: var(--landing-v2-ink);
+  color: var(--landing-v2-bg);
+}
+
+.landing-cta-button:hover {
+  box-shadow: 0 0 0 4px rgb(39 156 231 / 0.18);
+  transform: translateY(-1px);
+}
+
+.dark .landing-cta-mesh-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.07) 1px, transparent 1px);
+}
+
+.dark .landing-cta-outline {
+  -webkit-text-stroke-color: rgb(247 248 250 / 0.62);
+}
+
+.dark .landing-cta-copy {
+  color: rgb(247 248 250 / 0.58);
+}
+
+.landing-v2-mascot {
+  position: absolute;
+  z-index: 2;
+  top: -3.75rem;
+  right: -0.75rem;
+  width: clamp(5rem, 8vw, 7.5rem);
+  aspect-ratio: 199 / 234;
+  opacity: 1;
+  filter: none;
+  transform: none;
+  animation: landing-mascot-in 680ms 160ms var(--ease-ui-snappy) both;
+}
+
+.landing-workspace {
+  position: relative;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: var(--landing-v2-panel);
+  color: var(--landing-v2-ink);
+}
+
+.landing-hero-workspace {
+  animation: landing-workspace-in 760ms 240ms var(--ease-ui-snappy) both;
+  box-shadow:
+    0 0 0 1px var(--landing-v2-line),
+    0 32px 90px rgb(0 0 0 / 0.13);
+}
+
+.dark .landing-hero-workspace {
+  box-shadow:
+    0 0 0 1px var(--landing-v2-line),
+    0 32px 100px rgb(0 0 0 / 0.48);
+}
+
+.landing-workspace-glow {
+  position: absolute;
+  inset: -3rem 12% auto;
+  height: 10rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--landing-v2-blue) 16%, transparent);
+  filter: blur(70px);
+  pointer-events: none;
+}
+
+.landing-chat-appbar {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--landing-v2-line);
+  padding: 0 0.9rem;
+  background: var(--landing-v2-subtle);
+}
+
+.landing-chat-commit {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: var(--radius-pill);
+  padding: 0 0.65rem;
+  background: var(--landing-v2-active);
+  font-size: 9px;
+}
+
+.landing-chat-sidebar {
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--landing-v2-line);
+  background: var(--landing-v2-subtle);
+}
+
+.landing-chat-sidebar-action {
+  display: flex;
+  height: 34px;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 6px;
+  padding: 0 0.6rem;
+  font-size: 11px;
+}
+
+.landing-chat-sidebar-action:hover {
+  background: color-mix(in srgb, var(--landing-v2-active) 72%, transparent);
+}
+
+.landing-chat-projects {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+  border-block: 1px solid var(--landing-v2-line);
+  padding: 0.6rem;
+  background: color-mix(in srgb, var(--landing-v2-active) 24%, transparent);
+}
+
+.landing-chat-project {
+  display: flex;
+  height: 34px;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 5px;
+  padding: 0 0.45rem;
+  font-size: 9px;
+  color: var(--landing-v2-muted);
+}
+
+.landing-chat-project.is-active {
+  background: var(--landing-v2-panel);
+  box-shadow:
+    0 0 0 1px var(--landing-v2-line-strong),
+    inset 0 -2px 0 var(--landing-v2-blue);
+  color: var(--landing-v2-ink);
+}
+
+.landing-chat-thread {
+  display: grid;
+  min-height: 66px;
+  grid-template-rows: minmax(0, auto) 14px;
+  align-content: center;
+  row-gap: 0.45rem;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 0.65rem 0.7rem;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--landing-v2-ink) 65%, transparent);
+}
+
+.landing-chat-thread.is-active {
+  background: color-mix(in srgb, var(--landing-v2-active) 88%, var(--landing-v2-panel));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--landing-v2-ink) 26%, transparent),
+    0 5px 18px rgb(0 0 0 / 0.06);
+  color: var(--landing-v2-ink);
+}
+
+.landing-chat-thread-title {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.landing-chat-thread-meta {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 14px;
+  color: var(--landing-v2-faint);
+}
+
+.landing-chat-conversation {
+  background:
+    linear-gradient(to right, transparent, color-mix(in srgb, var(--landing-v2-blue) 2%, transparent) 48%, transparent),
+    var(--landing-v2-panel);
+}
+
+.landing-chat-composer {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--landing-v2-subtle) 92%, var(--landing-v2-panel));
+  box-shadow:
+    0 0 0 1px var(--landing-v2-line-strong),
+    0 12px 36px rgb(0 0 0 / 0.1);
+}
+
+.landing-chat-scroll-latest {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 0.65rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--landing-v2-subtle);
+  color: var(--landing-v2-muted);
+  box-shadow: 0 0 0 1px var(--landing-v2-line);
+}
+
+.landing-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--landing-v2-blue);
+}
+
+.landing-workflow-heading {
+  display: grid;
+  gap: 2rem;
+  align-items: end;
+}
+
+.landing-workflow-track {
+  position: relative;
+  margin-top: clamp(4rem, 8vw, 7rem);
+}
+
+.landing-workflow-lane {
+  position: absolute;
+  z-index: 2;
+  top: -0.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--landing-v2-muted);
+}
+
+.landing-workflow-lane-main {
+  left: 0;
+}
+
+.landing-workflow-lane-result {
+  right: 0;
+  color: var(--landing-v2-blue);
+}
+
+.landing-workflow-graph {
+  position: absolute;
+  top: 1.25rem;
+  left: 0;
+  width: 100%;
+  height: 112px;
+  overflow: visible;
+}
+
+.landing-workflow-mainline,
+.landing-workflow-branchline {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.landing-workflow-mainline {
+  stroke: var(--landing-v2-line-strong);
+  stroke-width: 1;
+}
+
+.landing-workflow-branchline {
+  stroke: var(--landing-v2-blue);
+  stroke-width: 1.5;
+}
+
+.landing-workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding-top: 9.4rem;
+}
+
+.landing-workflow-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 250px;
+  padding: 0 clamp(1.25rem, 3vw, 3rem);
+}
+
+.landing-workflow-stage + .landing-workflow-stage {
+  border-left: 1px solid var(--landing-v2-line);
+}
+
+.landing-workflow-node {
+  position: absolute;
+  z-index: 1;
+  top: -5.7rem;
+  left: 50%;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--landing-v2-line-strong);
+  border-radius: 50%;
+  background: var(--landing-v2-bg);
+  color: var(--landing-v2-blue);
+  transform: translateX(-50%);
+  transition: transform 180ms var(--ease-ui-snappy), background-color 180ms var(--ease-ui-smooth);
+}
+
+.landing-workflow-stage:hover .landing-workflow-node {
+  background: color-mix(in srgb, var(--landing-v2-blue) 8%, var(--landing-v2-subtle));
+  transform: translateX(-50%) translateY(-3px);
+}
+
+@media (min-width: 1024px) {
+  .landing-workflow-heading {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .landing-workflow-track {
+    margin-top: 3.5rem;
+    padding: 2.5rem 0 2.5rem 3.25rem;
+  }
+
+  .landing-workflow-track::before {
+    position: absolute;
+    top: 1.9rem;
+    bottom: 1.9rem;
+    left: 18px;
+    width: 1.5px;
+    background: var(--landing-v2-blue);
+    content: "";
+  }
+
+  .landing-workflow-graph {
+    display: none;
+  }
+
+  .landing-workflow-lane {
+    right: auto;
+    left: 0;
+  }
+
+  .landing-workflow-lane-result {
+    top: auto;
+    bottom: 0;
+  }
+
+  .landing-workflow-steps {
+    display: block;
+    padding-top: 0;
+  }
+
+  .landing-workflow-stage {
+    min-height: 0;
+    border-bottom: 1px solid var(--landing-v2-line);
+    padding: 2rem 0;
+  }
+
+  .landing-workflow-stage + .landing-workflow-stage {
+    border-left: 0;
+  }
+
+  .landing-workflow-stage:last-child {
+    border-bottom: 0;
+  }
+
+  .landing-workflow-node {
+    top: 2rem;
+    left: -3.25rem;
+    transform: none;
+  }
+
+  .landing-workflow-stage:hover .landing-workflow-node {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes landing-workspace-in {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landing-mascot-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 767px) {
+  .landing-v2-header {
+    height: 72px;
+  }
+
+  .landing-workspace {
+    border-radius: 10px;
+  }
+
+  .landing-v2-grid {
+    background-size: 36px 36px;
+  }
+
+  .landing-v2-mascot {
+    top: -3.25rem;
+    right: 0;
+    width: 4.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-v2 {
+    scroll-behavior: auto;
+  }
+
+  .landing-hero-workspace {
+    animation: none;
+  }
+
+  .landing-v2-mascot {
+    animation: none;
   }
 }
 

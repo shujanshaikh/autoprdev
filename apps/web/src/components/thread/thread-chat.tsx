@@ -17,6 +17,11 @@ import {
   PopoverTrigger,
 } from "@autopr/ui/components/popover";
 import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@autopr/ui/components/hover-card";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -39,7 +44,7 @@ import {
   type UIMessage,
 } from "ai";
 import { MoreHorizontal, Video, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
@@ -399,6 +404,71 @@ function AgentRunIssuePanel({ issue }: { issue: AgentRunIssue | undefined }) {
 
 const CONTEXT_RING_RADIUS = 9;
 const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
+const HOVER_CAPABLE_POINTER_QUERY = "(hover: hover) and (pointer: fine)";
+
+function useHasHoverCapablePointer() {
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof window === "undefined") {
+        return () => undefined;
+      }
+
+      const mediaQuery = window.matchMedia(HOVER_CAPABLE_POINTER_QUERY);
+      mediaQuery.addEventListener("change", onStoreChange);
+      return () => mediaQuery.removeEventListener("change", onStoreChange);
+    },
+    () => typeof window !== "undefined" && window.matchMedia(HOVER_CAPABLE_POINTER_QUERY).matches,
+    () => false,
+  );
+}
+
+function ContextWindowDetails({
+  contextTokens,
+  contextLimit,
+  percentageUsed,
+  totalProcessedTokens,
+}: {
+  contextTokens: number;
+  contextLimit: number;
+  percentageUsed: number;
+  totalProcessedTokens: number;
+}) {
+  return (
+    <>
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-[13px] font-semibold text-foreground">Context window</h3>
+        <p className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          {percentageUsed}% · {formatTokens(contextTokens)}/{formatTokens(contextLimit)}
+        </p>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-label="Context window used"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percentageUsed}
+        className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className="h-full rounded-full bg-blue-500 transition-[width] duration-300 motion-reduce:transition-none"
+          style={{ width: `${percentageUsed}%` }}
+        />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+        <span className="text-muted-foreground">Total processed</span>
+        <span className="font-medium tabular-nums text-foreground">
+          {formatTokens(totalProcessedTokens)}
+        </span>
+      </div>
+
+      <p className="mt-3 border-t border-border/60 pt-3 text-xs leading-5 text-muted-foreground">
+        Codex automatically compacts its context when needed.
+      </p>
+    </>
+  );
+}
 
 function ThreadContextWindowIndicator({
   usage,
@@ -409,6 +479,8 @@ function ThreadContextWindowIndicator({
   totalProcessedTokens: number;
   contextLimit: number;
 }) {
+  const hasHoverCapablePointer = useHasHoverCapablePointer();
+
   if (contextLimit <= 0) {
     return null;
   }
@@ -417,36 +489,73 @@ function ThreadContextWindowIndicator({
   const remainingTokens = Math.max(0, contextLimit - contextTokens);
   const percentageUsed = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
   const ringOffset = CONTEXT_RING_CIRCUMFERENCE * (1 - percentageUsed / 100);
+  const accessibleLabel = `Context window: ${percentageUsed}% used, ${formatTokens(remainingTokens)} remaining`;
+  const triggerContent = (
+    <svg viewBox="0 0 24 24" className="size-6 -rotate-90" aria-hidden="true">
+      <circle
+        cx="12"
+        cy="12"
+        r={CONTEXT_RING_RADIUS}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        className="text-border/80"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r={CONTEXT_RING_RADIUS}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
+        strokeDashoffset={ringOffset}
+        className="text-blue-500 transition-[stroke-dashoffset] duration-300 motion-reduce:transition-none"
+      />
+    </svg>
+  );
+  const details = (
+    <ContextWindowDetails
+      contextTokens={contextTokens}
+      contextLimit={contextLimit}
+      percentageUsed={percentageUsed}
+      totalProcessedTokens={totalProcessedTokens}
+    />
+  );
+  const triggerClassName = "inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45";
+
+  if (hasHoverCapablePointer) {
+    return (
+      <HoverCard>
+        <HoverCardTrigger
+          render={<button type="button" />}
+          delay={120}
+          closeDelay={120}
+          aria-label={accessibleLabel}
+          className={triggerClassName}
+        >
+          {triggerContent}
+        </HoverCardTrigger>
+        <HoverCardContent
+          align="end"
+          side="top"
+          sideOffset={8}
+          className="w-[min(16.5rem,calc(100vw-1.5rem))] rounded-[var(--radius-lg)] p-3"
+        >
+          {details}
+        </HoverCardContent>
+      </HoverCard>
+    );
+  }
 
   return (
     <Popover>
       <PopoverTrigger
-        aria-label={`Context window: ${percentageUsed}% used, ${formatTokens(remainingTokens)} remaining`}
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+        aria-label={accessibleLabel}
+        className={triggerClassName}
       >
-        <svg viewBox="0 0 24 24" className="size-6 -rotate-90" aria-hidden="true">
-          <circle
-            cx="12"
-            cy="12"
-            r={CONTEXT_RING_RADIUS}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            className="text-border/80"
-          />
-          <circle
-            cx="12"
-            cy="12"
-            r={CONTEXT_RING_RADIUS}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
-            strokeDashoffset={ringOffset}
-            className="text-blue-500 transition-[stroke-dashoffset] duration-300 motion-reduce:transition-none"
-          />
-        </svg>
+        {triggerContent}
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -454,37 +563,7 @@ function ThreadContextWindowIndicator({
         sideOffset={8}
         className="w-[min(16.5rem,calc(100vw-1.5rem))] rounded-[var(--radius-lg)] p-3"
       >
-        <div className="flex items-baseline justify-between gap-3">
-          <h3 className="text-[13px] font-semibold text-foreground">Context window</h3>
-          <p className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-            {percentageUsed}% · {formatTokens(contextTokens)}/{formatTokens(contextLimit)}
-          </p>
-        </div>
-
-        <div
-          role="progressbar"
-          aria-label="Context window used"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percentageUsed}
-          className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
-        >
-          <div
-            className="h-full rounded-full bg-blue-500 transition-[width] duration-300 motion-reduce:transition-none"
-            style={{ width: `${percentageUsed}%` }}
-          />
-        </div>
-
-        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-muted-foreground">Total processed</span>
-          <span className="font-medium tabular-nums text-foreground">
-            {formatTokens(totalProcessedTokens)}
-          </span>
-        </div>
-
-        <p className="mt-3 border-t border-border/60 pt-3 text-xs leading-5 text-muted-foreground">
-          Codex automatically compacts its context when needed.
-        </p>
+        {details}
       </PopoverContent>
     </Popover>
   );

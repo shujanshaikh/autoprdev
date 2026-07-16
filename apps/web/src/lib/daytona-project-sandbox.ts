@@ -10,6 +10,7 @@ import {
 } from "@autopr/agent/sandbox";
 
 import { createEphemeralGitAuthEnvironment } from "#/lib/thread-git-status-server";
+import { redactGitDiagnostic } from "#/lib/git-diagnostics";
 
 export class SandboxGitConflictError extends Error {
   constructor(message = "Could not switch branches because the sandbox has uncommitted changes.") {
@@ -24,6 +25,16 @@ function shellEscape(value: string) {
 
 function commandOutput(result: { stdout?: string; stderr?: string; output?: string }) {
   return [result.output, result.stdout, result.stderr].filter(Boolean).join("\n");
+}
+
+export class SandboxGitCommandError extends Error {
+  readonly diagnostics?: string;
+
+  constructor(message: string, diagnostics?: string) {
+    super(message);
+    this.name = "SandboxGitCommandError";
+    this.diagnostics = diagnostics;
+  }
 }
 
 async function runSandboxCommand(sandbox: DaytonaSandbox, command: string) {
@@ -213,14 +224,11 @@ export async function commitPreparedProjectSandboxChanges(options: {
   commitMessage: string;
   authorName: string;
   authorEmail: string;
-  push?: boolean;
-  githubUsername?: string;
-  githubToken?: string;
   repoName?: string;
   sandboxWorkDir?: string;
-}): Promise<{ branch: string; commitSha: string; pushed: boolean }> {
+}): Promise<{ branch: string; commitSha: string; diagnostics?: string }> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
   const branch = commandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
@@ -238,121 +246,148 @@ export async function commitPreparedProjectSandboxChanges(options: {
     throw new SandboxNoChangesError("There are no staged sandbox changes to commit.");
   }
 
-  const commit = await sandbox.git.commit(
-    repoGitPath,
-    options.commitMessage,
-    options.authorName,
-    options.authorEmail,
+  const commitResult = await sandbox.process.executeCommand(
+    [
+      "git",
+      "-c", `user.name=${shellEscape(options.authorName)}`,
+      "-c", `user.email=${shellEscape(options.authorEmail)}`,
+      "commit", "-m", shellEscape(options.commitMessage),
+    ].join(" "),
+    repoPath,
+    undefined,
+    120,
   );
-
-  if (options.push) {
-    if (!options.githubUsername || !options.githubToken) {
-      throw new Error("GitHub credentials are required to push changes.");
-    }
-
-    await sandbox.git.push(
-      repoGitPath,
-      options.githubUsername,
-      options.githubToken,
-      branch,
-      "origin",
-      true,
-    );
+  const diagnostics = redactGitDiagnostic(commandOutput({
+    output: commitResult.result,
+    stderr: commitResult.stderr,
+  }));
+  if (typeof commitResult.exitCode === "number" && commitResult.exitCode !== 0) {
+    throw new SandboxGitCommandError("Git validation or commit hooks rejected the commit.", diagnostics);
   }
-
-  return { branch, commitSha: commit.sha, pushed: Boolean(options.push) };
-}
-
-export async function commitAndPushProjectSandboxChanges(options: {
-  sandboxId: string;
-  githubToken: string;
-  githubUsername: string;
-  authorName: string;
-  authorEmail: string;
-  branch: string;
-  baseBranch: string;
-  commitMessage: string;
-  repoName?: string;
-  sandboxWorkDir?: string;
-}): Promise<{ branch: string; commitSha: string }> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
-  const quotedRepoPath = shellEscape(repoPath);
-
-  const currentBranch = commandOutput(
-    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
-  ).trim();
-  if (currentBranch !== options.branch) {
-    throw new Error(`Thread worktree branch mismatch: expected ${options.branch}, found ${currentBranch || "detached HEAD"}.`);
-  }
-
-  const status = commandOutput(
-    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`),
-  ).trim();
-  let commitSha: string;
-  if (status) {
-    await sandbox.git.add(repoGitPath, ["."]);
-    commitSha = (await sandbox.git.commit(
-      repoGitPath,
-      options.commitMessage,
-      options.authorName,
-      options.authorEmail,
-    )).sha;
-  } else {
-    const aheadCount = Number(commandOutput(await runSandboxCommand(
-      sandbox,
-      `cd ${quotedRepoPath} && git rev-list --count ${shellEscape(options.baseBranch)}..HEAD`,
-    )).trim());
-    if (!Number.isFinite(aheadCount) || aheadCount < 1) {
-      throw new SandboxNoChangesError();
-    }
-    commitSha = commandOutput(
-      await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
-    ).trim();
-  }
-
-  await sandbox.git.push(
-    repoGitPath,
-    options.githubUsername,
-    options.githubToken,
-    options.branch,
-    "origin",
-    true,
-  );
-
-  return { branch: options.branch, commitSha };
-}
-
-export async function pushProjectSandboxBranch(options: {
-  sandboxId: string;
-  githubToken: string;
-  githubUsername: string;
-  repoName?: string;
-  sandboxWorkDir?: string;
-}): Promise<{ branch: string; commitSha: string; pushed: true }> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
-  const quotedRepoPath = shellEscape(repoPath);
-  const branch = commandOutput(
-    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
-  ).trim();
-
-  if (!branch) {
-    throw new Error("The sandbox repository is not on a named branch.");
-  }
-
-  await sandbox.git.push(
-    repoGitPath,
-    options.githubUsername,
-    options.githubToken,
-    branch,
-    "origin",
-    true,
-  );
   const commitSha = commandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
   ).trim();
-  return { branch, commitSha, pushed: true };
+
+  return { branch, commitSha, diagnostics: diagnostics || undefined };
+}
+
+export async function inspectProjectSandboxGit(options: {
+  sandboxId: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}) {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
+  const [branchResult, headResult, statusResult] = await Promise.all([
+    runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+    runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
+    runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`),
+  ]);
+  return {
+    branch: commandOutput(branchResult).trim(),
+    commitSha: commandOutput(headResult).trim(),
+    hasChanges: Boolean(commandOutput(statusResult).trim()),
+  };
+}
+
+export async function validatePreparedProjectSandboxCommit(options: {
+  sandboxId: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}) {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  const result = await sandbox.process.executeCommand("git diff --cached --check", repoPath, undefined, 120);
+  const diagnostics = redactGitDiagnostic(commandOutput({ output: result.result, stderr: result.stderr }));
+  if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+    throw new SandboxGitCommandError("Git validation found whitespace or conflict-marker errors.", diagnostics);
+  }
+  return { diagnostics: diagnostics || undefined };
+}
+
+async function inspectRemoteBranch(
+  sandbox: DaytonaSandbox,
+  repoPath: string,
+  githubToken: string,
+) {
+  const quotedRepoPath = shellEscape(repoPath);
+  const branch = commandOutput(await runSandboxCommand(
+    sandbox,
+    `cd ${quotedRepoPath} && git branch --show-current`,
+  )).trim();
+  const commitSha = commandOutput(await runSandboxCommand(
+    sandbox,
+    `cd ${quotedRepoPath} && git rev-parse HEAD`,
+  )).trim();
+  if (!branch) throw new Error("The sandbox repository is not on a named branch.");
+  const remote = await sandbox.process.executeCommand(
+    `git ls-remote --heads origin ${shellEscape(`refs/heads/${branch}`)}`,
+    repoPath,
+    createEphemeralGitAuthEnvironment(githubToken),
+    120,
+  );
+  if (typeof remote.exitCode === "number" && remote.exitCode !== 0) {
+    throw new SandboxGitCommandError(
+      "Could not inspect the remote branch.",
+      redactGitDiagnostic(commandOutput({ output: remote.result, stderr: remote.stderr }), [githubToken]),
+    );
+  }
+  return {
+    branch,
+    commitSha,
+    remoteSha: String(remote.result ?? "").trim().split(/\s+/)[0] || undefined,
+  };
+}
+
+export async function pushProjectSandboxBranchIfNeeded(options: {
+  sandboxId: string;
+  githubToken: string;
+  githubUsername: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}) {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const { branch, commitSha, remoteSha } = await inspectRemoteBranch(sandbox, repoPath, options.githubToken);
+  if (remoteSha === commitSha) {
+    return { commitSha, remoteSha, pushed: false, alreadyPushed: true };
+  }
+  try {
+    await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken, branch, "origin", true);
+  } catch (error) {
+    const diagnostics = redactGitDiagnostic(error instanceof Error ? error.message : String(error), [options.githubToken]);
+    throw new SandboxGitCommandError("Could not push the thread branch.", diagnostics);
+  }
+  return { commitSha, remoteSha: commitSha, pushed: true, alreadyPushed: false };
+}
+
+export async function inspectProjectSandboxRemoteBranch(options: {
+  sandboxId: string;
+  githubToken: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}) {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  return inspectRemoteBranch(sandbox, repoPath, options.githubToken);
+}
+
+export async function countProjectSandboxCommitsAhead(options: {
+  sandboxId: string;
+  baseBranch: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}) {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  const result = await runSandboxCommand(
+    sandbox,
+    `cd ${shellEscape(repoPath)} && git rev-list --count ${shellEscape(options.baseBranch)}..HEAD`,
+  );
+  const count = Number(commandOutput(result).trim());
+  if (!Number.isFinite(count)) throw new Error("Could not compare the thread branch with its base branch.");
+  return count;
 }
 
 export async function pullProjectSandboxBranch(options: {

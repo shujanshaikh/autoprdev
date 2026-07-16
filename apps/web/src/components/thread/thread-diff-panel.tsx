@@ -443,13 +443,24 @@ export function ThreadDiffPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title.trim() || undefined, body: body.trim() || undefined }),
+          body: JSON.stringify({
+            operationId: crypto.randomUUID(),
+            action: entries.length > 0 ? "commit_push_create_pr" : "create_pr",
+            title: title.trim() || undefined,
+            body: body.trim() || undefined,
+          }),
         },
       );
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Could not create pull request.");
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : typeof data.error?.message === "string"
+              ? data.error.message
+              : "Could not create pull request.",
+        );
       }
 
       setCreatedPull({ url: data.url, number: data.number, branch: data.branch });
@@ -458,7 +469,7 @@ export function ThreadDiffPanel({
       setLocalStatus("failed");
       setLocalError(error instanceof Error ? error.message : "Could not create pull request.");
     }
-  }, [body, canCreatePullRequest, projectId, requestedBranch, threadId, title]);
+  }, [body, canCreatePullRequest, entries.length, projectId, requestedBranch, threadId, title]);
 
   return (
     <aside

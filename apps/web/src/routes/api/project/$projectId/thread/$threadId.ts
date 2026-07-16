@@ -7,23 +7,15 @@ import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
-import { CodexConnectionError } from "#/lib/codex-auth-server";
-import { generateCommitMessage } from "#/lib/commit-messages";
-import {
-  commitPreparedProjectSandboxChanges,
-  pullProjectSandboxBranch,
-  prepareProjectSandboxCommit,
-  pushProjectSandboxBranch,
-  SandboxNoChangesError,
-} from "#/lib/daytona-project-sandbox";
+import { pullProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
 import {
   getGithubOAuthToken,
-  getGithubUserIdentity,
   GithubConnectionError,
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
 import { readThreadGitStatus } from "#/lib/thread-git-status-server";
+import { runThreadGitWorkflow } from "#/lib/thread-git-workflow-server";
 import {
   ThreadGitMutationConflictError,
   withThreadGitMutation,
@@ -55,7 +47,16 @@ const RECORDING_READY_ATTEMPTS = 10;
 const RECORDING_READY_RETRY_MS = 1_000;
 
 const postRequestSchema = z.object({
-  action: z.enum(["commit", "commit_push", "push", "pull"]),
+  action: z.enum([
+    "commit",
+    "push",
+    "create_pr",
+    "commit_push",
+    "push_create_pr",
+    "commit_push_create_pr",
+    "pull",
+  ]),
+  operationId: z.uuid().optional(),
   push: z.boolean().optional(),
   commitMessage: z.string().trim().min(1).max(500).optional(),
 });
@@ -152,22 +153,6 @@ async function createRecordingPreview(options: {
     sizeBytes: recording.sizeBytes,
     durationSeconds: recording.durationSeconds,
   };
-}
-
-function workOSCommitIdentity(user: {
-  firstName?: string | null;
-  lastName?: string | null;
-  email?: string | null;
-}) {
-  const email = user.email?.trim();
-
-  if (!email) {
-    throw new Error("Could not determine your commit author email.");
-  }
-
-  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || email.split("@")[0] || email;
-
-  return { name, email };
 }
 
 async function GET(
@@ -282,6 +267,7 @@ async function GET(
   if (project.sandboxStatus !== "ready" || !project.sandboxId) {
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
+  const sandboxId = project.sandboxId;
 
   let recordingMetadata: ReturnType<typeof findDemoRecordingMetadataInParts> = null;
   for (const message of messages) {
@@ -301,7 +287,7 @@ async function GET(
 
   try {
     const preview = await createRecordingPreview({
-      sandboxId: project.sandboxId,
+      sandboxId,
       recordingId,
     });
     const upload = await convexAction(api.recordingArtifactActions.ensureUploaded, {
@@ -403,123 +389,58 @@ async function POST(
   if (project.sandboxStatus !== "ready" || !project.sandboxId) {
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
+  const sandboxId = project.sandboxId;
 
   const requestedAction = parsed.data.action === "commit" && parsed.data.push
     ? "commit_push"
     : parsed.data.action;
 
+  if (requestedAction !== "pull") {
+    try {
+      return await runThreadGitWorkflow({
+        request: req,
+        projectId,
+        threadId,
+        input: {
+          operationId: parsed.data.operationId ?? crypto.randomUUID(),
+          action: requestedAction,
+          commitMessage: parsed.data.commitMessage,
+        },
+      });
+    } catch (error) {
+      if (error instanceof ThreadGitMutationConflictError) {
+        return Response.json({
+          error: { code: "GIT_OPERATION_CONFLICT", message: error.message },
+        }, { status: 409 });
+      }
+      return Response.json({
+        error: { code: "GIT_OPERATION_FAILED", message: safeErrorMessage(error, "Could not start the Git operation.") },
+      }, { status: 500 });
+    }
+  }
+
   try {
     return await withThreadGitMutation({
       threadId,
-      action: requestedAction,
+      action: "pull",
       run: async () => {
-        const worktree = await convexAction(api.projectActions.ensureThreadWorktree, {
-          projectId,
-          threadId,
-        });
-        const authState = await requireWorkOSAuth();
-        let gitIdentity = workOSCommitIdentity(authState.user);
-        let githubUsername: string | undefined;
-        let githubToken: string | undefined;
-        const needsGithub = requestedAction !== "commit";
-
-        if (needsGithub) {
-          githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
-          githubUsername = "x-access-token";
-
-          try {
-            const githubIdentity = await getGithubUserIdentity(authState.user, githubToken);
-            gitIdentity = {
-              name: githubIdentity.name,
-              email: githubIdentity.email,
-            };
-            githubUsername = githubIdentity.username;
-          } catch (error) {
-            if (!(error instanceof GithubConnectionError)) {
-              throw error;
-            }
-          }
-        }
-
-        if (requestedAction === "pull") {
-          if (!githubToken) throw new Error("GitHub credentials are required to update the branch.");
-          const result = await pullProjectSandboxBranch({
-            sandboxId: project.sandboxId,
-            branch: worktree.featureBranch,
-            githubToken,
-            repoName: project.repoName,
-            sandboxWorkDir: worktree.worktreePath,
-          });
-          await convexMutation(api.threads.invalidateGitStatus, {
-            threadId,
-            reason: "pull_rebase",
-          });
-          return Response.json({ status: "updated", ...result });
-        }
-
-        if (requestedAction === "push") {
-          if (!githubToken || !githubUsername) {
-            throw new Error("GitHub credentials are required to push changes.");
-          }
-          const result = await pushProjectSandboxBranch({
-            sandboxId: project.sandboxId,
-            githubToken,
-            githubUsername,
-            repoName: project.repoName,
-            sandboxWorkDir: worktree.worktreePath,
-          });
-          const commitMessage = thread.commitMessage ?? "Push thread branch";
-          await convexMutation(api.threads.markChangesCommitted, {
-            threadId,
-            status: "pushed",
-            branch: result.branch,
-            commitSha: result.commitSha,
-            commitMessage,
-          });
-          return Response.json({ ...result, commitMessage });
-        }
-
-        const prepared = await prepareProjectSandboxCommit({
-          sandboxId: project.sandboxId,
-          repoName: project.repoName,
-          sandboxWorkDir: worktree.worktreePath,
-        });
-        const commitMessage = parsed.data.commitMessage ?? await generateCommitMessage({
-          request: req,
-          projectId,
-          threadId,
-          branch: prepared.branch,
-          status: prepared.status,
-          diff: prepared.diff,
-        });
-        const shouldPush = requestedAction === "commit_push";
-        const result = await commitPreparedProjectSandboxChanges({
-          sandboxId: project.sandboxId,
-          commitMessage,
-          authorName: gitIdentity.name,
-          authorEmail: gitIdentity.email,
-          push: shouldPush,
-          githubUsername,
+        const [worktree, authState] = await Promise.all([
+          convexAction(api.projectActions.ensureThreadWorktree, { projectId, threadId }),
+          requireWorkOSAuth(),
+        ]);
+        const githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+        const result = await pullProjectSandboxBranch({
+          sandboxId,
+          branch: worktree.featureBranch,
           githubToken,
           repoName: project.repoName,
           sandboxWorkDir: worktree.worktreePath,
         });
-        const status = result.pushed ? "pushed" : "committed";
-
-        await convexMutation(api.threads.markChangesCommitted, {
+        await convexMutation(api.threads.invalidateGitStatus, {
           threadId,
-          status,
-          branch: result.branch,
-          commitSha: result.commitSha,
-          commitMessage,
+          reason: "pull_rebase",
         });
-
-        return Response.json({
-          status,
-          branch: result.branch,
-          commitSha: result.commitSha,
-          commitMessage,
-        });
+        return Response.json({ status: "updated", ...result });
       },
     });
   } catch (error) {
@@ -527,19 +448,11 @@ async function POST(
       return Response.json({ error: error.message }, { status: 409 });
     }
 
-    if (error instanceof SandboxNoChangesError) {
-      return Response.json({ error: error.message }, { status: 409 });
-    }
-
     if (error instanceof GithubConnectionError) {
       return Response.json({ error: error.message }, { status: 401 });
     }
 
-    if (error instanceof CodexConnectionError) {
-      return Response.json({ error: error.message }, { status: error.status });
-    }
-
-    return Response.json({ error: safeErrorMessage(error, "Could not commit sandbox changes.") }, { status: 500 });
+    return Response.json({ error: safeErrorMessage(error, "Could not update the thread branch.") }, { status: 500 });
   }
 }
 

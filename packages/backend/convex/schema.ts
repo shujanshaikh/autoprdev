@@ -2,6 +2,13 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 import { threadGitStatusValidator } from "./lib/gitStatus";
+import {
+  gitWorkflowActionValidator,
+  gitWorkflowFailureValidator,
+  gitWorkflowPhaseResultValidator,
+  gitWorkflowPhaseValidator,
+  gitWorkflowPushResultValidator,
+} from "./lib/gitWorkflow";
 
 export default defineSchema({
   projects: defineTable({
@@ -154,6 +161,8 @@ export default defineSchema({
     gitMutationAction: v.optional(v.union(
       v.literal("commit"),
       v.literal("commit_push"),
+      v.literal("push_create_pr"),
+      v.literal("commit_push_create_pr"),
       v.literal("push"),
       v.literal("pull"),
       v.literal("create_pr"),
@@ -175,6 +184,35 @@ export default defineSchema({
     .index("by_thread_id", ["threadId"])
     .index("by_project", ["projectId"])
     .index("by_author_project", ["authorId", "projectId"]),
+
+  gitOperations: defineTable({
+    operationId: v.string(),
+    threadId: v.string(),
+    projectId: v.string(),
+    authorId: v.string(),
+    requestedAction: gitWorkflowActionValidator,
+    status: v.union(v.literal("running"), v.literal("succeeded"), v.literal("failed")),
+    currentPhase: v.optional(gitWorkflowPhaseValidator),
+    phaseResults: v.array(gitWorkflowPhaseResultValidator),
+    commitMessage: v.optional(v.string()),
+    pullRequestTitle: v.optional(v.string()),
+    pullRequestBody: v.optional(v.string()),
+    pullRequestDraft: v.optional(v.boolean()),
+    commitSha: v.optional(v.string()),
+    branch: v.optional(v.string()),
+    baseBranch: v.optional(v.string()),
+    pushResult: v.optional(gitWorkflowPushResultValidator),
+    pullRequestNumber: v.optional(v.number()),
+    pullRequestUrl: v.optional(v.string()),
+    failure: v.optional(gitWorkflowFailureValidator),
+    attempt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_operation_id", ["operationId"])
+    .index("by_thread_created", ["threadId", "createdAt"])
+    .index("by_author", ["authorId"]),
 
   messages: defineTable({
     threadId: v.string(),

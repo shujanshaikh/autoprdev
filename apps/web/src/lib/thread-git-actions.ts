@@ -2,10 +2,12 @@ import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 
 export const threadGitActions = [
   "commit",
-  "commit_push",
   "push",
-  "pull",
   "create_pr",
+  "commit_push",
+  "push_create_pr",
+  "commit_push_create_pr",
+  "pull",
   "view_pr",
 ] as const;
 
@@ -27,8 +29,10 @@ export const threadGitActionLabels: Record<ThreadGitAction, string> = {
   commit: "Commit",
   commit_push: "Commit & push",
   push: "Push",
-  pull: "Update branch",
   create_pr: "Create PR",
+  push_create_pr: "Push & create PR",
+  commit_push_create_pr: "Commit, push & create PR",
+  pull: "Update branch",
   view_pr: "View PR",
 };
 
@@ -121,6 +125,16 @@ export function resolveThreadGitActions(status?: ThreadGitStatus | null): Thread
         : enabled()
     : disabled("There are no working-tree changes to commit.");
 
+  actions.commit_push_create_pr = hasPullRequest
+    ? disabled(`Pull request #${pullRequest?.number ?? ""} already exists for this branch.`.replace("# ", ""))
+    : status.hasWorkingTreeChanges
+      ? behind > 0
+        ? disabled("Update the branch before committing, pushing, and creating a pull request.")
+        : remoteUnavailable
+          ? disabled(remoteReason)
+          : enabled()
+      : disabled("There are no working-tree changes to commit.");
+
   actions.push = hasLocalCommits
     ? behind > 0
       ? disabled("Update the branch before pushing local commits.")
@@ -128,6 +142,16 @@ export function resolveThreadGitActions(status?: ThreadGitStatus | null): Thread
         ? disabled(remoteReason)
         : enabled()
     : disabled("There are no local commits to push.");
+
+  actions.push_create_pr = hasPullRequest
+    ? disabled(`Pull request #${pullRequest?.number ?? ""} already exists for this branch.`.replace("# ", ""))
+    : hasLocalCommits
+      ? behind > 0
+        ? disabled("Update the branch before pushing and creating a pull request.")
+        : remoteUnavailable
+          ? disabled(remoteReason)
+          : enabled()
+      : disabled("There are no local commits to push.");
 
   actions.pull = behind > 0
     ? status.hasWorkingTreeChanges
@@ -139,15 +163,20 @@ export function resolveThreadGitActions(status?: ThreadGitStatus | null): Thread
           : enabled()
     : disabled(behindReason);
 
+  const branchIsPushed = Boolean(status.remoteHeadSha && status.remoteHeadSha === status.localHeadSha);
   actions.create_pr = hasPullRequest
     ? disabled(`Pull request #${pullRequest?.number ?? ""} already exists for this branch.`.replace("# ", ""))
-    : !differsFromBase
-      ? disabled(`This branch does not differ from ${status.baseBranch}.`)
-      : behind > 0
-        ? disabled("Update the branch before creating a pull request.")
-        : remoteUnavailable
-          ? disabled(remoteReason)
-          : enabled();
+    : status.hasWorkingTreeChanges
+      ? disabled("Commit and push the working-tree changes before creating a pull request.")
+      : hasLocalCommits || !branchIsPushed
+        ? disabled("Push the current commit before creating a pull request.")
+        : !differsFromBase
+          ? disabled(`This branch does not differ from ${status.baseBranch}.`)
+          : behind > 0
+            ? disabled("Update the branch before creating a pull request.")
+            : remoteUnavailable
+              ? disabled(remoteReason)
+              : enabled();
 
   if (behind > 0) {
     return {
@@ -159,7 +188,7 @@ export function resolveThreadGitActions(status?: ThreadGitStatus | null): Thread
   }
 
   if (status.hasWorkingTreeChanges) {
-    const primaryAction = hasPullRequest ? "commit_push" : "create_pr";
+    const primaryAction = hasPullRequest ? "commit_push" : "commit_push_create_pr";
     return {
       primaryAction,
       primaryLabel: hasPullRequest ? "Commit & push" : "Commit, push & create PR",
@@ -169,10 +198,11 @@ export function resolveThreadGitActions(status?: ThreadGitStatus | null): Thread
   }
 
   if (hasLocalCommits) {
+    const primaryAction = hasPullRequest ? "push" : "push_create_pr";
     return {
-      primaryAction: "push",
-      primaryLabel: "Push",
-      primaryReason: actions.push.reason,
+      primaryAction,
+      primaryLabel: hasPullRequest ? "Push" : "Push & create PR",
+      primaryReason: actions[primaryAction].reason,
       actions,
     };
   }

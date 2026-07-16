@@ -18,6 +18,14 @@ import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
 import { threadGitStatusValidator } from "./lib/gitStatus";
 import {
+  gitWorkflowActionValidator,
+  gitWorkflowFailureValidator,
+  gitWorkflowPhaseResultValidator,
+  gitWorkflowPhaseValidator,
+  gitWorkflowPushResultValidator,
+  nextGitWorkflowPhase,
+} from "./lib/gitWorkflow";
+import {
   createThreadFeatureBranch,
   createThreadWorktreePath,
   resolveThreadBaseBranch,
@@ -648,10 +656,19 @@ const gitStatusInvalidationReasonValidator = v.union(
 const gitMutationActionValidator = v.union(
   v.literal("commit"),
   v.literal("commit_push"),
+  v.literal("push_create_pr"),
+  v.literal("commit_push_create_pr"),
   v.literal("push"),
   v.literal("pull"),
   v.literal("create_pr"),
 );
+
+const gitOperationInputValidator = {
+  commitMessage: v.optional(v.string()),
+  pullRequestTitle: v.optional(v.string()),
+  pullRequestBody: v.optional(v.string()),
+  pullRequestDraft: v.optional(v.boolean()),
+};
 
 const GIT_MUTATION_LEASE_MS = 30 * 60 * 1_000;
 
@@ -702,6 +719,246 @@ export const endGitMutation = mutation({
         gitMutationAction: undefined,
         gitMutationStartedAt: undefined,
         updatedAt: Date.now(),
+      });
+    }
+    return null;
+  },
+});
+
+export const getGitOperation = query({
+  args: { threadId: v.string(), operationId: v.string() },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    const operation = await ctx.db
+      .query("gitOperations")
+      .withIndex("by_operation_id", (q) => q.eq("operationId", args.operationId))
+      .unique();
+    return operation?.threadId === thread.threadId ? operation : null;
+  },
+});
+
+export const getLatestGitOperation = query({
+  args: { threadId: v.string() },
+  handler: async (ctx, args) => {
+    await requireThreadForAuthor(ctx, args.threadId);
+    return ctx.db
+      .query("gitOperations")
+      .withIndex("by_thread_created", (q) => q.eq("threadId", args.threadId))
+      .order("desc")
+      .first();
+  },
+});
+
+export const beginGitOperation = mutation({
+  args: {
+    threadId: v.string(),
+    projectId: v.string(),
+    operationId: v.string(),
+    action: gitWorkflowActionValidator,
+    ...gitOperationInputValidator,
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    if (thread.projectId !== args.projectId) {
+      throw new ConvexError({ code: "THREAD_NOT_FOUND" });
+    }
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("gitOperations")
+      .withIndex("by_operation_id", (q) => q.eq("operationId", args.operationId))
+      .unique();
+
+    if (existing && (
+      existing.threadId !== args.threadId ||
+      existing.authorId !== thread.authorId ||
+      existing.requestedAction !== args.action
+    )) {
+      throw new ConvexError({ code: "OPERATION_ID_CONFLICT" });
+    }
+
+    if (existing?.status === "succeeded") {
+      return { acquired: false as const, reason: "completed" as const, operation: existing };
+    }
+
+    const leaseActive = Boolean(
+      thread.gitMutationId &&
+      thread.gitMutationStartedAt &&
+      thread.gitMutationStartedAt > now - GIT_MUTATION_LEASE_MS,
+    );
+    if (leaseActive) {
+      return {
+        acquired: false as const,
+        reason: thread.gitMutationId === args.operationId ? "running" as const : "conflict" as const,
+        activeAction: thread.gitMutationAction,
+        operation: existing ?? null,
+      };
+    }
+
+    let operation;
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        status: "running",
+        currentPhase: nextGitWorkflowPhase(existing.requestedAction, existing.phaseResults),
+        failure: undefined,
+        attempt: existing.attempt + 1,
+        updatedAt: now,
+        completedAt: undefined,
+      });
+      operation = await ctx.db.get(existing._id);
+    } else {
+      const id = await ctx.db.insert("gitOperations", {
+        operationId: args.operationId,
+        threadId: args.threadId,
+        projectId: args.projectId,
+        authorId: thread.authorId,
+        requestedAction: args.action,
+        status: "running",
+        currentPhase: nextGitWorkflowPhase(args.action, []),
+        phaseResults: [],
+        commitMessage: args.commitMessage,
+        pullRequestTitle: args.pullRequestTitle,
+        pullRequestBody: args.pullRequestBody,
+        pullRequestDraft: args.pullRequestDraft,
+        attempt: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      operation = await ctx.db.get(id);
+    }
+
+    await ctx.db.patch(thread._id, {
+      gitMutationId: args.operationId,
+      gitMutationAction: args.action,
+      gitMutationStartedAt: now,
+      updatedAt: now,
+    });
+    return { acquired: true as const, operation };
+  },
+});
+
+type StoredGitPhaseResult = Doc<"gitOperations">["phaseResults"][number];
+
+function replacePhaseResult(
+  results: StoredGitPhaseResult[],
+  result: StoredGitPhaseResult,
+) {
+  return [...results.filter((item) => item.phase !== result.phase), result];
+}
+
+export const startGitOperationPhase = mutation({
+  args: {
+    threadId: v.string(),
+    operationId: v.string(),
+    phase: gitWorkflowPhaseValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireThreadForAuthor(ctx, args.threadId);
+    const operation = await ctx.db.query("gitOperations")
+      .withIndex("by_operation_id", (q) => q.eq("operationId", args.operationId)).unique();
+    if (!operation || operation.threadId !== args.threadId) throw new ConvexError({ code: "OPERATION_NOT_FOUND" });
+    const now = Date.now();
+    const result = { phase: args.phase, status: "running" as const, startedAt: now };
+    await ctx.db.patch(operation._id, {
+      status: "running",
+      currentPhase: args.phase,
+      phaseResults: replacePhaseResult(operation.phaseResults, result),
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const completeGitOperationPhase = mutation({
+  args: {
+    threadId: v.string(),
+    operationId: v.string(),
+    result: gitWorkflowPhaseResultValidator,
+    branch: v.optional(v.string()),
+    baseBranch: v.optional(v.string()),
+    commitSha: v.optional(v.string()),
+    commitMessage: v.optional(v.string()),
+    pushResult: v.optional(gitWorkflowPushResultValidator),
+    pullRequestNumber: v.optional(v.number()),
+    pullRequestUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireThreadForAuthor(ctx, args.threadId);
+    const operation = await ctx.db.query("gitOperations")
+      .withIndex("by_operation_id", (q) => q.eq("operationId", args.operationId)).unique();
+    if (!operation || operation.threadId !== args.threadId) throw new ConvexError({ code: "OPERATION_NOT_FOUND" });
+    const phaseResults = replacePhaseResult(operation.phaseResults, args.result);
+    await ctx.db.patch(operation._id, {
+      phaseResults,
+      currentPhase: nextGitWorkflowPhase(operation.requestedAction, phaseResults),
+      branch: args.branch ?? operation.branch,
+      baseBranch: args.baseBranch ?? operation.baseBranch,
+      commitSha: args.commitSha ?? operation.commitSha,
+      commitMessage: args.commitMessage ?? operation.commitMessage,
+      pushResult: args.pushResult ?? operation.pushResult,
+      pullRequestNumber: args.pullRequestNumber ?? operation.pullRequestNumber,
+      pullRequestUrl: args.pullRequestUrl ?? operation.pullRequestUrl,
+      failure: undefined,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const failGitOperation = mutation({
+  args: {
+    threadId: v.string(),
+    operationId: v.string(),
+    result: gitWorkflowPhaseResultValidator,
+    failure: gitWorkflowFailureValidator,
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    const operation = await ctx.db.query("gitOperations")
+      .withIndex("by_operation_id", (q) => q.eq("operationId", args.operationId)).unique();
+    if (!operation || operation.threadId !== args.threadId) throw new ConvexError({ code: "OPERATION_NOT_FOUND" });
+    const now = Date.now();
+    await ctx.db.patch(operation._id, {
+      status: "failed",
+      currentPhase: args.failure.phase,
+      phaseResults: replacePhaseResult(operation.phaseResults, args.result),
+      failure: args.failure,
+      updatedAt: now,
+      completedAt: now,
+    });
+    if (thread.gitMutationId === args.operationId) {
+      await ctx.db.patch(thread._id, {
+        gitMutationId: undefined,
+        gitMutationAction: undefined,
+        gitMutationStartedAt: undefined,
+        updatedAt: now,
+      });
+    }
+    return null;
+  },
+});
+
+export const completeGitOperation = mutation({
+  args: { threadId: v.string(), operationId: v.string() },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    const operation = await ctx.db.query("gitOperations")
+      .withIndex("by_operation_id", (q) => q.eq("operationId", args.operationId)).unique();
+    if (!operation || operation.threadId !== args.threadId) throw new ConvexError({ code: "OPERATION_NOT_FOUND" });
+    const now = Date.now();
+    await ctx.db.patch(operation._id, {
+      status: "succeeded",
+      currentPhase: undefined,
+      failure: undefined,
+      updatedAt: now,
+      completedAt: now,
+    });
+    if (thread.gitMutationId === args.operationId) {
+      await ctx.db.patch(thread._id, {
+        gitMutationId: undefined,
+        gitMutationAction: undefined,
+        gitMutationStartedAt: undefined,
+        updatedAt: now,
       });
     }
     return null;
@@ -876,12 +1133,17 @@ export const removeInternal = internalMutation({
       .query("messages")
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
       .collect();
+    const gitOperations = await ctx.db
+      .query("gitOperations")
+      .withIndex("by_thread_created", (q) => q.eq("threadId", args.threadId))
+      .collect();
 
     await deleteAssistantPartsBlobKeys(
       ctx as unknown as AssistantPartsBlobDeleteCtx,
       collectAssistantPartsBlobKeys(messages),
     );
     await Promise.all(messages.map((message) => ctx.db.delete(message._id)));
+    await Promise.all(gitOperations.map((operation) => ctx.db.delete(operation._id)));
     await ctx.db.delete(thread._id);
 
     return { projectId: thread.projectId };

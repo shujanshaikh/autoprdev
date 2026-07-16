@@ -239,7 +239,10 @@ export async function fetchGithubPullRequestForBranch(
   owner: string,
   repo: string,
   branch: string,
+  options: { base?: string; state?: "open" | "closed" | "all" } = {},
 ): Promise<GithubOAuthPullRequest | undefined> {
+  const state = options.state ?? "all";
+  const base = options.base ? `&base=${encodeURIComponent(options.base)}` : "";
   const response = await githubJson<Array<{
     id: number;
     number: number;
@@ -254,7 +257,7 @@ export async function fetchGithubPullRequestForBranch(
     base: { ref: string };
   }>>(
     token,
-    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}&per_page=1`,
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=${state}&head=${encodeURIComponent(`${owner}:${branch}`)}${base}&per_page=1`,
   );
   const pull = response.data[0];
   if (!pull) return undefined;

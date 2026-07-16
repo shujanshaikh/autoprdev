@@ -20,7 +20,7 @@ function status(overrides: Partial<ThreadGitStatus> = {}): ThreadGitStatus {
     aheadOfBaseCount: 1,
     diverged: false,
     localHeadSha: "local",
-    remoteHeadSha: "remote",
+    remoteHeadSha: "local",
     kind: "synchronized",
     checkedAt: 1,
     ...overrides,
@@ -39,9 +39,9 @@ describe("resolveThreadGitActions", () => {
   it("commits, pushes, and creates a PR for new working changes", () => {
     const result = resolveThreadGitActions(status({ hasWorkingTreeChanges: true }));
 
-    expect(result.primaryAction).toBe("create_pr");
+    expect(result.primaryAction).toBe("commit_push_create_pr");
     expect(result.primaryLabel).toBe("Commit, push & create PR");
-    expect(result.actions.create_pr.enabled).toBe(true);
+    expect(result.actions.commit_push_create_pr.enabled).toBe(true);
   });
 
   it("commits and pushes working changes to an existing PR branch", () => {
@@ -55,7 +55,7 @@ describe("resolveThreadGitActions", () => {
   it("pushes local commits that are ahead of the upstream", () => {
     const result = resolveThreadGitActions(status({ aheadCount: 2, kind: "ahead" }));
 
-    expect(result.primaryAction).toBe("push");
+    expect(result.primaryAction).toBe("push_create_pr");
     expect(result.actions.push.enabled).toBe(true);
   });
 
@@ -67,7 +67,7 @@ describe("resolveThreadGitActions", () => {
       kind: "no_upstream",
     }));
 
-    expect(result.primaryAction).toBe("push");
+    expect(result.primaryAction).toBe("push_create_pr");
     expect(result.actions.push.enabled).toBe(true);
   });
 

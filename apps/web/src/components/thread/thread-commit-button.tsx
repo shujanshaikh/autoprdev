@@ -1,4 +1,5 @@
 import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
+import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { ButtonGroup } from "@autopr/ui/components/button-group";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@autopr/ui/components/dropdown-menu";
 import { Textarea } from "@autopr/ui/components/textarea";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -30,7 +32,9 @@ import {
   Loader2,
   Upload,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { ThreadGitOperationProgress } from "#/components/thread/thread-git-operation-progress";
 
 import {
   resolveThreadGitActions,
@@ -51,17 +55,19 @@ interface ThreadCommitButtonProps {
 
 type GitActionVariables = {
   action: Exclude<ThreadGitAction, "view_pr">;
+  operationId?: string;
   commitMessage?: string;
 };
 
 type GitActionResponse = {
-  status?: "committed" | "pushed" | "updated" | "created";
+  operationId?: string;
+  status?: "committed" | "pushed" | "updated" | "created" | "running" | "succeeded" | "failed";
   branch?: string;
   commitSha?: string;
   commitMessage?: string;
   url?: string;
   number?: number;
-  error?: string;
+  error?: string | { code?: string; message?: string };
 };
 
 type ThreadCommitState = {
@@ -74,6 +80,8 @@ const actionIcons = {
   push: Upload,
   pull: ArrowDownToLine,
   create_pr: GitPullRequest,
+  push_create_pr: GitPullRequest,
+  commit_push_create_pr: GitPullRequest,
   view_pr: ExternalLink,
 } satisfies Record<ThreadGitAction, typeof GitBranch>;
 
@@ -82,7 +90,9 @@ const pendingLabels: Record<GitActionVariables["action"], string> = {
   commit_push: "Committing and pushing changes…",
   push: "Pushing local commits…",
   pull: "Updating branch…",
-  create_pr: "Committing, pushing, and creating the pull request…",
+  create_pr: "Creating the pull request…",
+  push_create_pr: "Pushing and creating the pull request…",
+  commit_push_create_pr: "Committing, pushing, and creating the pull request…",
 };
 
 const successLabels: Record<NonNullable<GitActionResponse["status"]>, string> = {
@@ -90,6 +100,9 @@ const successLabels: Record<NonNullable<GitActionResponse["status"]>, string> = 
   pushed: "Branch pushed",
   updated: "Branch updated",
   created: "Pull request created",
+  running: "Git operation running",
+  succeeded: "Git operation completed",
+  failed: "Git operation failed",
 };
 
 function shortSha(value: string | undefined) {
@@ -105,6 +118,8 @@ export function ThreadCommitButton({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<Exclude<ThreadGitAction, "view_pr"> | null>(null);
   const [commitMessageDraft, setCommitMessageDraft] = useState("");
+  const [activeOperationId, setActiveOperationId] = useState<string>();
+  const presentedOperationId = useRef<string>();
   const queryClient = useQueryClient();
   const gitStatusQuery = useThreadGitStatusQuery({
     projectId,
@@ -115,22 +130,38 @@ export function ThreadCommitButton({
   const status = gitStatusQuery.data ?? thread?.gitStatus;
   const resolution = useMemo(() => resolveThreadGitActions(status), [status]);
   const statusQueryKey = threadGitStatusQueryKey(projectId, threadId);
+  const latestOperation = useQuery(api.threads.getLatestGitOperation, { threadId });
+  const activeOperation = latestOperation && (
+    latestOperation.operationId === activeOperationId ||
+    (!activeOperationId && latestOperation.status !== "succeeded")
+  ) ? latestOperation : undefined;
+
+  useEffect(() => {
+    if (!activeOperation || presentedOperationId.current === activeOperation.operationId) return;
+    presentedOperationId.current = activeOperation.operationId;
+    setActiveOperationId(activeOperation.operationId);
+    setDialogAction(activeOperation.requestedAction);
+    if (!dialogOpen) setDialogOpen(true);
+  }, [activeOperation, dialogOpen]);
 
   const mutation = useMutation<GitActionResponse, Error, GitActionVariables>({
     mutationKey: ["thread", projectId, threadId, "git-mutation"],
-    mutationFn: async ({ action, commitMessage }) => {
-      const isCreatePullRequest = action === "create_pr";
+    mutationFn: async ({ action, commitMessage, operationId }) => {
       const response = await fetch(
-        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}${isCreatePullRequest ? "/pull-request" : ""}`,
+        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(isCreatePullRequest ? {} : { action, commitMessage }),
+          body: JSON.stringify({ action, commitMessage, operationId }),
         },
       );
       const body = (await response.json().catch(() => ({}))) as GitActionResponse;
       if (!response.ok) {
-        throw new Error(body.error || "Could not complete the Git operation.");
+        throw new Error(
+          typeof body.error === "string"
+            ? body.error
+            : body.error?.message || "Could not complete the Git operation.",
+        );
       }
       return body;
     },
@@ -142,7 +173,7 @@ export function ThreadCommitButton({
     },
   });
 
-  const busy = mutation.isPending;
+  const busy = mutation.isPending || activeOperation?.status === "running";
   const activeAction = busy ? mutation.variables?.action ?? dialogAction : dialogAction;
   const result = mutation.data;
   const error = mutation.error?.message;
@@ -162,7 +193,9 @@ export function ThreadCommitButton({
     setDialogAction(action);
     setDialogOpen(true);
     if (action !== "commit" && action !== "commit_push") {
-      mutation.mutate({ action });
+      const operationId = crypto.randomUUID();
+      setActiveOperationId(operationId);
+      mutation.mutate({ action, operationId });
     }
   };
 
@@ -170,9 +203,22 @@ export function ThreadCommitButton({
     if (!dialogAction || (dialogAction !== "commit" && dialogAction !== "commit_push")) return;
     const commitMessage = commitMessageDraft.trim();
     mutation.reset();
+    const operationId = crypto.randomUUID();
+    setActiveOperationId(operationId);
     mutation.mutate({
       action: dialogAction,
+      operationId,
       commitMessage: commitMessage || undefined,
+    });
+  };
+
+  const retryOperation = () => {
+    if (!activeOperation) return;
+    mutation.reset();
+    mutation.mutate({
+      action: activeOperation.requestedAction,
+      operationId: activeOperation.operationId,
+      commitMessage: activeOperation.commitMessage,
     });
   };
 
@@ -282,14 +328,20 @@ export function ThreadCommitButton({
               />
             ) : null}
 
-            {busy && activeAction ? (
+            {activeOperation ? (
+              <ThreadGitOperationProgress
+                operation={activeOperation}
+                retrying={mutation.isPending}
+                onRetry={retryOperation}
+              />
+            ) : busy && activeAction ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
                 {pendingLabels[activeAction]}
               </div>
             ) : null}
 
-            {result ? (
+            {result && !activeOperation ? (
               <div className="relative overflow-hidden border border-primary/20 bg-primary/[0.04]" role="status">
                 <div className="absolute inset-y-0 left-0 w-[3px] bg-primary" />
                 <div className="py-3 pl-5 pr-4">
@@ -330,7 +382,7 @@ export function ThreadCommitButton({
               </div>
             ) : null}
 
-            {error ? (
+            {error && !activeOperation ? (
               <div className="relative overflow-hidden border border-destructive/20 bg-destructive/[0.04]" role="alert">
                 <div className="absolute inset-y-0 left-0 w-[3px] bg-destructive" />
                 <div className="flex gap-2.5 py-3 pl-5 pr-4">

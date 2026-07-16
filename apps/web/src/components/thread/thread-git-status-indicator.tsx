@@ -1,16 +1,9 @@
 import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { cn } from "@autopr/ui/lib/utils";
-import { useQuery } from "@tanstack/react-query";
 import { GitBranch, Loader2, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 
-interface GitStatusResponse {
-  status?: ThreadGitStatus;
-  error?: {
-    code: string;
-    message: string;
-  };
-}
+import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 
 interface ThreadGitStatusIndicatorProps {
   projectId: string;
@@ -59,23 +52,11 @@ export function ThreadGitStatusIndicator({
   invalidatedAt,
   isLive,
 }: ThreadGitStatusIndicatorProps) {
-  const query = useQuery({
-    queryKey: ["thread", projectId, threadId, "git-status"],
-    queryFn: async () => {
-      const response = await fetch(
-        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?gitStatus=1&refresh=1`,
-      );
-      const body = (await response.json().catch(() => ({}))) as GitStatusResponse;
-      if (!response.ok || !body.status) {
-        throw new Error(body.error?.message ?? "Could not refresh Git status.");
-      }
-      return body.status;
-    },
-    initialData: persistedStatus,
-    initialDataUpdatedAt: persistedStatus?.checkedAt,
-    staleTime: 10_000,
+  const query = useThreadGitStatusQuery({
+    projectId,
+    threadId,
+    persistedStatus,
     refetchInterval: isLive ? 5_000 : 30_000,
-    refetchOnWindowFocus: true,
   });
   const status = query.data ?? persistedStatus;
 

@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { createGithubPullRequest } from "@autopr/backend/convex/lib/github_oauth";
+import {
+  createGithubPullRequest,
+  fetchGithubPullRequestForBranch,
+} from "@autopr/backend/convex/lib/github_oauth";
 import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
@@ -12,6 +15,10 @@ import {
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
+import {
+  ThreadGitMutationConflictError,
+  withThreadGitMutation,
+} from "#/lib/thread-git-mutation-server";
 
 const requestSchema = z.object({
   title: z.string().trim().min(1).max(180).optional(),
@@ -69,62 +76,93 @@ async function POST(
       });
       const baseBranch = worktree.baseBranch;
       const branch = worktree.featureBranch;
-      const existingFailedBranch = thread.pullRequestStatus === "failed" ? thread.pullRequestBranch : undefined;
-      await convexMutation(api.threads.markPullRequestCreating, { threadId, branch });
-
-      try {
-        try {
-          const commit = await commitAndPushProjectSandboxChanges({
-            sandboxId: project.sandboxId,
-            githubToken: token,
-            githubUsername: gitIdentity.username,
-            authorName: gitIdentity.name,
-            authorEmail: gitIdentity.email,
+      return await withThreadGitMutation({
+        threadId,
+        action: "create_pr",
+        run: async () => {
+          const existing = await fetchGithubPullRequestForBranch(
+            token,
+            project.repoOwner,
+            project.repoName,
             branch,
-            baseBranch,
-            commitMessage: title,
-            repoName: project.repoName,
-            sandboxWorkDir: worktree.worktreePath,
-          });
-          await convexMutation(api.threads.markChangesCommitted, {
-            threadId,
-            status: "pushed",
-            branch,
-            commitSha: commit.commitSha,
-            commitMessage: title,
-          });
-        } catch (error) {
-          if (!(error instanceof SandboxNoChangesError && existingFailedBranch === branch)) {
-            throw error;
+          );
+          if (existing) {
+            await convexMutation(api.threads.markPullRequestCreated, {
+              threadId,
+              branch,
+              url: existing.htmlUrl,
+              number: existing.number,
+            });
+            return Response.json({
+              status: "created",
+              url: existing.htmlUrl,
+              number: existing.number,
+              branch,
+            });
           }
-        }
 
-        const pull = await createGithubPullRequest(token, project.repoOwner, project.repoName, {
-          title,
-          head: branch,
-          base: baseBranch,
-          body,
-          draft: parsed.data.draft ?? false,
-        });
+          const existingFailedBranch = thread.pullRequestStatus === "failed" ? thread.pullRequestBranch : undefined;
+          await convexMutation(api.threads.markPullRequestCreating, { threadId, branch });
 
-        await convexMutation(api.threads.markPullRequestCreated, {
-          threadId,
-          branch,
-          url: pull.htmlUrl,
-          number: pull.number,
-        });
+          try {
+            try {
+              const commit = await commitAndPushProjectSandboxChanges({
+                sandboxId: project.sandboxId,
+                githubToken: token,
+                githubUsername: gitIdentity.username,
+                authorName: gitIdentity.name,
+                authorEmail: gitIdentity.email,
+                branch,
+                baseBranch,
+                commitMessage: title,
+                repoName: project.repoName,
+                sandboxWorkDir: worktree.worktreePath,
+              });
+              await convexMutation(api.threads.markChangesCommitted, {
+                threadId,
+                status: "pushed",
+                branch,
+                commitSha: commit.commitSha,
+                commitMessage: title,
+              });
+            } catch (error) {
+              if (!(error instanceof SandboxNoChangesError && existingFailedBranch === branch)) {
+                throw error;
+              }
+            }
 
-        return Response.json({ status: "created", url: pull.htmlUrl, number: pull.number, branch });
-      } catch (error) {
-        const message = safeErrorMessage(error, "Could not create pull request.");
-        await convexMutation(api.threads.markPullRequestFailed, { threadId, error: message });
+            const pull = await createGithubPullRequest(token, project.repoOwner, project.repoName, {
+              title,
+              head: branch,
+              base: baseBranch,
+              body,
+              draft: parsed.data.draft ?? false,
+            });
 
-        return Response.json(
-          { error: message },
-          { status: error instanceof SandboxNoChangesError ? 409 : 500 },
-        );
-      }
+            await convexMutation(api.threads.markPullRequestCreated, {
+              threadId,
+              branch,
+              url: pull.htmlUrl,
+              number: pull.number,
+            });
+
+            return Response.json({ status: "created", url: pull.htmlUrl, number: pull.number, branch });
+          } catch (error) {
+            const message = safeErrorMessage(error, "Could not create pull request.");
+            await convexMutation(api.threads.markPullRequestFailed, { threadId, error: message });
+
+            return Response.json(
+              { error: message },
+              { status: error instanceof SandboxNoChangesError ? 409 : 500 },
+            );
+          }
+        },
+      });
     } catch (error) {
+      if (error instanceof ThreadGitMutationConflictError) {
+        return Response.json({ error: error.message }, { status: 409 });
+      }
+
       if (error instanceof GithubConnectionError) {
         return Response.json({ code: "GITHUB_NOT_CONNECTED", error: error.message }, { status: 401 });
       }

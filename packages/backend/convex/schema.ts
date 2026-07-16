@@ -150,6 +150,15 @@ export default defineSchema({
     commitSha: v.optional(v.string()),
     commitMessage: v.optional(v.string()),
     committedAt: v.optional(v.number()),
+    gitMutationId: v.optional(v.string()),
+    gitMutationAction: v.optional(v.union(
+      v.literal("commit"),
+      v.literal("commit_push"),
+      v.literal("push"),
+      v.literal("pull"),
+      v.literal("create_pr"),
+    )),
+    gitMutationStartedAt: v.optional(v.number()),
     gitStatus: v.optional(threadGitStatusValidator),
     gitStatusInvalidatedAt: v.optional(v.number()),
     gitStatusInvalidationReason: v.optional(v.union(

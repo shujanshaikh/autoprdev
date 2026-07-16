@@ -645,6 +645,69 @@ const gitStatusInvalidationReasonValidator = v.union(
   v.literal("manual"),
 );
 
+const gitMutationActionValidator = v.union(
+  v.literal("commit"),
+  v.literal("commit_push"),
+  v.literal("push"),
+  v.literal("pull"),
+  v.literal("create_pr"),
+);
+
+const GIT_MUTATION_LEASE_MS = 30 * 60 * 1_000;
+
+export const beginGitMutation = mutation({
+  args: {
+    threadId: v.string(),
+    mutationId: v.string(),
+    action: gitMutationActionValidator,
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    const now = Date.now();
+    const hasActiveMutation = Boolean(
+      thread.gitMutationId &&
+      thread.gitMutationStartedAt &&
+      thread.gitMutationStartedAt > now - GIT_MUTATION_LEASE_MS,
+    );
+
+    if (hasActiveMutation) {
+      return {
+        acquired: false as const,
+        activeAction: thread.gitMutationAction,
+      };
+    }
+
+    await ctx.db.patch(thread._id, {
+      gitMutationId: args.mutationId,
+      gitMutationAction: args.action,
+      gitMutationStartedAt: now,
+      updatedAt: now,
+    });
+
+    return { acquired: true as const };
+  },
+});
+
+export const endGitMutation = mutation({
+  args: {
+    threadId: v.string(),
+    mutationId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    if (thread.gitMutationId === args.mutationId) {
+      await ctx.db.patch(thread._id, {
+        gitMutationId: undefined,
+        gitMutationAction: undefined,
+        gitMutationStartedAt: undefined,
+        updatedAt: Date.now(),
+      });
+    }
+    return null;
+  },
+});
+
 export const updateGitStatus = mutation({
   args: {
     threadId: v.string(),

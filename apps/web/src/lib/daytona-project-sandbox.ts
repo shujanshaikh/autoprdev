@@ -354,3 +354,44 @@ export async function pushProjectSandboxBranch(options: {
   ).trim();
   return { branch, commitSha, pushed: true };
 }
+
+export async function pullProjectSandboxBranch(options: {
+  sandboxId: string;
+  branch: string;
+  githubToken: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}): Promise<{ branch: string; commitSha: string }> {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
+  const currentBranch = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+  ).trim();
+
+  if (currentBranch !== options.branch) {
+    throw new Error(
+      `Thread worktree branch mismatch: expected ${options.branch}, found ${currentBranch || "detached HEAD"}.`,
+    );
+  }
+
+  const fetchResult = await sandbox.process.executeCommand(
+    "git fetch origin --prune",
+    repoPath,
+    createEphemeralGitAuthEnvironment(options.githubToken),
+    120,
+  );
+  if (typeof fetchResult.exitCode === "number" && fetchResult.exitCode !== 0) {
+    throw new Error(fetchResult.stderr || fetchResult.result || "Could not fetch the thread branch.");
+  }
+
+  await runSandboxCommand(
+    sandbox,
+    `cd ${quotedRepoPath} && git merge --ff-only ${shellEscape("@{upstream}")}`,
+  );
+  const commitSha = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
+  ).trim();
+
+  return { branch: currentBranch, commitSha };
+}

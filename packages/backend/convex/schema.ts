@@ -1,6 +1,8 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import { threadGitStatusValidator } from "./lib/gitStatus";
+
 export default defineSchema({
   projects: defineTable({
     projectId: v.string(),
@@ -148,6 +150,18 @@ export default defineSchema({
     commitSha: v.optional(v.string()),
     commitMessage: v.optional(v.string()),
     committedAt: v.optional(v.number()),
+    gitStatus: v.optional(threadGitStatusValidator),
+    gitStatusInvalidatedAt: v.optional(v.number()),
+    gitStatusInvalidationReason: v.optional(v.union(
+      v.literal("agent_changes"),
+      v.literal("worktree_created"),
+      v.literal("commit"),
+      v.literal("pull_rebase"),
+      v.literal("push"),
+      v.literal("pull_request"),
+      v.literal("sandbox_reconnect"),
+      v.literal("manual"),
+    )),
   })
     .index("by_thread_id", ["threadId"])
     .index("by_project", ["projectId"])

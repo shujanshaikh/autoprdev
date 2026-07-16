@@ -4,7 +4,6 @@ import { cn } from "@autopr/ui/lib/utils";
 import { useSidebar } from "@autopr/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
-import { GitBranch } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { PierreDiffWorkerPoolProvider } from "@/components/ai-elements/pierre-diff-view";
@@ -14,6 +13,7 @@ import type { CodexPromptConnectionIssue } from "#/components/codex-prompt-conne
 import { ThreadChat } from "#/components/thread/thread-chat";
 import { parseThreadDiffDeepLink } from "#/components/thread/thread-diff-panel-utils";
 import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
+import { ThreadGitStatusIndicator } from "#/components/thread/thread-git-status-indicator";
 import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
 
@@ -293,13 +293,14 @@ function ProjectThreadPageContent() {
           <p className="truncate text-sm font-medium text-foreground lg:hidden">
             {thread?.title ?? "Untitled conversation"}
           </p>
-          {thread?.featureBranch ? (
-            <div className="hidden min-w-0 items-center gap-1.5 px-3 font-mono text-[10px] text-muted-foreground lg:flex">
-              <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-              <span className="truncate text-foreground/80">{thread.featureBranch}</span>
-              <span aria-hidden="true">←</span>
-              <span className="truncate">{thread.baseBranch ?? "base"}</span>
-            </div>
+          {thread ? (
+            <ThreadGitStatusIndicator
+              projectId={projectId}
+              threadId={threadId}
+              persistedStatus={thread.gitStatus}
+              invalidatedAt={thread.gitStatusInvalidatedAt}
+              isLive={Boolean(thread.isLive)}
+            />
           ) : null}
         </div>
 

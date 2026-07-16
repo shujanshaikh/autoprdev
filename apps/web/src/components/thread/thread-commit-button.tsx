@@ -1,3 +1,4 @@
+import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { Button } from "@autopr/ui/components/button";
 import {
   Dialog,
@@ -42,10 +43,7 @@ type CommitResponse = {
 };
 
 type ThreadCommitState = {
-  commitStatus?: "committed" | "pushed";
-  commitBranch?: string;
-  commitSha?: string;
-  commitMessage?: string;
+  gitStatus?: ThreadGitStatus;
 };
 
 function shortSha(value: string | undefined) {
@@ -90,44 +88,37 @@ export function ThreadCommitButton({
     },
     onSuccess: () => {
       setCommitMessageDraft("");
-      void queryClient.invalidateQueries({ queryKey: ["thread", projectId, threadId] });
+      void queryClient.invalidateQueries({ queryKey: ["thread", projectId, threadId, "git-status"] });
     },
   });
 
-  const savedResult: CommitResponse | null = thread?.commitStatus
-    ? {
-      status: thread.commitStatus,
-      branch: thread.commitBranch,
-      commitSha: thread.commitSha,
-      commitMessage: thread.commitMessage,
-    }
-    : null;
   const busy = commitMutation.isPending;
   const pendingAction = busy ? commitMutation.variables?.action ?? null : null;
   const localResult =
     commitMutation.data?.projectId === projectId && commitMutation.data.threadId === threadId
       ? commitMutation.data
       : null;
-  const result = localResult ?? savedResult;
+  const result = localResult;
   const error = commitMutation.error?.message ?? null;
-  const hasCompletedCommit = Boolean(result?.status);
-  const buttonDisabled = disabled || busy || hasCompletedCommit;
+  const hasWorkingChanges = thread?.gitStatus?.hasWorkingTreeChanges ?? true;
+  const hasPushableCommits = (thread?.gitStatus?.aheadCount ?? 0) > 0 || (
+    !thread?.gitStatus?.hasUpstream && (thread?.gitStatus?.aheadOfBaseCount ?? 0) > 0
+  );
+  const buttonDisabled = disabled || busy || (!hasWorkingChanges && !hasPushableCommits);
   const buttonLabel = busy
     ? pendingAction === "push"
       ? "Committing & pushing..."
       : "Committing..."
-    : result?.status === "pushed"
-      ? "Committed & pushed"
-      : result?.status === "committed"
-        ? "Committed"
-        : "Commit";
+    : hasWorkingChanges
+      ? "Commit"
+      : "Push";
   const buttonTitle = busy
     ? pendingAction === "push"
       ? "Committing and pushing changes..."
       : "Committing changes..."
-    : hasCompletedCommit
-      ? "This thread has already been committed"
-      : "Commit or push changes";
+    : hasWorkingChanges
+      ? "Commit or push changes"
+      : "Push local commits";
 
   const openCommitDialog = () => {
     setOpen(true);
@@ -164,12 +155,12 @@ export function ThreadCommitButton({
                 <GitCommitHorizontal className="size-3.5" aria-hidden />
               )}
               {buttonLabel}
-              {!hasCompletedCommit ? <ChevronDown className="size-3" aria-hidden /> : null}
+              <ChevronDown className="size-3" aria-hidden />
             </Button>
           }
         />
         <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem disabled={buttonDisabled} onClick={openCommitDialog}>
+          <DropdownMenuItem disabled={buttonDisabled || !hasWorkingChanges} onClick={openCommitDialog}>
             <GitCommitHorizontal className="size-3.5" aria-hidden />
             Commit
           </DropdownMenuItem>
@@ -195,7 +186,7 @@ export function ThreadCommitButton({
 
           {/* Body */}
           <div className="px-5 py-4">
-            {!result ? (
+            {!result && hasWorkingChanges ? (
               <div className="mb-3">
                 <Textarea
                   aria-label="Commit message"
@@ -296,16 +287,18 @@ export function ThreadCommitButton({
                 >
                   Cancel
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => runCommitAction("commit")}
-                >
-                  <GitCommitHorizontal className="size-3.5" aria-hidden />
-                  Commit
-                </Button>
+                {hasWorkingChanges ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => runCommitAction("commit")}
+                  >
+                    <GitCommitHorizontal className="size-3.5" aria-hidden />
+                    Commit
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -313,7 +306,7 @@ export function ThreadCommitButton({
                   onClick={() => runCommitAction("push")}
                 >
                   <ArrowUpRight className="size-3.5" aria-hidden />
-                  Commit & push
+                  {hasWorkingChanges ? "Commit & push" : "Push"}
                 </Button>
               </>
             )}

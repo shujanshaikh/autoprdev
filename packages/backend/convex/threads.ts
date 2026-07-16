@@ -16,6 +16,7 @@ import {
 import { requireUserId } from "./lib/auth";
 import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
+import { threadGitStatusValidator } from "./lib/gitStatus";
 import {
   createThreadFeatureBranch,
   createThreadWorktreePath,
@@ -74,6 +75,8 @@ export const create = mutation({
       worktreePath,
       worktreeStatus: "pending",
       worktreeUpdatedAt: now,
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: "worktree_created",
     });
 
     return threadId;
@@ -128,6 +131,7 @@ export const reserveWorktreeInternal = internalMutation({
     }
 
     const now = Date.now();
+    const shouldInvalidate = thread.worktreeStatus !== "ready";
     await ctx.db.patch(thread._id, {
       baseBranch: thread.baseBranch ?? args.baseBranch,
       featureBranch: thread.featureBranch ?? args.featureBranch,
@@ -135,6 +139,10 @@ export const reserveWorktreeInternal = internalMutation({
       worktreeStatus: "provisioning",
       worktreeError: undefined,
       worktreeUpdatedAt: now,
+      ...(shouldInvalidate ? {
+        gitStatusInvalidatedAt: now,
+        gitStatusInvalidationReason: "worktree_created" as const,
+      } : {}),
       updatedAt: now,
     });
     return null;
@@ -426,6 +434,8 @@ async function applyRunIssue(
       errorStack: issue.errorStack ? longError(issue.errorStack) : undefined,
     },
     workflowIssue: undefined,
+    gitStatusInvalidatedAt: Date.now(),
+    gitStatusInvalidationReason: "agent_changes",
     updatedAt: Date.now(),
   });
 
@@ -529,6 +539,8 @@ async function applyRunFinished(
   await ctx.db.patch(thread._id, {
     currentRunId: undefined,
     isLive: false,
+    gitStatusInvalidatedAt: Date.now(),
+    gitStatusInvalidationReason: "agent_changes",
     updatedAt: Date.now(),
   });
 
@@ -622,6 +634,73 @@ export const setDemoEnabled = mutation({
   },
 });
 
+const gitStatusInvalidationReasonValidator = v.union(
+  v.literal("agent_changes"),
+  v.literal("worktree_created"),
+  v.literal("commit"),
+  v.literal("pull_rebase"),
+  v.literal("push"),
+  v.literal("pull_request"),
+  v.literal("sandbox_reconnect"),
+  v.literal("manual"),
+);
+
+export const updateGitStatus = mutation({
+  args: {
+    threadId: v.string(),
+    status: threadGitStatusValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    await ctx.db.patch(thread._id, {
+      gitStatus: args.status,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const invalidateGitStatus = mutation({
+  args: {
+    threadId: v.string(),
+    reason: gitStatusInvalidationReasonValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: args.reason,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const invalidateProjectGitStatusesInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    reason: gitStatusInvalidationReasonValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const threads = await ctx.db
+      .query("threads")
+      .withIndex("by_author_project", (q) => q.eq("authorId", args.authorId).eq("projectId", args.projectId))
+      .collect();
+    const now = Date.now();
+    await Promise.all(threads.map((thread) => ctx.db.patch(thread._id, {
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: args.reason,
+      updatedAt: now,
+    })));
+    return null;
+  },
+});
+
 export const markPullRequestCreating = mutation({
   args: {
     threadId: v.string(),
@@ -650,6 +729,7 @@ export const markPullRequestCreated = mutation({
   },
   handler: async (ctx, args) => {
     const thread = await requireThreadForAuthor(ctx, args.threadId);
+    const now = Date.now();
 
     await ctx.db.patch(thread._id, {
       pullRequestStatus: "created",
@@ -657,8 +737,10 @@ export const markPullRequestCreated = mutation({
       pullRequestNumber: args.number,
       pullRequestBranch: args.branch,
       pullRequestError: undefined,
-      pullRequestCreatedAt: Date.now(),
-      updatedAt: Date.now(),
+      pullRequestCreatedAt: now,
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: "pull_request",
+      updatedAt: now,
     });
 
     return null;
@@ -693,6 +775,7 @@ export const markChangesCommitted = mutation({
   },
   handler: async (ctx, args) => {
     const thread = await requireThreadForAuthor(ctx, args.threadId);
+    const now = Date.now();
 
     await ctx.db.patch(thread._id, {
       commitStatus: args.status,
@@ -701,8 +784,10 @@ export const markChangesCommitted = mutation({
       commitMessage: args.commitMessage,
       headSha: args.commitSha,
       upstreamBranch: args.status === "pushed" ? `origin/${args.branch}` : thread.upstreamBranch,
-      committedAt: Date.now(),
-      updatedAt: Date.now(),
+      committedAt: now,
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: args.status === "pushed" ? "push" : "commit",
+      updatedAt: now,
     });
 
     return null;

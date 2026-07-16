@@ -9,6 +9,8 @@ import {
   type DaytonaSandbox,
 } from "@autopr/agent/sandbox";
 
+import { createEphemeralGitAuthEnvironment } from "#/lib/thread-git-status-server";
+
 export class SandboxGitConflictError extends Error {
   constructor(message = "Could not switch branches because the sandbox has uncommitted changes.") {
     super(message);
@@ -87,7 +89,8 @@ async function resolveProjectRepoLocation(
 }
 
 export async function createProjectSandbox(options: {
-  authenticatedCloneUrl: string;
+  cloneUrl: string;
+  githubToken: string;
   branch: string;
   repoName: string;
 }): Promise<{
@@ -99,11 +102,18 @@ export async function createProjectSandbox(options: {
   const sandbox = await createSandbox();
   const repoDir = sandboxRepositoryDirectoryName({
     repoName: options.repoName,
-    repoUrl: options.authenticatedCloneUrl,
+    repoUrl: options.cloneUrl,
   });
   const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
 
-  await sandbox.git.clone(options.authenticatedCloneUrl, repoPath, options.branch);
+  await sandbox.git.clone(
+    options.cloneUrl,
+    repoPath,
+    options.branch,
+    undefined,
+    "x-access-token",
+    options.githubToken,
+  );
 
   return {
     sandboxId: sandbox.id,
@@ -120,6 +130,7 @@ export async function deleteProjectSandbox(sandboxId: string): Promise<void> {
 export async function switchProjectSandboxBranch(options: {
   sandboxId: string;
   branch: string;
+  githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
 }): Promise<void> {
@@ -128,14 +139,18 @@ export async function switchProjectSandboxBranch(options: {
   const quotedBranch = shellEscape(options.branch);
   const quotedRepoPath = shellEscape(repoPath);
 
+  const fetchResult = await sandbox.process.executeCommand(
+    "git fetch origin --prune",
+    repoPath,
+    createEphemeralGitAuthEnvironment(options.githubToken),
+    120,
+  );
+  if (typeof fetchResult.exitCode === "number" && fetchResult.exitCode !== 0) {
+    throw new Error(fetchResult.stderr || fetchResult.result || "Could not fetch the selected branch.");
+  }
   await runSandboxCommand(
     sandbox,
-    [
-      `cd ${quotedRepoPath}`,
-      "git fetch origin --prune",
-      `git checkout ${quotedBranch}`,
-      `git pull --ff-only origin ${quotedBranch}`,
-    ].join(" && "),
+    `cd ${quotedRepoPath} && git checkout ${quotedBranch} && git merge --ff-only ${shellEscape(`origin/${options.branch}`)}`,
   );
 }
 
@@ -235,8 +250,14 @@ export async function commitPreparedProjectSandboxChanges(options: {
       throw new Error("GitHub credentials are required to push changes.");
     }
 
-    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git config push.autoSetupRemote true`);
-    await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken);
+    await sandbox.git.push(
+      repoGitPath,
+      options.githubUsername,
+      options.githubToken,
+      branch,
+      "origin",
+      true,
+    );
   }
 
   return { branch, commitSha: commit.sha, pushed: Boolean(options.push) };
@@ -290,8 +311,46 @@ export async function commitAndPushProjectSandboxChanges(options: {
     ).trim();
   }
 
-  await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git config push.autoSetupRemote true`);
-  await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken);
+  await sandbox.git.push(
+    repoGitPath,
+    options.githubUsername,
+    options.githubToken,
+    options.branch,
+    "origin",
+    true,
+  );
 
   return { branch: options.branch, commitSha };
+}
+
+export async function pushProjectSandboxBranch(options: {
+  sandboxId: string;
+  githubToken: string;
+  githubUsername: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}): Promise<{ branch: string; commitSha: string; pushed: true }> {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
+  const branch = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+  ).trim();
+
+  if (!branch) {
+    throw new Error("The sandbox repository is not on a named branch.");
+  }
+
+  await sandbox.git.push(
+    repoGitPath,
+    options.githubUsername,
+    options.githubToken,
+    branch,
+    "origin",
+    true,
+  );
+  const commitSha = commandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
+  ).trim();
+  return { branch, commitSha, pushed: true };
 }

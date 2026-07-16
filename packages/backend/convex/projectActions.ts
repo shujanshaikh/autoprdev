@@ -1010,6 +1010,11 @@ export const startSandbox = action({
         projectId: args.projectId,
         sandboxRuntimeStatus: status,
       });
+      await ctx.runMutation(internal.threads.invalidateProjectGitStatusesInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        reason: "sandbox_reconnect",
+      });
       return { status };
     } catch (error) {
       throw new ConvexError({

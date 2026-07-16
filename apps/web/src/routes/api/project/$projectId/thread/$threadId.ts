@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createSandbox } from "@autopr/agent/sandbox";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { fetchGithubPullRequestForBranch } from "@autopr/backend/convex/lib/github_oauth";
+import type { GithubPullRequestSummary } from "@autopr/backend/convex/lib/gitStatus";
 import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
@@ -10,6 +12,7 @@ import { generateCommitMessage } from "#/lib/commit-messages";
 import {
   commitPreparedProjectSandboxChanges,
   prepareProjectSandboxCommit,
+  pushProjectSandboxBranch,
   SandboxNoChangesError,
 } from "#/lib/daytona-project-sandbox";
 import {
@@ -19,6 +22,7 @@ import {
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
+import { readThreadGitStatus } from "#/lib/thread-git-status-server";
 
 type DaytonaRecording = {
   fileName?: string;
@@ -169,6 +173,92 @@ async function GET(
   const recordingId = searchParams.get("recordingId")?.trim();
   const shouldPrepare = searchParams.get("prepare") === "1";
 
+  if (searchParams.get("gitStatus") === "1") {
+    const { projectId, threadId } = await params;
+    const [project, thread] = await Promise.all([
+      convexQuery(api.projects.get, { projectId }),
+      convexQuery(api.threads.get, { threadId }),
+    ]);
+
+    if (!project || !thread || thread.projectId !== projectId) {
+      return Response.json(
+        { error: { code: "THREAD_NOT_FOUND", message: "Thread not found." } },
+        { status: 404 },
+      );
+    }
+    if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+      return Response.json(
+        { error: { code: "PROJECT_SANDBOX_NOT_READY", message: "Project sandbox is not ready." } },
+        { status: 409 },
+      );
+    }
+
+    try {
+      const worktree = await convexAction(api.projectActions.ensureThreadWorktree, { projectId, threadId });
+      let githubToken: string | undefined;
+      let pullRequest: GithubPullRequestSummary | undefined = thread.pullRequestNumber && thread.pullRequestUrl
+        ? {
+            number: thread.pullRequestNumber,
+            title: thread.title,
+            url: thread.pullRequestUrl,
+            state: "unknown",
+            draft: false,
+          }
+        : undefined;
+
+      try {
+        const authState = await requireWorkOSAuth();
+        githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+        const existing = await fetchGithubPullRequestForBranch(
+          githubToken,
+          project.repoOwner,
+          project.repoName,
+          worktree.featureBranch,
+        );
+        if (existing) {
+          pullRequest = {
+            number: existing.number,
+            title: existing.title,
+            url: existing.htmlUrl,
+            state: existing.state,
+            draft: existing.draft,
+          };
+        }
+      } catch (error) {
+        if (!(error instanceof GithubConnectionError)) {
+          // PR discovery is best-effort and must not hide local Git status.
+          console.warn("Could not discover the thread pull request", safeErrorMessage(error, "GitHub unavailable."));
+        }
+      }
+
+      const status = await readThreadGitStatus({
+        sandboxId: project.sandboxId,
+        worktreePath: worktree.worktreePath,
+        baseBranch: worktree.baseBranch,
+        repositoryUrl: project.cloneUrl,
+        refreshRemote: searchParams.get("refresh") !== "0",
+        githubToken,
+        pullRequest,
+      });
+      await convexMutation(api.threads.updateGitStatus, { threadId, status });
+
+      return Response.json(
+        { status },
+        { headers: { "Cache-Control": "private, no-store" } },
+      );
+    } catch (error) {
+      return Response.json(
+        {
+          error: {
+            code: "GIT_STATUS_REFRESH_FAILED",
+            message: safeErrorMessage(error, "Could not refresh thread Git status."),
+          },
+        },
+        { status: 502 },
+      );
+    }
+  }
+
   if (!recordingId) {
     return Response.json({ error: "Missing recordingId." }, { status: 400 });
   }
@@ -309,18 +399,6 @@ async function POST(
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
 
-  if (thread.commitStatus) {
-    return Response.json({
-      error: thread.commitStatus === "pushed"
-        ? "Changes for this thread have already been committed and pushed."
-        : "Changes for this thread have already been committed.",
-      status: thread.commitStatus,
-      branch: thread.commitBranch,
-      commitSha: thread.commitSha,
-      commitMessage: thread.commitMessage,
-    }, { status: 409 });
-  }
-
   try {
     const worktree = await convexAction(api.projectActions.ensureThreadWorktree, {
       projectId,
@@ -349,11 +427,39 @@ async function POST(
       }
     }
 
-    const prepared = await prepareProjectSandboxCommit({
-      sandboxId: project.sandboxId,
-      repoName: project.repoName,
-      sandboxWorkDir: worktree.worktreePath,
-    });
+    let prepared: Awaited<ReturnType<typeof prepareProjectSandboxCommit>>;
+    try {
+      prepared = await prepareProjectSandboxCommit({
+        sandboxId: project.sandboxId,
+        repoName: project.repoName,
+        sandboxWorkDir: worktree.worktreePath,
+      });
+    } catch (error) {
+      if (!parsed.data.push || !(error instanceof SandboxNoChangesError) || !githubToken || !githubUsername) {
+        throw error;
+      }
+      const result = await pushProjectSandboxBranch({
+        sandboxId: project.sandboxId,
+        githubToken,
+        githubUsername,
+        repoName: project.repoName,
+        sandboxWorkDir: worktree.worktreePath,
+      });
+      const commitMessage = thread.commitMessage ?? "Push thread branch";
+      await convexMutation(api.threads.markChangesCommitted, {
+        threadId,
+        status: "pushed",
+        branch: result.branch,
+        commitSha: result.commitSha,
+        commitMessage,
+      });
+      return Response.json({
+        status: "pushed",
+        branch: result.branch,
+        commitSha: result.commitSha,
+        commitMessage,
+      });
+    }
     const commitMessage = parsed.data.commitMessage ?? await generateCommitMessage({
       request: req,
       projectId,

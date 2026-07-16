@@ -234,6 +234,46 @@ export async function fetchGithubPullRequests(token: string, owner: string, repo
   }));
 }
 
+export async function fetchGithubPullRequestForBranch(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<GithubOAuthPullRequest | undefined> {
+  const response = await githubJson<Array<{
+    id: number;
+    number: number;
+    title: string;
+    state: "open" | "closed";
+    html_url: string;
+    user: { login: string } | null;
+    created_at: string;
+    updated_at: string;
+    draft?: boolean;
+    head: { ref: string };
+    base: { ref: string };
+  }>>(
+    token,
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}&per_page=1`,
+  );
+  const pull = response.data[0];
+  if (!pull) return undefined;
+
+  return {
+    id: pull.id,
+    number: pull.number,
+    title: pull.title,
+    state: pull.state,
+    htmlUrl: pull.html_url,
+    user: pull.user?.login ?? "unknown",
+    createdAt: pull.created_at,
+    updatedAt: pull.updated_at,
+    draft: Boolean(pull.draft),
+    headRef: pull.head.ref,
+    baseRef: pull.base.ref,
+  };
+}
+
 export async function getGithubRepository(token: string, owner: string, repo: string): Promise<GithubOAuthRepository> {
   const response = await githubJson<{
     id: number;

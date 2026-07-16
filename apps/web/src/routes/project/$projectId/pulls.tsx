@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { useMemo, useState } from "react";
+import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
 
 
 type PullState = "open" | "closed";
@@ -138,14 +139,11 @@ function MetaDot() {
 }
 
 
-function PullRow({ pull, index }: { pull: PullRequest; index: number }) {
+function PullRow({ pull, index, onOpen }: { pull: PullRequest; index: number; onOpen: (pull: PullRequest) => void }) {
   const variant = variantFor(pull);
 
   return (
-    <a
-      href={pull.htmlUrl}
-      target="_blank"
-      rel="noreferrer"
+    <div
       className={cn(
         "pull-row-in group relative grid items-center gap-4 px-4 py-3 transition-colors",
         "grid-cols-[2rem_auto_minmax(0,1fr)_auto] sm:grid-cols-[2rem_auto_minmax(0,1.6fr)_minmax(0,8rem)_auto]",
@@ -205,18 +203,21 @@ function PullRow({ pull, index }: { pull: PullRequest; index: number }) {
         </span>
       </div>
 
-      <span
+      <button
+        type="button"
+        onClick={() => onOpen(pull)}
+        aria-label={`Open pull request #${pull.number} in AutoPR`}
+        title="Open in AutoPR"
         className={cn(
           "inline-flex size-7 shrink-0 items-center justify-center border border-transparent",
           "text-muted-foreground/55 transition",
           "group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground",
           "group-focus-visible:border-primary group-focus-visible:bg-primary group-focus-visible:text-primary-foreground",
         )}
-        aria-hidden="true"
       >
         <ArrowUpRight className="size-3.5" />
-      </span>
-    </a>
+      </button>
+    </div>
   );
 }
 
@@ -319,6 +320,7 @@ function PullsPage() {
 
   const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
+  const [openReference, setOpenReference] = useState<string>();
 
   const { data, error, isLoading } = useReactQuery({
     queryKey: ["project", projectId, "pulls"],
@@ -400,6 +402,20 @@ function PullsPage() {
             </p>
           </div>
 
+          <div className="flex items-center gap-2">
+          {data ? (
+            <button
+              type="button"
+              onClick={() => setOpenReference("")}
+              className={cn(
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] border border-primary/30 bg-primary/5 px-3",
+                "font-mono text-[10px] uppercase leading-none tracking-[0.22em] text-primary transition hover:bg-primary hover:text-primary-foreground",
+              )}
+            >
+              open PR in AutoPR
+              <GitPullRequest className="size-3" aria-hidden="true" />
+            </button>
+          ) : null}
           {data?.project.githubUrl ? (
             <a
               href={`${data.project.githubUrl}/pulls`}
@@ -416,6 +432,7 @@ function PullsPage() {
               <ExternalLink className="size-3" aria-hidden="true" />
             </a>
           ) : null}
+          </div>
         </header>
 
         {!isLoading && data ? (
@@ -537,7 +554,7 @@ function PullsPage() {
 
               <div className="divide-y divide-border">
                 {visible.map((pull, i) => (
-                  <PullRow key={pull.id} pull={pull} index={i} />
+                  <PullRow key={pull.id} pull={pull} index={i} onOpen={(selected) => setOpenReference(String(selected.number))} />
                 ))}
               </div>
 
@@ -554,6 +571,14 @@ function PullsPage() {
           )}
         </section>
       </div>
+      <OpenGithubPullRequestDialog
+        projectId={projectId}
+        open={openReference !== undefined}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setOpenReference(undefined);
+        }}
+        initialReference={openReference ?? ""}
+      />
     </main>
   );
 }

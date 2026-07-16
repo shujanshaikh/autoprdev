@@ -763,9 +763,20 @@ async function provisionThreadWorktree(
 
       await runSandboxShell(sandbox, `mkdir -p ${shellQuote(worktreePath.slice(0, worktreePath.lastIndexOf("/")))}`);
       const quotedRepositoryPath = shellQuote(repositoryPath);
+      const creationPoint = thread.githubPullRequestHeadSha ?? baseBranch;
+      if (decision.kind === "create-branch-and-worktree" && thread.githubPullRequestHeadSha) {
+        const objectCheck = await runSandboxShell(
+          sandbox,
+          `git -C ${quotedRepositoryPath} cat-file -e ${shellQuote(`${thread.githubPullRequestHeadSha}^{commit}`)}`,
+          true,
+        );
+        if (objectCheck.exitCode !== 0) {
+          throw new Error("The pull request commit is no longer available locally. Re-open the PR from GitHub to fetch it again.");
+        }
+      }
       const addCommand = decision.kind === "create-from-existing-branch"
         ? `git -C ${quotedRepositoryPath} worktree add ${shellQuote(worktreePath)} ${shellQuote(featureBranch)}`
-        : `git -C ${quotedRepositoryPath} worktree add -b ${shellQuote(featureBranch)} ${shellQuote(worktreePath)} ${shellQuote(baseBranch)}`;
+        : `git -C ${quotedRepositoryPath} worktree add -b ${shellQuote(featureBranch)} ${shellQuote(worktreePath)} ${shellQuote(creationPoint)}`;
 
       try {
         await runSandboxShell(sandbox, addCommand);

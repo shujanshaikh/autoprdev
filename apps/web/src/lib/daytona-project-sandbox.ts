@@ -11,6 +11,7 @@ import {
 
 import { createEphemeralGitAuthEnvironment } from "#/lib/thread-git-status-server";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
+import { decideWorktreeProvision, parseGitWorktreeList } from "@autopr/backend/convex/lib/threadWorktree";
 
 export class SandboxGitConflictError extends Error {
   constructor(message = "Could not switch branches because the sandbox has uncommitted changes.") {
@@ -56,9 +57,13 @@ async function runSandboxCommand(sandbox: DaytonaSandbox, command: string) {
       const output = commandOutput(result);
 
       if (
-        /local changes|would be overwritten|Please commit your changes|Your local changes/i.test(output)
+        /local changes|would be overwritten|Please commit your changes|Your local changes|not possible to fast-forward|non-fast-forward/i.test(output)
       ) {
-        throw new SandboxGitConflictError();
+        throw new SandboxGitConflictError(
+          /fast-forward/i.test(output)
+            ? "The pull request branch has diverged. Resolve the merge conflicts or rebase manually before retrying."
+            : undefined,
+        );
       }
 
       throw new Error(output || "Sandbox git command failed.");
@@ -163,6 +168,104 @@ export async function switchProjectSandboxBranch(options: {
     sandbox,
     `cd ${quotedRepoPath} && git checkout ${quotedBranch} && git merge --ff-only ${shellEscape(`origin/${options.branch}`)}`,
   );
+}
+
+export async function materializeGithubPullRequestWorktree(options: {
+  sandboxId: string;
+  repositoryPath: string;
+  worktreePath: string;
+  localBranch: string;
+  pullRequestNumber: number;
+  headCloneUrl: string;
+  headBranch: string;
+  expectedHeadSha: string;
+  githubToken: string;
+}): Promise<{ headSha: string; upstreamBranch: string }> {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const auth = createEphemeralGitAuthEnvironment(options.githubToken);
+  const runGit = async (cwd: string, args: string, allowFailure = false) => {
+    const result = await sandbox.process.executeCommand(`git ${args}`, cwd, auth, 120);
+    const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
+    const output = commandOutput({ output: result.result, stderr: result.stderr }).trim();
+    if (!allowFailure && exitCode !== 0) {
+      throw new SandboxGitCommandError("Could not check out the pull request.", redactGitDiagnostic(output, [options.githubToken]));
+    }
+    return { exitCode, output };
+  };
+
+  await runGit(options.repositoryPath, "worktree prune");
+  const [list, branchCheck] = await Promise.all([
+    runGit(options.repositoryPath, "worktree list --porcelain"),
+    runGit(
+      options.repositoryPath,
+      `show-ref --verify --quiet ${shellEscape(`refs/heads/${options.localBranch}`)}`,
+      true,
+    ),
+  ]);
+  let decision = decideWorktreeProvision({
+    entries: parseGitWorktreeList(list.output),
+    desiredPath: options.worktreePath,
+    featureBranch: options.localBranch,
+    branchExists: branchCheck.exitCode === 0,
+  });
+  if (decision.kind === "conflict") throw new SandboxGitConflictError(decision.message);
+
+  const remoteName = `autopr-pr-${options.pullRequestNumber}`;
+  const remoteCheck = await runGit(options.repositoryPath, `remote get-url ${shellEscape(remoteName)}`, true);
+  await runGit(
+    options.repositoryPath,
+    remoteCheck.exitCode === 0
+      ? `remote set-url ${shellEscape(remoteName)} ${shellEscape(options.headCloneUrl)}`
+      : `remote add ${shellEscape(remoteName)} ${shellEscape(options.headCloneUrl)}`,
+  );
+  const remoteTrackingRef = `refs/remotes/${remoteName}/${options.headBranch}`;
+
+  if (decision.kind === "create-branch-and-worktree") {
+    await runGit(
+      options.repositoryPath,
+      `fetch --force ${shellEscape(remoteName)} ${shellEscape(`refs/heads/${options.headBranch}:${remoteTrackingRef}`)}`,
+    );
+    const fetched = await runGit(options.repositoryPath, `rev-parse ${shellEscape(remoteTrackingRef)}`);
+    if (fetched.output !== options.expectedHeadSha) {
+      throw new SandboxGitCommandError(
+        "The pull request branch moved while it was being opened. Resolve the PR again and retry.",
+      );
+    }
+    await runGit(
+      options.repositoryPath,
+      `branch ${shellEscape(options.localBranch)} ${shellEscape(options.expectedHeadSha)}`,
+    );
+    decision = { kind: "create-from-existing-branch", path: options.worktreePath };
+  }
+
+  if (decision.kind === "create-from-existing-branch") {
+    const parent = options.worktreePath.slice(0, options.worktreePath.lastIndexOf("/"));
+    const pathCheck = await sandbox.process.executeCommand(`test -e ${shellEscape(options.worktreePath)}`, options.repositoryPath, undefined, 30);
+    if (pathCheck.exitCode === 0) {
+      throw new SandboxGitConflictError(`The thread worktree path already exists outside Git: ${options.worktreePath}`);
+    }
+    const mkdir = await sandbox.process.executeCommand(`mkdir -p ${shellEscape(parent)}`, options.repositoryPath, undefined, 30);
+    if (typeof mkdir.exitCode === "number" && mkdir.exitCode !== 0) {
+      throw new SandboxGitCommandError("Could not create the thread worktree directory.");
+    }
+    await runGit(
+      options.repositoryPath,
+      `worktree add ${shellEscape(options.worktreePath)} ${shellEscape(options.localBranch)}`,
+    );
+  }
+
+  // A retry may reuse a branch whose tracking ref was pruned. Refresh it before
+  // restoring the upstream relationship, without resetting local work.
+  await runGit(
+    options.repositoryPath,
+    `fetch --force ${shellEscape(remoteName)} ${shellEscape(`refs/heads/${options.headBranch}:${remoteTrackingRef}`)}`,
+  );
+  await runGit(
+    options.repositoryPath,
+    `branch --set-upstream-to=${shellEscape(`${remoteName}/${options.headBranch}`)} ${shellEscape(options.localBranch)}`,
+  );
+  const headSha = (await runGit(options.worktreePath, "rev-parse HEAD")).output;
+  return { headSha, upstreamBranch: `${remoteName}/${options.headBranch}` };
 }
 
 export class SandboxNoChangesError extends Error {
@@ -310,6 +413,7 @@ async function inspectRemoteBranch(
   sandbox: DaytonaSandbox,
   repoPath: string,
   githubToken: string,
+  target?: { remoteUrl: string; remoteBranch: string },
 ) {
   const quotedRepoPath = shellEscape(repoPath);
   const branch = commandOutput(await runSandboxCommand(
@@ -322,7 +426,7 @@ async function inspectRemoteBranch(
   )).trim();
   if (!branch) throw new Error("The sandbox repository is not on a named branch.");
   const remote = await sandbox.process.executeCommand(
-    `git ls-remote --heads origin ${shellEscape(`refs/heads/${branch}`)}`,
+    `git ls-remote --heads ${shellEscape(target?.remoteUrl ?? "origin")} ${shellEscape(`refs/heads/${target?.remoteBranch ?? branch}`)}`,
     repoPath,
     createEphemeralGitAuthEnvironment(githubToken),
     120,
@@ -346,15 +450,40 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
   githubUsername: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  target?: { remoteUrl: string; remoteBranch: string; canPush: boolean; isFork: boolean };
 }) {
+  if (options.target && !options.target.canPush) {
+    throw new SandboxGitCommandError(
+      options.target.isFork
+        ? "Your GitHub account cannot push to this fork's pull request branch. Ask the PR author for access or work locally without pushing."
+      : "Your GitHub account cannot push to this pull request branch.",
+    );
+  }
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
-  const { branch, commitSha, remoteSha } = await inspectRemoteBranch(sandbox, repoPath, options.githubToken);
+  const { branch, commitSha, remoteSha } = await inspectRemoteBranch(
+    sandbox,
+    repoPath,
+    options.githubToken,
+    options.target,
+  );
   if (remoteSha === commitSha) {
     return { commitSha, remoteSha, pushed: false, alreadyPushed: true };
   }
   try {
-    await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken, branch, "origin", true);
+    if (options.target) {
+      const result = await sandbox.process.executeCommand(
+        `git push ${shellEscape(options.target.remoteUrl)} ${shellEscape(`HEAD:refs/heads/${options.target.remoteBranch}`)}`,
+        repoPath,
+        createEphemeralGitAuthEnvironment(options.githubToken),
+        120,
+      );
+      if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+        throw new Error(result.stderr || result.result || "Could not push the pull request branch.");
+      }
+    } else {
+      await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken, branch, "origin", true);
+    }
   } catch (error) {
     const diagnostics = redactGitDiagnostic(error instanceof Error ? error.message : String(error), [options.githubToken]);
     throw new SandboxGitCommandError("Could not push the thread branch.", diagnostics);
@@ -396,6 +525,7 @@ export async function pullProjectSandboxBranch(options: {
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  target?: { remoteUrl: string; remoteBranch: string };
 }): Promise<{ branch: string; commitSha: string }> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
@@ -411,7 +541,9 @@ export async function pullProjectSandboxBranch(options: {
   }
 
   const fetchResult = await sandbox.process.executeCommand(
-    "git fetch origin --prune",
+    options.target
+      ? `git fetch ${shellEscape(options.target.remoteUrl)} ${shellEscape(`refs/heads/${options.target.remoteBranch}`)}`
+      : "git fetch origin --prune",
     repoPath,
     createEphemeralGitAuthEnvironment(options.githubToken),
     120,
@@ -422,7 +554,7 @@ export async function pullProjectSandboxBranch(options: {
 
   await runSandboxCommand(
     sandbox,
-    `cd ${quotedRepoPath} && git merge --ff-only ${shellEscape("@{upstream}")}`,
+    `cd ${quotedRepoPath} && git merge --ff-only ${shellEscape(options.target ? "FETCH_HEAD" : "@{upstream}")}`,
   );
   const commitSha = commandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),

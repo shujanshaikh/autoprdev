@@ -33,7 +33,7 @@ export const githubPullRequestSummaryValidator = v.object({
   number: v.number(),
   title: v.string(),
   url: v.string(),
-  state: v.union(v.literal("open"), v.literal("closed"), v.literal("unknown")),
+  state: v.union(v.literal("open"), v.literal("closed"), v.literal("merged"), v.literal("unknown")),
   draft: v.boolean(),
 });
 

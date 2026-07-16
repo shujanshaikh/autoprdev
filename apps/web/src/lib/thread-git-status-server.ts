@@ -130,10 +130,15 @@ export async function readThreadGitStatus(options: ReadThreadGitStatusOptions): 
     return status;
   }
 
-  let parsed = await readPorcelainStatus(sandbox, options.worktreePath);
-  const remotesOutput = await optionalOutput(sandbox, options.worktreePath, "remote");
+  let [parsed, remotesOutput] = await Promise.all([
+    readPorcelainStatus(sandbox, options.worktreePath),
+    optionalOutput(sandbox, options.worktreePath, "remote"),
+  ]);
   const remotes = remotesOutput?.split(/\r?\n/).map((remote) => remote.trim()).filter(Boolean) ?? [];
-  const remote = remotes.includes("origin") ? "origin" : remotes[0];
+  const upstreamRemote = parsed.upstream?.split("/")[0];
+  const remote = upstreamRemote && remotes.includes(upstreamRemote)
+    ? upstreamRemote
+    : remotes.includes("origin") ? "origin" : remotes[0];
   const hasRemote = Boolean(remote);
   let remoteStatus: ThreadGitStatus["remoteStatus"] = hasRemote ? "not_requested" : "not_configured";
   let remoteError: ThreadGitStatus["remoteError"];

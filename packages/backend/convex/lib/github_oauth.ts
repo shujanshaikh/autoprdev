@@ -30,6 +30,39 @@ export interface GithubOAuthPullRequest {
   baseRef: string;
 }
 
+export interface ResolvedGithubPullRequest {
+  number: number;
+  title: string;
+  author: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  htmlUrl: string;
+  head: {
+    repositoryId: number;
+    repositoryFullName: string;
+    cloneUrl: string;
+    branch: string;
+    sha: string;
+    branchAvailable: boolean;
+    canPush: boolean;
+  };
+  base: {
+    repositoryId: number;
+    repositoryFullName: string;
+    cloneUrl: string;
+    branch: string;
+    sha: string;
+  };
+  isFork: boolean;
+}
+
+export class GithubApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "GithubApiError";
+  }
+}
+
 export interface CreatedGithubPullRequest {
   id: number;
   number: number;
@@ -72,12 +105,87 @@ async function githubJson<T>(token: string, url: string, init?: RequestInit): Pr
       body && typeof body === "object" && "message" in body && typeof body.message === "string"
         ? body.message
         : "GitHub request failed.";
-    throw new Error(message);
+    throw new GithubApiError(message, response.status);
   }
 
   return {
     data: (await response.json()) as T,
     next: parseNextLink(response.headers.get("link")),
+  };
+}
+
+export async function resolveGithubPullRequest(
+  token: string,
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<ResolvedGithubPullRequest> {
+  const response = await githubJson<{
+    number: number;
+    title: string;
+    state: "open" | "closed";
+    merged_at: string | null;
+    draft?: boolean;
+    html_url: string;
+    user: { login: string } | null;
+    head: {
+      ref: string;
+      sha: string;
+      repo: null | { id: number; full_name: string; clone_url: string };
+    };
+    base: {
+      ref: string;
+      sha: string;
+      repo: { id: number; full_name: string; clone_url: string };
+    };
+  }>(token, `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`);
+  const pull = response.data;
+  if (!pull.head.repo) {
+    throw new GithubApiError("The pull request's source repository is no longer available.", 410);
+  }
+
+  let canPush = false;
+  let branchAvailable = true;
+  try {
+    const headRepository = await githubJson<{ permissions?: { push?: boolean } }>(
+      token,
+      `https://api.github.com/repos/${pull.head.repo.full_name}`,
+    );
+    canPush = Boolean(headRepository.data.permissions?.push);
+    await githubJson<unknown>(
+      token,
+      `https://api.github.com/repos/${pull.head.repo.full_name}/branches/${encodeURIComponent(pull.head.ref)}`,
+    );
+  } catch (error) {
+    if (error instanceof GithubApiError && error.status === 404) branchAvailable = false;
+    else throw error;
+  }
+
+  const isFork = pull.head.repo.id !== pull.base.repo.id;
+  return {
+    number: pull.number,
+    title: pull.title,
+    author: pull.user?.login ?? "unknown",
+    state: pull.merged_at ? "merged" : pull.state,
+    draft: Boolean(pull.draft),
+    htmlUrl: pull.html_url,
+    head: {
+      repositoryId: pull.head.repo.id,
+      repositoryFullName: pull.head.repo.full_name.toLowerCase(),
+      cloneUrl: pull.head.repo.clone_url,
+      branch: pull.head.ref,
+      sha: pull.head.sha,
+      branchAvailable,
+      canPush,
+    },
+    base: {
+      repositoryId: pull.base.repo.id,
+      repositoryFullName: pull.base.repo.full_name.toLowerCase(),
+      cloneUrl: pull.base.repo.clone_url,
+      branch: pull.base.ref,
+      sha: pull.base.sha,
+    },
+    isFork,
   };
 }
 

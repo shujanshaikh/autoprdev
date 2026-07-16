@@ -365,6 +365,14 @@ export async function runThreadGitWorkflow(options: {
         githubUsername: identity.username,
         repoName: project.repoName,
         sandboxWorkDir: worktree.worktreePath,
+        target: thread.githubPullRequestHeadCloneUrl && thread.githubPullRequestHeadBranch
+          ? {
+              remoteUrl: thread.githubPullRequestHeadCloneUrl,
+              remoteBranch: thread.githubPullRequestHeadBranch,
+              canPush: Boolean(thread.githubPullRequestHeadCanPush),
+              isFork: Boolean(thread.githubPullRequestIsFork),
+            }
+          : undefined,
       });
       await convexMutation(api.threads.markChangesCommitted, {
         threadId: options.threadId,

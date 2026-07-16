@@ -186,13 +186,13 @@ async function GET(
     try {
       const worktree = await convexAction(api.projectActions.ensureThreadWorktree, { projectId, threadId });
       let githubToken: string | undefined;
-      let pullRequest: GithubPullRequestSummary | undefined = thread.pullRequestNumber && thread.pullRequestUrl
+        let pullRequest: GithubPullRequestSummary | undefined = thread.pullRequestNumber && thread.pullRequestUrl
         ? {
             number: thread.pullRequestNumber,
-            title: thread.title,
+            title: thread.githubPullRequestTitle ?? thread.title,
             url: thread.pullRequestUrl,
-            state: "unknown",
-            draft: false,
+            state: thread.githubPullRequestState ?? "unknown",
+            draft: thread.githubPullRequestDraft ?? false,
           }
         : undefined;
 
@@ -435,6 +435,12 @@ async function POST(
           githubToken,
           repoName: project.repoName,
           sandboxWorkDir: worktree.worktreePath,
+          target: thread.githubPullRequestHeadCloneUrl && thread.githubPullRequestHeadBranch
+            ? {
+                remoteUrl: thread.githubPullRequestHeadCloneUrl,
+                remoteBranch: thread.githubPullRequestHeadBranch,
+              }
+            : undefined,
         });
         await convexMutation(api.threads.invalidateGitStatus, {
           threadId,

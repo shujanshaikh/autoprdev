@@ -30,6 +30,10 @@ import {
   createThreadWorktreePath,
   resolveThreadBaseBranch,
 } from "./lib/threadWorktree";
+import {
+  githubPullRequestLocalBranch,
+  isThreadCompatibleWithGithubPullRequest,
+} from "./lib/githubPullRequest";
 
 const shortError = (message: string) => message.slice(0, 700);
 const longError = (message: string) => message.slice(0, 8_000);
@@ -88,6 +92,166 @@ export const create = mutation({
     });
 
     return threadId;
+  },
+});
+
+const githubPullRequestInputValidator = v.object({
+  number: v.number(),
+  title: v.string(),
+  author: v.string(),
+  state: v.union(v.literal("open"), v.literal("closed"), v.literal("merged")),
+  draft: v.boolean(),
+  htmlUrl: v.string(),
+  head: v.object({
+    repositoryId: v.number(),
+    repositoryFullName: v.string(),
+    cloneUrl: v.string(),
+    branch: v.string(),
+    sha: v.string(),
+    branchAvailable: v.boolean(),
+    canPush: v.boolean(),
+  }),
+  base: v.object({
+    repositoryId: v.number(),
+    repositoryFullName: v.string(),
+    cloneUrl: v.string(),
+    branch: v.string(),
+    sha: v.string(),
+  }),
+  isFork: v.boolean(),
+});
+
+type GithubPullRequestInput = {
+  number: number;
+  title: string;
+  author: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  htmlUrl: string;
+  head: {
+    repositoryId: number;
+    repositoryFullName: string;
+    cloneUrl: string;
+    branch: string;
+    sha: string;
+    branchAvailable: boolean;
+    canPush: boolean;
+  };
+  base: {
+    repositoryId: number;
+    repositoryFullName: string;
+    cloneUrl: string;
+    branch: string;
+    sha: string;
+  };
+  isFork: boolean;
+};
+
+function githubPullRequestPatch(pullRequest: GithubPullRequestInput) {
+  return {
+    pullRequestStatus: "created" as const,
+    pullRequestUrl: pullRequest.htmlUrl,
+    pullRequestNumber: pullRequest.number,
+    pullRequestBranch: pullRequest.head.branch,
+    githubPullRequestTitle: pullRequest.title,
+    githubPullRequestAuthor: pullRequest.author,
+    githubPullRequestState: pullRequest.state,
+    githubPullRequestDraft: pullRequest.draft,
+    githubPullRequestHeadRepositoryId: pullRequest.head.repositoryId,
+    githubPullRequestHeadRepository: pullRequest.head.repositoryFullName,
+    githubPullRequestHeadCloneUrl: pullRequest.head.cloneUrl,
+    githubPullRequestHeadBranch: pullRequest.head.branch,
+    githubPullRequestHeadSha: pullRequest.head.sha,
+    githubPullRequestHeadCanPush: pullRequest.head.canPush,
+    githubPullRequestBaseRepositoryId: pullRequest.base.repositoryId,
+    githubPullRequestBaseRepository: pullRequest.base.repositoryFullName,
+    githubPullRequestBaseCloneUrl: pullRequest.base.cloneUrl,
+    githubPullRequestBaseBranch: pullRequest.base.branch,
+    githubPullRequestIsFork: pullRequest.isFork,
+  };
+}
+
+export const createFromGithubPullRequest = mutation({
+  args: { projectId: v.string(), pullRequest: githubPullRequestInputValidator },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db.query("projects").withIndex("by_project_id", (q) => q.eq("projectId", args.projectId)).unique();
+    if (!project || project.authorId !== authorId) throw new ConvexError({ code: "UNAUTHORIZED" });
+    if (project.sandboxStatus !== "ready") throw new ConvexError({ code: "PROJECT_NOT_READY" });
+
+    const existing = (await ctx.db.query("threads")
+      .withIndex("by_author_project", (q) => q.eq("authorId", authorId).eq("projectId", args.projectId))
+      .collect())
+      .find((thread) => thread.pullRequestNumber === args.pullRequest.number);
+    if (existing) return { threadId: existing.threadId, reused: true };
+
+    const now = Date.now();
+    const threadId = randomUuid();
+    await ctx.db.insert("threads", {
+      threadId,
+      projectId: args.projectId,
+      authorId,
+      title: args.pullRequest.title,
+      createdAt: now,
+      updatedAt: now,
+      isLive: false,
+      demoEnabled: false,
+      baseBranch: args.pullRequest.base.branch,
+      featureBranch: githubPullRequestLocalBranch(args.pullRequest.number, args.pullRequest.head.sha),
+      worktreePath: project.sandboxWorkDir
+        ? createThreadWorktreePath(project.sandboxWorkDir, project.repoName, threadId)
+        : undefined,
+      worktreeStatus: "pending",
+      worktreeUpdatedAt: now,
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: "worktree_created",
+      ...githubPullRequestPatch(args.pullRequest),
+    });
+    return { threadId, reused: false };
+  },
+});
+
+export const attachGithubPullRequest = mutation({
+  args: { projectId: v.string(), threadId: v.string(), pullRequest: githubPullRequestInputValidator },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const [project, thread] = await Promise.all([
+      ctx.db.query("projects").withIndex("by_project_id", (q) => q.eq("projectId", args.projectId)).unique(),
+      ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique(),
+    ]);
+    if (!project || !thread || project.authorId !== authorId || thread.authorId !== authorId || thread.projectId !== args.projectId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (thread.pullRequestNumber === args.pullRequest.number) {
+      return { threadId: thread.threadId, reused: true };
+    }
+    if (thread.pullRequestNumber) {
+      throw new ConvexError({ code: "THREAD_ALREADY_HAS_PULL_REQUEST" });
+    }
+    if (!isThreadCompatibleWithGithubPullRequest(thread)) {
+      throw new ConvexError({
+        code: "THREAD_NOT_COMPATIBLE",
+        message: "Choose a thread that has not started and does not have a materialized worktree.",
+      });
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      title: thread.title === "New thread" ? args.pullRequest.title : thread.title,
+      baseBranch: args.pullRequest.base.branch,
+      featureBranch: githubPullRequestLocalBranch(args.pullRequest.number, args.pullRequest.head.sha),
+      worktreePath: project.sandboxWorkDir
+        ? createThreadWorktreePath(project.sandboxWorkDir, project.repoName, thread.threadId)
+        : undefined,
+      worktreeStatus: "pending",
+      worktreeError: undefined,
+      worktreeUpdatedAt: now,
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: "worktree_created",
+      updatedAt: now,
+      ...githubPullRequestPatch(args.pullRequest),
+    });
+    return { threadId: thread.threadId, reused: false };
   },
 });
 
@@ -187,6 +351,46 @@ export const markWorktreeFailedInternal = internalMutation({
   handler: async (ctx, args) => {
     const thread = await ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique();
     if (!thread || thread.authorId !== args.authorId) throw new ConvexError({ code: "UNAUTHORIZED" });
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      worktreeStatus: "failed",
+      worktreeError: shortError(args.error),
+      worktreeUpdatedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const completeGithubPullRequestCheckout = mutation({
+  args: {
+    threadId: v.string(),
+    worktreePath: v.string(),
+    headSha: v.string(),
+    upstreamBranch: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    if (!thread.githubPullRequestHeadSha || thread.worktreePath !== args.worktreePath) {
+      throw new ConvexError({ code: "PULL_REQUEST_CHECKOUT_MISMATCH" });
+    }
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      headSha: args.headSha,
+      upstreamBranch: args.upstreamBranch,
+      worktreeStatus: "ready",
+      worktreeError: undefined,
+      worktreeUpdatedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const failGithubPullRequestCheckout = mutation({
+  args: { threadId: v.string(), error: v.string() },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
     const now = Date.now();
     await ctx.db.patch(thread._id, {
       worktreeStatus: "failed",

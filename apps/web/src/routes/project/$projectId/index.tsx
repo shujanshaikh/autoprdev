@@ -32,6 +32,7 @@ import {
   ArrowUp,
   CircleAlert,
   GitBranch,
+  GitPullRequest,
   ImagePlus,
   Loader2,
   MessageSquare,
@@ -71,6 +72,9 @@ import {
 import { useCodexStatus } from "#/lib/codex-status";
 import { deleteThreadWithCleanup } from "#/lib/delete-thread";
 import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
+import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
+
+const OPEN_PULL_REQUEST_VALUE = "__open_github_pull_request__";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -200,6 +204,7 @@ function ProjectOverviewPage() {
   const startSandbox = useAction(api.projectActions.startSandbox);
   const stopSandbox = useAction(api.projectActions.stopSandbox);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [isOpeningPullRequest, setIsOpeningPullRequest] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -644,6 +649,7 @@ function ProjectOverviewPage() {
   ];
 
   return (
+    <>
     <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
@@ -674,7 +680,13 @@ function ProjectOverviewPage() {
                             <GitBranch className="size-3 shrink-0" aria-hidden="true" />
                             <span className="truncate">{project.repoFullName ?? "project"}</span>
                           </span>
-                          <Select value={selectedBranch} onValueChange={(branch) => branch && void switchBranch(branch)}>
+                          <Select value={selectedBranch} onValueChange={(branch) => {
+                            if (branch === OPEN_PULL_REQUEST_VALUE) {
+                              setIsOpeningPullRequest(true);
+                            } else if (branch) {
+                              void switchBranch(branch);
+                            }
+                          }}>
                             <SelectTrigger
                               size="sm"
                               className="h-7 max-w-64 border-border/70 bg-background/35 px-2.5 font-mono text-[11px] text-muted-foreground/90 hover:border-border hover:bg-muted/35 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
@@ -710,6 +722,12 @@ function ProjectOverviewPage() {
                                   </span>
                                 </SelectItem>
                               ))}
+                              <SelectItem value={OPEN_PULL_REQUEST_VALUE} className="mt-1 border-t border-border pt-2">
+                                <span className="flex items-center gap-2 font-medium text-primary">
+                                  <GitPullRequest className="size-3" aria-hidden="true" />
+                                  Open GitHub PR…
+                                </span>
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                           {isSwitchingBranch || project.branchSwitchStatus === "switching" ? (
@@ -1024,6 +1042,15 @@ function ProjectOverviewPage() {
                           <MessageSquarePlus className="size-3" aria-hidden="true" />
                           New
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsOpeningPullRequest(true)}
+                          disabled={project.sandboxStatus !== "ready"}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-pill)] border border-border/70 px-3 font-mono text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <GitPullRequest className="size-3" aria-hidden="true" />
+                          Open PR
+                        </button>
                       </div>
                     </div>
 
@@ -1076,7 +1103,13 @@ function ProjectOverviewPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+    </Dialog>
+      <OpenGithubPullRequestDialog
+        projectId={projectId}
+        open={isOpeningPullRequest}
+        onOpenChange={setIsOpeningPullRequest}
+      />
+    </>
   );
 }
 

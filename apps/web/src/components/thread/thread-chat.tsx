@@ -340,7 +340,7 @@ function DiffPromptContextChips({
   return contexts.map((context) => (
     <span
       key={context.id}
-      className="inline-flex h-7 max-w-full items-center gap-1 rounded-[var(--radius-pill)] border border-blue-500/15 bg-blue-500/10 pl-2.5 pr-1 text-blue-700 dark:text-blue-200"
+      className="inline-flex h-7 max-w-full items-center gap-1 rounded-[var(--radius-pill)] border border-[color:color-mix(in_srgb,var(--framer-accent-blue)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--framer-accent-blue)_10%,transparent)] pl-2.5 pr-1 text-[color:var(--framer-accent-blue)]"
       title={`${context.file}:${context.start}-${context.end}`}
     >
       <FileTypeIcon file={context.file} className="size-3.5 shrink-0" />
@@ -350,7 +350,7 @@ function DiffPromptContextChips({
       <button
         type="button"
         onClick={() => onRemove(context.id)}
-        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-current/60 transition-colors hover:bg-blue-500/15 hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-current/60 transition-colors hover:bg-[color:color-mix(in_srgb,var(--framer-accent-blue)_15%,transparent)] hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--framer-accent-blue)]"
         aria-label={`Remove ${formatDiffPromptContextLabel(context)} from prompt`}
       >
         <X className="size-3" aria-hidden="true" />
@@ -451,7 +451,7 @@ function ContextWindowDetails({
         className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
       >
         <div
-          className="h-full rounded-full bg-blue-500 transition-[width] duration-300 motion-reduce:transition-none"
+          className="h-full rounded-full bg-[color:var(--framer-accent-blue)] transition-[width] duration-300 motion-reduce:transition-none"
           style={{ width: `${percentageUsed}%` }}
         />
       </div>
@@ -511,7 +511,7 @@ function ThreadContextWindowIndicator({
         strokeLinecap="round"
         strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
         strokeDashoffset={ringOffset}
-        className="text-blue-500 transition-[stroke-dashoffset] duration-300 motion-reduce:transition-none"
+        className="text-[color:var(--framer-accent-blue)] transition-[stroke-dashoffset] duration-300 motion-reduce:transition-none"
       />
     </svg>
   );

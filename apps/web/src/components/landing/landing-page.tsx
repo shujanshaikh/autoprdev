@@ -96,8 +96,8 @@ function AgentWorkspace() {
           </div>
 
           <div className="landing-chat-projects">
-            <div className="landing-chat-project"><span className="grid size-5 place-items-center rounded bg-sky-500 text-[8px] font-semibold text-white">DS</span><span>deskcloud</span></div>
-            <div className="landing-chat-project is-active"><span className="grid size-5 place-items-center rounded bg-violet-600 text-[8px] font-semibold text-white">AP</span><span>autopr</span></div>
+            <div className="landing-chat-project"><span className="grid size-5 place-items-center rounded bg-[var(--framer-gradient-coral)] text-[8px] font-semibold text-white">DS</span><span>deskcloud</span></div>
+            <div className="landing-chat-project is-active"><span className="grid size-5 place-items-center rounded bg-[var(--landing-v2-blue)] text-[8px] font-semibold text-[var(--framer-on-primary)]">AP</span><span>autopr</span></div>
             <div className="grid size-8 shrink-0 place-items-center rounded border border-dashed border-[var(--landing-v2-line-strong)] text-[var(--landing-v2-muted)]"><Plus className="size-3" /></div>
           </div>
 
@@ -129,7 +129,7 @@ function AgentWorkspace() {
             ))}
           </div>
           <div className="flex h-12 shrink-0 items-center border-t border-[var(--landing-v2-line)] px-3 text-[10px] text-[var(--landing-v2-muted)]">
-            <Settings className="mr-2 size-3.5" />Settings<Moon className="ml-auto size-3.5" /><span className="ml-3 size-5 rounded-full bg-gradient-to-br from-amber-200 via-orange-400 to-violet-700" />
+            <Settings className="mr-2 size-3.5" />Settings<Moon className="ml-auto size-3.5" /><span className="ml-3 size-5 rounded-full bg-gradient-to-br from-violet-200 via-fuchsia-400 to-orange-400" />
           </div>
         </aside>
 

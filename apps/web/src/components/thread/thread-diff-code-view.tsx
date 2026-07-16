@@ -177,7 +177,7 @@ function HeaderMetadata({
         aria-label={`Copy link to ${entry.file}`}
         title="Copy link to file"
       >
-        {copied ? <Check className="size-3.5 text-blue-500" aria-hidden="true" /> : <Link2 className="size-3.5" aria-hidden="true" />}
+        {copied ? <Check className="size-3.5 text-[color:var(--project-selected-strong)]" aria-hidden="true" /> : <Link2 className="size-3.5" aria-hidden="true" />}
       </button>
       <button
         type="button"
@@ -189,8 +189,8 @@ function HeaderMetadata({
         className={cn(
           "inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
           viewed
-            ? "border-blue-500/70 bg-blue-500 text-white hover:bg-blue-500/85"
-            : "border-border bg-background text-transparent hover:border-blue-500/60 hover:text-blue-500/35",
+            ? "border-[color:var(--project-selected-strong)] bg-[color:var(--project-selected-strong)] text-[color:var(--framer-on-primary)] hover:opacity-[0.85]"
+            : "border-border bg-background text-transparent hover:border-[color:var(--project-selected-strong)] hover:text-[color:var(--project-selected-strong)]",
         )}
       >
         <Check className="size-2.5" strokeWidth={3} aria-hidden="true" />
@@ -441,7 +441,7 @@ export function ThreadDiffCodeView({
             className="inline-flex h-6 items-center gap-1.5 rounded-[4px] px-2 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]"
           >
             {copiedTarget === `selection:${selectedEntry.id}`
-              ? <Check className="size-3.5 text-blue-500" aria-hidden="true" />
+              ? <Check className="size-3.5 text-[color:var(--project-selected-strong)]" aria-hidden="true" />
               : <Copy className="size-3.5" aria-hidden="true" />}
             {copiedTarget === `selection:${selectedEntry.id}` ? "Copied" : "Copy link"}
           </button>

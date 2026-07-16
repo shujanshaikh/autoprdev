@@ -620,7 +620,7 @@ export function ThreadDiffPanel({
                     className={cn(
                       "h-7 border border-border/60 px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground",
                       "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
-                      allEntriesViewed && "border-blue-500/40 bg-blue-500/10 text-blue-500 hover:bg-blue-500/15 hover:text-blue-500",
+                      allEntriesViewed && "border-[color:color-mix(in_srgb,var(--project-selected-strong)_45%,transparent)] bg-[color:color-mix(in_srgb,var(--project-selected-strong)_10%,transparent)] text-[color:var(--project-selected-strong)] hover:bg-[color:color-mix(in_srgb,var(--project-selected-strong)_16%,transparent)] hover:text-[color:var(--project-selected-strong)]",
                     )}
                     title={allEntriesViewed ? "Mark all files unviewed" : "Mark all files viewed"}
                   >

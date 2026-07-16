@@ -46,7 +46,7 @@ const workflow = [
 
 function Logo() {
   return (
-    <a href="#top" className="flex items-center gap-2.5" aria-label="AutoPR home">
+    <a href="#top" className="flex min-h-11 items-center gap-2.5 lg:min-h-0" aria-label="AutoPR home">
       <span className="flex size-7 items-center justify-center rounded-[7px] bg-[var(--landing-v2-ink)]">
         <img
           src="/images/landing/autopr-mark.png"
@@ -55,7 +55,7 @@ function Logo() {
           className="size-5 object-contain invert dark:invert-0"
         />
       </span>
-      <span className="font-display text-lg font-semibold tracking-[-0.045em]">
+      <span className="font-display text-base font-semibold tracking-[-0.045em] sm:text-lg">
         AutoPR
       </span>
     </a>
@@ -84,7 +84,7 @@ function AgentWorkspace() {
         <button type="button" className="landing-chat-commit"><GitBranch className="size-3" /> Commit <ChevronDown className="size-3" /></button>
       </div>
 
-      <div className="grid min-h-[650px] grid-cols-1 md:grid-cols-[232px_minmax(0,1fr)] lg:grid-cols-[264px_minmax(0,1fr)]">
+      <div className="grid h-[560px] min-h-0 grid-cols-1 overflow-hidden sm:h-[620px] md:h-auto md:min-h-[650px] md:grid-cols-[232px_minmax(0,1fr)] lg:grid-cols-[264px_minmax(0,1fr)]">
         <aside className="landing-chat-sidebar hidden md:flex">
           <div className="shrink-0 space-y-1 px-3 pb-3 pt-4">
             <div className="landing-chat-sidebar-action text-[var(--landing-v2-muted)]">
@@ -133,11 +133,11 @@ function AgentWorkspace() {
           </div>
         </aside>
 
-        <div className="relative flex min-w-0 flex-col bg-[var(--landing-v2-panel)]">
-          <div className="landing-chat-conversation mx-auto w-full max-w-[700px] flex-1 px-5 pb-40 pt-7 sm:px-9 sm:pt-10">
-            <div className="ml-auto w-fit max-w-[80%] rounded-full bg-[var(--landing-v2-user)] px-4 py-2.5 text-[11px]">Make the landing page feel like the actual product.</div>
+        <div className="relative flex min-h-0 min-w-0 flex-col bg-[var(--landing-v2-panel)]">
+          <div className="landing-chat-conversation mx-auto min-h-0 w-full max-w-[700px] flex-1 overflow-hidden px-4 pb-36 pt-6 sm:px-8 sm:pb-40 sm:pt-9 md:px-9 md:pt-10">
+            <div className="ml-auto w-fit max-w-[88%] rounded-full bg-[var(--landing-v2-user)] px-3.5 py-2.5 text-[11px] sm:max-w-[80%] sm:px-4">Make the landing page feel like the actual product.</div>
 
-            <div className="mt-12 text-[11px] leading-[1.65]">
+            <div className="mt-9 text-[11px] leading-[1.65] sm:mt-12">
               <div className="mb-3 flex items-center gap-2 font-mono text-[9px] text-[var(--landing-v2-faint)]"><ChevronDown className="size-3" /> Worked for 28s <span>·</span> 31.4k tokens</div>
               <p>I’ll inspect the current interface and align the landing page with the real AutoPR workspace.</p>
               <p className="mt-2">The preview now mirrors the product’s core structure:</p>
@@ -148,14 +148,16 @@ function AgentWorkspace() {
               </ul>
             </div>
 
-            <div className="mt-9 ml-auto w-fit rounded-full bg-[var(--landing-v2-user)] px-4 py-2.5 text-[11px]">Keep it minimal and accurate.</div>
-            <div className="mt-10 text-[11px] leading-[1.65]">
-              <div className="mb-3 flex items-center gap-2 font-mono text-[9px] text-[var(--landing-v2-faint)]"><ChevronDown className="size-3" /> Worked for 7s <span>·</span> 11.2k tokens</div>
-              <p><strong>Done.</strong> The marketing surface now feels like the same product developers use after signing in.</p>
+            <div className="hidden sm:block">
+              <div className="mt-9 ml-auto w-fit rounded-full bg-[var(--landing-v2-user)] px-4 py-2.5 text-[11px]">Keep it minimal and accurate.</div>
+              <div className="mt-10 text-[11px] leading-[1.65]">
+                <div className="mb-3 flex items-center gap-2 font-mono text-[9px] text-[var(--landing-v2-faint)]"><ChevronDown className="size-3" /> Worked for 7s <span>·</span> 11.2k tokens</div>
+                <p><strong>Done.</strong> The marketing surface now feels like the same product developers use after signing in.</p>
+              </div>
             </div>
           </div>
 
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[var(--landing-v2-panel)] via-[var(--landing-v2-panel)] to-transparent px-4 pb-5 pt-16 sm:px-8">
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[var(--landing-v2-panel)] via-[var(--landing-v2-panel)] to-transparent px-3 pb-3 pt-12 sm:px-8 sm:pb-5 sm:pt-16">
             <button type="button" className="landing-chat-scroll-latest" aria-label="Scroll to latest message"><ArrowDown className="size-3" /></button>
             <div className="landing-chat-composer mx-auto max-w-[700px]">
               <p className="px-3.5 pb-7 pt-3 text-[10px] text-[var(--landing-v2-faint)]">Add a follow up…</p>
@@ -182,11 +184,11 @@ function Header() {
         <div className="landing-v2-header-shell">
           <Logo />
           <div className="flex items-center gap-1 sm:gap-1.5">
-            <ModeToggle className="size-8 bg-transparent text-[var(--landing-v2-muted)] hover:bg-[var(--landing-v2-active)] hover:text-[var(--landing-v2-ink)]" />
+            <ModeToggle className="size-11 bg-transparent text-[var(--landing-v2-muted)] hover:bg-[var(--landing-v2-active)] hover:text-[var(--landing-v2-ink)] lg:size-8" />
             {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
             <a href={signInHref} className="landing-v2-sign-in hidden sm:inline-flex">Sign in</a>
             {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-button landing-button-primary h-8 pl-3.5 pr-2.5"><span className="hidden sm:inline">Start building</span><span className="sm:hidden">Start</span><span className="flex size-5 items-center justify-center rounded-full bg-[var(--landing-v2-bg)] text-[var(--landing-v2-ink)]"><ArrowRight className="size-3" /></span></a>
+            <a href={signInHref} className="landing-button landing-button-primary h-11 pl-3.5 pr-2.5 lg:h-8"><span className="hidden sm:inline">Start building</span><span className="sm:hidden">Start</span><span className="flex size-6 items-center justify-center rounded-full bg-[var(--landing-v2-bg)] text-[var(--landing-v2-ink)] lg:size-5"><ArrowRight className="size-3" /></span></a>
           </div>
         </div>
       </div>
@@ -194,7 +196,7 @@ function Header() {
   );
 }
 
-export function FigmaLandingPage() {
+export function LandingPage() {
   return (
     <div id="top" className="landing-page landing-v2 min-h-full w-full overflow-x-clip">
       <Header />
@@ -202,19 +204,19 @@ export function FigmaLandingPage() {
       <main>
         <section className="landing-v2-hero">
           <div className="landing-v2-grid" aria-hidden="true" />
-          <div className="relative mx-auto w-full max-w-[1440px] px-5 pb-16 pt-32 sm:px-8 sm:pt-36 lg:px-12 lg:pb-24 lg:pt-40">
+          <div className="relative mx-auto w-full max-w-[1440px] px-4 pb-14 pt-24 sm:px-8 sm:pt-28 md:pt-36 lg:px-12 lg:pb-24 lg:pt-40">
             <div className="relative mx-auto max-w-4xl text-center">
               <HeroMascot />
-              <h1 className="landing-hero-in-delayed text-balance font-display text-[clamp(3.1rem,8vw,7.4rem)] font-medium leading-[0.88] tracking-[-0.065em]">
+              <h1 className="landing-hero-in-delayed text-balance font-display text-[clamp(2.8rem,12.2vw,3.35rem)] font-medium leading-[0.88] tracking-[-0.065em] sm:text-[clamp(3.1rem,8vw,7.4rem)]">
                 Turn tasks into<br /><span className="landing-v2-outline-text">pull requests.</span>
               </h1>
-              <p className="landing-hero-in-late mx-auto mt-7 max-w-2xl text-balance text-base leading-7 text-[var(--landing-v2-muted)] sm:text-lg">
+              <p className="landing-hero-in-late mx-auto mt-5 max-w-2xl text-balance text-[15px] leading-6 text-[var(--landing-v2-muted)] sm:mt-7 sm:text-lg sm:leading-7">
                 AutoPR gives every GitHub repo an autonomous coding agent—inside a secure workspace you can guide, inspect, and ship from.
               </p>
-              <p className="mt-4 font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--landing-v2-faint)]">Bring your Codex subscription · Isolated Daytona runtime</p>
+              <p className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-[8px] uppercase leading-4 tracking-[0.12em] text-[var(--landing-v2-faint)] sm:text-[9px] sm:tracking-[0.14em]"><span>Bring your Codex subscription</span><span aria-hidden="true">·</span><span>Isolated Daytona runtime</span></p>
             </div>
 
-            <div id="workspace" className="relative mx-auto mt-14 max-w-[1180px] scroll-mt-24 sm:mt-20">
+            <div id="workspace" className="relative mx-auto mt-10 max-w-[1180px] scroll-mt-24 sm:mt-16 lg:mt-20">
               <div className="landing-workspace-glow" aria-hidden="true" />
               <AgentWorkspace />
             </div>
@@ -222,11 +224,11 @@ export function FigmaLandingPage() {
         </section>
 
         <section id="workflow" className="border-t border-[var(--landing-v2-line)] scroll-mt-20">
-          <div className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
+          <div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
             <div className="landing-workflow-heading">
               <div>
                 <p className="landing-kicker">One continuous workflow</p>
-                <h2 className="mt-5 max-w-3xl font-display text-4xl font-medium leading-[0.96] tracking-[-0.05em] sm:text-5xl lg:text-6xl">From “can we fix this?” to ready for review.</h2>
+                <h2 className="mt-4 max-w-3xl font-display text-[2.35rem] font-medium leading-[0.96] tracking-[-0.05em] sm:mt-5 sm:text-5xl lg:text-6xl">From “can we fix this?” to ready for review.</h2>
               </div>
               <p className="max-w-md text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">Start with a repo and one sentence. The branch, agent context, diff, and pull request stay on the same trail.</p>
             </div>
@@ -259,14 +261,14 @@ export function FigmaLandingPage() {
 
         <section className="landing-cta-mesh relative isolate overflow-hidden border-b border-[var(--landing-v2-line)]">
           <div className="landing-cta-mesh-grid" aria-hidden="true" />
-          <div className="relative z-10 mx-auto flex max-w-[1440px] flex-col items-center px-5 py-24 text-center sm:px-8 sm:py-28 lg:px-12 lg:py-36">
+          <div className="relative z-10 mx-auto flex max-w-[1440px] flex-col items-center px-4 py-20 text-center sm:px-8 sm:py-28 lg:px-12 lg:py-36">
             <h2 className="max-w-5xl text-balance font-display text-[clamp(2.7rem,7vw,6.75rem)] font-medium leading-[0.88] tracking-[-0.065em]">
               Your next pull request<br />
               <span className="landing-cta-outline">can start with one sentence.</span>
             </h2>
             <p className="landing-cta-copy mt-7 max-w-xl text-sm leading-6 sm:text-base">Connect a repository, describe the outcome, and keep your team focused on the decisions that matter.</p>
             {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-button landing-cta-button mt-9 h-11 px-5 text-sm">Start building free <ArrowRight className="size-4" /></a>
+            <a href={signInHref} className="landing-button landing-cta-button mt-8 h-12 w-full max-w-[220px] px-5 text-sm sm:mt-9 sm:h-11 sm:w-auto">Start building free <ArrowRight className="size-4" /></a>
           </div>
         </section>
       </main>

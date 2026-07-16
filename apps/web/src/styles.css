@@ -711,8 +711,12 @@
 }
 
 @media (max-width: 767px) {
+  .landing-workflow-heading {
+    gap: 1.5rem;
+  }
+
   .landing-workflow-track {
-    margin-top: 3.5rem;
+    margin-top: 3rem;
     padding: 2.5rem 0 2.5rem 3.25rem;
   }
 
@@ -748,7 +752,7 @@
   .landing-workflow-stage {
     min-height: 0;
     border-bottom: 1px solid var(--landing-v2-line);
-    padding: 2rem 0;
+    padding: 1.75rem 0;
   }
 
   .landing-workflow-stage + .landing-workflow-stage {
@@ -760,7 +764,7 @@
   }
 
   .landing-workflow-node {
-    top: 2rem;
+    top: 1.75rem;
     left: -3.25rem;
     transform: none;
   }
@@ -797,18 +801,42 @@
     height: 72px;
   }
 
+  .landing-v2-header-shell {
+    height: 56px;
+    padding-right: 0;
+    padding-left: 0.25rem;
+  }
+
   .landing-workspace {
     border-radius: 10px;
+  }
+
+  .landing-chat-appbar {
+    height: 42px;
+    padding: 0 0.75rem;
+  }
+
+  .landing-chat-composer {
+    border-radius: 14px;
+  }
+
+  .landing-chat-scroll-latest {
+    width: 32px;
+    height: 32px;
   }
 
   .landing-v2-grid {
     background-size: 36px 36px;
   }
 
+  .landing-cta-mesh-grid {
+    background-size: 44px 44px;
+  }
+
   .landing-v2-mascot {
-    top: -3.25rem;
-    right: 0;
-    width: 4.75rem;
+    top: -3.65rem;
+    right: -0.25rem;
+    width: 4.35rem;
   }
 }
 

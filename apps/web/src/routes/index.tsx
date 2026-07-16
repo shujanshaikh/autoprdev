@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { FigmaLandingPage } from "@/components/landing/figma-landing-page";
+import { LandingPage } from "@/components/landing/landing-page";
 
 export const metadata = {
   title: "AutoPR | Your autonomous code companion",
@@ -9,7 +9,7 @@ export const metadata = {
 };
 
 function LandingHome() {
-  return <FigmaLandingPage />;
+  return <LandingPage />;
 }
 
 function Home() {

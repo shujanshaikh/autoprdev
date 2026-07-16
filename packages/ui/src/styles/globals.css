@@ -8,23 +8,24 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --framer-primary: #090909;
+  --framer-primary: #5b3fd1;
   --framer-on-primary: #ffffff;
-  --framer-accent-blue: #0099ff;
-  --framer-ink: #090909;
-  --framer-ink-muted: #666666;
-  --framer-canvas: #ffffff;
-  --framer-surface-1: #f7f7f7;
-  --framer-surface-2: #eeeeee;
-  --framer-hairline: #d8d8d8;
-  --framer-hairline-soft: #e8e8e8;
-  --framer-inverse-canvas: #090909;
-  --framer-inverse-ink: #ffffff;
-  --framer-gradient-magenta: #d44df0;
-  --framer-gradient-violet: #6a4cf5;
-  --framer-gradient-orange: #ff7a3d;
-  --framer-gradient-coral: #ff5577;
-  --framer-success: #22c55e;
+  --framer-accent: #6b4eff;
+  --framer-accent-blue: var(--framer-accent);
+  --framer-ink: #211e26;
+  --framer-ink-muted: #6e6874;
+  --framer-canvas: #fcfbfd;
+  --framer-surface-1: #f7f5fa;
+  --framer-surface-2: #eeeaf2;
+  --framer-hairline: #d4ced9;
+  --framer-hairline-soft: #e5e0e8;
+  --framer-inverse-canvas: #111113;
+  --framer-inverse-ink: #f7f5f8;
+  --framer-gradient-magenta: #c9578b;
+  --framer-gradient-violet: #7964df;
+  --framer-gradient-orange: #e8924f;
+  --framer-gradient-coral: #df6257;
+  --framer-success: #288963;
 
   /* Compatibility aliases for older app code. */
   --cohere-black: #000000;
@@ -147,23 +148,24 @@
 }
 
 .dark {
-  --framer-primary: #ffffff;
-  --framer-on-primary: #000000;
-  --framer-accent-blue: #0099ff;
-  --framer-ink: #ffffff;
-  --framer-ink-muted: #999999;
-  --framer-canvas: #090909;
-  --framer-surface-1: #141414;
-  --framer-surface-2: #1c1c1c;
-  --framer-hairline: #262626;
-  --framer-hairline-soft: #1a1a1a;
-  --framer-inverse-canvas: #ffffff;
-  --framer-inverse-ink: #000000;
-  --framer-gradient-magenta: #d44df0;
-  --framer-gradient-violet: #6a4cf5;
-  --framer-gradient-orange: #ff7a3d;
-  --framer-gradient-coral: #ff5577;
-  --framer-success: #22c55e;
+  --framer-primary: #d8ccff;
+  --framer-on-primary: #251d38;
+  --framer-accent: #b7a4ff;
+  --framer-accent-blue: var(--framer-accent);
+  --framer-ink: #f7f5f8;
+  --framer-ink-muted: #aba5b2;
+  --framer-canvas: #111113;
+  --framer-surface-1: #19191d;
+  --framer-surface-2: #242329;
+  --framer-hairline: #3a3740;
+  --framer-hairline-soft: #2b2930;
+  --framer-inverse-canvas: #faf8fc;
+  --framer-inverse-ink: #211e26;
+  --framer-gradient-magenta: #e77aae;
+  --framer-gradient-violet: #9b87f5;
+  --framer-gradient-orange: #f2a15f;
+  --framer-gradient-coral: #f5796c;
+  --framer-success: #58c99b;
 
   --background: var(--framer-surface-1);
   --foreground: var(--framer-ink);

@@ -5,29 +5,29 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
-const TERMINAL_BACKGROUND = "#141414";
+const TERMINAL_BACKGROUND = "#19191d";
 
 const TERMINAL_THEME = {
   background: TERMINAL_BACKGROUND,
   foreground: "#ffffff",
-  cursor: "#0099ff",
+  cursor: "#b7a4ff",
   cursorAccent: TERMINAL_BACKGROUND,
-  selectionBackground: "#1c1c1c",
+  selectionBackground: "#3a3547",
   black: "#000000",
   brightBlack: "#999999",
-  red: "#ff5577",
-  brightRed: "#ff5577",
-  green: "#22c55e",
-  brightGreen: "#22c55e",
-  yellow: "#ff7a3d",
-  brightYellow: "#ff7a3d",
-  blue: "#0099ff",
-  brightBlue: "#0099ff",
-  magenta: "#d44df0",
-  brightMagenta: "#d44df0",
-  cyan: "#6a4cf5",
-  brightCyan: "#6a4cf5",
-  white: "#999999",
+  red: "#f5796c",
+  brightRed: "#ff9488",
+  green: "#58c99b",
+  brightGreen: "#78ddb3",
+  yellow: "#f2a15f",
+  brightYellow: "#ffba7a",
+  blue: "#b7a4ff",
+  brightBlue: "#cbbdff",
+  magenta: "#e77aae",
+  brightMagenta: "#f394c1",
+  cyan: "#70c7d2",
+  brightCyan: "#8edbe3",
+  white: "#aba5b2",
   brightWhite: "#ffffff",
 } as const;
 

@@ -103,8 +103,8 @@ function diffPaletteColorForToken(token: ThemedToken) {
     darkColor === "#b392f0"
   ) {
     return {
-      dark: "color-mix(in srgb, var(--diffs-modified-dark, #0099ff) 80%, var(--foreground))",
-      light: "color-mix(in srgb, var(--diffs-modified-light, #0099ff) 74%, var(--foreground))",
+      dark: "color-mix(in srgb, var(--diffs-modified-dark, #b7a4ff) 80%, var(--foreground))",
+      light: "color-mix(in srgb, var(--diffs-modified-light, #6b4eff) 74%, var(--foreground))",
     };
   }
 

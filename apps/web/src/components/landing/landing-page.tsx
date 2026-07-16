@@ -56,7 +56,7 @@ function Logo() {
         />
       </span>
       <span className="font-display text-base font-semibold tracking-[-0.045em] sm:text-lg">
-        AutoPR
+        AUTOPR
       </span>
     </a>
   );
@@ -211,7 +211,7 @@ export function LandingPage() {
                 Turn tasks into<br /><span className="landing-v2-outline-text">pull requests.</span>
               </h1>
               <p className="landing-hero-in-late mx-auto mt-5 max-w-2xl text-balance text-[15px] leading-6 text-[var(--landing-v2-muted)] sm:mt-7 sm:text-lg sm:leading-7">
-                AutoPR gives every GitHub repo an autonomous coding agent—inside a secure workspace you can guide, inspect, and ship from.
+                Describe the change. AutoPR opens an isolated workspace, edits and validates your code, then hands you a pull request ready to review.
               </p>
               <p className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-[8px] uppercase leading-4 tracking-[0.12em] text-[var(--landing-v2-faint)] sm:text-[9px] sm:tracking-[0.14em]"><span>Bring your Codex subscription</span><span aria-hidden="true">·</span><span>Isolated Daytona runtime</span></p>
             </div>

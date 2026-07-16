@@ -208,7 +208,7 @@
   --landing-v2-panel: var(--framer-surface-1);
   --landing-v2-subtle: color-mix(in srgb, var(--framer-surface-1) 72%, var(--framer-canvas));
   --landing-v2-active: var(--framer-surface-2);
-  --landing-v2-user: var(--framer-surface-2);
+  --landing-v2-user: color-mix(in srgb, var(--framer-surface-2) 45%, var(--framer-surface-1));
   --landing-v2-ink: var(--framer-ink);
   --landing-v2-muted: var(--framer-ink-muted);
   --landing-v2-faint: color-mix(in srgb, var(--framer-ink-muted) 62%, transparent);
@@ -221,13 +221,7 @@
 }
 
 .dark .landing-v2 {
-  --landing-v2-bg: #0d0d0d;
-  --landing-v2-panel: #141414;
-  --landing-v2-subtle: #111111;
-  --landing-v2-active: #202020;
-  --landing-v2-user: #242424;
-  --landing-v2-line: #242424;
-  --landing-v2-line-strong: #343434;
+  --landing-v2-user: color-mix(in srgb, var(--framer-surface-2) 30%, var(--framer-surface-1));
 }
 
 .landing-v2-header {
@@ -351,14 +345,14 @@
 
 .dark .landing-cta-mesh {
   background:
-    radial-gradient(ellipse 46% 62% at 50% 52%, rgb(10 84 133 / 0.22), transparent 72%),
-    linear-gradient(to bottom, var(--landing-v2-bg) 0%, #090b0d 26%, #090b0d 100%);
+    radial-gradient(ellipse 46% 62% at 50% 52%, color-mix(in srgb, var(--landing-v2-blue) 12%, transparent), transparent 72%),
+    var(--landing-v2-bg);
 }
 
 .dark .landing-cta-mesh::after {
   background:
-    linear-gradient(to right, #090b0d 0%, transparent 18%, transparent 82%, #090b0d 100%),
-    linear-gradient(to bottom, var(--landing-v2-bg) 0%, transparent 24%, transparent 76%, #090b0d 100%);
+    linear-gradient(to right, var(--landing-v2-bg) 0%, transparent 18%, transparent 82%, var(--landing-v2-bg) 100%),
+    linear-gradient(to bottom, var(--landing-v2-bg) 0%, transparent 24%, transparent 76%, var(--landing-v2-bg) 100%);
 }
 
 .landing-cta-mesh-grid {
@@ -392,22 +386,22 @@
 }
 
 .landing-cta-button:hover {
-  box-shadow: 0 0 0 4px rgb(39 156 231 / 0.18);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--landing-v2-blue) 18%, transparent);
   transform: translateY(-1px);
 }
 
 .dark .landing-cta-mesh-grid {
   background-image:
-    linear-gradient(to right, rgb(255 255 255 / 0.07) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.07) 1px, transparent 1px);
+    linear-gradient(to right, color-mix(in srgb, var(--landing-v2-line-strong) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--landing-v2-line-strong) 70%, transparent) 1px, transparent 1px);
 }
 
 .dark .landing-cta-outline {
-  -webkit-text-stroke-color: rgb(247 248 250 / 0.62);
+  -webkit-text-stroke-color: color-mix(in srgb, var(--landing-v2-ink) 62%, transparent);
 }
 
 .dark .landing-cta-copy {
-  color: rgb(247 248 250 / 0.58);
+  color: color-mix(in srgb, var(--landing-v2-ink) 58%, transparent);
 }
 
 .landing-v2-mascot {
@@ -579,11 +573,14 @@
 }
 
 .landing-chat-composer {
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--landing-v2-subtle) 92%, var(--landing-v2-panel));
+  border-radius: var(--radius-xxl);
+  background: color-mix(in srgb, var(--framer-surface-2) 35%, transparent);
   box-shadow:
-    0 0 0 1px var(--landing-v2-line-strong),
-    0 12px 36px rgb(0 0 0 / 0.1);
+    0 0 0 1px color-mix(in srgb, var(--framer-hairline) 55%, transparent);
+}
+
+.dark .landing-chat-composer {
+  background: color-mix(in srgb, var(--framer-surface-2) 20%, transparent);
 }
 
 .landing-chat-scroll-latest {
@@ -814,10 +811,6 @@
   .landing-chat-appbar {
     height: 42px;
     padding: 0 0.75rem;
-  }
-
-  .landing-chat-composer {
-    border-radius: 14px;
   }
 
   .landing-chat-scroll-latest {

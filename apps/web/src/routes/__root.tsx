@@ -4,6 +4,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 import { useEffect } from 'react'
 
 import appCss from '../styles.css?url'
+import landingCss from '../landing.css?url'
 import { Providers } from '../providers'
 
 export const Route = createRootRoute({
@@ -24,6 +25,10 @@ export const Route = createRootRoute({
       {
         rel: 'stylesheet',
         href: appCss,
+      },
+      {
+        rel: 'stylesheet',
+        href: landingCss,
       },
     ],
   }),

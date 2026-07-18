@@ -1,278 +1,328 @@
-import { cn } from "@autopr/ui/lib/utils";
-import {
-  ArrowDown,
-  ArrowRight,
-  ArrowUp,
-  ChevronDown,
-  GitBranch,
-  Github,
-  Image,
-  MessageSquareText,
-  Moon,
-  MoreHorizontal,
-  PanelLeft,
-  Pencil,
-  Plus,
-  Search,
-  Settings,
-  Trash2,
-} from "lucide-react";
-
-import { CodexLogo } from "#/components/icons/codex-logo";
-import { ModeToggle } from "#/components/mode-toggle";
+import { Link } from "@tanstack/react-router";
+import { ArrowDown, ArrowRight, ListTree, Sparkles, SquareTerminal } from "lucide-react";
+import type { ReactNode } from "react";
 
 const signInHref = "/api/auth/sign-in?returnTo=%2Fdashboard";
 
-const workflow = [
+const navLinks = [
+  { label: "Workflow", href: "#workflow", icon: ListTree },
+  { label: "Examples", href: "#examples", icon: SquareTerminal },
+  { label: "Why AutoPR", href: "#why", icon: Sparkles },
+] as const;
+
+const steps = [
   {
+    index: "01",
     label: "Connect",
     title: "Your repo, ready in seconds.",
-    copy: "Choose a GitHub repository and branch. AutoPR creates an isolated Daytona workspace with the full project context.",
-    icon: Github,
+    copy: "Point AutoPR at a GitHub repository and branch. A fresh Daytona workspace spins up with the full project context.",
   },
   {
+    index: "02",
     label: "Delegate",
     title: "Describe the change. Stay in control.",
-    copy: "Start a Codex thread in plain language, attach visual context, and watch the agent inspect, edit, and validate the code.",
-    icon: MessageSquareText,
+    copy: "Say what you want in plain language and watch the agent inspect, edit, and validate the code — live.",
   },
   {
+    index: "03",
     label: "Ship",
     title: "Review the work, not the busywork.",
-    copy: "See every changed file, inspect the diff, and open a pull request without losing the conversation behind it.",
-    icon: GitBranch,
+    copy: "Inspect every changed file, then open a pull request without losing the conversation behind it.",
   },
 ] as const;
 
-function Logo() {
+const examples = [
+  { index: "01", title: "Refactor auth middleware to refresh tokens" },
+  { index: "02", title: "Add rate limiting to the upload endpoint" },
+  { index: "03", title: "Fix the flaky timezone test in CI" },
+] as const;
+
+const features = [
+  {
+    index: "01",
+    label: "Isolated by default",
+    copy: "Every task runs in its own Daytona workspace — full repo, dependencies, and toolchain, with nothing touching your machine.",
+  },
+  {
+    index: "02",
+    label: "Your Codex subscription",
+    copy: "Authorize once and keep model traffic on your own plan. No token markup, no mystery line items.",
+  },
+  {
+    index: "03",
+    label: "Diffs you can trust",
+    copy: "Every thread ends in a reviewable diff. Walk each changed file before anything leaves the branch.",
+  },
+  {
+    index: "04",
+    label: "Straight to a pull request",
+    copy: "Open the PR from the same thread and keep the conversation attached to the code it produced.",
+  },
+] as const;
+
+type ArrowTone = "accent" | "accent-2";
+
+function Cross({ dark = false, className = "" }: { dark?: boolean; className?: string }) {
+  return <span aria-hidden="true" className={`lp-cross${dark ? " lp-cross-dark" : ""}${className ? ` ${className}` : ""}`} />;
+}
+
+function ArrowButton({ href, tone = "accent", className = "", children }: { href: string; tone?: ArrowTone; className?: string; children: ReactNode }) {
   return (
-    <a href="#top" className="flex min-h-11 items-center gap-2.5 lg:min-h-0" aria-label="AutoPR home">
-      <span className="flex size-7 items-center justify-center rounded-[7px] bg-[var(--landing-v2-ink)]">
-        <img
-          src="/images/landing/autopr-mark.png"
-          alt=""
-          aria-hidden="true"
-          className="size-5 object-contain invert dark:invert-0"
-        />
-      </span>
-      <span className="font-display text-base font-semibold tracking-[-0.045em] sm:text-lg">
-        AUTOPR
-      </span>
+    // react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation.
+    <a href={href} className={`lp-arrow lp-arrow-${tone}${className ? ` ${className}` : ""}`}>
+      {children}
     </a>
   );
 }
 
-function HeroMascot() {
+function Wordmark({ onDark = false }: { onDark?: boolean }) {
   return (
-    <div className="landing-v2-mascot" aria-hidden="true">
-      <img src="/images/landing/mascot-spark.svg" alt="" className="absolute left-0 top-0 h-[35.47%] w-[42.71%]" />
-      <img src="/images/landing/mascot-body.svg" alt="" className="absolute left-[15.08%] top-[11.11%] h-[88.89%] w-[84.92%]" />
-      <img src="/images/landing/mascot-leg-right.svg" alt="" className="absolute left-[38.44%] top-[55.68%] h-[18.89%] w-[15.23%]" />
-      <img src="/images/landing/mascot-leg-left.svg" alt="" className="absolute left-[63.47%] top-[55.68%] h-[18.89%] w-[15.23%]" />
-    </div>
-  );
-}
-
-function AgentWorkspace() {
-  return (
-    <div className="landing-workspace landing-hero-workspace" aria-label="Preview of the AutoPR chat workspace">
-      <div className="landing-chat-appbar">
-        <div className="flex items-center gap-2.5">
-          <PanelLeft className="size-3.5 text-[var(--landing-v2-muted)]" aria-hidden="true" />
-          <span className="font-display text-[11px] font-semibold tracking-[-0.03em]">AUTOPR</span>
-        </div>
-        <button type="button" className="landing-chat-commit"><GitBranch className="size-3" /> Commit <ChevronDown className="size-3" /></button>
-      </div>
-
-      <div className="grid h-[560px] min-h-0 grid-cols-1 overflow-hidden sm:h-[620px] md:h-auto md:min-h-[650px] md:grid-cols-[232px_minmax(0,1fr)] lg:grid-cols-[264px_minmax(0,1fr)]">
-        <aside className="landing-chat-sidebar hidden md:flex">
-          <div className="shrink-0 space-y-1 px-3 pb-3 pt-4">
-            <div className="landing-chat-sidebar-action text-[var(--landing-v2-muted)]">
-              <Search className="size-3.5" aria-hidden="true" /><span>Search threads</span><kbd className="ml-auto rounded bg-[var(--landing-v2-active)] px-1.5 py-0.5 font-mono text-[8px] opacity-60">⌘K</kbd>
-            </div>
-            <div className="landing-chat-sidebar-action font-medium">
-              <Pencil className="size-3.5 text-[var(--landing-v2-muted)]" aria-hidden="true" /><span>New thread</span><span className="ml-auto font-mono text-[8px] uppercase text-[var(--landing-v2-faint)]">AutoPR</span>
-            </div>
-          </div>
-
-          <div className="landing-chat-projects">
-            <div className="landing-chat-project"><span className="grid size-5 place-items-center rounded bg-[var(--framer-gradient-coral)] text-[8px] font-semibold text-white">DS</span><span>deskcloud</span></div>
-            <div className="landing-chat-project is-active"><span className="grid size-5 place-items-center rounded bg-[var(--landing-v2-blue)] text-[8px] font-semibold text-[var(--framer-on-primary)]">AP</span><span>autopr</span></div>
-            <div className="grid size-8 shrink-0 place-items-center rounded border border-dashed border-[var(--landing-v2-line-strong)] text-[var(--landing-v2-muted)]"><Plus className="size-3" /></div>
-          </div>
-
-          <div className="flex h-10 shrink-0 items-center px-3 font-mono text-[8px] uppercase tracking-[0.15em] text-[var(--landing-v2-faint)]">
-            AutoPR threads <span className="ml-auto tabular-nums">12</span><Trash2 className="ml-2 size-3" />
-          </div>
-          <div className="min-h-0 flex-1 space-y-1 overflow-hidden px-2 pt-1">
-            {[
-              ["Improve landing page hierarchy", "now", true],
-              ["Review authentication flow", "1d", false],
-              ["Fix mobile sidebar spacing", "3d", false],
-              ["Summarize latest changes", "4d", false],
-              ["Add loading states", "5d", false],
-              ["Refactor project settings", "5d", false],
-            ].map(([title, age, active]) => (
-              <div key={title as string} className={cn("landing-chat-thread", active && "is-active")}>
-                <span className="landing-chat-thread-title">{title as string}</span>
-                <div className="landing-chat-thread-meta">
-                  <span className="flex min-w-0 items-center gap-1"><GitBranch className="size-2.5 shrink-0" /><span className="truncate">main</span></span>
-                  {active ? (
-                    <span className="flex shrink-0 items-center gap-1 text-[var(--landing-v2-blue)]">
-                      <span className="size-1.5 rounded-full bg-current" /> Live
-                    </span>
-                  ) : (
-                    <span className="shrink-0">{age as string}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex h-12 shrink-0 items-center border-t border-[var(--landing-v2-line)] px-3 text-[10px] text-[var(--landing-v2-muted)]">
-            <Settings className="mr-2 size-3.5" />Settings<Moon className="ml-auto size-3.5" /><span className="ml-3 size-5 rounded-full bg-gradient-to-br from-violet-200 via-fuchsia-400 to-orange-400" />
-          </div>
-        </aside>
-
-        <div className="relative flex min-h-0 min-w-0 flex-col bg-[var(--landing-v2-panel)]">
-          <div className="landing-chat-conversation mx-auto min-h-0 w-full max-w-[700px] flex-1 overflow-hidden px-4 pb-36 pt-6 sm:px-8 sm:pb-40 sm:pt-9 md:px-9 md:pt-10">
-            <div className="ml-auto w-fit max-w-[88%] rounded-full bg-[var(--landing-v2-user)] px-3.5 py-2.5 text-[11px] sm:max-w-[80%] sm:px-4">Make the landing page feel like the actual product.</div>
-
-            <div className="mt-9 text-[11px] leading-[1.65] sm:mt-12">
-              <div className="mb-3 flex items-center gap-2 font-mono text-[9px] text-[var(--landing-v2-faint)]"><ChevronDown className="size-3" /> Worked for 28s <span>·</span> 31.4k tokens</div>
-              <p>I’ll inspect the current interface and align the landing page with the real AutoPR workspace.</p>
-              <p className="mt-2">The preview now mirrors the product’s core structure:</p>
-              <ul className="mt-3 list-disc space-y-2 pl-5">
-                <li><strong>Workspace sidebar:</strong> project tabs, searchable threads, branch context, and settings.</li>
-                <li><strong>Focused conversation:</strong> a calm reading column with visible run metadata.</li>
-                <li><strong>Persistent composer:</strong> model controls and follow-up actions stay within reach.</li>
-              </ul>
-            </div>
-
-            <div className="hidden sm:block">
-              <div className="mt-9 ml-auto w-fit rounded-full bg-[var(--landing-v2-user)] px-4 py-2.5 text-[11px]">Keep it minimal and accurate.</div>
-              <div className="mt-10 text-[11px] leading-[1.65]">
-                <div className="mb-3 flex items-center gap-2 font-mono text-[9px] text-[var(--landing-v2-faint)]"><ChevronDown className="size-3" /> Worked for 7s <span>·</span> 11.2k tokens</div>
-                <p><strong>Done.</strong> The marketing surface now feels like the same product developers use after signing in.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[var(--landing-v2-panel)] via-[var(--landing-v2-panel)] to-transparent px-3 pb-3 pt-12 sm:px-8 sm:pb-5 sm:pt-16">
-            <button type="button" className="landing-chat-scroll-latest" aria-label="Scroll to latest message"><ArrowDown className="size-3" /></button>
-            <div className="landing-chat-composer mx-auto max-w-[700px]">
-              <p className="px-3.5 pb-7 pt-3 text-[10px] text-[var(--landing-v2-faint)]">Add a follow up…</p>
-              <div className="flex items-center gap-2 px-2.5 pb-2.5">
-                <CodexLogo className="size-3.5 text-[var(--landing-v2-muted)]" />
-                <span className="text-[9px] font-medium">GPT-5.6</span><ChevronDown className="size-3 text-[var(--landing-v2-muted)]" />
-                <button type="button" className="grid size-6 place-items-center rounded-full bg-[var(--landing-v2-active)]" aria-label="More options"><MoreHorizontal className="size-3" /></button>
-                <Image className="size-3 text-[var(--landing-v2-muted)]" aria-hidden="true" />
-                <span className="ml-auto size-3 rounded-full border-2 border-[var(--landing-v2-line-strong)] border-t-[var(--landing-v2-blue)]" />
-                <button type="button" className="grid size-7 place-items-center rounded-full bg-[var(--landing-v2-ink)] text-[var(--landing-v2-bg)]" aria-label="Send message"><ArrowUp className="size-3" /></button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <a href="#top" className="lp-wordmark" aria-label="AutoPR home">
+      <span className={`lp-wordmark-tile${onDark ? " lp-wordmark-tile-dark" : ""}`}>
+        <img src="/images/landing/autopr-mark.png" alt="" aria-hidden="true" />
+      </span>
+      <span className="lp-wordmark-text">AutoPR</span>
+    </a>
   );
 }
 
 function Header() {
   return (
-    <header className="landing-v2-header">
-      <div className="mx-auto w-full max-w-[1440px] px-3 pt-3 sm:px-6 lg:px-9">
-        <div className="landing-v2-header-shell">
-          <Logo />
-          <div className="flex items-center gap-1 sm:gap-1.5">
-            <ModeToggle className="size-11 bg-transparent text-[var(--landing-v2-muted)] hover:bg-[var(--landing-v2-active)] hover:text-[var(--landing-v2-ink)] lg:size-8" />
-            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-v2-sign-in hidden sm:inline-flex">Sign in</a>
-            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-button landing-button-primary h-11 pl-3.5 pr-2.5 lg:h-8"><span className="hidden sm:inline">Start building</span><span className="sm:hidden">Start</span><span className="flex size-6 items-center justify-center rounded-full bg-[var(--landing-v2-bg)] text-[var(--landing-v2-ink)] lg:size-5"><ArrowRight className="size-3" /></span></a>
-          </div>
+    <header className="lp-header">
+      <div className="lp-frame lp-header-inner">
+        <Wordmark />
+        <nav className="lp-nav" aria-label="Primary">
+          {navLinks.map(({ label, href, icon: Icon }) => (
+            <a key={href} href={href} className="lp-nav-link">
+              <Icon aria-hidden="true" className="size-3" />
+              {label}
+            </a>
+          ))}
+        </nav>
+        <div className="lp-header-actions">
+          {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
+          <a href={signInHref} className="lp-signin">
+            Sign in
+          </a>
+          <ArrowButton href={signInHref} tone="accent" className="lp-arrow-sm">
+            <span className="hidden sm:inline">Get started</span>
+            <span className="sm:hidden">Start</span>
+          </ArrowButton>
         </div>
       </div>
     </header>
   );
 }
 
+function Hero() {
+  return (
+    <section className="lp-hero">
+      <div className="lp-hero-bg" aria-hidden="true" />
+      <div className="lp-frame lp-hero-inner">
+        <Cross className="left-[-6.5px] top-[88px]" />
+        <Cross className="right-[-6.5px] top-[88px]" />
+        <Cross className="bottom-[88px] left-[-6.5px]" />
+        <Cross className="bottom-[88px] right-[-6.5px]" />
+
+        <p className="lp-kicker lp-rise">Autonomous code agent</p>
+        <h1 className="lp-h1 lp-rise lp-rise-1">
+          Turn tasks into
+          <br />
+          pull requests.
+        </h1>
+        <p className="lp-lede lp-rise lp-rise-2">
+          Describe the change. AutoPR opens an isolated workspace, edits and validates your code, then hands you a pull request ready to review.
+        </p>
+        <div className="lp-hero-ctas lp-rise lp-rise-2">
+          <ArrowButton href={signInHref} tone="accent">
+            Start building
+          </ArrowButton>
+          <a href="#workflow" className="lp-text-link">
+            How it works <ArrowDown aria-hidden="true" className="size-3.5" />
+          </a>
+        </div>
+        <p className="lp-proof lp-rise lp-rise-3">
+          <span>Bring your Codex subscription</span>
+          <i aria-hidden="true">·</i>
+          <span>Isolated Daytona runtime</span>
+          <i aria-hidden="true">·</i>
+          <span>GitHub native</span>
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function WorkflowSection() {
+  return (
+    <section id="workflow" className="lp-dark-zone scroll-mt-16">
+      <div className="lp-ticks lp-ticks-dark" aria-hidden="true" />
+      <div className="lp-frame lp-dark-frame">
+        <span className="lp-tag">How it works</span>
+        <Cross dark className="left-[-6.5px] top-[48px]" />
+        <Cross dark className="right-[-6.5px] top-[48px]" />
+        <Cross dark className="bottom-[48px] left-[-6.5px]" />
+        <Cross dark className="bottom-[48px] right-[-6.5px]" />
+
+        <div className="lp-dark-head">
+          <div>
+            <p className="lp-kicker lp-kicker-dark">Workflow</p>
+            <h2 className="lp-h2 lp-h2-accent-2">
+              From one sentence
+              <br />
+              to a ready pull request.
+            </h2>
+            <p className="lp-lede-dark">
+              AutoPR constructs a live workspace around your codebase, then lets a focused agent do the grinding while you make the calls.
+            </p>
+          </div>
+          <ArrowButton href={signInHref} tone="accent-2" className="hidden xl:inline-flex">
+            Start building
+          </ArrowButton>
+        </div>
+
+        <div className="lp-steps">
+          {steps.map((step) => (
+            <article key={step.index} className="lp-step">
+              <p className="lp-step-top">
+                <span className="lp-step-index">{step.index}</span>
+                <span className="lp-step-label">{step.label}</span>
+              </p>
+              <h3>{step.title}</h3>
+              <p className="lp-step-copy">{step.copy}</p>
+            </article>
+          ))}
+        </div>
+
+        <div id="examples" className="lp-examples scroll-mt-24">
+          <div className="lp-examples-head">
+            <span>Example tasks</span>
+            <span>Describe it — the agent ships it</span>
+          </div>
+          <div className="lp-example-grid">
+            {examples.map((example) => (
+              // react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation.
+              <a key={example.index} href={signInHref} className="lp-example">
+                <span className="lp-example-head">
+                  <span>{example.index}</span>
+                  <span className="lp-example-dash" aria-hidden="true" />
+                  <span>autopr</span>
+                </span>
+                <span className="lp-example-title">{example.title}</span>
+                <span className="lp-example-foot">
+                  Try this task
+                  <ArrowRight aria-hidden="true" className="size-3" />
+                </span>
+              </a>
+            ))}
+          </div>
+          <div className="lp-examples-cta">
+            <ArrowButton href={signInHref} tone="accent-2">
+              Start with your repo
+            </ArrowButton>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FeaturesSection() {
+  return (
+    <section id="why" className="scroll-mt-16">
+      <div className="lp-frame lp-light-inner">
+        <p className="lp-kicker">Why AutoPR</p>
+        <h2 className="lp-h2">
+          Everything between
+          <br />
+          the idea and the merge.
+        </h2>
+        <p className="lp-lede-center">
+          AutoPR keeps the whole loop in one place — the workspace, the conversation, the diff, and the pull request.
+        </p>
+        <div className="lp-feature-grid">
+          {features.map((feature) => (
+            <article key={feature.index} className="lp-feature">
+              <p className="lp-feature-label">
+                <span>{feature.index}</span>
+                <span aria-hidden="true">/</span>
+                <strong>{feature.label}</strong>
+              </p>
+              <p className="lp-feature-copy">{feature.copy}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CtaSection() {
+  return (
+    <section className="lp-cta">
+      <div className="lp-cta-bg" aria-hidden="true" />
+      <div className="lp-frame lp-cta-inner">
+        <Cross className="left-[-6.5px] top-[40px]" />
+        <Cross className="right-[-6.5px] top-[40px]" />
+        <Cross className="bottom-[40px] left-[-6.5px]" />
+        <Cross className="bottom-[40px] right-[-6.5px]" />
+
+        <p className="lp-kicker">Get started</p>
+        <h2 className="lp-h2">Your next pull request can start with one sentence.</h2>
+        <ArrowButton href={signInHref} tone="accent">
+          Start building free
+        </ArrowButton>
+        <p className="lp-proof">
+          <span>No credit card required</span>
+          <i aria-hidden="true">·</i>
+          <span>Bring your Codex subscription</span>
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="lp-footer">
+      <div className="lp-ticks lp-ticks-dark" aria-hidden="true" />
+      <div className="lp-frame lp-footer-inner">
+        <div className="lp-footer-top">
+          <Wordmark onDark />
+          <nav className="lp-footer-links" aria-label="Footer">
+            <Link to="/dashboard" className="lp-footer-link">
+              Open app
+            </Link>
+            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
+            <a href={signInHref} className="lp-footer-link">
+              Sign in
+            </a>
+            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
+            <a href={signInHref} className="lp-footer-link">
+              Get started
+            </a>
+          </nav>
+        </div>
+        <div className="lp-footer-bottom">
+          <p>© 2026 AutoPR</p>
+          <p>Isolated Daytona runtime · Powered by your Codex subscription</p>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
 export function LandingPage() {
   return (
-    <div id="top" className="landing-page landing-v2 min-h-full w-full overflow-x-clip">
+    <div id="top" className="lp">
       <Header />
-
       <main>
-        <section className="landing-v2-hero">
-          <div className="landing-v2-grid" aria-hidden="true" />
-          <div className="relative mx-auto w-full max-w-[1440px] px-4 pb-14 pt-24 sm:px-8 sm:pt-28 md:pt-36 lg:px-12 lg:pb-24 lg:pt-40">
-            <div className="relative mx-auto max-w-4xl text-center">
-              <HeroMascot />
-              <h1 className="landing-hero-in-delayed text-balance font-display text-[clamp(2.8rem,12.2vw,3.35rem)] font-medium leading-[0.88] tracking-[-0.065em] sm:text-[clamp(3.1rem,8vw,7.4rem)]">
-                Turn tasks into<br /><span className="landing-v2-outline-text">pull requests.</span>
-              </h1>
-              <p className="landing-hero-in-late mx-auto mt-5 max-w-2xl text-balance text-[15px] leading-6 text-[var(--landing-v2-muted)] sm:mt-7 sm:text-lg sm:leading-7">
-                Describe the change. AutoPR opens an isolated workspace, edits and validates your code, then hands you a pull request ready to review.
-              </p>
-              <p className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-[8px] uppercase leading-4 tracking-[0.12em] text-[var(--landing-v2-faint)] sm:text-[9px] sm:tracking-[0.14em]"><span>Bring your Codex subscription</span><span aria-hidden="true">·</span><span>Isolated Daytona runtime</span></p>
-            </div>
-
-            <div id="workspace" className="relative mx-auto mt-10 max-w-[1180px] scroll-mt-24 sm:mt-16 lg:mt-20">
-              <div className="landing-workspace-glow" aria-hidden="true" />
-              <AgentWorkspace />
-            </div>
-          </div>
-        </section>
-
-        <section id="workflow" className="border-t border-[var(--landing-v2-line)] scroll-mt-20">
-          <div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
-            <div className="landing-workflow-heading">
-              <div>
-                <p className="landing-kicker">One continuous workflow</p>
-                <h2 className="mt-4 max-w-3xl font-display text-[2.35rem] font-medium leading-[0.96] tracking-[-0.05em] sm:mt-5 sm:text-5xl lg:text-6xl">From “can we fix this?” to ready for review.</h2>
-              </div>
-              <p className="max-w-md text-sm leading-6 text-[var(--landing-v2-muted)] sm:text-base">Start with a repo and one sentence. The branch, agent context, diff, and pull request stay on the same trail.</p>
-            </div>
-
-            <div className="landing-workflow-track">
-              <div className="landing-workflow-lane landing-workflow-lane-main"><GitBranch className="size-3.5" aria-hidden="true" /> main</div>
-              <div className="landing-workflow-lane landing-workflow-lane-result"><span className="size-1.5 rounded-full bg-[var(--landing-v2-blue)]" /> pull request ready</div>
-              <svg className="landing-workflow-graph" viewBox="0 0 1200 112" preserveAspectRatio="none" aria-hidden="true">
-                <path className="landing-workflow-mainline" d="M0 24 H1200" />
-                <path className="landing-workflow-branchline" d="M72 24 C132 24 132 88 200 88 H1000 C1068 88 1068 24 1128 24" />
-              </svg>
-
-              <div className="landing-workflow-steps">
-                {workflow.map((item, index) => {
-                  const Icon = item.icon;
-                  return (
-                    <article key={item.label} className="landing-workflow-stage group">
-                      <span className="landing-workflow-node"><Icon className="size-4" aria-hidden="true" /></span>
-                      <p className="font-mono text-[9px] text-[var(--landing-v2-faint)]">0{index + 1}</p>
-                      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--landing-v2-blue)]">{item.label}</p>
-                      <h3 className="mt-3 max-w-sm font-display text-2xl font-medium leading-tight tracking-[-0.035em]">{item.title}</h3>
-                      <p className="mt-3 max-w-sm text-sm leading-6 text-[var(--landing-v2-muted)]">{item.copy}</p>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-cta-mesh relative isolate overflow-hidden border-b border-[var(--landing-v2-line)]">
-          <div className="landing-cta-mesh-grid" aria-hidden="true" />
-          <div className="relative z-10 mx-auto flex max-w-[1440px] flex-col items-center px-4 py-20 text-center sm:px-8 sm:py-28 lg:px-12 lg:py-36">
-            <h2 className="max-w-5xl text-balance font-display text-[clamp(2.7rem,7vw,6.75rem)] font-medium leading-[0.88] tracking-[-0.065em]">
-              Your next pull request<br />
-              <span className="landing-cta-outline">can start with one sentence.</span>
-            </h2>
-            <p className="landing-cta-copy mt-7 max-w-xl text-sm leading-6 sm:text-base">Connect a repository, describe the outcome, and keep your team focused on the decisions that matter.</p>
-            {/* react-doctor-disable-next-line react-doctor/tanstack-start-no-anchor-element -- Auth endpoint intentionally performs a document navigation. */}
-            <a href={signInHref} className="landing-button landing-cta-button mt-8 h-12 w-full max-w-[220px] px-5 text-sm sm:mt-9 sm:h-11 sm:w-auto">Start building free <ArrowRight className="size-4" /></a>
-          </div>
-        </section>
+        <Hero />
+        <WorkflowSection />
+        <FeaturesSection />
+        <CtaSection />
       </main>
-
+      <Footer />
     </div>
   );
 }

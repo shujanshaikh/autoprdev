@@ -44,6 +44,14 @@
   color: var(--lp-ink);
 }
 
+/* Rubber-band overscroll reveals the page canvas (the html/body background),
+   which is the app's dark theme. While the landing page is mounted, unify the
+   canvas and body with the page's paper color (mirrors --lp-paper). */
+html:has(.lp),
+body:has(.lp) {
+  background: #f6f3ea;
+}
+
 .lp a {
   transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -232,13 +240,9 @@
 /* Header */
 
 .lp-header {
-  position: sticky;
-  top: 0;
-  z-index: 50;
+  position: relative;
   border-bottom: 1px solid var(--lp-line);
-  background: color-mix(in srgb, var(--lp-paper) 86%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--lp-paper);
 }
 
 .lp-header-inner {
@@ -258,26 +262,22 @@
 
 .lp-wordmark-tile {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   place-items: center;
-  border-radius: 6px;
-  background: var(--lp-ink);
+  border-radius: 8px;
+  background: var(--lp-accent);
+  transition: background-color 160ms ease;
+}
+
+.lp-wordmark:hover .lp-wordmark-tile {
+  background: color-mix(in srgb, var(--lp-accent) 86%, white);
 }
 
 .lp-wordmark-tile img {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
   object-fit: contain;
-  filter: invert(1);
-}
-
-.lp-wordmark-tile-dark {
-  background: var(--lp-dark-ink);
-}
-
-.lp-wordmark-tile-dark img {
-  filter: none;
 }
 
 .lp-wordmark-text {
@@ -303,7 +303,6 @@
 .lp-nav-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
   font-family: var(--lp-font-mono);
   font-size: 11px;
   letter-spacing: 0.14em;
@@ -311,12 +310,7 @@
   color: var(--lp-muted);
 }
 
-.lp-nav-link svg {
-  color: var(--lp-faint);
-}
-
-.lp-nav-link:hover,
-.lp-nav-link:hover svg {
+.lp-nav-link:hover {
   color: var(--lp-ink);
 }
 
@@ -822,7 +816,8 @@
 
   .lp a,
   .lp-feature,
-  .lp-example {
+  .lp-example,
+  .lp-wordmark-tile {
     transition: none;
   }
 }

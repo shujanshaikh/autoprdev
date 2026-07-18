@@ -1,13 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowDown, ArrowRight, ListTree, Sparkles, SquareTerminal } from "lucide-react";
+import { ArrowDown, ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 
 const signInHref = "/api/auth/sign-in?returnTo=%2Fdashboard";
 
 const navLinks = [
-  { label: "Workflow", href: "#workflow", icon: ListTree },
-  { label: "Examples", href: "#examples", icon: SquareTerminal },
-  { label: "Why AutoPR", href: "#why", icon: Sparkles },
+  { label: "Workflow", href: "#workflow" },
+  { label: "Examples", href: "#examples" },
+  { label: "Why AutoPR", href: "#why" },
 ] as const;
 
 const steps = [
@@ -75,10 +75,10 @@ function ArrowButton({ href, tone = "accent", className = "", children }: { href
   );
 }
 
-function Wordmark({ onDark = false }: { onDark?: boolean }) {
+function Wordmark() {
   return (
     <a href="#top" className="lp-wordmark" aria-label="AutoPR home">
-      <span className={`lp-wordmark-tile${onDark ? " lp-wordmark-tile-dark" : ""}`}>
+      <span className="lp-wordmark-tile">
         <img src="/images/landing/autopr-mark.png" alt="" aria-hidden="true" />
       </span>
       <span className="lp-wordmark-text">AutoPR</span>
@@ -92,9 +92,8 @@ function Header() {
       <div className="lp-frame lp-header-inner">
         <Wordmark />
         <nav className="lp-nav" aria-label="Primary">
-          {navLinks.map(({ label, href, icon: Icon }) => (
+          {navLinks.map(({ label, href }) => (
             <a key={href} href={href} className="lp-nav-link">
-              <Icon aria-hidden="true" className="size-3" />
               {label}
             </a>
           ))}
@@ -288,7 +287,7 @@ function Footer() {
       <div className="lp-ticks lp-ticks-dark" aria-hidden="true" />
       <div className="lp-frame lp-footer-inner">
         <div className="lp-footer-top">
-          <Wordmark onDark />
+          <Wordmark />
           <nav className="lp-footer-links" aria-label="Footer">
             <Link to="/dashboard" className="lp-footer-link">
               Open app

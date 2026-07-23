@@ -6,12 +6,19 @@ import { useEffect } from "react";
 import { AuthGate } from "#/components/project-shell";
 import { WorkspaceShell } from "#/components/workspace-shell";
 
+function safeDecodePathSegment(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function ProjectLayout() {
   const { projectId } = Route.useParams();
   const location = useLocation();
   const { isAuthenticated } = useConvexAuth();
   const project = useQuery(api.projects.get, isAuthenticated ? { projectId } : "skip");
-  const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const markProjectOpened = useMutation(api.projects.markOpened);
   const activeThreadId = location.pathname.match(/\/thread\/([^/?#]+)/)?.[1];
   const openedProjectId = project?.projectId;
@@ -26,8 +33,7 @@ function ProjectLayout() {
     <AuthGate>
       <WorkspaceShell
         activeProjectId={project?.projectId ?? projectId}
-        activeProjectThreads={threads}
-        activeThreadId={activeThreadId ? decodeURIComponent(activeThreadId) : undefined}
+        activeThreadId={activeThreadId ? safeDecodePathSegment(activeThreadId) : undefined}
       >
         <Outlet />
       </WorkspaceShell>

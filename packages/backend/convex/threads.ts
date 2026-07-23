@@ -445,6 +445,83 @@ export const listByProject = query({
   },
 });
 
+export const listForSidebar = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    return await ctx.db
+      .query("threads")
+      .withIndex("by_author", (q) => q.eq("authorId", identity.subject))
+      .order("desc")
+      .collect();
+  },
+});
+
+export const updateTitle = mutation({
+  args: {
+    threadId: v.string(),
+    title: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const title = args.title.trim();
+    if (!title || title.length > 200) {
+      throw new ConvexError({ code: "INVALID_THREAD_TITLE" });
+    }
+
+    await ctx.db.patch(thread._id, { title, updatedAt: Date.now() });
+    return null;
+  },
+});
+
+export const setSettlement = mutation({
+  args: {
+    threadId: v.string(),
+    settled: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    if (args.settled && thread.isLive) {
+      throw new ConvexError({
+        code: "THREAD_IS_RUNNING",
+        message: "A running thread cannot be settled.",
+      });
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      settledOverride: args.settled ? "settled" : "active",
+      settledAt: args.settled ? now : undefined,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
 export const get = query({
   args: {
     threadId: v.string(),
@@ -538,6 +615,8 @@ export const markAgentSessionTurnStartedInternal = internalMutation({
     await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
       isLive: true,
+      settledOverride: undefined,
+      settledAt: undefined,
       triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
       agentRunIssue: undefined,
       workflowIssue: undefined,
@@ -595,6 +674,8 @@ export const markRunStarted = mutation({
     await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
       isLive: true,
+      settledOverride: undefined,
+      settledAt: undefined,
       agentRunIssue: undefined,
       workflowIssue: undefined,
       updatedAt: now,

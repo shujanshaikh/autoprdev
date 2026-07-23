@@ -106,6 +106,8 @@ export default defineSchema({
     title: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    settledOverride: v.optional(v.union(v.literal("settled"), v.literal("active"))),
+    settledAt: v.optional(v.number()),
     currentRunId: v.optional(v.string()),
     isLive: v.optional(v.boolean()),
     triggerSessionCreatedAt: v.optional(v.number()),
@@ -198,6 +200,7 @@ export default defineSchema({
   })
     .index("by_thread_id", ["threadId"])
     .index("by_project", ["projectId"])
+    .index("by_author", ["authorId"])
     .index("by_author_project", ["authorId", "projectId"]),
 
   gitOperations: defineTable({

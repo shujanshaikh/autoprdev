@@ -27,6 +27,27 @@ Daytona's web terminal is exposed on port `22222`, and AutoPR's embedded termina
 
 AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr` snapshot when the terminal profile needs to change.
 
+Starship is installed from its official release archive at the version pinned in the Dockerfile. The archive checksum is selected for the build architecture and verified before installation.
+
+## Developer and Diagnostic Tools
+
+The snapshot installs these tools from the Debian/Ubuntu repositories supplied by the base image:
+
+- ripgrep (`rg`)
+- fd-find (`fdfind`, plus a stable `fd` symlink)
+- fzf
+- bat (`batcat`, plus a stable `bat` symlink)
+- lsof
+- netcat-openbsd (`nc`)
+- dnsutils (`dig`)
+- procps (`ps`)
+- psmisc (`pstree`)
+- sqlite3
+
+GitHub CLI (`gh`) and git-delta (`delta`) use pinned official release archives because their distro availability and versions vary across supported base-image releases. Their amd64 and arm64 checksums are pinned and verified in the Dockerfile. The original `fdfind` and `batcat` executable names remain available alongside the convenience symlinks.
+
+The pinned `gh`, `delta`, and Starship archive installation supports amd64 and arm64. Builds on other architectures stop with an explicit error rather than installing an unverified binary. Google Chrome remains amd64-only, as described below.
+
 ## Desktop Profile
 
 The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, recording, and computer-use support intact. The customization layer only adds and configures:
@@ -41,7 +62,7 @@ The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, recording, and 
 - A clean wallpaper installed at `/usr/share/backgrounds/autopr/wallpaper.png`.
 - The stock Adwaita/XFCE cursor, kept at a normal 24px size.
 - A fixed `1920x1080` noVNC desktop, matching Daytona's computer-use `VNC_RESOLUTION` path, that AutoPR scales inside the desktop panel without resizing the sandbox display.
-- Dev/desktop utilities for a more complete workstation feel: fish, htop, jq, tmux, tree, xterm, git-lfs, zip/unzip, vim, and nano.
+- Dev/desktop utilities for a more complete workstation feel: fish, htop, jq, tmux, tree, xterm, git-lfs, zip/unzip, vim, nano, and the developer and diagnostic tools listed above.
 
 The desktop setup files live under `desktop/`. Update those files and rebuild the `autopr` snapshot when you want to change the visible desktop.
 
@@ -76,6 +97,14 @@ zsh --version
 starship --version
 test -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 test -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3; do
+  command -v "$executable"
+done
+rg --version
+fd --version
+bat --version
+delta --version
+gh --version
 command -v google-chrome
 google-chrome --version
 echo "$BROWSER"

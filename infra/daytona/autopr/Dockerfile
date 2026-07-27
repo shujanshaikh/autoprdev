@@ -108,7 +108,7 @@ RUN apt-get update \
     && rm -rf "$tools_dir" \
     && git lfs install --system \
     && if [ -e /opt/google/chrome/chrome-sandbox ]; then chown root:root /opt/google/chrome/chrome-sandbox && chmod 4755 /opt/google/chrome/chrome-sandbox; fi \
-    && for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3 starship; do command -v "$executable" >/dev/null; done \
+    && for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3 starship tmux; do command -v "$executable" >/dev/null; done \
     && test "$(command -v tini)" = /usr/bin/tini \
     && chsh -s "$(command -v zsh)" daytona
 
@@ -123,6 +123,7 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
     && install -m 0644 /opt/autopr/source/gitconfig /etc/gitconfig.d/autopr \
     && git config --system --add include.path /etc/gitconfig.d/autopr \
     && install -m 0644 /opt/autopr/source/starship.toml /opt/autopr/terminal/starship.toml \
+    && install -m 0644 /opt/autopr/source/tmux.conf /opt/autopr/terminal/tmux.conf \
     && install -m 0644 /opt/autopr/source/zshrc /opt/autopr/terminal/zshrc \
     && rm -rf /opt/autopr/desktop \
     && cp -R /opt/autopr/source/desktop /opt/autopr/desktop \
@@ -176,6 +177,7 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
       /home/daytona/.cache/zsh \
       /home/daytona/.local/share/applications \
     && install -m 0644 -o daytona -g daytona /opt/autopr/terminal/starship.toml /home/daytona/.config/starship.toml \
+    && install -m 0644 -o daytona -g daytona /opt/autopr/terminal/tmux.conf /home/daytona/.tmux.conf \
     && install -m 0644 -o daytona -g daytona /opt/autopr/terminal/zshrc /home/daytona/.zshrc \
     && cp -R /opt/autopr/desktop/autostart/. /home/daytona/.config/autostart/ \
     && cp -R /opt/autopr/desktop/gtk-3.0/. /home/daytona/.config/gtk-3.0/ \

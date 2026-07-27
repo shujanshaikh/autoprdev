@@ -46,6 +46,7 @@ alias ll="ls -lah --color=auto"
 alias la="ls -A --color=auto"
 alias ..="cd .."
 alias ...="cd ../.."
+alias work="tmux new-session -A -s autopr"
 
 if command -v starship >/dev/null 2>&1; then
   eval "$(starship init zsh)"

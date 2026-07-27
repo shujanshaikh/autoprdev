@@ -16,14 +16,17 @@ If your current `daytona-large` snapshot is backed by a different Daytona sandbo
 
 ## Terminal Profile
 
-The snapshot installs zsh, Starship, autosuggestions, and syntax highlighting, sets the `daytona` user's login shell to zsh, and writes:
+The snapshot installs zsh, Starship, tmux, autosuggestions, and syntax highlighting, sets the `daytona` user's login shell to zsh, and writes:
 
 ```text
 /home/daytona/.zshrc
+/home/daytona/.tmux.conf
 /home/daytona/.config/starship.toml
 ```
 
 Daytona's web terminal is exposed on port `22222`, and AutoPR's embedded terminal creates Daytona PTY sessions for the same sandbox user. Both paths pick up this shell profile when the sandbox is created from the `autopr` snapshot.
+
+Tmux is opt-in so browser PTYs and automated sessions continue to open as normal zsh shells. Run `work` to create or attach to the shared `autopr` tmux session.
 
 AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr` snapshot when the terminal profile needs to change.
 
@@ -97,6 +100,9 @@ REPO_DIR=/home/<repository-name>
 echo "$SHELL"
 zsh --version
 starship --version
+tmux -V
+alias work
+test -f /home/daytona/.tmux.conf
 test -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 test -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3; do

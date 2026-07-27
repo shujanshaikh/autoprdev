@@ -134,6 +134,7 @@ export default defineSchema({
       occurredAt: v.number(),
     })),
     demoEnabled: v.optional(v.boolean()),
+    workspaceMode: v.optional(v.union(v.literal("checkout"), v.literal("worktree"))),
     baseBranch: v.optional(v.string()),
     featureBranch: v.optional(v.string()),
     worktreePath: v.optional(v.string()),

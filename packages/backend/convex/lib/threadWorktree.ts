@@ -1,8 +1,11 @@
 export interface ThreadBranchMetadata {
+  workspaceMode?: ThreadWorkspaceMode;
   baseBranch?: string;
   featureBranch?: string;
   worktreePath?: string;
 }
+
+export type ThreadWorkspaceMode = "checkout" | "worktree";
 
 export interface ProjectBranchMetadata {
   currentBranch?: string;
@@ -63,10 +66,25 @@ export function createThreadWorktreePath(
 }
 
 export function resolveThreadExecutionPath(
-  thread: Pick<ThreadBranchMetadata, "worktreePath">,
+  thread: Pick<ThreadBranchMetadata, "workspaceMode" | "featureBranch" | "worktreePath">,
   projectRepositoryPath: string,
 ) {
-  return thread.worktreePath?.trim() || projectRepositoryPath;
+  return resolveThreadWorkspaceMode(thread) === "worktree"
+    ? thread.worktreePath?.trim() || projectRepositoryPath
+    : projectRepositoryPath;
+}
+
+export function resolveThreadWorkspaceMode(
+  thread: Pick<ThreadBranchMetadata, "workspaceMode" | "featureBranch" | "worktreePath">,
+): ThreadWorkspaceMode {
+  if (thread.workspaceMode) return thread.workspaceMode;
+
+  // Threads created before workspaceMode was persisted were worktree-backed
+  // whenever branch/worktree metadata was allocated. Truly metadata-less
+  // legacy threads retain the original shared-checkout behavior.
+  return thread.featureBranch?.trim() || thread.worktreePath?.trim()
+    ? "worktree"
+    : "checkout";
 }
 
 export function parseGitWorktreeList(output: string): GitWorktreeEntry[] {

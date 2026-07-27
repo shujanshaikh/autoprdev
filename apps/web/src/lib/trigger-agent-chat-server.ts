@@ -138,7 +138,7 @@ async function createTrustedClientData(options: {
   requested: AgentChatClientInput;
 }) {
   const [worktree, codex, persistenceGrant] = await Promise.all([
-    convexAction(api.projectActions.ensureThreadWorktree, {
+    convexAction(api.projectActions.resolveThreadWorkspace, {
       projectId: options.project.projectId,
       threadId: options.thread.threadId,
     }),

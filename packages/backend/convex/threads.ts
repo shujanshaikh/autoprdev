@@ -29,6 +29,7 @@ import {
   createThreadFeatureBranch,
   createThreadWorktreePath,
   resolveThreadBaseBranch,
+  resolveThreadWorkspaceMode,
 } from "./lib/threadWorktree";
 import {
   githubPullRequestLocalBranch,
@@ -44,6 +45,7 @@ export const create = mutation({
     projectId: v.string(),
     title: v.optional(v.string()),
     demoEnabled: v.optional(v.boolean()),
+    workspaceMode: v.optional(v.union(v.literal("checkout"), v.literal("worktree"))),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
@@ -67,9 +69,12 @@ export const create = mutation({
     const now = Date.now();
     const threadId = randomUuid();
     const title = args.title?.trim() || "New thread";
+    const workspaceMode = args.workspaceMode ?? "checkout";
     const baseBranch = resolveThreadBaseBranch({}, project);
-    const featureBranch = createThreadFeatureBranch(title, threadId);
-    const worktreePath = project.sandboxWorkDir
+    const featureBranch = workspaceMode === "worktree"
+      ? createThreadFeatureBranch(title, threadId)
+      : undefined;
+    const worktreePath = workspaceMode === "worktree" && project.sandboxWorkDir
       ? createThreadWorktreePath(project.sandboxWorkDir, project.repoName, threadId)
       : undefined;
 
@@ -82,13 +87,16 @@ export const create = mutation({
       updatedAt: now,
       isLive: false,
       demoEnabled: args.demoEnabled ?? false,
+      workspaceMode,
       baseBranch,
       featureBranch,
       worktreePath,
-      worktreeStatus: "pending",
-      worktreeUpdatedAt: now,
+      ...(workspaceMode === "worktree" ? {
+        worktreeStatus: "pending" as const,
+        worktreeUpdatedAt: now,
+      } : {}),
       gitStatusInvalidatedAt: now,
-      gitStatusInvalidationReason: "worktree_created",
+      gitStatusInvalidationReason: workspaceMode === "worktree" ? "worktree_created" : "manual",
     });
 
     return threadId;
@@ -196,6 +204,7 @@ export const createFromGithubPullRequest = mutation({
       updatedAt: now,
       isLive: false,
       demoEnabled: false,
+      workspaceMode: "worktree",
       baseBranch: args.pullRequest.base.branch,
       featureBranch: githubPullRequestLocalBranch(args.pullRequest.number, args.pullRequest.head.sha),
       worktreePath: project.sandboxWorkDir
@@ -238,6 +247,7 @@ export const attachGithubPullRequest = mutation({
     const now = Date.now();
     await ctx.db.patch(thread._id, {
       title: thread.title === "New thread" ? args.pullRequest.title : thread.title,
+      workspaceMode: "worktree",
       baseBranch: args.pullRequest.base.branch,
       featureBranch: githubPullRequestLocalBranch(args.pullRequest.number, args.pullRequest.head.sha),
       worktreePath: project.sandboxWorkDir
@@ -294,6 +304,9 @@ export const reserveWorktreeInternal = internalMutation({
     if (!thread || thread.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
+    if (resolveThreadWorkspaceMode(thread) !== "worktree") {
+      throw new ConvexError({ code: "THREAD_WORKTREE_NOT_ENABLED" });
+    }
     if (
       (thread.baseBranch && thread.baseBranch !== args.baseBranch) ||
       (thread.featureBranch && thread.featureBranch !== args.featureBranch) ||
@@ -305,6 +318,7 @@ export const reserveWorktreeInternal = internalMutation({
     const now = Date.now();
     const shouldInvalidate = thread.worktreeStatus !== "ready";
     await ctx.db.patch(thread._id, {
+      workspaceMode: "worktree",
       baseBranch: thread.baseBranch ?? args.baseBranch,
       featureBranch: thread.featureBranch ?? args.featureBranch,
       worktreePath: thread.worktreePath ?? args.worktreePath,

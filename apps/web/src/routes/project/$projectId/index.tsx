@@ -32,6 +32,7 @@ import {
   ArrowUp,
   CircleAlert,
   GitBranch,
+  GitFork,
   GitPullRequest,
   ImagePlus,
   Loader2,
@@ -94,6 +95,7 @@ type GithubBranch = {
 };
 
 type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
+type ThreadWorkspaceMode = "checkout" | "worktree";
 
 type ProjectPromptImage = {
   id: string;
@@ -112,6 +114,68 @@ const revokeObjectUrl = (url: string | undefined) => {
     URL.revokeObjectURL(url);
   }
 };
+
+function ThreadWorkspaceSelect({
+  value,
+  currentBranch,
+  disabled,
+  onChange,
+}: {
+  value: ThreadWorkspaceMode;
+  currentBranch: string;
+  disabled: boolean;
+  onChange: (value: ThreadWorkspaceMode) => void;
+}) {
+  const isWorktree = value === "worktree";
+
+  return (
+    <Select value={value} onValueChange={(nextValue) => onChange(nextValue as ThreadWorkspaceMode)}>
+      <SelectTrigger
+        size="sm"
+        className="h-7 max-w-[11rem] gap-1 border-none bg-transparent px-1.5 font-mono text-[11px] font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-muted/30 [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5"
+        disabled={disabled}
+        aria-label="Thread workspace"
+      >
+        {isWorktree ? (
+          <GitFork className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+        ) : (
+          <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
+        )}
+        <SelectValue>{isWorktree ? "New worktree" : currentBranch}</SelectValue>
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        side="top"
+        sideOffset={8}
+        className="w-72 min-w-72 rounded-[var(--radius-lg)] p-1"
+      >
+        <SelectItem value="checkout" className="rounded-[var(--radius-md)] py-2 pr-7 pl-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <GitBranch className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="min-w-0">
+              <span className="block text-xs font-medium">Current checkout</span>
+              <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                Use {currentBranch}; changes stay in this checkout.
+              </span>
+            </span>
+          </div>
+        </SelectItem>
+        <SelectItem value="worktree" className="rounded-[var(--radius-md)] py-2 pr-7 pl-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <GitFork className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+            <span className="min-w-0">
+              <span className="block text-xs font-medium">New worktree</span>
+              <span className="block text-[10px] text-muted-foreground">
+                Create an isolated feature branch and checkout.
+              </span>
+            </span>
+          </div>
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -210,6 +274,7 @@ function ProjectOverviewPage() {
   const [error, setError] = useState<string | undefined>();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<{ projectId: string; branch: string } | undefined>();
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>();
+  const [workspaceMode, setWorkspaceMode] = useState<ThreadWorkspaceMode>("checkout");
   const availableCodexModels = useMemo(
     () => normalizeCodexModelList(codexStatusQuery.data?.models),
     [codexStatusQuery.data?.models],
@@ -257,6 +322,10 @@ function ProjectOverviewPage() {
   }, []);
 
   const openThreads = threads?.filter((t) => t.isLive) ?? [];
+  const checkoutOpenThreads = openThreads.filter((thread) =>
+    thread.workspaceMode === "checkout" ||
+    (thread.workspaceMode === undefined && !thread.featureBranch && !thread.worktreePath),
+  );
   const currentBranch = project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch ?? "main";
   const selectedBranch =
     selectedBranchOverride?.projectId === projectId && selectedBranchOverride.branch !== currentBranch
@@ -519,6 +588,7 @@ function ProjectOverviewPage() {
         projectId,
         title: prompt || "New thread",
         demoEnabled: effectiveDemoEnabled,
+        workspaceMode,
       });
       if (uploadedImages.length > 0) {
         window.sessionStorage.setItem(
@@ -553,6 +623,7 @@ function ProjectOverviewPage() {
     router,
     selectedModel,
     selectedReasoningEffort,
+    workspaceMode,
   ]);
 
   const handlePromptSubmit = useCallback(
@@ -629,8 +700,10 @@ function ProjectOverviewPage() {
       return;
     }
 
-    if (openThreads.length > 0) {
-      const confirmed = window.confirm("Switching branch affects the sandbox used by new and existing threads.");
+    if (checkoutOpenThreads.length > 0) {
+      const confirmed = window.confirm(
+        `Switching branch changes the checkout used by ${checkoutOpenThreads.length} live checkout-backed thread${checkoutOpenThreads.length === 1 ? "" : "s"}. Worktree-backed threads are unaffected.`,
+      );
       if (!confirmed) {
         setSelectedBranchOverride(undefined);
         return;
@@ -639,7 +712,7 @@ function ProjectOverviewPage() {
 
     setSelectedBranchOverride({ projectId, branch });
     mutateSwitchBranch(branch);
-  }, [currentBranch, openThreads.length, project, projectId, mutateSwitchBranch]);
+  }, [checkoutOpenThreads.length, currentBranch, project, projectId, mutateSwitchBranch]);
 
   const quickActions = [
     "Summarize latest changes",
@@ -822,6 +895,12 @@ function ProjectOverviewPage() {
 
                           <div className="flex items-center justify-between gap-1.5 px-2 pb-2 pt-0.5">
                             <div className="flex min-w-0 flex-wrap items-center gap-0.5">
+                              <ThreadWorkspaceSelect
+                                value={workspaceMode}
+                                currentBranch={currentBranch}
+                                disabled={promptControlsDisabled}
+                                onChange={setWorkspaceMode}
+                              />
                               <button
                                 type="button"
                                 aria-label="Add photos"

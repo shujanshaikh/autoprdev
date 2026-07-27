@@ -1461,6 +1461,15 @@ function ThreadChatRuntime({
 
   const optimisticDemoEnabled = pendingDemoEnabled ?? Boolean(thread?.demoEnabled);
   const showMaximizedDiffPanel = diffPanelOpen && diffPanelMaximized;
+  const usesWorktree = thread?.workspaceMode === "worktree" || (
+    thread?.workspaceMode === undefined && Boolean(thread?.featureBranch || thread?.worktreePath)
+  );
+  const displayedBaseBranch = usesWorktree
+    ? thread?.baseBranch
+    : project?.defaultBranch ?? thread?.baseBranch ?? project?.repoBranch;
+  const displayedFeatureBranch = usesWorktree
+    ? thread?.featureBranch
+    : project?.currentBranch ?? project?.repoBranch ?? thread?.baseBranch;
   const recordingPlaybackBasePath =
     `/api/project/${encodeURIComponent(projectId)}` +
     `/thread/${encodeURIComponent(threadId)}`;
@@ -1646,8 +1655,8 @@ function ThreadChatRuntime({
         projectId={projectId}
         threadId={threadId}
         threadTitle={thread?.title}
-        baseBranch={thread?.baseBranch ?? project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch}
-        featureBranch={thread?.featureBranch}
+        baseBranch={displayedBaseBranch}
+        featureBranch={displayedFeatureBranch}
         pullRequestStatus={thread?.pullRequestStatus}
         pullRequestUrl={thread?.pullRequestUrl}
         pullRequestNumber={thread?.pullRequestNumber}

@@ -14,6 +14,8 @@ import {
   decideWorktreeProvision,
   parseGitWorktreeList,
   resolveThreadBaseBranch,
+  resolveThreadWorkspaceMode,
+  type ThreadWorkspaceMode,
 } from "./lib/threadWorktree";
 
 const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready"), v.literal("failed"));
@@ -80,6 +82,10 @@ interface ThreadWorktreeResult {
   worktreePath: string;
   headSha: string;
   upstreamBranch?: string;
+}
+
+interface ThreadWorkspaceResult extends ThreadWorktreeResult {
+  workspaceMode: ThreadWorkspaceMode;
 }
 
 type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
@@ -710,6 +716,10 @@ async function provisionThreadWorktree(
     threadId,
   });
 
+  if (resolveThreadWorkspaceMode(thread) !== "worktree") {
+    throw new ConvexError({ code: "THREAD_WORKTREE_NOT_ENABLED" });
+  }
+
   if (project.sandboxStatus !== "ready" || !project.sandboxId) {
     throw new ConvexError({ code: "PROJECT_NOT_READY" });
   }
@@ -845,6 +855,90 @@ export const ensureThreadWorktree = action({
   },
 });
 
+async function resolveThreadWorkspaceForAuthor(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  threadId: string,
+): Promise<ThreadWorkspaceResult> {
+  const { project, thread } = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
+    authorId,
+    projectId,
+    threadId,
+  });
+  const workspaceMode = resolveThreadWorkspaceMode(thread);
+
+  if (workspaceMode === "worktree") {
+    return {
+      workspaceMode,
+      ...await provisionThreadWorktree(ctx, authorId, projectId, threadId),
+    };
+  }
+
+  if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+    throw new ConvexError({ code: "PROJECT_NOT_READY" });
+  }
+
+  const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
+    DEFAULT_SANDBOX_WORKDIR,
+    sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
+  );
+  const sandbox = await ensureSandboxStarted(project.sandboxId);
+  const quotedRepositoryPath = shellQuote(repositoryPath);
+  const featureBranch = sandboxCommandOutput(
+    await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} branch --show-current`),
+  );
+  if (!featureBranch) {
+    throw new ConvexError({
+      code: "PROJECT_CHECKOUT_DETACHED",
+      message: "The project checkout is detached. Check out a branch before running this thread.",
+    });
+  }
+
+  const headSha = sandboxCommandOutput(
+    await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} rev-parse HEAD`),
+  );
+  const upstreamResult = await runSandboxShell(
+    sandbox,
+    `git -C ${quotedRepositoryPath} rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'`,
+    true,
+  );
+  const upstreamBranch = upstreamResult.exitCode === 0
+    ? sandboxCommandOutput(upstreamResult) || undefined
+    : undefined;
+
+  return {
+    workspaceMode,
+    baseBranch: project.defaultBranch ?? thread.baseBranch ?? featureBranch,
+    featureBranch,
+    worktreePath: repositoryPath,
+    headSha,
+    upstreamBranch,
+  };
+}
+
+export const resolveThreadWorkspace = action({
+  args: { projectId: v.string(), threadId: v.string() },
+  returns: v.object({
+    workspaceMode: v.union(v.literal("checkout"), v.literal("worktree")),
+    baseBranch: v.string(),
+    featureBranch: v.string(),
+    worktreePath: v.string(),
+    headSha: v.string(),
+    upstreamBranch: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<ThreadWorkspaceResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED" });
+    return await resolveThreadWorkspaceForAuthor(
+      ctx,
+      identity.subject,
+      args.projectId,
+      args.threadId,
+    );
+  },
+});
+
 async function cleanupThreadWorktreeForAuthor(
   ctx: ActionCtx,
   authorId: string,
@@ -855,6 +949,10 @@ async function cleanupThreadWorktreeForAuthor(
     projectId: args.projectId,
     threadId: args.threadId,
   });
+
+  if (resolveThreadWorkspaceMode(thread) === "checkout") {
+    return { removed: false, branchPreserved: true };
+  }
 
   if (!thread.worktreePath || !project.sandboxId) {
     await ctx.runMutation(internal.threads.markWorktreeCleanedInternal, {
@@ -1130,7 +1228,7 @@ export const getPtyTerminal = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const worktree = await provisionThreadWorktree(
+    const workspace = await resolveThreadWorkspaceForAuthor(
       ctx,
       identity.subject,
       args.projectId,
@@ -1140,7 +1238,7 @@ export const getPtyTerminal = action({
       authorId: identity.subject,
       projectId: args.projectId,
     });
-    const cwd = worktree.worktreePath;
+    const cwd = workspace.worktreePath;
 
     try {
       const terminal = await createDaytonaPtyTerminal(project.sandboxId, cwd, args.cols ?? 100, args.rows ?? 30);

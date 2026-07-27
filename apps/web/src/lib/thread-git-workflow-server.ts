@@ -62,7 +62,7 @@ function phaseError(error: unknown, phase: GitWorkflowPhase) {
       code: "NO_CHANGES",
       message: error.message,
       retryable: false,
-      recoveryAction: "Make a change in the thread worktree, then start a new Git operation.",
+      recoveryAction: "Make a change in the thread workspace, then start a new Git operation.",
     });
   }
   if (error instanceof SandboxGitCommandError) {
@@ -71,7 +71,7 @@ function phaseError(error: unknown, phase: GitWorkflowPhase) {
       message: error.message,
       diagnostics: error.diagnostics,
       recoveryAction: phase === "commit"
-        ? "Fix the hook failure in the worktree, then retry this operation."
+        ? "Fix the hook failure in the thread workspace, then retry this operation."
         : "Resolve the Git diagnostic, then retry this operation.",
     });
   }
@@ -223,23 +223,23 @@ export async function runThreadGitWorkflow(options: {
     }
   }
 
-  const ensureWorktree = () => convexAction(api.projectActions.ensureThreadWorktree, {
+  const resolveWorkspace = () => convexAction(api.projectActions.resolveThreadWorkspace, {
     projectId: options.projectId,
     threadId: options.threadId,
   });
-  let worktree: Awaited<ReturnType<typeof ensureWorktree>>;
+  let workspace: Awaited<ReturnType<typeof resolveWorkspace>>;
   try {
-    worktree = await ensureWorktree();
+    workspace = await resolveWorkspace();
   } catch (error) {
     return failBeforeExecution(error, "branch");
   }
-  const expectedBranch = worktree.featureBranch;
-  const baseBranch = worktree.baseBranch;
+  const expectedBranch = workspace.featureBranch;
+  const baseBranch = workspace.baseBranch;
   const title = operation.pullRequestTitle || thread.title || "AutoPR changes";
   const body = operation.pullRequestBody || [
     `Created from AutoPR thread \`${options.threadId}\`.`,
     "",
-    "This PR contains the reviewed changes from the thread worktree.",
+    "This PR contains the reviewed changes from the thread workspace.",
   ].join("\n");
 
   const handlers: Record<GitWorkflowPhase, (checkpoint: GitWorkflowCheckpoint) => Promise<GitWorkflowPhaseOutput>> = {
@@ -247,14 +247,14 @@ export async function runThreadGitWorkflow(options: {
       const inspected = await inspectProjectSandboxGit({
         sandboxId,
         repoName: project.repoName,
-        sandboxWorkDir: worktree.worktreePath,
+        sandboxWorkDir: workspace.worktreePath,
       });
       if (!inspected.branch || inspected.branch !== expectedBranch) {
         throw new GitWorkflowPhaseError({
           code: "BRANCH_MISMATCH",
           message: `Expected thread branch ${expectedBranch}, found ${inspected.branch || "detached HEAD"}.`,
           retryable: false,
-          recoveryAction: "Restore the thread worktree to its assigned feature branch.",
+          recoveryAction: "Restore the thread workspace to its assigned branch.",
         });
       }
       return { branch: inspected.branch, baseBranch, summary: `Created branch ${inspected.branch}` };
@@ -263,7 +263,7 @@ export async function runThreadGitWorkflow(options: {
       const inspected = await inspectProjectSandboxGit({
         sandboxId,
         repoName: project.repoName,
-        sandboxWorkDir: worktree.worktreePath,
+        sandboxWorkDir: workspace.worktreePath,
       });
       if (inspected.branch !== (checkpoint.branch ?? expectedBranch)) {
         throw new GitWorkflowPhaseError({ code: "BRANCH_CHANGED", message: "The thread branch changed during the operation." });
@@ -271,16 +271,16 @@ export async function runThreadGitWorkflow(options: {
       let diagnostics: string | undefined;
       let commitMessage = checkpoint.commitMessage ?? operation.commitMessage;
       if (needsCommit(options.input.action)) {
-        if (!inspected.hasChanges) throw new SandboxNoChangesError("There are no worktree changes to commit.");
+        if (!inspected.hasChanges) throw new SandboxNoChangesError("There are no workspace changes to commit.");
         const prepared = await prepareProjectSandboxCommit({
           sandboxId,
           repoName: project.repoName,
-          sandboxWorkDir: worktree.worktreePath,
+          sandboxWorkDir: workspace.worktreePath,
         });
         diagnostics = (await validatePreparedProjectSandboxCommit({
           sandboxId,
           repoName: project.repoName,
-          sandboxWorkDir: worktree.worktreePath,
+          sandboxWorkDir: workspace.worktreePath,
         })).diagnostics;
         commitMessage ??= await generateCommitMessage({
           request: options.request,
@@ -293,9 +293,9 @@ export async function runThreadGitWorkflow(options: {
       } else if (inspected.hasChanges) {
         throw new GitWorkflowPhaseError({
           code: "UNCOMMITTED_CHANGES",
-          message: "This action requires a clean worktree.",
+          message: "This action requires a clean workspace.",
           retryable: false,
-          recoveryAction: "Choose a commit-inclusive action or commit/stash the worktree changes.",
+          recoveryAction: "Choose a commit-inclusive action or commit/stash the workspace changes.",
         });
       } else if (options.input.action === "create_pr") {
         if (!token) throw new GithubConnectionError("GitHub credentials are required to inspect the branch.");
@@ -303,7 +303,7 @@ export async function runThreadGitWorkflow(options: {
           sandboxId,
           githubToken: token,
           repoName: project.repoName,
-          sandboxWorkDir: worktree.worktreePath,
+          sandboxWorkDir: workspace.worktreePath,
         });
         if (remote.remoteSha !== remote.commitSha) {
           throw new GitWorkflowPhaseError({
@@ -322,7 +322,7 @@ export async function runThreadGitWorkflow(options: {
       const inspected = await inspectProjectSandboxGit({
         sandboxId,
         repoName: project.repoName,
-        sandboxWorkDir: worktree.worktreePath,
+        sandboxWorkDir: workspace.worktreePath,
       });
       const commitMessage = checkpoint.commitMessage ?? operation.commitMessage ?? title;
       let commitSha = inspected.commitSha;
@@ -335,7 +335,7 @@ export async function runThreadGitWorkflow(options: {
           authorName: identity.name,
           authorEmail: identity.email,
           repoName: project.repoName,
-          sandboxWorkDir: worktree.worktreePath,
+          sandboxWorkDir: workspace.worktreePath,
         });
         commitSha = result.commitSha;
         diagnostics = result.diagnostics;
@@ -364,7 +364,7 @@ export async function runThreadGitWorkflow(options: {
         githubToken: token,
         githubUsername: identity.username,
         repoName: project.repoName,
-        sandboxWorkDir: worktree.worktreePath,
+        sandboxWorkDir: workspace.worktreePath,
         target: thread.githubPullRequestHeadCloneUrl && thread.githubPullRequestHeadBranch
           ? {
               remoteUrl: thread.githubPullRequestHeadCloneUrl,
@@ -396,7 +396,7 @@ export async function runThreadGitWorkflow(options: {
         sandboxId,
         baseBranch: checkpoint.baseBranch ?? baseBranch,
         repoName: project.repoName,
-        sandboxWorkDir: worktree.worktreePath,
+        sandboxWorkDir: workspace.worktreePath,
       });
       if (commitsAhead < 1) {
         throw new GitWorkflowPhaseError({

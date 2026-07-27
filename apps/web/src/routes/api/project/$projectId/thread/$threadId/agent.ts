@@ -133,9 +133,9 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
-    let worktree: Awaited<ReturnType<typeof ensureThreadWorktreeForRun>>;
+    let worktree: Awaited<ReturnType<typeof resolveThreadWorkspaceForRun>>;
     try {
-      worktree = await ensureThreadWorktreeForRun(projectId, threadId);
+      worktree = await resolveThreadWorkspaceForRun(projectId, threadId);
     } catch (error) {
       return Response.json(
         { error: error instanceof Error ? error.message : "Could not prepare the thread worktree." },
@@ -265,6 +265,6 @@ export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/a
   },
 });
 
-function ensureThreadWorktreeForRun(projectId: string, threadId: string) {
-  return convexAction(api.projectActions.ensureThreadWorktree, { projectId, threadId });
+function resolveThreadWorkspaceForRun(projectId: string, threadId: string) {
+  return convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId });
 }

@@ -184,7 +184,7 @@ async function GET(
     }
 
     try {
-      const worktree = await convexAction(api.projectActions.ensureThreadWorktree, { projectId, threadId });
+      const worktree = await convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId });
       let githubToken: string | undefined;
         let pullRequest: GithubPullRequestSummary | undefined = thread.pullRequestNumber && thread.pullRequestUrl
         ? {
@@ -425,7 +425,7 @@ async function POST(
       action: "pull",
       run: async () => {
         const [worktree, authState] = await Promise.all([
-          convexAction(api.projectActions.ensureThreadWorktree, { projectId, threadId }),
+          convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId }),
           requireWorkOSAuth(),
         ]);
         const githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);

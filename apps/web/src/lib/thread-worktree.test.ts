@@ -8,6 +8,7 @@ import {
   parseGitWorktreeList,
   resolveThreadBaseBranch,
   resolveThreadExecutionPath,
+  resolveThreadWorkspaceMode,
 } from "@autopr/backend/convex/lib/threadWorktree";
 import { threadSandboxCacheKey } from "./trigger-agent-contract";
 
@@ -28,6 +29,10 @@ describe("thread worktree metadata", () => {
     );
     expect(resolveThreadExecutionPath({ worktreePath: "/home/.autopr/worktrees/autopr/one" }, "/home/autopr"))
       .toBe("/home/.autopr/worktrees/autopr/one");
+    expect(resolveThreadExecutionPath({
+      workspaceMode: "checkout",
+      worktreePath: "/home/.autopr/worktrees/autopr/stale",
+    }, "/home/autopr")).toBe("/home/autopr");
     expect(threadSandboxCacheKey("project-cache", "thread-1")).toBe("project-cache:thread:thread-1");
     expect(threadSandboxCacheKey("project-cache", "thread-2")).not.toBe(
       threadSandboxCacheKey("project-cache", "thread-1"),
@@ -45,6 +50,21 @@ describe("thread worktree metadata", () => {
       repoBranch: "release",
     })).toBe("main");
     expect(resolveThreadExecutionPath({}, "/home/autopr")).toBe("/home/autopr");
+  });
+
+  it("defaults new and metadata-less legacy threads to the shared checkout", () => {
+    expect(resolveThreadWorkspaceMode({ workspaceMode: "checkout" })).toBe("checkout");
+    expect(resolveThreadWorkspaceMode({})).toBe("checkout");
+  });
+
+  it("provisions worktrees only for explicit or legacy worktree-backed threads", () => {
+    expect(resolveThreadWorkspaceMode({ workspaceMode: "worktree" })).toBe("worktree");
+    expect(resolveThreadWorkspaceMode({ featureBranch: "autopr/legacy-thread" })).toBe("worktree");
+    expect(resolveThreadWorkspaceMode({ worktreePath: "/home/.autopr/worktrees/autopr/legacy" })).toBe("worktree");
+    expect(resolveThreadWorkspaceMode({
+      workspaceMode: "checkout",
+      featureBranch: "stale-branch-metadata",
+    })).toBe("checkout");
   });
 });
 

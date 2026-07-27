@@ -26,12 +26,12 @@ const kindLabels: Record<ThreadGitStatus["kind"], string> = {
   remote_unavailable: "Remote unavailable",
 };
 
-function statusColor(kind: ThreadGitStatus["kind"]) {
-  if (kind === "synchronized") return "bg-emerald-500";
-  if (kind === "behind") return "bg-sky-500";
-  if (kind === "diverged" || kind === "detached" || kind === "remote_unavailable") return "bg-destructive";
-  if (kind === "not_repository" || kind === "no_remote") return "bg-muted-foreground";
-  return "bg-amber-500";
+function statusTextColor(kind: ThreadGitStatus["kind"]): string {
+  if (kind === "synchronized") return "text-emerald-600 dark:text-emerald-400";
+  if (kind === "behind") return "text-sky-600 dark:text-sky-400";
+  if (kind === "diverged" || kind === "detached" || kind === "remote_unavailable") return "text-destructive";
+  if (kind === "not_repository" || kind === "no_remote") return "text-muted-foreground";
+  return "text-amber-600 dark:text-amber-400";
 }
 
 function statusDescription(status: ThreadGitStatus) {
@@ -69,8 +69,8 @@ export function ThreadGitStatusIndicator({
   if (!status) {
     return (
       <div className="hidden min-w-0 items-center gap-1.5 px-3 font-mono text-[10px] text-muted-foreground lg:flex">
-        {query.isFetching ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <GitBranch className="size-3" aria-hidden />}
-        <span>{query.error?.message ?? "Reading Git status…"}</span>
+        {query.isFetching ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden /> : <GitBranch className="size-3 shrink-0" aria-hidden />}
+        <span className="truncate">{query.error?.message ?? "Reading Git status…"}</span>
       </div>
     );
   }
@@ -89,15 +89,25 @@ export function ThreadGitStatusIndicator({
       aria-label={`${description}. Refresh Git status.`}
       title={description}
     >
-      <span className={cn("size-1.5 shrink-0 rounded-full", statusColor(status.kind))} aria-hidden />
+      <GitBranch className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
       <span className="truncate text-foreground/85">{branch}</span>
-      {status.aheadCount !== null && status.aheadCount > 0 ? <span className="text-amber-600">↑{status.aheadCount}</span> : null}
-      {status.behindCount !== null && status.behindCount > 0 ? <span className="text-sky-600">↓{status.behindCount}</span> : null}
-      {status.hasWorkingTreeChanges ? (
-        <span className="text-amber-600">●{status.changedFiles.length}{status.changedFilesTruncated ? "+" : ""}</span>
+      {status.aheadCount !== null && status.aheadCount > 0 ? (
+        <span className="shrink-0 tabular-nums text-amber-600 dark:text-amber-400">↑{status.aheadCount}</span>
       ) : null}
-      {status.pullRequest ? <span className="whitespace-nowrap text-violet-600">PR #{status.pullRequest.number}</span> : null}
-      <span className="hidden whitespace-nowrap text-muted-foreground xl:inline">{kindLabels[status.kind]}</span>
+      {status.behindCount !== null && status.behindCount > 0 ? (
+        <span className="shrink-0 tabular-nums text-sky-600 dark:text-sky-400">↓{status.behindCount}</span>
+      ) : null}
+      {status.hasWorkingTreeChanges ? (
+        <span className="shrink-0 tabular-nums text-amber-600 dark:text-amber-400">
+          ~{status.changedFiles.length}{status.changedFilesTruncated ? "+" : ""}
+        </span>
+      ) : null}
+      {status.pullRequest ? (
+        <span className="shrink-0 whitespace-nowrap text-violet-600 dark:text-violet-400">PR #{status.pullRequest.number}</span>
+      ) : null}
+      <span className={cn("hidden shrink-0 whitespace-nowrap xl:inline", statusTextColor(status.kind))}>
+        {kindLabels[status.kind]}
+      </span>
       {query.isFetching ? (
         <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden />
       ) : (

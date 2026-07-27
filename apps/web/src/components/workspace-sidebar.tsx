@@ -610,11 +610,11 @@ export function WorkspaceSidebar({
               ) : newThreadButton}
             </div>
 
-            <div className="flex shrink-0 items-stretch border-y border-sidebar-border/80 bg-sidebar-accent/25 p-2 pr-1.5">
+            <div className="flex shrink-0 items-center gap-1.5 border-y border-sidebar-border/70 bg-sidebar-accent/20 px-2.5 py-2">
               <div
                 role="tablist"
                 aria-label="Project scope"
-                className="workspace-project-rail flex min-w-0 flex-1 gap-1.5 overflow-x-auto overscroll-x-contain pb-1"
+                className="workspace-project-rail flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overscroll-x-contain py-1"
               >
                 <button
                   type="button"
@@ -625,10 +625,10 @@ export function WorkspaceSidebar({
                     setSettledVisibleCount(SETTLED_INITIAL_COUNT);
                   }}
                   className={cn(
-                    "relative flex h-9 max-w-36 shrink-0 items-center gap-2 rounded-[5px] border px-2.5 text-[12px] font-medium transition focus-visible:ring-1 focus-visible:ring-sidebar-ring/60",
+                    "relative flex h-8 max-w-36 shrink-0 items-center gap-2 rounded-[6px] border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/60",
                     projectScopeId === null
-                      ? "border-sidebar-foreground/20 bg-sidebar text-sidebar-foreground"
-                      : "border-sidebar-border bg-transparent text-sidebar-foreground/50 hover:border-sidebar-foreground/15 hover:bg-sidebar hover:text-sidebar-foreground/80",
+                      ? "border-sidebar-foreground/15 bg-sidebar text-sidebar-foreground shadow-sm"
+                      : "border-transparent text-sidebar-foreground/55 hover:border-sidebar-border hover:bg-sidebar/80 hover:text-sidebar-foreground",
                   )}
                 >
                   <span className="grid size-5 shrink-0 place-items-center rounded-[4px] bg-sidebar-accent text-sidebar-foreground/55">
@@ -636,7 +636,7 @@ export function WorkspaceSidebar({
                   </span>
                   <span className="truncate">All projects</span>
                   {projectScopeId === null ? (
-                    <span className="absolute inset-x-2 -bottom-[5px] h-0.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
+                    <span className="absolute inset-x-2.5 bottom-[3px] h-[2px] rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
                   ) : null}
                 </button>
                 {orderedProjects?.map((project, index) => {
@@ -659,18 +659,18 @@ export function WorkspaceSidebar({
                         setSettledVisibleCount(SETTLED_INITIAL_COUNT);
                       }}
                       className={cn(
-                        "relative flex h-9 max-w-36 shrink-0 items-center gap-2 rounded-[5px] border px-2.5 text-[12px] font-medium transition focus-visible:ring-1 focus-visible:ring-sidebar-ring/60",
+                        "relative flex h-8 max-w-36 shrink-0 items-center gap-2 rounded-[6px] border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/60",
                         selected
-                          ? "border-sidebar-foreground/20 bg-sidebar text-sidebar-foreground"
-                          : "border-sidebar-border bg-transparent text-sidebar-foreground/50 hover:border-sidebar-foreground/15 hover:bg-sidebar hover:text-sidebar-foreground/80",
+                          ? "border-sidebar-foreground/15 bg-sidebar text-sidebar-foreground shadow-sm"
+                          : "border-transparent text-sidebar-foreground/55 hover:border-sidebar-border hover:bg-sidebar/80 hover:text-sidebar-foreground",
                       )}
                     >
-                      <span className={cn("grid size-5 shrink-0 place-items-center rounded-[4px] text-[9px] font-semibold uppercase text-white", markerClasses)}>
+                      <span className={cn("grid size-5 shrink-0 place-items-center rounded-[4px] text-[9px] font-semibold uppercase text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]", markerClasses)}>
                         {projectName(project.repoFullName).slice(0, 2)}
                       </span>
                       <span className="truncate">{projectName(project.repoFullName)}</span>
                       {selected ? (
-                        <span className="absolute inset-x-2 -bottom-[5px] h-0.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
+                        <span className="absolute inset-x-2.5 bottom-[3px] h-[2px] rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
                       ) : null}
                     </button>
                   );
@@ -681,7 +681,7 @@ export function WorkspaceSidebar({
                 onClick={onCreateProject}
                 aria-label="Add project"
                 title="Add project"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-[5px] border border-dashed border-sidebar-foreground/20 text-sidebar-foreground/45 transition hover:border-sidebar-foreground/35 hover:bg-sidebar hover:text-sidebar-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring/60"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-[6px] border border-dashed border-sidebar-foreground/20 text-sidebar-foreground/45 transition-colors hover:border-sidebar-foreground/40 hover:bg-sidebar hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/60"
               >
                 <FolderPlus className="size-4" aria-hidden="true" />
               </button>

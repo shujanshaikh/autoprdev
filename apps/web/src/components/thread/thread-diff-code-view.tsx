@@ -25,7 +25,22 @@ const CODE_VIEW_CSS = `
 [data-diffs-header] {
   container-name: autopr-sticky-diff-header;
   container-type: scroll-state;
-  background: var(--project-panel, var(--background));
+  border: 1px solid var(--project-line, var(--border));
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(
+    in srgb,
+    var(--project-panel-soft, var(--muted)) 58%,
+    var(--project-panel, var(--background))
+  );
+}
+
+[data-diffs-header] ~ [data-diff],
+[data-diffs-header] ~ [data-file] {
+  overflow: clip;
+  border: 1px solid var(--project-line, var(--border));
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
 }
 
 @container autopr-sticky-diff-header scroll-state(stuck: top) {
@@ -215,7 +230,7 @@ export function ThreadDiffCodeView({
   onAddPromptContext?: (context: DiffPromptContext) => void;
 }) {
   const { resolvedTheme } = useTheme();
-  const { diffStyle, lineDiffType } = usePierreDiffPreferences();
+  const { diffStyle, lineDiffType, wordWrap } = usePierreDiffPreferences();
   const viewerRef = useRef<CodeViewHandle<undefined> | null>(null);
   const codeViewRootRef = useRef<HTMLDivElement | null>(null);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -316,7 +331,7 @@ export function ThreadDiffCodeView({
       themeType: (resolvedTheme === "light" ? "light" : "dark") satisfies ThemeTypes,
       diffStyle,
       diffIndicators: "bars",
-      overflow: "wrap",
+      overflow: wordWrap ? "wrap" : "scroll",
       disableLineNumbers: false,
       disableBackground: false,
       lineDiffType,
@@ -329,7 +344,7 @@ export function ThreadDiffCodeView({
       enableGutterUtility: Boolean(onAddPromptContext),
       stickyHeaders: true,
       pointerEventsOnScroll: false,
-      layout: { paddingTop: 0, paddingBottom: 8, gap: 6 },
+      layout: { paddingTop: 8, paddingBottom: 12, gap: 8 },
       unsafeCSS: CODE_VIEW_CSS,
       onGutterUtilityClick(range, context) {
         const entry = entryById.get(context.item.id);
@@ -350,7 +365,7 @@ export function ThreadDiffCodeView({
         handleSelectionEnd(range, context.item.id);
       },
     }),
-    [diffStyle, entryById, handleSelectionEnd, lineDiffType, onAddPromptContext, resolvedTheme],
+    [diffStyle, entryById, handleSelectionEnd, lineDiffType, onAddPromptContext, resolvedTheme, wordWrap],
   );
 
   useEffect(() => {

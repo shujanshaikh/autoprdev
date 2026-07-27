@@ -16,7 +16,7 @@ If your current `daytona-large` snapshot is backed by a different Daytona sandbo
 
 ## Terminal Profile
 
-The snapshot installs zsh and Starship, sets the `daytona` user's login shell to zsh, and writes:
+The snapshot installs zsh, Starship, autosuggestions, and syntax highlighting, sets the `daytona` user's login shell to zsh, and writes:
 
 ```text
 /home/daytona/.zshrc
@@ -74,6 +74,8 @@ REPO_DIR=/home/<repository-name>
 echo "$SHELL"
 zsh --version
 starship --version
+test -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+test -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 command -v google-chrome
 google-chrome --version
 echo "$BROWSER"

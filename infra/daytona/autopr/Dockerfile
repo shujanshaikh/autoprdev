@@ -34,6 +34,8 @@ RUN apt-get update \
       xterm \
       zip \
       zsh \
+      zsh-autosuggestions \
+      zsh-syntax-highlighting \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
       install -m 0755 -d /etc/apt/keyrings; \
       curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-linux.gpg; \

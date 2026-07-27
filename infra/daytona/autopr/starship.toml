@@ -7,24 +7,26 @@ right_format = "$cmd_duration"
 scan_timeout = 20
 
 format = """
+$character\
 $directory\
 $git_branch\
 $git_status\
-$status\
-$character"""
+$status"""
 
 [palettes.autopr]
-accent = "#C4B5FD"
-amber = "#D6B35F"
-dim = "#5C5C5C"
-ink = "#D8D8D8"
-muted = "#8C8C8C"
-red = "#FF7B7B"
+amber = "#F2C66D"
+cyan = "#9EE7E5"
+dim = "#68646F"
+green = "#83D787"
+ink = "#E9E5ED"
+muted = "#9D97A3"
+red = "#F5796C"
+rose = "#F28BA8"
 
 [character]
-error_symbol = " [>](fg:red) "
-success_symbol = " [>](fg:accent) "
-vimcmd_symbol = " [<](fg:accent) "
+error_symbol = "[➜](bold red) "
+success_symbol = "[➜](bold green) "
+vimcmd_symbol = "[❮](bold cyan) "
 
 [cmd_duration]
 format = "[$duration](fg:dim)"
@@ -33,7 +35,7 @@ show_milliseconds = false
 
 [directory]
 fish_style_pwd_dir_length = 1
-format = "[$path](fg:ink)"
+format = "[$path](bold cyan)"
 home_symbol = "~"
 read_only = " ro"
 truncate_to_repo = false
@@ -41,7 +43,7 @@ truncation_length = 3
 truncation_symbol = "../"
 
 [git_branch]
-format = " [$branch](fg:muted)"
+format = " [git:](fg:ink)[(](fg:ink)[$branch](bold rose)[)](fg:ink)"
 truncation_length = 28
 truncation_symbol = "..."
 

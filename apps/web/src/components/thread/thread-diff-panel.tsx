@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, MoreHorizontal, Send, Terminal, TextSearch, X } from "lucide-react";
+import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, TextSearch, TextWrap, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
@@ -73,6 +73,7 @@ type ThreadDiffPanelTabKind = "diff" | "pull-request" | "desktop" | "terminal" |
 type ThreadDiffPanelVisibleTab = {
   id: string;
   kind: ThreadDiffPanelTabKind;
+  label?: string;
 };
 
 const THREAD_DIFF_PANEL_TABS: Array<{
@@ -88,8 +89,6 @@ const THREAD_DIFF_PANEL_TABS: Array<{
   { kind: "environment", label: "Environment", menuLabel: "Environment", icon: KeyRound },
 ];
 
-const HEADER_SURFACE_KINDS: ThreadDiffPanelTabKind[] = ["diff", "desktop", "terminal", "environment", "pull-request"];
-
 const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, string> = {
   diff: "diff",
   "pull-request": "pull-request",
@@ -99,8 +98,12 @@ const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, str
 
 const DEFAULT_VISIBLE_TABS: ThreadDiffPanelVisibleTab[] = [];
 
-function createTerminalTab(): ThreadDiffPanelVisibleTab {
-  return { id: `terminal:${Date.now()}:${Math.random().toString(36).slice(2)}`, kind: "terminal" };
+function createTerminalTab(sequence: number): ThreadDiffPanelVisibleTab {
+  return {
+    id: `terminal:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    kind: "terminal",
+    label: `Terminal ${sequence}`,
+  };
 }
 
 const SURFACE_PICKER_ITEMS: Array<{
@@ -176,7 +179,7 @@ export function ThreadDiffPanel({
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
-  const { diffStyle, similarChanges, setDiffStyle, setSimilarChanges } = usePierreDiffPreferences();
+  const { diffStyle, similarChanges, wordWrap, setDiffStyle, setSimilarChanges, setWordWrap } = usePierreDiffPreferences();
   const mobileDiffOnly = useSyncExternalStore(
     subscribeToMobileThreadView,
     getMobileThreadViewSnapshot,
@@ -186,8 +189,11 @@ export function ThreadDiffPanel({
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
+  const terminalSequenceRef = useRef(0);
+  const terminalSessionIdsRef = useRef(new Map<string, string>());
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
+  const killPtyTerminal = useAction(api.projectActions.killPtyTerminal);
 
   useEffect(() => {
     try {
@@ -366,7 +372,8 @@ export function ThreadDiffPanel({
   const openPanelTab = useCallback(
     (kind: ThreadDiffPanelTabKind) => {
       if (kind === "terminal") {
-        const terminalTab = createTerminalTab();
+        terminalSequenceRef.current += 1;
+        const terminalTab = createTerminalTab(terminalSequenceRef.current);
         setVisibleTabs((current) => [...current, terminalTab]);
         setActiveTabId(terminalTab.id);
         return;
@@ -402,6 +409,15 @@ export function ThreadDiffPanel({
 
   const removePanelTab = useCallback(
     (tabId: string) => {
+      const tab = visibleTabs.find((candidate) => candidate.id === tabId);
+      if (tab?.kind === "terminal") {
+        const sessionId = terminalSessionIdsRef.current.get(tabId);
+        terminalSessionIdsRef.current.delete(tabId);
+        if (sessionId) {
+          void killPtyTerminal({ projectId, sessionId }).catch(() => undefined);
+        }
+      }
+
       setVisibleTabs((current) => {
         const removedIndex = current.findIndex((tab) => tab.id === tabId);
         const next = current.filter((tab) => tab.id !== tabId);
@@ -411,7 +427,7 @@ export function ThreadDiffPanel({
         return next;
       });
     },
-    [activeTabId],
+    [activeTabId, killPtyTerminal, projectId, visibleTabs],
   );
 
   const loadDesktop = useCallback(async () => {
@@ -502,57 +518,73 @@ export function ThreadDiffPanel({
 
         <header className="relative hidden shrink-0 flex-col border-b border-border bg-background lg:flex">
           <div className="flex h-11 items-center gap-1 border-b border-border px-2.5">
-            <nav aria-label="Workspace surfaces" className="flex min-w-0 items-center gap-0.5 overflow-hidden">
-              {HEADER_SURFACE_KINDS.map((kind) => {
-                const tab = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === kind);
-                if (!tab) return null;
-                const selected = renderedActiveTab === kind;
+            <nav aria-label="Open workspace surfaces" className="surface-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+              {visibleTabs.length === 0 ? (
+                <span className="px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/65">
+                  Workspace
+                </span>
+              ) : visibleTabs.map((visibleTab) => {
+                const tabDefinition = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === visibleTab.kind);
+                if (!tabDefinition) return null;
+                const Icon = tabDefinition.icon;
+                const selected = activeTabId === visibleTab.id;
+                const label = visibleTab.label ?? tabDefinition.label;
+
                 return (
-                  <button
-                    key={kind}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => {
-                      const installed = kind === "terminal"
-                        ? visibleTabs.find((visibleTab) => visibleTab.id === activeTabId && visibleTab.kind === "terminal") ?? terminalTabs.at(-1)
-                        : visibleTabs.find((visibleTab) => visibleTab.kind === kind);
-                      if (installed) selectPanelTab(installed);
-                      else openPanelTab(kind);
-                    }}
+                  <div
+                    key={visibleTab.id}
                     className={cn(
-                      "relative inline-flex h-8 shrink-0 items-center rounded-[9px] px-3 text-[13px] font-medium transition-colors duration-150",
-                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+                      "group/tab flex h-8 min-w-[92px] max-w-[168px] shrink-0 items-center gap-1 rounded-[8px] px-1.5 transition-colors",
                       selected
                         ? "bg-[color:var(--project-panel-soft)] text-foreground"
-                        : "text-muted-foreground hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
-                      kind === "pull-request" && "hidden min-[570px]:inline-flex",
+                        : "text-muted-foreground hover:bg-[color:color-mix(in_srgb,var(--project-panel-soft)_70%,transparent)] hover:text-foreground",
                     )}
                   >
-                    {tab.label}
-                    {kind === "pull-request" && effectiveStatus === "created" ? (
-                      <span className="ml-1.5 size-1.5 rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
-                    ) : null}
-                  </button>
+                    <button
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => selectPanelTab(visibleTab)}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[5px] px-0.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]"
+                      title={label}
+                    >
+                      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{label}</span>
+                      {visibleTab.kind === "pull-request" && effectiveStatus === "created" ? (
+                        <span className="size-1.5 shrink-0 rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removePanelTab(visibleTab.id)}
+                      className={cn(
+                        "inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+                        selected ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-70 group-focus-within/tab:opacity-70",
+                      )}
+                      aria-label={`Close ${label}`}
+                      title={`Close ${label}`}
+                    >
+                      <X className="size-3" aria-hidden="true" />
+                    </button>
+                  </div>
                 );
               })}
             </nav>
 
             <div className="ml-auto flex shrink-0 items-center gap-1">
               <DropdownMenu>
-                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8 rounded-[8px] text-muted-foreground hover:text-foreground" aria-label="Surface options" />}>
-                  <MoreHorizontal className="size-4" aria-hidden="true" />
+                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8 rounded-[8px] text-muted-foreground hover:text-foreground" aria-label="Add workspace surface" />}>
+                  <Plus className="size-4" aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onClick={() => openPanelTab("terminal")}>
-                    <Terminal className="size-3.5" aria-hidden="true" />
-                    New terminal
-                  </DropdownMenuItem>
-                  {activeTabId ? (
-                    <DropdownMenuItem onClick={() => removePanelTab(activeTabId)}>
-                      <X className="size-3.5" aria-hidden="true" />
-                      Close current surface
-                    </DropdownMenuItem>
-                  ) : null}
+                <DropdownMenuContent align="end" className="w-48">
+                  {THREAD_DIFF_PANEL_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <DropdownMenuItem key={tab.kind} onClick={() => openPanelTab(tab.kind)}>
+                        <Icon className="size-3.5" aria-hidden="true" />
+                        {tab.menuLabel}
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -653,6 +685,31 @@ export function ThreadDiffPanel({
                     );
                   })}
                 </ButtonGroup>
+
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-pressed={wordWrap}
+                        aria-label={wordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
+                        onClick={() => setWordWrap(!wordWrap)}
+                        className={cn(
+                          "size-7 border border-border/60 text-muted-foreground",
+                          "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
+                          wordWrap && "bg-[color:var(--project-panel-soft)] text-foreground hover:bg-[color:var(--project-panel-soft)]",
+                        )}
+                      >
+                        <TextWrap className="size-3.5" aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    {wordWrap ? "Disable Line Wrapping" : "Enable Line Wrapping"}
+                  </TooltipContent>
+                </Tooltip>
 
                 <Tooltip>
                   <TooltipTrigger
@@ -815,8 +872,22 @@ export function ThreadDiffPanel({
           const isActiveTerminal = renderedActiveTab === "terminal" && activeTabId === terminalTab.id;
 
           return (
-            <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[color:var(--cohere-primary)]", isActiveTerminal ? "flex" : "hidden")}>
-              <DaytonaTerminalView projectId={projectId} threadId={threadId} />
+            <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-background", isActiveTerminal ? "flex" : "hidden")}>
+              <DaytonaTerminalView
+                projectId={projectId}
+                threadId={threadId}
+                label={terminalTab.label ?? "Terminal"}
+                active={isActiveTerminal}
+                onNewTerminal={() => openPanelTab("terminal")}
+                onClose={() => removePanelTab(terminalTab.id)}
+                onSessionChange={(sessionId) => {
+                  if (sessionId) {
+                    terminalSessionIdsRef.current.set(terminalTab.id, sessionId);
+                  } else {
+                    terminalSessionIdsRef.current.delete(terminalTab.id);
+                  }
+                }}
+              />
             </div>
           );
         })}

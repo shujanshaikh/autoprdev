@@ -1291,6 +1291,41 @@ export const resizePtyTerminal = action({
   },
 });
 
+export const killPtyTerminal = action({
+  args: {
+    projectId: v.string(),
+    sessionId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      await runWithStartedSandboxRetry(project.sandboxId, async (sandbox) => {
+        await sandbox.process.killPtySession(args.sessionId);
+      });
+      return null;
+    } catch (error) {
+      if (isSandboxNotFoundError(error)) {
+        return null;
+      }
+      throw new ConvexError({
+        code: "DAYTONA_PTY_KILL_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
 export const getTerminalPreview = action({
   args: {
     projectId: v.string(),

@@ -43,7 +43,7 @@ truncation_length = 3
 truncation_symbol = "../"
 
 [git_branch]
-format = " [git:](fg:ink)[(](fg:ink)[$branch](bold rose)[)](fg:ink)"
+format = " [git:](fg:ink)[$branch](bold rose)"
 truncation_length = 28
 truncation_symbol = "..."
 

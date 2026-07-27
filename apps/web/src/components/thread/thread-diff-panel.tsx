@@ -73,7 +73,6 @@ type ThreadDiffPanelTabKind = "diff" | "pull-request" | "desktop" | "terminal" |
 type ThreadDiffPanelVisibleTab = {
   id: string;
   kind: ThreadDiffPanelTabKind;
-  label?: string;
 };
 
 const THREAD_DIFF_PANEL_TABS: Array<{
@@ -98,11 +97,10 @@ const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, str
 
 const DEFAULT_VISIBLE_TABS: ThreadDiffPanelVisibleTab[] = [];
 
-function createTerminalTab(sequence: number): ThreadDiffPanelVisibleTab {
+function createTerminalTab(): ThreadDiffPanelVisibleTab {
   return {
     id: `terminal:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     kind: "terminal",
-    label: `Terminal ${sequence}`,
   };
 }
 
@@ -189,7 +187,6 @@ export function ThreadDiffPanel({
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
-  const terminalSequenceRef = useRef(0);
   const terminalSessionIdsRef = useRef(new Map<string, string>());
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
@@ -372,8 +369,7 @@ export function ThreadDiffPanel({
   const openPanelTab = useCallback(
     (kind: ThreadDiffPanelTabKind) => {
       if (kind === "terminal") {
-        terminalSequenceRef.current += 1;
-        const terminalTab = createTerminalTab(terminalSequenceRef.current);
+        const terminalTab = createTerminalTab();
         setVisibleTabs((current) => [...current, terminalTab]);
         setActiveTabId(terminalTab.id);
         return;
@@ -528,7 +524,7 @@ export function ThreadDiffPanel({
                 if (!tabDefinition) return null;
                 const Icon = tabDefinition.icon;
                 const selected = activeTabId === visibleTab.id;
-                const label = visibleTab.label ?? tabDefinition.label;
+                const label = tabDefinition.label;
 
                 return (
                   <div
@@ -876,10 +872,7 @@ export function ThreadDiffPanel({
               <DaytonaTerminalView
                 projectId={projectId}
                 threadId={threadId}
-                label={terminalTab.label ?? "Terminal"}
                 active={isActiveTerminal}
-                onNewTerminal={() => openPanelTab("terminal")}
-                onClose={() => removePanelTab(terminalTab.id)}
                 onSessionChange={(sessionId) => {
                   if (sessionId) {
                     terminalSessionIdsRef.current.set(terminalTab.id, sessionId);

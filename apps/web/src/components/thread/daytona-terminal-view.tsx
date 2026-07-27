@@ -1,21 +1,15 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useAction } from "convex/react";
-import { Eraser, Loader2, Plus, RotateCw, TerminalSquare, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
 import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
 
 import "@xterm/xterm/css/xterm.css";
 
-type TerminalConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
-
 type DaytonaTerminalViewProps = {
   projectId: string;
   threadId: string;
-  label: string;
   active: boolean;
-  onNewTerminal: () => void;
-  onClose: () => void;
   onSessionChange?: (sessionId: string | undefined) => void;
 };
 
@@ -89,18 +83,10 @@ function decodeTerminalData(data: MessageEvent["data"]): Promise<string> {
   return Promise.resolve("");
 }
 
-function terminalLocation(cwd: string | undefined) {
-  if (!cwd) return "workspace";
-  return cwd.replace(/^\/home\//, "~/");
-}
-
 export function DaytonaTerminalView({
   projectId,
   threadId,
-  label,
   active,
-  onNewTerminal,
-  onClose,
   onSessionChange,
 }: DaytonaTerminalViewProps) {
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -113,9 +99,7 @@ export function DaytonaTerminalView({
   const activeRef = useRef(active);
   const onSessionChangeRef = useRef(onSessionChange);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
-  const [status, setStatus] = useState<TerminalConnectionStatus>("connecting");
   const [error, setError] = useState<string | undefined>();
-  const [cwd, setCwd] = useState<string | undefined>();
   const getPtyTerminal = useAction(api.projectActions.getPtyTerminal);
   const resizePtyTerminal = useAction(api.projectActions.resizePtyTerminal);
   const killPtyTerminal = useAction(api.projectActions.killPtyTerminal);
@@ -136,7 +120,6 @@ export function DaytonaTerminalView({
     connectionIdRef.current = connectionId;
     const isActiveConnection = () => connectionIdRef.current === connectionId;
 
-    setStatus("connecting");
     setError(undefined);
     container.innerHTML = "";
     websocketRef.current?.close();
@@ -189,7 +172,6 @@ export function DaytonaTerminalView({
 
       sessionIdRef.current = terminalInfo.sessionId;
       onSessionChangeRef.current?.(terminalInfo.sessionId);
-      setCwd(terminalInfo.cwd);
       terminal.reset();
 
       const socket = new WebSocket(terminalInfo.websocketUrl, "X-Daytona-SDK-Version~");
@@ -225,7 +207,6 @@ export function DaytonaTerminalView({
       socket.addEventListener("open", () => {
         if (!isActiveSocket()) return;
         if (activeRef.current) terminal.focus();
-        setStatus("connected");
         setError(undefined);
         wakeTimer = window.setTimeout(() => {
           if (!receivedOutput && socket.readyState === WebSocket.OPEN) {
@@ -251,13 +232,11 @@ export function DaytonaTerminalView({
         window.clearTimeout(wakeTimer);
         disposeInput();
         websocketRef.current = null;
-        setStatus("disconnected");
         setError("Terminal disconnected. Reconnect to continue.");
       });
       socket.addEventListener("error", () => {
         if (!isActiveSocket()) return;
         window.clearTimeout(wakeTimer);
-        setStatus("error");
         setError("Terminal connection failed.");
       });
 
@@ -307,7 +286,6 @@ export function DaytonaTerminalView({
       };
     } catch (cause) {
       if (!isActiveConnection()) return;
-      setStatus("error");
       setError(cause instanceof Error ? cause.message : "Could not start terminal.");
     }
   }, [getPtyTerminal, killPtyTerminal, projectId, resizePtyTerminal, threadId]);
@@ -356,15 +334,6 @@ export function DaytonaTerminalView({
     return () => window.cancelAnimationFrame(frame);
   }, [active, projectId, resizePtyTerminal]);
 
-  const clearTerminal = useCallback(() => {
-    terminalRef.current?.clear();
-    const socket = websocketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(new TextEncoder().encode("\u000c"));
-    }
-    terminalRef.current?.focus();
-  }, []);
-
   const reconnectTerminal = useCallback(async () => {
     const sessionId = sessionIdRef.current;
     sessionIdRef.current = undefined;
@@ -375,82 +344,11 @@ export function DaytonaTerminalView({
     setConnectionAttempt((attempt) => attempt + 1);
   }, [killPtyTerminal, projectId]);
 
-  const statusLabel = status === "connected"
-    ? "connected"
-    : status === "connecting"
-      ? "connecting"
-      : "offline";
-
   return (
     <div
       ref={surfaceRef}
       className="autopr-terminal relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--autopr-terminal-bg)]"
     >
-      <div className="autopr-terminal-toolbar flex h-9 shrink-0 items-center gap-3 border-b border-[color:var(--autopr-terminal-line)] px-3">
-        <div className="flex items-center gap-1.5" aria-hidden="true">
-          <span className="size-2.5 rounded-full bg-[#ff5f57]" aria-hidden="true" />
-          <span className="size-2.5 rounded-full bg-[#febc2e]" aria-hidden="true" />
-          <span className="size-2.5 rounded-full bg-[#28c840]" aria-hidden="true" />
-        </div>
-
-        <div className="flex min-w-0 flex-1 items-center gap-2 font-mono text-[10.5px]">
-          <TerminalSquare className="size-3.5 shrink-0 text-[color:var(--autopr-terminal-muted)]" aria-hidden="true" />
-          <span className="truncate font-medium text-[color:var(--autopr-terminal-fg)]">{label}</span>
-          <span className="truncate text-[color:var(--autopr-terminal-muted)]">{terminalLocation(cwd)}</span>
-        </div>
-
-        <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[color:var(--autopr-terminal-muted)] min-[520px]:inline-flex">
-          {status === "connecting" ? (
-            <Loader2 className="size-2.5 animate-spin" aria-hidden="true" />
-          ) : (
-            <span
-              className={status === "connected" ? "size-1.5 rounded-full bg-[#28c840]" : "size-1.5 rounded-full bg-[color:var(--framer-gradient-coral)]"}
-              aria-hidden="true"
-            />
-          )}
-          {statusLabel}
-        </span>
-
-        <div className="flex shrink-0 items-center gap-0.5 rounded-[8px] border border-[color:var(--autopr-terminal-line)] bg-[color:var(--autopr-terminal-controls)] p-0.5">
-          <button
-            type="button"
-            onClick={clearTerminal}
-            className="autopr-terminal-action"
-            aria-label="Clear terminal"
-            title="Clear terminal (⌘/Ctrl K)"
-          >
-            <Eraser className="size-3.5" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void reconnectTerminal()}
-            className="autopr-terminal-action"
-            aria-label="Reconnect terminal"
-            title="Reconnect terminal"
-          >
-            <RotateCw className="size-3.5" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={onNewTerminal}
-            className="autopr-terminal-action"
-            aria-label="New terminal tab"
-            title="New terminal tab"
-          >
-            <Plus className="size-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="autopr-terminal-action hover:text-[color:var(--framer-gradient-coral)]"
-            aria-label={`Close ${label}`}
-            title="Close terminal"
-          >
-            <Trash2 className="size-3.5" aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
       {error ? (
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-destructive/25 bg-destructive/[0.055] px-3 py-1.5 font-mono text-[10px] text-destructive" role="alert">
           <span className="truncate">{error}</span>

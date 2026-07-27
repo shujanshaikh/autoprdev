@@ -63,17 +63,10 @@
 
 .autopr-terminal {
   --autopr-terminal-bg: color-mix(in srgb, var(--framer-surface-1) 78%, var(--framer-surface-2));
-  --autopr-terminal-chrome: color-mix(in srgb, var(--framer-surface-2) 72%, var(--framer-surface-1));
-  --autopr-terminal-controls: color-mix(in srgb, var(--framer-surface-1) 58%, transparent);
-  --autopr-terminal-line: color-mix(in srgb, var(--framer-hairline) 72%, transparent);
-  --autopr-terminal-fg: var(--framer-ink);
-  --autopr-terminal-muted: var(--framer-ink-muted);
 }
 
 .dark .autopr-terminal {
   --autopr-terminal-bg: color-mix(in srgb, var(--framer-surface-1) 84%, var(--framer-surface-2));
-  --autopr-terminal-chrome: color-mix(in srgb, var(--framer-surface-2) 60%, var(--framer-surface-1));
-  --autopr-terminal-controls: color-mix(in srgb, var(--framer-surface-2) 72%, transparent);
 }
 
 .autopr-terminal,
@@ -84,34 +77,6 @@
 .autopr-terminal .xterm-rows {
   background: var(--autopr-terminal-bg) !important;
   background-color: var(--autopr-terminal-bg) !important;
-}
-
-.autopr-terminal .autopr-terminal-toolbar {
-  background: var(--autopr-terminal-chrome) !important;
-  background-color: var(--autopr-terminal-chrome) !important;
-}
-
-.autopr-terminal-action {
-  display: inline-flex;
-  width: 1.65rem;
-  height: 1.65rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.375rem;
-  color: var(--autopr-terminal-muted);
-  transition:
-    color 120ms var(--ease-ui-smooth),
-    background-color 120ms var(--ease-ui-smooth);
-}
-
-.autopr-terminal-action:hover {
-  color: var(--autopr-terminal-fg);
-  background: color-mix(in srgb, var(--autopr-terminal-fg) 8%, transparent);
-}
-
-.autopr-terminal-action:focus-visible {
-  outline: 1px solid var(--framer-accent-blue);
-  outline-offset: 1px;
 }
 
 .autopr-terminal .xterm {

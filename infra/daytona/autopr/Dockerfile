@@ -40,6 +40,7 @@ RUN apt-get update \
       psmisc \
       ripgrep \
       sqlite3 \
+      tini \
       tmux \
       tree \
       unzip \
@@ -108,6 +109,7 @@ RUN apt-get update \
     && git lfs install --system \
     && if [ -e /opt/google/chrome/chrome-sandbox ]; then chown root:root /opt/google/chrome/chrome-sandbox && chmod 4755 /opt/google/chrome/chrome-sandbox; fi \
     && for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3 starship; do command -v "$executable" >/dev/null; done \
+    && test "$(command -v tini)" = /usr/bin/tini \
     && chsh -s "$(command -v zsh)" daytona
 
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal
@@ -206,4 +208,4 @@ USER daytona
 
 RUN mkdir -p /home/daytona/.cache/autopr/fff /home/daytona/.cache/starship /home/daytona/.cache/zsh
 
-ENTRYPOINT ["sleep", "infinity"]
+ENTRYPOINT ["/usr/bin/tini", "--", "sleep", "infinity"]

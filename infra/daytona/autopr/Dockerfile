@@ -117,6 +117,9 @@ COPY . /opt/autopr/source/
 RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.sh && nvm use default >/dev/null; fi \
     && install -m 0644 /opt/autopr/source/fff-cli.mjs /opt/autopr/fff/cli.mjs \
     && install -m 0755 /opt/autopr/source/autopr-fff /opt/autopr/bin/autopr-fff \
+    && install -d -m 0755 /etc/gitconfig.d \
+    && install -m 0644 /opt/autopr/source/gitconfig /etc/gitconfig.d/autopr \
+    && git config --system --add include.path /etc/gitconfig.d/autopr \
     && install -m 0644 /opt/autopr/source/starship.toml /opt/autopr/terminal/starship.toml \
     && install -m 0644 /opt/autopr/source/zshrc /opt/autopr/terminal/zshrc \
     && rm -rf /opt/autopr/desktop \

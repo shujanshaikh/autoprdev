@@ -48,6 +48,8 @@ GitHub CLI (`gh`) and git-delta (`delta`) use pinned official release archives b
 
 The pinned `gh`, `delta`, and Starship archive installation supports amd64 and arm64. Builds on other architectures stop with an explicit error rather than installing an unverified binary. Google Chrome remains amd64-only, as described below.
 
+The snapshot also includes conservative system Git defaults for pruning stale remote-tracking refs, histogram diffs, and `main` as the initial branch. Git rerere is enabled so repeated agent retries can reuse recorded conflict resolutions, while `zdiff3` conflict markers include the common ancestor to make overlapping edits easier to resolve. User and repository Git configuration can override all of these defaults.
+
 ## Desktop Profile
 
 The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, recording, and computer-use support intact. The customization layer only adds and configures:
@@ -105,6 +107,11 @@ fd --version
 bat --version
 delta --version
 gh --version
+git config --system --get rerere.enabled
+git config --system --get fetch.prune
+git config --system --get merge.conflictStyle
+git config --system --get diff.algorithm
+git config --system --get init.defaultBranch
 command -v google-chrome
 google-chrome --version
 echo "$BROWSER"

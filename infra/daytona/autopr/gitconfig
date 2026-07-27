@@ -1,0 +1,16 @@
+# Reuse recorded conflict resolutions across agent retries and repeated rebases.
+[rerere]
+	enabled = true
+
+[fetch]
+	prune = true
+
+# Show the common ancestor alongside both sides to make conflicts easier to resolve.
+[merge]
+	conflictStyle = zdiff3
+
+[diff]
+	algorithm = histogram
+
+[init]
+	defaultBranch = main

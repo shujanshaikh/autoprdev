@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { generateText } from "ai";
+import { streamText } from "ai";
 import { z } from "zod";
 
 import { createSemanticFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
@@ -155,6 +155,35 @@ const sharedGenerationOptions = {
   timeout: { totalMs: 60_000, chunkMs: 30_000 },
 } as const;
 
+/**
+ * Runs a one-shot Codex generation and returns its text.
+ *
+ * The ChatGPT-backed Codex responses endpoint only accepts streaming requests,
+ * so a non-streaming `generateText` call is rejected with `400 Bad Request`.
+ * Streaming and collecting the text keeps the upstream failure (and its status
+ * code) intact for callers that map it onto an HTTP response.
+ */
+async function generateMetadataText(options: Parameters<typeof streamText>[0]) {
+  let streamError: unknown;
+  const result = streamText({
+    ...options,
+    onError: ({ error }) => {
+      streamError = error;
+    },
+  });
+
+  let text = "";
+  try {
+    text = (await result.text).trim();
+  } catch (error) {
+    throw streamError ?? error;
+  }
+
+  if (text) return text;
+
+  throw streamError ?? new Error("Codex returned no generated metadata.");
+}
+
 export async function generateThreadTitle(options: {
   request: Request;
   projectId: string;
@@ -163,7 +192,7 @@ export async function generateThreadTitle(options: {
 }) {
   const model = await metadataModel(options.request, "Connect Codex before generating a thread title.");
   const schema = z.object({ title: z.string().trim().min(1) });
-  const result = await generateText({
+  const text = await generateMetadataText({
     model,
     prompt: [
       "You write concise thread titles for coding conversations.",
@@ -186,7 +215,7 @@ export async function generateThreadTitle(options: {
       },
     },
   });
-  const generated = parseGeneratedMetadata(result.text, schema);
+  const generated = parseGeneratedMetadata(text, schema);
   return normalizeGeneratedThreadTitle(generated.title, options.message);
 }
 
@@ -200,7 +229,7 @@ export async function generateBranchName(options: {
   try {
     const model = await metadataModel(options.request, "Connect Codex before generating a branch name.");
     const schema = z.object({ branch: z.string() });
-    const result = await generateText({
+    const text = await generateMetadataText({
       model,
       prompt: [
         "You generate concise Git branch names.",
@@ -222,7 +251,7 @@ export async function generateBranchName(options: {
         },
       },
     });
-    const generated = parseGeneratedMetadata(result.text, schema);
+    const generated = parseGeneratedMetadata(text, schema);
     return createSemanticFeatureBranch(generated.branch);
   } catch {
     return fallback;
@@ -247,7 +276,7 @@ export async function generateCommitMetadata(options: {
     const schema = options.includeBranch
       ? z.object({ subject: z.string(), branch: z.string() })
       : z.object({ subject: z.string(), branch: z.string().optional() });
-    const result = await generateText({
+    const text = await generateMetadataText({
       model,
       prompt: [
         "You write concise Git metadata for repository changes.",
@@ -281,7 +310,7 @@ export async function generateCommitMetadata(options: {
         },
       },
     });
-    const generated = parseGeneratedMetadata(result.text, schema);
+    const generated = parseGeneratedMetadata(text, schema);
     const commitMessage = normalizeGeneratedCommitMessage(generated.subject);
     return {
       commitMessage,
@@ -313,7 +342,7 @@ export async function generatePullRequestContent(options: {
     const model = await metadataModel(options.request, "Connect Codex before generating pull request details.");
     const hasTemplate = Boolean(options.template?.trim());
     const schema = z.object({ title: z.string(), body: z.string() });
-    const result = await generateText({
+    const text = await generateMetadataText({
       model,
       prompt: [
         "You write source-control pull request content from the actual repository changes.",
@@ -354,7 +383,7 @@ export async function generatePullRequestContent(options: {
         },
       },
     });
-    const generated = parseGeneratedMetadata(result.text, schema);
+    const generated = parseGeneratedMetadata(text, schema);
     const title = stripWrappingQuotes(firstMeaningfulLine(generated.title)).slice(0, 180).trim();
     const body = generated.body.trim().slice(0, 5_000);
     return {

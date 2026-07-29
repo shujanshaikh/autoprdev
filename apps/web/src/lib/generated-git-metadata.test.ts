@@ -1,12 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { MockLanguageModelV3, simulateReadableStream } from "ai/test";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
   createPullRequestFallback,
+  generateThreadTitle,
   normalizeGeneratedCommitMessage,
   normalizeGeneratedThreadTitle,
   parseGeneratedMetadata,
 } from "./generated-git-metadata";
+
+const { createCodexModel } = vi.hoisted(() => ({ createCodexModel: vi.fn() }));
+
+vi.mock("#/lib/codex-auth-server", () => ({
+  createAuthenticatedCodexResponsesModel: createCodexModel,
+}));
 
 describe("generated Git metadata", () => {
   it("normalizes concise generated thread titles and bounds fallback prompts", () => {
@@ -53,5 +61,35 @@ describe("generated Git metadata", () => {
     expect(pullRequest.body).toContain("- Improve Git workflow metadata");
     expect(pullRequest.body).toContain("## Testing");
     expect(pullRequest.body).not.toContain("AutoPR thread");
+  });
+
+  it("streams thread titles because the Codex responses endpoint rejects non-streaming calls", async () => {
+    const doGenerate = vi.fn();
+    createCodexModel.mockResolvedValue(new MockLanguageModelV3({
+      doGenerate,
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "stream-start", warnings: [] },
+            { type: "text-start", id: "0" },
+            { type: "text-delta", id: "0", delta: '{"title":"Fix thread title generation"}' },
+            { type: "text-end", id: "0" },
+            {
+              type: "finish",
+              finishReason: "stop",
+              usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+            },
+          ],
+        }),
+      }),
+    }));
+
+    await expect(generateThreadTitle({
+      request: new Request("http://localhost/api/project/project-1/thread/thread-1"),
+      projectId: "project-1",
+      threadId: "thread-1",
+      message: "the thread title generation keeps failing with a bad request",
+    })).resolves.toBe("Fix thread title generation");
+    expect(doGenerate).not.toHaveBeenCalled();
   });
 });

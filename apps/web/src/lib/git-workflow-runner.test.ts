@@ -42,7 +42,7 @@ describe("executeResumableGitWorkflow", () => {
   it("maps all requested actions to only their required phases", () => {
     expect(phasesForGitWorkflowAction("commit")).toEqual(["branch", "validate", "commit"]);
     expect(phasesForGitWorkflowAction("push")).toEqual(["branch", "validate", "push"]);
-    expect(phasesForGitWorkflowAction("create_pr")).toEqual(["branch", "validate", "pull_request"]);
+    expect(phasesForGitWorkflowAction("create_pr")).toEqual(["branch", "validate", "push", "pull_request"]);
     expect(phasesForGitWorkflowAction("commit_push")).toEqual(["branch", "validate", "commit", "push"]);
     expect(phasesForGitWorkflowAction("push_create_pr")).toEqual(["branch", "validate", "push", "pull_request"]);
     expect(phasesForGitWorkflowAction("commit_push_create_pr")).toEqual([

@@ -11,7 +11,13 @@ import {
 
 import { createEphemeralGitAuthEnvironment } from "#/lib/thread-git-status-server";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
-import { decideWorktreeProvision, parseGitWorktreeList } from "@autopr/backend/convex/lib/threadWorktree";
+import { sandboxCommandOutput, sandboxCommandStdout } from "#/lib/sandbox-command-output";
+import {
+  decideWorktreeProvision,
+  parseGitRemoteHeadNames,
+  parseGitWorktreeList,
+  resolveAvailableThreadFeatureBranch,
+} from "@autopr/backend/convex/lib/threadWorktree";
 
 export class SandboxGitConflictError extends Error {
   constructor(message = "Could not switch branches because the sandbox has uncommitted changes.") {
@@ -22,10 +28,6 @@ export class SandboxGitConflictError extends Error {
 
 function shellEscape(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function commandOutput(result: { stdout?: string; stderr?: string; output?: string }) {
-  return [result.output, result.stdout, result.stderr].filter(Boolean).join("\n");
 }
 
 export class SandboxGitCommandError extends Error {
@@ -54,7 +56,7 @@ async function runSandboxCommand(sandbox: DaytonaSandbox, command: string) {
     );
 
     if (typeof result.exitCode === "number" && result.exitCode !== 0) {
-      const output = commandOutput(result);
+      const output = sandboxCommandOutput(result);
 
       if (
         /local changes|would be overwritten|Please commit your changes|Your local changes|not possible to fast-forward|non-fast-forward/i.test(output)
@@ -186,7 +188,7 @@ export async function materializeGithubPullRequestWorktree(options: {
   const runGit = async (cwd: string, args: string, allowFailure = false) => {
     const result = await sandbox.process.executeCommand(`git ${args}`, cwd, auth, 120);
     const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
-    const output = commandOutput({ output: result.result, stderr: result.stderr }).trim();
+    const output = sandboxCommandOutput({ result: result.result, stderr: result.stderr }).trim();
     if (!allowFailure && exitCode !== 0) {
       throw new SandboxGitCommandError("Could not check out the pull request.", redactGitDiagnostic(output, [options.githubToken]));
     }
@@ -290,7 +292,7 @@ export async function prepareProjectSandboxCommit(options: {
   const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
 
-  const status = commandOutput(
+  const status = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`),
   ).trim();
 
@@ -300,7 +302,7 @@ export async function prepareProjectSandboxCommit(options: {
 
   await sandbox.git.add(repoGitPath, ["."]);
 
-  const branch = commandOutput(
+  const branch = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
   ).trim();
 
@@ -308,7 +310,7 @@ export async function prepareProjectSandboxCommit(options: {
     throw new Error("The sandbox repository is not on a named branch.");
   }
 
-  const diff = commandOutput(
+  const diff = sandboxCommandOutput(
     await runSandboxCommand(
       sandbox,
       [
@@ -333,7 +335,7 @@ export async function commitPreparedProjectSandboxChanges(options: {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
-  const branch = commandOutput(
+  const branch = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
   ).trim();
 
@@ -341,7 +343,7 @@ export async function commitPreparedProjectSandboxChanges(options: {
     throw new Error("The sandbox repository is not on a named branch.");
   }
 
-  const stagedDiff = commandOutput(
+  const stagedDiff = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git diff --cached --name-only`),
   ).trim();
 
@@ -360,14 +362,14 @@ export async function commitPreparedProjectSandboxChanges(options: {
     undefined,
     120,
   );
-  const diagnostics = redactGitDiagnostic(commandOutput({
-    output: commitResult.result,
+  const diagnostics = redactGitDiagnostic(sandboxCommandOutput({
+    result: commitResult.result,
     stderr: commitResult.stderr,
   }));
   if (typeof commitResult.exitCode === "number" && commitResult.exitCode !== 0) {
     throw new SandboxGitCommandError("Git validation or commit hooks rejected the commit.", diagnostics);
   }
-  const commitSha = commandOutput(
+  const commitSha = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
   ).trim();
 
@@ -388,10 +390,60 @@ export async function inspectProjectSandboxGit(options: {
     runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git status --porcelain`),
   ]);
   return {
-    branch: commandOutput(branchResult).trim(),
-    commitSha: commandOutput(headResult).trim(),
-    hasChanges: Boolean(commandOutput(statusResult).trim()),
+    branch: sandboxCommandOutput(branchResult).trim(),
+    commitSha: sandboxCommandOutput(headResult).trim(),
+    hasChanges: Boolean(sandboxCommandOutput(statusResult).trim()),
   };
+}
+
+export async function createProjectSandboxFeatureBranch(options: {
+  sandboxId: string;
+  baseBranch: string;
+  preferredBranch: string;
+  githubToken: string;
+  repoName?: string;
+  sandboxWorkDir?: string;
+}) {
+  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
+  const currentBranch = sandboxCommandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+  ).trim();
+
+  if (currentBranch !== options.baseBranch) {
+    throw new SandboxGitConflictError(
+      `The checkout moved from ${options.baseBranch} to ${currentBranch || "detached HEAD"} before the feature branch could be created.`,
+    );
+  }
+
+  const existingBranches = sandboxCommandOutput(
+    await runSandboxCommand(
+      sandbox,
+      `cd ${quotedRepoPath} && git for-each-ref --format='%(refname:short)' refs/heads`,
+    ),
+  ).split(/\r?\n/).map((branch) => branch.trim()).filter(Boolean);
+  const remoteBranchesResult = await sandbox.process.executeCommand(
+    `git ls-remote --heads origin ${shellEscape(`refs/heads/${options.preferredBranch}*`)}`,
+    repoPath,
+    createEphemeralGitAuthEnvironment(options.githubToken),
+    120,
+  );
+  if (typeof remoteBranchesResult.exitCode === "number" && remoteBranchesResult.exitCode !== 0) {
+    throw new SandboxGitCommandError(
+      "Could not inspect remote branches before creating the feature branch.",
+      redactGitDiagnostic(sandboxCommandOutput(remoteBranchesResult), [options.githubToken]),
+    );
+  }
+  existingBranches.push(...parseGitRemoteHeadNames(sandboxCommandStdout(remoteBranchesResult) ?? ""));
+  const branch = resolveAvailableThreadFeatureBranch(options.preferredBranch, existingBranches);
+
+  await runSandboxCommand(
+    sandbox,
+    `cd ${quotedRepoPath} && git check-ref-format --branch ${shellEscape(branch)} && git switch -c ${shellEscape(branch)}`,
+  );
+
+  return { branch };
 }
 
 export async function validatePreparedProjectSandboxCommit(options: {
@@ -402,7 +454,7 @@ export async function validatePreparedProjectSandboxCommit(options: {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const result = await sandbox.process.executeCommand("git diff --cached --check", repoPath, undefined, 120);
-  const diagnostics = redactGitDiagnostic(commandOutput({ output: result.result, stderr: result.stderr }));
+  const diagnostics = redactGitDiagnostic(sandboxCommandOutput({ result: result.result, stderr: result.stderr }));
   if (typeof result.exitCode === "number" && result.exitCode !== 0) {
     throw new SandboxGitCommandError("Git validation found whitespace or conflict-marker errors.", diagnostics);
   }
@@ -416,11 +468,11 @@ async function inspectRemoteBranch(
   target?: { remoteUrl: string; remoteBranch: string },
 ) {
   const quotedRepoPath = shellEscape(repoPath);
-  const branch = commandOutput(await runSandboxCommand(
+  const branch = sandboxCommandOutput(await runSandboxCommand(
     sandbox,
     `cd ${quotedRepoPath} && git branch --show-current`,
   )).trim();
-  const commitSha = commandOutput(await runSandboxCommand(
+  const commitSha = sandboxCommandOutput(await runSandboxCommand(
     sandbox,
     `cd ${quotedRepoPath} && git rev-parse HEAD`,
   )).trim();
@@ -434,20 +486,19 @@ async function inspectRemoteBranch(
   if (typeof remote.exitCode === "number" && remote.exitCode !== 0) {
     throw new SandboxGitCommandError(
       "Could not inspect the remote branch.",
-      redactGitDiagnostic(commandOutput({ output: remote.result, stderr: remote.stderr }), [githubToken]),
+      redactGitDiagnostic(sandboxCommandOutput({ result: remote.result, stderr: remote.stderr }), [githubToken]),
     );
   }
   return {
     branch,
     commitSha,
-    remoteSha: String(remote.result ?? "").trim().split(/\s+/)[0] || undefined,
+    remoteSha: sandboxCommandStdout(remote)?.trim().split(/\s+/)[0] || undefined,
   };
 }
 
 export async function pushProjectSandboxBranchIfNeeded(options: {
   sandboxId: string;
   githubToken: string;
-  githubUsername: string;
   repoName?: string;
   sandboxWorkDir?: string;
   target?: { remoteUrl: string; remoteBranch: string; canPush: boolean; isFork: boolean };
@@ -460,7 +511,7 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
     );
   }
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const { branch, commitSha, remoteSha } = await inspectRemoteBranch(
     sandbox,
     repoPath,
@@ -471,50 +522,64 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
     return { commitSha, remoteSha, pushed: false, alreadyPushed: true };
   }
   try {
-    if (options.target) {
-      const result = await sandbox.process.executeCommand(
-        `git push ${shellEscape(options.target.remoteUrl)} ${shellEscape(`HEAD:refs/heads/${options.target.remoteBranch}`)}`,
-        repoPath,
-        createEphemeralGitAuthEnvironment(options.githubToken),
-        120,
-      );
-      if (typeof result.exitCode === "number" && result.exitCode !== 0) {
-        throw new Error(result.stderr || result.result || "Could not push the pull request branch.");
-      }
-    } else {
-      await sandbox.git.push(repoGitPath, options.githubUsername, options.githubToken, branch, "origin", true);
+    const remote = options.target?.remoteUrl ?? "origin";
+    const remoteBranch = options.target?.remoteBranch ?? branch;
+    const setUpstream = options.target ? "" : "--set-upstream ";
+    const result = await sandbox.process.executeCommand(
+      `git push ${setUpstream}${shellEscape(remote)} ${shellEscape(`HEAD:refs/heads/${remoteBranch}`)}`,
+      repoPath,
+      createEphemeralGitAuthEnvironment(options.githubToken),
+      120,
+    );
+    if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+      throw new Error(sandboxCommandOutput(result) || "Could not push the thread branch.");
     }
   } catch (error) {
     const diagnostics = redactGitDiagnostic(error instanceof Error ? error.message : String(error), [options.githubToken]);
     throw new SandboxGitCommandError("Could not push the thread branch.", diagnostics);
   }
-  return { commitSha, remoteSha: commitSha, pushed: true, alreadyPushed: false };
+  const pushedState = await inspectRemoteBranch(
+    sandbox,
+    repoPath,
+    options.githubToken,
+    options.target,
+  );
+  if (pushedState.remoteSha !== commitSha) {
+    throw new SandboxGitCommandError(
+      "Git did not publish the expected thread commit.",
+      `Expected ${commitSha}, found ${pushedState.remoteSha ?? "no remote branch"}.`,
+    );
+  }
+  return { commitSha, remoteSha: pushedState.remoteSha, pushed: true, alreadyPushed: false };
 }
 
-export async function inspectProjectSandboxRemoteBranch(options: {
+export async function countProjectSandboxCommitsAhead(options: {
   sandboxId: string;
+  baseBranch: string;
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
 }) {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
-  return inspectRemoteBranch(sandbox, repoPath, options.githubToken);
-}
-
-export async function countProjectSandboxCommitsAhead(options: {
-  sandboxId: string;
-  baseBranch: string;
-  repoName?: string;
-  sandboxWorkDir?: string;
-}) {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  const remoteBase = `refs/remotes/origin/${options.baseBranch}`;
+  const fetchBase = await sandbox.process.executeCommand(
+    `git fetch --no-tags origin ${shellEscape(`refs/heads/${options.baseBranch}:${remoteBase}`)}`,
+    repoPath,
+    createEphemeralGitAuthEnvironment(options.githubToken),
+    120,
+  );
+  if (typeof fetchBase.exitCode === "number" && fetchBase.exitCode !== 0) {
+    throw new SandboxGitCommandError(
+      `Could not refresh the base branch ${options.baseBranch}.`,
+      redactGitDiagnostic(sandboxCommandOutput(fetchBase), [options.githubToken]),
+    );
+  }
   const result = await runSandboxCommand(
     sandbox,
-    `cd ${shellEscape(repoPath)} && git rev-list --count ${shellEscape(options.baseBranch)}..HEAD`,
+    `cd ${shellEscape(repoPath)} && git rev-list --count ${shellEscape(remoteBase)}..HEAD`,
   );
-  const count = Number(commandOutput(result).trim());
+  const count = Number(sandboxCommandOutput(result).trim());
   if (!Number.isFinite(count)) throw new Error("Could not compare the thread branch with its base branch.");
   return count;
 }
@@ -530,7 +595,7 @@ export async function pullProjectSandboxBranch(options: {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
-  const currentBranch = commandOutput(
+  const currentBranch = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
   ).trim();
 
@@ -556,7 +621,7 @@ export async function pullProjectSandboxBranch(options: {
     sandbox,
     `cd ${quotedRepoPath} && git merge --ff-only ${shellEscape(options.target ? "FETCH_HEAD" : "@{upstream}")}`,
   );
-  const commitSha = commandOutput(
+  const commitSha = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-parse HEAD`),
   ).trim();
 

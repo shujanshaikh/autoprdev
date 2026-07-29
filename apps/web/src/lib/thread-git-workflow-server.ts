@@ -7,6 +7,7 @@ import {
   fetchGithubPullRequestForBranch,
 } from "@autopr/backend/convex/lib/github_oauth";
 import type { GitWorkflowAction, GitWorkflowPhase } from "@autopr/backend/convex/lib/gitWorkflow";
+import { createThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { CodexConnectionError } from "#/lib/codex-auth-server";
@@ -14,8 +15,8 @@ import { generateCommitMessage } from "#/lib/commit-messages";
 import {
   commitPreparedProjectSandboxChanges,
   countProjectSandboxCommitsAhead,
+  createProjectSandboxFeatureBranch,
   inspectProjectSandboxGit,
-  inspectProjectSandboxRemoteBranch,
   prepareProjectSandboxCommit,
   pushProjectSandboxBranchIfNeeded,
   SandboxGitCommandError,
@@ -53,6 +54,10 @@ function needsCommit(action: GitWorkflowAction) {
 
 function needsGithub(action: GitWorkflowAction) {
   return action !== "commit";
+}
+
+function needsPullRequest(action: GitWorkflowAction) {
+  return action === "create_pr" || action === "push_create_pr" || action === "commit_push_create_pr";
 }
 
 function phaseError(error: unknown, phase: GitWorkflowPhase) {
@@ -257,7 +262,23 @@ export async function runThreadGitWorkflow(options: {
           recoveryAction: "Restore the thread workspace to its assigned branch.",
         });
       }
-      return { branch: inspected.branch, baseBranch, summary: `Created branch ${inspected.branch}` };
+      if (
+        needsPullRequest(options.input.action) &&
+        workspace.workspaceMode === "checkout" &&
+        inspected.branch === baseBranch
+      ) {
+        if (!token) throw new GithubConnectionError("GitHub credentials are required to create a feature branch.");
+        const created = await createProjectSandboxFeatureBranch({
+          sandboxId,
+          baseBranch,
+          preferredBranch: createThreadFeatureBranch(title, options.threadId),
+          githubToken: token,
+          repoName: project.repoName,
+          sandboxWorkDir: workspace.worktreePath,
+        });
+        return { branch: created.branch, baseBranch, summary: `Created branch ${created.branch}` };
+      }
+      return { branch: inspected.branch, baseBranch, summary: `Using branch ${inspected.branch}` };
     },
     validate: async (checkpoint) => {
       const inspected = await inspectProjectSandboxGit({
@@ -297,24 +318,6 @@ export async function runThreadGitWorkflow(options: {
           retryable: false,
           recoveryAction: "Choose a commit-inclusive action or commit/stash the workspace changes.",
         });
-      } else if (options.input.action === "create_pr") {
-        if (!token) throw new GithubConnectionError("GitHub credentials are required to inspect the branch.");
-        const remote = await inspectProjectSandboxRemoteBranch({
-          sandboxId,
-          githubToken: token,
-          repoName: project.repoName,
-          sandboxWorkDir: workspace.worktreePath,
-        });
-        if (remote.remoteSha !== remote.commitSha) {
-          throw new GitWorkflowPhaseError({
-            code: "BRANCH_NOT_PUSHED",
-            message: remote.remoteSha
-              ? "The remote branch does not contain the current commit."
-              : "The thread branch does not exist on GitHub yet.",
-            retryable: false,
-            recoveryAction: "Run Push & create PR so the current commit is published first.",
-          });
-        }
       }
       return { commitMessage, diagnostics, summary: "Validation and Git checks passed" };
     },
@@ -362,7 +365,6 @@ export async function runThreadGitWorkflow(options: {
       const pushResult = await pushProjectSandboxBranchIfNeeded({
         sandboxId,
         githubToken: token,
-        githubUsername: identity.username,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
         target: thread.githubPullRequestHeadCloneUrl && thread.githubPullRequestHeadBranch
@@ -395,6 +397,7 @@ export async function runThreadGitWorkflow(options: {
       const commitsAhead = await countProjectSandboxCommitsAhead({
         sandboxId,
         baseBranch: checkpoint.baseBranch ?? baseBranch,
+        githubToken: token,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
       });

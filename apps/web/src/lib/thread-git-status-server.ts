@@ -10,6 +10,8 @@ import {
   type ThreadGitStatus,
 } from "@autopr/backend/convex/lib/gitStatus";
 
+import { sandboxCommandOutput } from "#/lib/sandbox-command-output";
+
 type CommandResult = {
   exitCode: number;
   output: string;
@@ -19,19 +21,6 @@ const MAX_PERSISTED_CHANGED_FILES = 500;
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined;
-}
-
-function commandOutput(value: unknown) {
-  const result = record(value);
-  const artifacts = record(result?.artifacts);
-  const stdout = [result?.result, result?.stdout, artifacts?.stdout]
-    .find((part): part is string => typeof part === "string" && part.length > 0);
-  const stderr = typeof result?.stderr === "string" ? result.stderr : undefined;
-  return [stdout, stderr].filter(Boolean).join("\n");
 }
 
 async function runGit(
@@ -47,7 +36,7 @@ async function runGit(
     120,
   );
   const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
-  const output = commandOutput(result);
+  const output = sandboxCommandOutput(result);
 
   if (exitCode !== 0 && !options.allowFailure) {
     throw new Error(output.trim() || "Sandbox Git command failed.");

@@ -43,6 +43,36 @@ export function createThreadFeatureBranch(title: string, threadId: string) {
   return `autopr/${trimmedSlug}-${suffix}`;
 }
 
+/**
+ * Keep generated feature branches stable while avoiding an existing local ref.
+ * Git refs are case-sensitive on some filesystems and case-insensitive on
+ * others, so collision checks deliberately normalize case.
+ */
+export function resolveAvailableThreadFeatureBranch(
+  preferredBranch: string,
+  existingBranches: readonly string[],
+) {
+  const existing = new Set(existingBranches.map((branch) => branch.trim().toLowerCase()));
+  if (!existing.has(preferredBranch.toLowerCase())) return preferredBranch;
+
+  for (let suffix = 2; suffix <= existing.size + 2; suffix += 1) {
+    const suffixText = `-${suffix}`;
+    const candidate = `${preferredBranch.slice(0, MAX_BRANCH_LENGTH - suffixText.length)
+      .replace(/-+$/g, "")}${suffixText}`;
+    if (!existing.has(candidate.toLowerCase())) return candidate;
+  }
+
+  // The loop always finds a gap in a finite set (pigeonhole principle).
+  throw new Error("Could not resolve an available feature branch name.");
+}
+
+export function parseGitRemoteHeadNames(output: string) {
+  return output.split(/\r?\n/).flatMap((line) => {
+    const match = line.trim().match(/^[0-9a-f]+\s+refs\/heads\/(.+)$/i);
+    return match?.[1] ? [match[1]] : [];
+  });
+}
+
 export function resolveThreadBaseBranch(
   thread: Pick<ThreadBranchMetadata, "baseBranch">,
   project: ProjectBranchMetadata,

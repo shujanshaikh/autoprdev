@@ -5,7 +5,9 @@ import {
   createThreadFeatureBranch,
   createThreadWorktreePath,
   decideWorktreeProvision,
+  parseGitRemoteHeadNames,
   parseGitWorktreeList,
+  resolveAvailableThreadFeatureBranch,
   resolveThreadBaseBranch,
   resolveThreadExecutionPath,
   resolveThreadWorkspaceMode,
@@ -21,6 +23,38 @@ describe("thread worktree metadata", () => {
     expect(branch.length).toBeLessThanOrEqual(120);
     expect(createThreadFeatureBranch("Fix: spaces, ünicode & refs.lock", "thread/ABC-123")).toBe(branch);
     expect(createThreadFeatureBranch("Fix: spaces, ünicode & refs.lock", "thread/ABC-124")).not.toBe(branch);
+  });
+
+  it("adds a stable numeric suffix when a generated feature branch already exists", () => {
+    const preferred = "autopr/improve-git-controls-abc-123";
+
+    expect(resolveAvailableThreadFeatureBranch(preferred, ["main"])).toBe(preferred);
+    expect(resolveAvailableThreadFeatureBranch(preferred, [preferred])).toBe(`${preferred}-2`);
+    expect(resolveAvailableThreadFeatureBranch(preferred, [
+      preferred.toUpperCase(),
+      `${preferred}-2`,
+      `${preferred}-3`,
+    ])).toBe(`${preferred}-4`);
+  });
+
+  it("keeps collision-resolved branch names within the Git workflow limit", () => {
+    const preferred = `autopr/${"x".repeat(113)}`;
+    const resolved = resolveAvailableThreadFeatureBranch(preferred, [preferred]);
+
+    expect(resolved).toBe(`${preferred.slice(0, 118)}-2`);
+    expect(resolved.length).toBeLessThanOrEqual(120);
+  });
+
+  it("parses remote head names for collision checks", () => {
+    expect(parseGitRemoteHeadNames([
+      `${"a".repeat(40)}\trefs/heads/autopr/improve-git-controls-abc-123`,
+      `${"b".repeat(40)}\trefs/heads/autopr/improve-git-controls-abc-123-2`,
+      "malformed diagnostic",
+      "",
+    ].join("\n"))).toEqual([
+      "autopr/improve-git-controls-abc-123",
+      "autopr/improve-git-controls-abc-123-2",
+    ]);
   });
 
   it("resolves deterministic paths outside the shared checkout", () => {

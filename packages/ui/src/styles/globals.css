@@ -118,13 +118,13 @@
   --tracking-micro: -0.12px;
   --tracking-button: -0.14px;
   --tracking-mono-label: 0;
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 15px;
-  --radius-xl: 20px;
-  --radius-xxl: 30px;
-  --radius-pill: 100px;
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-xxl: 20px;
+  --radius-pill: 12px;
   --radius: var(--radius-md);
   --shadow-x: 0;
   --shadow-y: 0;
@@ -271,13 +271,13 @@
   --font-mono: "SFMono-Regular", "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-serif: Georgia, serif;
 
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 15px;
-  --radius-xl: 20px;
-  --radius-xxl: 30px;
-  --radius-pill: 100px;
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-xxl: 20px;
+  --radius-pill: 12px;
 
   --shadow-2xs: none;
   --shadow-xs: none;

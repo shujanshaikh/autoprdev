@@ -7,6 +7,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, type ActionCtx } from "./_generated/server";
 import { normalizeGithubUrl } from "./lib/github";
+import { sandboxCommandText } from "./lib/sandboxCommandOutput";
 import {
   assessWorktreeCleanup,
   createThreadFeatureBranch,
@@ -125,10 +126,6 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-function sandboxCommandOutput(result: { stdout?: string; stderr?: string; output?: string }) {
-  return [result.output, result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-}
-
 async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFailure = false) {
   const sessionId = `thread-worktree-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   await sandbox.process.createSession(sessionId);
@@ -140,7 +137,7 @@ async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFa
       120,
     );
     if (!allowFailure && typeof result.exitCode === "number" && result.exitCode !== 0) {
-      throw new Error(sandboxCommandOutput(result) || "Sandbox Git command failed.");
+      throw new Error(sandboxCommandText(result) || "Sandbox Git command failed.");
     }
     return result;
   } finally {
@@ -689,7 +686,7 @@ async function readThreadWorktreeState(
 ) {
   const quotedRepositoryPath = shellQuote(repositoryPath);
   await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} worktree prune`);
-  const list = sandboxCommandOutput(
+  const list = sandboxCommandText(
     await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} worktree list --porcelain`),
   );
   const branchCheck = await runSandboxShell(
@@ -805,7 +802,7 @@ async function provisionThreadWorktree(
     }
 
     const quotedWorktreePath = shellQuote(worktreePath);
-    const headSha = sandboxCommandOutput(
+    const headSha = sandboxCommandText(
       await runSandboxShell(sandbox, `git -C ${quotedWorktreePath} rev-parse HEAD`),
     );
     const upstreamResult = await runSandboxShell(
@@ -814,7 +811,7 @@ async function provisionThreadWorktree(
       true,
     );
     const upstreamBranch = upstreamResult.exitCode === 0
-      ? sandboxCommandOutput(upstreamResult) || undefined
+      ? sandboxCommandText(upstreamResult) || undefined
       : undefined;
 
     await ctx.runMutation(internal.threads.markWorktreeReadyInternal, {
@@ -885,7 +882,7 @@ async function resolveThreadWorkspaceForAuthor(
   );
   const sandbox = await ensureSandboxStarted(project.sandboxId);
   const quotedRepositoryPath = shellQuote(repositoryPath);
-  const featureBranch = sandboxCommandOutput(
+  const featureBranch = sandboxCommandText(
     await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} branch --show-current`),
   );
   if (!featureBranch) {
@@ -895,7 +892,7 @@ async function resolveThreadWorkspaceForAuthor(
     });
   }
 
-  const headSha = sandboxCommandOutput(
+  const headSha = sandboxCommandText(
     await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} rev-parse HEAD`),
   );
   const upstreamResult = await runSandboxShell(
@@ -904,7 +901,7 @@ async function resolveThreadWorkspaceForAuthor(
     true,
   );
   const upstreamBranch = upstreamResult.exitCode === 0
-    ? sandboxCommandOutput(upstreamResult) || undefined
+    ? sandboxCommandText(upstreamResult) || undefined
     : undefined;
 
   return {
@@ -990,7 +987,7 @@ async function cleanupThreadWorktreeForAuthor(
     return { removed: false, branchPreserved: true };
   }
 
-  const status = sandboxCommandOutput(
+  const status = sandboxCommandText(
     await runSandboxShell(sandbox, `git -C ${shellQuote(thread.worktreePath)} status --porcelain`),
   );
   const cleanup = assessWorktreeCleanup(status);

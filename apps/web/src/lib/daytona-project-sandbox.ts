@@ -11,7 +11,10 @@ import {
 
 import { createEphemeralGitAuthEnvironment } from "#/lib/thread-git-status-server";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
-import { sandboxCommandOutput, sandboxCommandStdout } from "#/lib/sandbox-command-output";
+import {
+  sandboxCommandOutput,
+  sandboxCommandStdout,
+} from "@autopr/backend/convex/lib/sandboxCommandOutput";
 import {
   decideWorktreeProvision,
   parseGitRemoteHeadNames,

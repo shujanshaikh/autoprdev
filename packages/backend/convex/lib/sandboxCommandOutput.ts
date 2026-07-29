@@ -3,10 +3,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * Daytona command responses expose the same stdout through different fields,
- * depending on whether a command runs directly or in a session. Select one
- * stdout source instead of concatenating aliases, which can corrupt values
- * such as branch names and commit SHAs (for example, `main\nmain`).
+ * Daytona exposes stdout under different aliases for direct and session
+ * commands. Select one authoritative stdout value instead of concatenating
+ * aliases, which would corrupt machine-readable Git values such as branch
+ * names and commit SHAs (`main\nmain`, for example).
  */
 export function sandboxCommandStdout(value: unknown) {
   const result = record(value);
@@ -23,6 +23,10 @@ export function sandboxCommandOutput(value: unknown) {
     : undefined;
 
   if (!stdout) return stderr ?? "";
-  if (!stderr || stdout.includes(stderr)) return stdout;
+  if (!stderr || stdout.trim() === stderr.trim()) return stdout;
   return `${stdout}\n${stderr}`;
+}
+
+export function sandboxCommandText(value: unknown) {
+  return sandboxCommandOutput(value).trim();
 }

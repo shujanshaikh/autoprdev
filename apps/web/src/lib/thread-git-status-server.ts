@@ -9,8 +9,7 @@ import {
   type GithubPullRequestSummary,
   type ThreadGitStatus,
 } from "@autopr/backend/convex/lib/gitStatus";
-
-import { sandboxCommandOutput } from "#/lib/sandbox-command-output";
+import { sandboxCommandOutput } from "@autopr/backend/convex/lib/sandboxCommandOutput";
 
 type CommandResult = {
   exitCode: number;

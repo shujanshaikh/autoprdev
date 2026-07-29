@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   firstUserMessageForTitle,
+  ThreadTitleRequestError,
   threadTitleRetryDelayMs,
 } from "./thread-title-generation";
 
@@ -35,5 +36,11 @@ describe("thread title generation", () => {
 
   it("slightly staggers the first request and backs retries off", () => {
     expect([0, 1, 2, 10].map(threadTitleRetryDelayMs)).toEqual([750, 1_500, 3_000, 8_000]);
+  });
+
+  it("retries only temporary title request failures", () => {
+    expect(new ThreadTitleRequestError("Bad Request", 400).retryable).toBe(false);
+    expect(new ThreadTitleRequestError("Too Many Requests", 429).retryable).toBe(true);
+    expect(new ThreadTitleRequestError("Unavailable", 503).retryable).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { Output, generateText } from "ai";
+import { generateText } from "ai";
 import { z } from "zod";
 
 import { createSemanticFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
@@ -25,6 +25,33 @@ function firstMeaningfulLine(value: string) {
 
 function stripWrappingQuotes(value: string) {
   return value.trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+}
+
+export function parseGeneratedMetadata<T>(value: string, schema: z.ZodType<T>): T {
+  const trimmed = value.trim();
+  const withoutFence = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const objectStart = withoutFence.indexOf("{");
+  const objectEnd = withoutFence.lastIndexOf("}");
+  const candidates = [
+    withoutFence,
+    ...(objectStart >= 0 && objectEnd > objectStart
+      ? [withoutFence.slice(objectStart, objectEnd + 1)]
+      : []),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = schema.safeParse(JSON.parse(candidate));
+      if (parsed.success) return parsed.data;
+    } catch {
+      // Try the next candidate when the model adds prose around its JSON.
+    }
+  }
+
+  throw new Error("Codex returned invalid generated metadata.");
 }
 
 export function normalizeGeneratedThreadTitle(value: string, fallbackMessage: string) {
@@ -135,9 +162,9 @@ export async function generateThreadTitle(options: {
   message: string;
 }) {
   const model = await metadataModel(options.request, "Connect Codex before generating a thread title.");
+  const schema = z.object({ title: z.string().trim().min(1) });
   const result = await generateText({
     model,
-    output: Output.object({ schema: z.object({ title: z.string().trim().min(1) }) }),
     prompt: [
       "You write concise thread titles for coding conversations.",
       "Return a JSON object with key: title.",
@@ -159,7 +186,8 @@ export async function generateThreadTitle(options: {
       },
     },
   });
-  return normalizeGeneratedThreadTitle(result.output.title, options.message);
+  const generated = parseGeneratedMetadata(result.text, schema);
+  return normalizeGeneratedThreadTitle(generated.title, options.message);
 }
 
 export async function generateBranchName(options: {
@@ -171,9 +199,9 @@ export async function generateBranchName(options: {
   const fallback = createSemanticFeatureBranch(options.message);
   try {
     const model = await metadataModel(options.request, "Connect Codex before generating a branch name.");
+    const schema = z.object({ branch: z.string() });
     const result = await generateText({
       model,
-      output: Output.object({ schema: z.object({ branch: z.string() }) }),
       prompt: [
         "You generate concise Git branch names.",
         "Return a JSON object with key: branch.",
@@ -194,7 +222,8 @@ export async function generateBranchName(options: {
         },
       },
     });
-    return createSemanticFeatureBranch(result.output.branch);
+    const generated = parseGeneratedMetadata(result.text, schema);
+    return createSemanticFeatureBranch(generated.branch);
   } catch {
     return fallback;
   }
@@ -220,7 +249,6 @@ export async function generateCommitMetadata(options: {
       : z.object({ subject: z.string(), branch: z.string().optional() });
     const result = await generateText({
       model,
-      output: Output.object({ schema }),
       prompt: [
         "You write concise Git metadata for repository changes.",
         options.includeBranch
@@ -253,11 +281,12 @@ export async function generateCommitMetadata(options: {
         },
       },
     });
-    const commitMessage = normalizeGeneratedCommitMessage(result.output.subject);
+    const generated = parseGeneratedMetadata(result.text, schema);
+    const commitMessage = normalizeGeneratedCommitMessage(generated.subject);
     return {
       commitMessage,
       branchName: options.includeBranch
-        ? createSemanticFeatureBranch(result.output.branch || commitMessage)
+        ? createSemanticFeatureBranch(generated.branch || commitMessage)
         : undefined,
     };
   } catch {
@@ -283,9 +312,9 @@ export async function generatePullRequestContent(options: {
   try {
     const model = await metadataModel(options.request, "Connect Codex before generating pull request details.");
     const hasTemplate = Boolean(options.template?.trim());
+    const schema = z.object({ title: z.string(), body: z.string() });
     const result = await generateText({
       model,
-      output: Output.object({ schema: z.object({ title: z.string(), body: z.string() }) }),
       prompt: [
         "You write source-control pull request content from the actual repository changes.",
         "Return a JSON object with keys: title, body.",
@@ -325,8 +354,9 @@ export async function generatePullRequestContent(options: {
         },
       },
     });
-    const title = stripWrappingQuotes(firstMeaningfulLine(result.output.title)).slice(0, 180).trim();
-    const body = result.output.body.trim().slice(0, 5_000);
+    const generated = parseGeneratedMetadata(result.text, schema);
+    const title = stripWrappingQuotes(firstMeaningfulLine(generated.title)).slice(0, 180).trim();
+    const body = generated.body.trim().slice(0, 5_000);
     return {
       title: title || fallback.title,
       body: body || fallback.body,

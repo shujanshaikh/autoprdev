@@ -3,6 +3,16 @@ import type { UIMessage } from "ai";
 export const DEFAULT_THREAD_TITLE = "New thread";
 export const MAX_THREAD_TITLE_REQUEST_ATTEMPTS = 3;
 
+export class ThreadTitleRequestError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ThreadTitleRequestError";
+    this.retryable = status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+}
+
 export function firstUserMessageForTitle(messages: UIMessage[]) {
   for (const message of messages) {
     if (message.role !== "user") continue;
@@ -50,7 +60,10 @@ export async function requestGeneratedThreadTitle(options: {
   );
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string } | null;
-    throw new Error(payload?.error || `Thread title generation failed with status ${response.status}.`);
+    throw new ThreadTitleRequestError(
+      payload?.error || `Thread title generation failed with status ${response.status}.`,
+      response.status,
+    );
   }
 
   const payload = await response.json().catch(() => null) as {

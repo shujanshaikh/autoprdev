@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   createPullRequestFallback,
   normalizeGeneratedCommitMessage,
   normalizeGeneratedThreadTitle,
+  parseGeneratedMetadata,
 } from "./generated-git-metadata";
 
 describe("generated Git metadata", () => {
@@ -14,6 +16,24 @@ describe("generated Git metadata", () => {
       "",
       "I want you to improve the pull request body and branch naming behavior for this project",
     )).toBe("improve the pull request body and branch naming");
+  });
+
+  it("parses JSON metadata from plain Codex text responses", () => {
+    const schema = z.object({ title: z.string() });
+
+    expect(parseGeneratedMetadata(
+      '```json\n{"title":"Fix thread titles"}\n```',
+      schema,
+    )).toEqual({ title: "Fix thread titles" });
+    expect(parseGeneratedMetadata(
+      'Generated metadata:\n{"title":"Improve branch naming"}\nDone.',
+      schema,
+    )).toEqual({ title: "Improve branch naming" });
+  });
+
+  it("rejects malformed plain-text metadata", () => {
+    expect(() => parseGeneratedMetadata("not json", z.object({ title: z.string() })))
+      .toThrow("Codex returned invalid generated metadata.");
   });
 
   it("keeps commit subjects on one safe line", () => {

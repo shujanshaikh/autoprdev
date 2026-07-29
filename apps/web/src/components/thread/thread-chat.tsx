@@ -126,6 +126,7 @@ import {
   MAX_THREAD_TITLE_REQUEST_ATTEMPTS,
   requestGeneratedThreadTitle,
   threadTitleRetryDelayMs,
+  ThreadTitleRequestError,
 } from "#/lib/thread-title-generation";
 
 type ThreadChatProps = {
@@ -1066,7 +1067,9 @@ function ThreadChatRuntime({
         });
         setTitleGenerationRetry({
           threadId,
-          attempt: titleGenerationAttempt + 1,
+          attempt: titleError instanceof ThreadTitleRequestError && !titleError.retryable
+            ? MAX_THREAD_TITLE_REQUEST_ATTEMPTS
+            : titleGenerationAttempt + 1,
         });
       });
     }, threadTitleRetryDelayMs(titleGenerationAttempt));

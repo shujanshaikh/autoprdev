@@ -3,6 +3,7 @@ import { createSandbox } from "@autopr/agent/sandbox";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubPullRequestForBranch } from "@autopr/backend/convex/lib/github_oauth";
 import type { GithubPullRequestSummary } from "@autopr/backend/convex/lib/gitStatus";
+import { APICallError } from "ai";
 import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
@@ -410,9 +411,15 @@ async function POST(
       });
       return Response.json({ title, updated });
     } catch (error) {
+      const status = APICallError.isInstance(error)
+        && error.statusCode
+        && error.statusCode >= 400
+        && error.statusCode <= 599
+        ? error.statusCode
+        : 500;
       return Response.json({
         error: safeErrorMessage(error, "Could not generate the thread title."),
-      }, { status: 500 });
+      }, { status });
     }
   }
 

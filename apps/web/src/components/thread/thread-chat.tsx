@@ -120,6 +120,13 @@ import {
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
 import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
+import {
+  DEFAULT_THREAD_TITLE,
+  firstUserMessageForTitle,
+  MAX_THREAD_TITLE_REQUEST_ATTEMPTS,
+  requestGeneratedThreadTitle,
+  threadTitleRetryDelayMs,
+} from "#/lib/thread-title-generation";
 
 type ThreadChatProps = {
   projectId: string;
@@ -791,9 +798,6 @@ function ThreadChatRuntime({
     lastEventId: thread?.triggerSessionLastEventId,
   };
   const hasAutoSubmittedInitialPromptRef = useRef(false);
-  const titleGenerationRequestedRef = useRef<boolean | null>(null);
-  titleGenerationRequestedRef.current ??= initialMessages.some((message) => message.role === "user")
-    || (Boolean(thread?.title) && thread.title !== "New thread");
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
   const changedFileRequestRef = useRef(0);
@@ -1025,6 +1029,59 @@ function ThreadChatRuntime({
     ? Boolean(thread?.isLive)
     : Boolean(currentRunId);
   const allowPersistedPartRemoval = status === "ready" && !serverStreaming;
+  const firstUserTitleMessage = useMemo(
+    () => firstUserMessageForTitle(messages),
+    [messages],
+  );
+  const [titleGenerationRetry, setTitleGenerationRetry] = useState({
+    threadId,
+    attempt: 0,
+  });
+  const titleGenerationAttempt = titleGenerationRetry.threadId === threadId
+    ? titleGenerationRetry.attempt
+    : 0;
+
+  useEffect(() => {
+    if (
+      thread?.title !== DEFAULT_THREAD_TITLE
+      || !firstUserTitleMessage
+      || titleGenerationAttempt >= MAX_THREAD_TITLE_REQUEST_ATTEMPTS
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const retryTimer = setTimeout(() => {
+      void requestGeneratedThreadTitle({
+        projectId,
+        threadId,
+        message: firstUserTitleMessage,
+        signal: controller.signal,
+      }).catch((titleError) => {
+        if (controller.signal.aborted) return;
+
+        console.error("Could not generate the thread title", {
+          message: titleError instanceof Error ? titleError.message : String(titleError),
+          attempt: titleGenerationAttempt + 1,
+        });
+        setTitleGenerationRetry({
+          threadId,
+          attempt: titleGenerationAttempt + 1,
+        });
+      });
+    }, threadTitleRetryDelayMs(titleGenerationAttempt));
+
+    return () => {
+      clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    firstUserTitleMessage,
+    projectId,
+    thread?.title,
+    threadId,
+    titleGenerationAttempt,
+  ]);
 
   useEffect(() => {
     setMessages((currentMessages) => {
@@ -1451,26 +1508,6 @@ function ThreadChatRuntime({
 
     if (status !== "ready") {
       return;
-    }
-
-    if (!titleGenerationRequestedRef.current) {
-      titleGenerationRequestedRef.current = true;
-      const titleMessage = text.trim() || (files.length > 0 ? "Review the attached image" : "");
-      if (titleMessage) {
-        void fetch(`/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            action: "generate_title",
-            message: titleMessage,
-          }),
-        }).then((response) => {
-          if (!response.ok) throw new Error(`Thread title generation failed with status ${response.status}.`);
-        }).catch((titleError) => {
-          titleGenerationRequestedRef.current = false;
-          console.error("Could not generate the thread title", titleError);
-        });
-      }
     }
 
     clearError();

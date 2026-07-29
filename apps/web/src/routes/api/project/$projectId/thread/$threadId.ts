@@ -396,7 +396,10 @@ async function POST(
   if (parsed.data.action === "generate_title") {
     try {
       const title = await generateThreadTitle({
-        request: req,
+        // Codex auth only needs cookies/headers. Recreate the request from
+        // primitives so framework-owned Fetch objects never cross into the
+        // Node/Undici auth provider after their JSON body has been consumed.
+        request: new Request(req.url, { headers: new Headers(req.headers) }),
         projectId,
         threadId,
         message: parsed.data.message,

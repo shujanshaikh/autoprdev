@@ -61,20 +61,15 @@ export function requestWithChatGPTSession(request: Request, sessionCookieHeader:
 
   headers.set("cookie", [...otherCookies, sessionCookieHeader].join("; "));
 
-  // Agent routes read their JSON body before resolving the account-level
-  // Codex session. Constructing a new Request from a consumed Request throws
-  // in the Fetch implementation used by the production server. Session
-  // resolution only needs the request metadata, so omit an already-consumed
-  // body while preserving the original request when it is still reusable.
-  if (request.bodyUsed) {
-    return new Request(request.url, {
-      method: request.method,
-      headers,
-      signal: request.signal,
-    });
-  }
-
-  return new Request(request, { headers });
+  // TanStack and its server adapters may hand us a Request created by a
+  // different Fetch/Undici realm. Passing that object back to `new Request`
+  // makes Node read incompatible private fields and throws before Codex auth
+  // can run. Session resolution only needs request metadata, so rebuild from
+  // primitives and deliberately omit the (possibly consumed) request body.
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+  });
 }
 
 export function getCodexSessionCookieHeaders(

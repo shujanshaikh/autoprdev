@@ -43,7 +43,7 @@ import {
   type PrepareReconnectToStreamRequest,
   type UIMessage,
 } from "ai";
-import { MoreHorizontal, Video, X } from "lucide-react";
+import { CircleAlert, GitBranch, Loader2, MoreHorizontal, Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
@@ -119,6 +119,7 @@ import {
   type TokenUsage,
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
+import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 
 type ThreadChatProps = {
   projectId: string;
@@ -325,6 +326,53 @@ function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
         className="max-h-40 min-h-11 resize-none px-3.5 py-2 text-[14px] leading-relaxed"
       />
     </div>
+  );
+}
+
+function ComposerBranchIndicator({
+  branch,
+  expectedBranch,
+  isFetching,
+  readFailed,
+  onRefresh,
+}: {
+  branch?: string;
+  expectedBranch?: string;
+  isFetching: boolean;
+  readFailed: boolean;
+  onRefresh: () => void;
+}) {
+  const mismatch = Boolean(branch && expectedBranch && branch !== expectedBranch);
+  const showLoading = isFetching && !branch;
+  const label = branch ?? (showLoading ? "Reading branch…" : "Unknown branch");
+  const description = mismatch
+    ? `Daytona has ${branch} checked out; this thread expects ${expectedBranch}.`
+    : readFailed
+      ? `Could not verify the Daytona checkout. Last known branch: ${label}.`
+      : `Daytona checkout: ${label}.`;
+
+  return (
+    <button
+      type="button"
+      onClick={onRefresh}
+      disabled={isFetching}
+      aria-label={`${description} Refresh branch.`}
+      title={description}
+      className={cn(
+        "inline-flex h-8 min-w-0 max-w-[9.5rem] shrink items-center gap-1.5 rounded-[var(--radius-md)] px-1.5 font-mono text-[11px] font-medium transition-colors",
+        "text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 disabled:cursor-wait",
+        (mismatch || readFailed) && "text-amber-600 dark:text-amber-400",
+      )}
+    >
+      {showLoading ? (
+        <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+      ) : mismatch || readFailed ? (
+        <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : (
+        <GitBranch className="size-3.5 shrink-0 opacity-80" aria-hidden="true" />
+      )}
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
   );
 }
 
@@ -752,6 +800,12 @@ function ThreadChatRuntime({
   const [diffPromptContexts, setDiffPromptContexts] = useState<DiffPromptContext[]>([]);
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const [selectedDiffLink, setSelectedDiffLink] = useState<ThreadDiffDeepLink | undefined>();
+  const composerGitStatusQuery = useThreadGitStatusQuery({
+    projectId,
+    threadId,
+    persistedStatus: thread?.gitStatus,
+    refetchInterval: thread?.isLive ? 5_000 : 30_000,
+  });
   const addDiffPromptContext = useCallback((context: DiffPromptContext) => {
     setDiffPromptContexts((current) => current.some((item) => item.id === context.id)
       ? current
@@ -1487,12 +1541,16 @@ function ThreadChatRuntime({
   const usesWorktree = thread?.workspaceMode === "worktree" || (
     thread?.workspaceMode === undefined && Boolean(thread?.featureBranch || thread?.worktreePath)
   );
+  const composerGitStatus = composerGitStatusQuery.data ?? thread?.gitStatus;
+  const checkedOutBranch = composerGitStatus?.detachedHead
+    ? `detached@${composerGitStatus.localHeadSha?.slice(0, 7) ?? "HEAD"}`
+    : composerGitStatus?.currentBranch;
   const displayedBaseBranch = usesWorktree
     ? thread?.baseBranch
     : project?.defaultBranch ?? thread?.baseBranch ?? project?.repoBranch;
   const displayedFeatureBranch = usesWorktree
     ? thread?.featureBranch
-    : project?.currentBranch ?? project?.repoBranch ?? thread?.baseBranch;
+    : checkedOutBranch ?? project?.currentBranch ?? project?.repoBranch ?? thread?.baseBranch;
   const recordingPlaybackBasePath =
     `/api/project/${encodeURIComponent(projectId)}` +
     `/thread/${encodeURIComponent(threadId)}`;
@@ -1558,6 +1616,13 @@ function ThreadChatRuntime({
                 </PromptInputBody>
                 <PromptInputFooter className="min-w-0 gap-1.5">
                   <PromptInputTools className="min-w-0 flex-1 gap-1">
+                    <ComposerBranchIndicator
+                      branch={checkedOutBranch}
+                      expectedBranch={usesWorktree ? thread?.featureBranch : undefined}
+                      isFetching={composerGitStatusQuery.isFetching}
+                      readFailed={composerGitStatusQuery.isError}
+                      onRefresh={() => void composerGitStatusQuery.refetch()}
+                    />
                     <Select
                       value={selectedModel ?? ""}
                       onValueChange={(value) => value && setSelectedModelChoice(value)}

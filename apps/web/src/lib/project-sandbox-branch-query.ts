@@ -54,14 +54,15 @@ export function useProjectSandboxBranchQuery(options: {
     enabled: options.enabled,
     queryFn: async (): Promise<ProjectSandboxBranchState> => {
       const response = await fetch(`/api/project/${encodeURIComponent(options.projectId)}/branch`);
-      const body: unknown = await response.json().catch(() => ({}));
       if (!response.ok) {
+        const errorBody: unknown = await response.json().catch(() => ({}));
         throw new Error(
-          isRecord(body) && typeof body.error === "string"
-            ? body.error
+          isRecord(errorBody) && typeof errorBody.error === "string"
+            ? errorBody.error
             : "Could not read the sandbox branch.",
         );
       }
+      const body: unknown = await response.json().catch(() => ({}));
       return parseProjectSandboxBranchResponse(body);
     },
     staleTime: 5_000,

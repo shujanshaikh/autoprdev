@@ -959,15 +959,6 @@ function ProjectOverviewPage() {
 
                           <div className="flex items-center justify-between gap-1.5 px-2 pb-2 pt-0.5">
                             <div className="flex min-w-0 flex-wrap items-center gap-0.5">
-                              <ThreadWorkspaceSelect
-                                value={workspaceMode}
-                                currentBranch={currentBranch}
-                                branchIsRefreshing={isReadingSandboxBranch}
-                                branchReadFailed={sandboxBranchReadFailed}
-                                branchUnavailable={sandboxBranchUnavailable}
-                                disabled={promptControlsDisabled}
-                                onChange={setWorkspaceMode}
-                              />
                               <button
                                 type="button"
                                 aria-label="Add photos"
@@ -1063,6 +1054,17 @@ function ProjectOverviewPage() {
                               <ArrowUp className="size-3.5" aria-hidden="true" />
                             </button>
                           </div>
+                        </div>
+                        <div className="mx-auto flex w-[calc(100%-2rem)] min-w-0 items-center justify-end px-1 pt-1">
+                          <ThreadWorkspaceSelect
+                            value={workspaceMode}
+                            currentBranch={currentBranch}
+                            branchIsRefreshing={isReadingSandboxBranch}
+                            branchReadFailed={sandboxBranchReadFailed}
+                            branchUnavailable={sandboxBranchUnavailable}
+                            disabled={promptControlsDisabled}
+                            onChange={setWorkspaceMode}
+                          />
                         </div>
                       </form>
 

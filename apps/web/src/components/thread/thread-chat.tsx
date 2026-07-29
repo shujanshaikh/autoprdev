@@ -359,7 +359,7 @@ function ComposerBranchIndicator({
       aria-label={`${description} Refresh branch.`}
       title={description}
       className={cn(
-        "inline-flex h-8 min-w-0 max-w-[9.5rem] shrink items-center gap-1.5 rounded-[var(--radius-md)] px-1.5 font-mono text-[11px] font-medium transition-colors",
+        "inline-flex h-7 min-w-0 max-w-[15rem] shrink items-center gap-1.5 rounded-[var(--radius-md)] px-1.5 font-mono text-[11px] font-medium transition-colors",
         "text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 disabled:cursor-wait",
         (mismatch || readFailed) && "text-amber-600 dark:text-amber-400",
       )}
@@ -1616,13 +1616,6 @@ function ThreadChatRuntime({
                 </PromptInputBody>
                 <PromptInputFooter className="min-w-0 gap-1.5">
                   <PromptInputTools className="min-w-0 flex-1 gap-1">
-                    <ComposerBranchIndicator
-                      branch={checkedOutBranch}
-                      expectedBranch={usesWorktree ? thread?.featureBranch : undefined}
-                      isFetching={composerGitStatusQuery.isFetching}
-                      readFailed={composerGitStatusQuery.isError}
-                      onRefresh={() => void composerGitStatusQuery.refetch()}
-                    />
                     <Select
                       value={selectedModel ?? ""}
                       onValueChange={(value) => value && setSelectedModelChoice(value)}
@@ -1731,6 +1724,15 @@ function ThreadChatRuntime({
                   />
                 </PromptInputFooter>
               </PromptInput>
+              <div className="mx-auto flex w-[calc(100%-2rem)] min-w-0 items-center justify-end px-1 pt-1">
+                <ComposerBranchIndicator
+                  branch={checkedOutBranch}
+                  expectedBranch={usesWorktree ? thread?.featureBranch : undefined}
+                  isFetching={composerGitStatusQuery.isFetching}
+                  readFailed={composerGitStatusQuery.isError}
+                  onRefresh={() => void composerGitStatusQuery.refetch()}
+                />
+              </div>
             </PromptInputProvider>
           </div>
         </div>

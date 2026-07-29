@@ -8,6 +8,7 @@ import { z } from "zod";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
 import { pullProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
+import { generateThreadTitle } from "#/lib/generated-git-metadata";
 import {
   getGithubOAuthToken,
   GithubConnectionError,
@@ -46,20 +47,26 @@ const RECORDING_PREVIEW_EXPIRES_SECONDS = 60 * 60;
 const RECORDING_READY_ATTEMPTS = 10;
 const RECORDING_READY_RETRY_MS = 1_000;
 
-const postRequestSchema = z.object({
-  action: z.enum([
-    "commit",
-    "push",
-    "create_pr",
-    "commit_push",
-    "push_create_pr",
-    "commit_push_create_pr",
-    "pull",
-  ]),
-  operationId: z.uuid().optional(),
-  push: z.boolean().optional(),
-  commitMessage: z.string().trim().min(1).max(500).optional(),
-});
+const postRequestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("generate_title"),
+    message: z.string().trim().min(1).max(8_000),
+  }),
+  z.object({
+    action: z.enum([
+      "commit",
+      "push",
+      "create_pr",
+      "commit_push",
+      "push_create_pr",
+      "commit_push_create_pr",
+      "pull",
+    ]),
+    operationId: z.uuid().optional(),
+    push: z.boolean().optional(),
+    commitMessage: z.string().trim().min(1).max(500).optional(),
+  }),
+]);
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -384,6 +391,26 @@ async function POST(
 
   if (!project || !thread || thread.projectId !== projectId) {
     return Response.json({ error: "Thread not found." }, { status: 404 });
+  }
+
+  if (parsed.data.action === "generate_title") {
+    try {
+      const title = await generateThreadTitle({
+        request: req,
+        projectId,
+        threadId,
+        message: parsed.data.message,
+      });
+      const updated = await convexMutation(api.threads.updateGeneratedTitle, {
+        threadId,
+        title,
+      });
+      return Response.json({ title, updated });
+    } catch (error) {
+      return Response.json({
+        error: safeErrorMessage(error, "Could not generate the thread title."),
+      }, { status: 500 });
+    }
   }
 
   if (project.sandboxStatus !== "ready" || !project.sandboxId) {

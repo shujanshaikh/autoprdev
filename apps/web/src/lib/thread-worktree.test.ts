@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assessWorktreeCleanup,
+  createSemanticFeatureBranch,
   createThreadFeatureBranch,
   createThreadWorktreePath,
   decideWorktreeProvision,
@@ -35,6 +36,15 @@ describe("thread worktree metadata", () => {
       `${preferred}-2`,
       `${preferred}-3`,
     ])).toBe(`${preferred}-4`);
+  });
+
+  it("normalizes generated semantic branches without UUID suffixes or nested prefixes", () => {
+    expect(createSemanticFeatureBranch("feature/Improve PR descriptions!"))
+      .toBe("autopr/improve-pr-descriptions");
+    expect(createSemanticFeatureBranch("refs/heads/autopr/Fix invalid Git refs"))
+      .toBe("autopr/fix-invalid-git-refs");
+    expect(createSemanticFeatureBranch("***"))
+      .toBe("autopr/project-changes");
   });
 
   it("keeps collision-resolved branch names within the Git workflow limit", () => {

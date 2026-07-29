@@ -7,18 +7,22 @@ import {
   fetchGithubPullRequestForBranch,
 } from "@autopr/backend/convex/lib/github_oauth";
 import type { GitWorkflowAction, GitWorkflowPhase } from "@autopr/backend/convex/lib/gitWorkflow";
-import { createThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { CodexConnectionError } from "#/lib/codex-auth-server";
 import { generateCommitMessage } from "#/lib/commit-messages";
 import {
+  generateBranchName,
+  generateCommitMetadata,
+  generatePullRequestContent,
+} from "#/lib/generated-git-metadata";
+import {
   commitPreparedProjectSandboxChanges,
-  countProjectSandboxCommitsAhead,
   createProjectSandboxFeatureBranch,
   inspectProjectSandboxGit,
   prepareProjectSandboxCommit,
   pushProjectSandboxBranchIfNeeded,
+  readProjectSandboxPullRequestContext,
   SandboxGitCommandError,
   SandboxNoChangesError,
   validatePreparedProjectSandboxCommit,
@@ -240,12 +244,7 @@ export async function runThreadGitWorkflow(options: {
   }
   const expectedBranch = workspace.featureBranch;
   const baseBranch = workspace.baseBranch;
-  const title = operation.pullRequestTitle || thread.title || "AutoPR changes";
-  const body = operation.pullRequestBody || [
-    `Created from AutoPR thread \`${options.threadId}\`.`,
-    "",
-    "This PR contains the reviewed changes from the thread workspace.",
-  ].join("\n");
+  const fallbackTitle = thread.title && thread.title !== "New thread" ? thread.title : "Update project changes";
 
   const handlers: Record<GitWorkflowPhase, (checkpoint: GitWorkflowCheckpoint) => Promise<GitWorkflowPhaseOutput>> = {
     branch: async () => {
@@ -268,15 +267,48 @@ export async function runThreadGitWorkflow(options: {
         inspected.branch === baseBranch
       ) {
         if (!token) throw new GithubConnectionError("GitHub credentials are required to create a feature branch.");
+        let commitMessage = operation.commitMessage;
+        let preferredBranch: string;
+        if (inspected.hasChanges) {
+          const prepared = await prepareProjectSandboxCommit({
+            sandboxId,
+            repoName: project.repoName,
+            sandboxWorkDir: workspace.worktreePath,
+          });
+          const generated = await generateCommitMetadata({
+            request: options.request,
+            projectId: options.projectId,
+            threadId: options.threadId,
+            branch: prepared.branch,
+            status: prepared.status,
+            diff: prepared.diff,
+            fallbackTitle,
+            includeBranch: true,
+          });
+          commitMessage ??= generated.commitMessage;
+          preferredBranch = generated.branchName!;
+        } else {
+          preferredBranch = await generateBranchName({
+            request: options.request,
+            projectId: options.projectId,
+            threadId: options.threadId,
+            message: fallbackTitle,
+          });
+        }
         const created = await createProjectSandboxFeatureBranch({
           sandboxId,
           baseBranch,
-          preferredBranch: createThreadFeatureBranch(title, options.threadId),
+          preferredBranch,
           githubToken: token,
           repoName: project.repoName,
           sandboxWorkDir: workspace.worktreePath,
         });
-        return { branch: created.branch, baseBranch, summary: `Created branch ${created.branch}` };
+        return {
+          branch: created.branch,
+          baseBranch,
+          commitMessage,
+          summary: `Created branch ${created.branch}`,
+        };
       }
       return { branch: inspected.branch, baseBranch, summary: `Using branch ${inspected.branch}` };
     },
@@ -327,7 +359,7 @@ export async function runThreadGitWorkflow(options: {
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
       });
-      const commitMessage = checkpoint.commitMessage ?? operation.commitMessage ?? title;
+      const commitMessage = checkpoint.commitMessage ?? operation.commitMessage ?? fallbackTitle;
       let commitSha = inspected.commitSha;
       let diagnostics: string | undefined;
       let status: "succeeded" | "skipped" = "skipped";
@@ -394,14 +426,14 @@ export async function runThreadGitWorkflow(options: {
     },
     pull_request: async (checkpoint) => {
       if (!token) throw new GithubConnectionError("GitHub credentials are required to create a pull request.");
-      const commitsAhead = await countProjectSandboxCommitsAhead({
+      const pullRequestContext = await readProjectSandboxPullRequestContext({
         sandboxId,
         baseBranch: checkpoint.baseBranch ?? baseBranch,
         githubToken: token,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
       });
-      if (commitsAhead < 1) {
+      if (pullRequestContext.commitsAhead < 1) {
         throw new GitWorkflowPhaseError({
           code: "NO_BRANCH_COMMITS",
           message: `The thread branch does not differ from ${checkpoint.baseBranch ?? baseBranch}.`,
@@ -423,12 +455,25 @@ export async function runThreadGitWorkflow(options: {
       let pull: { number: number; htmlUrl: string } | undefined = existingPull;
       let status: "succeeded" | "skipped" = "skipped";
       if (!pull) {
+        const generated = operation.pullRequestTitle && operation.pullRequestBody
+          ? undefined
+          : await generatePullRequestContent({
+              request: options.request,
+              projectId: options.projectId,
+              threadId: options.threadId,
+              baseBranch: checkpoint.baseBranch ?? baseBranch,
+              headBranch: checkpoint.branch ?? expectedBranch,
+              commitSummary: pullRequestContext.commitSummary,
+              diffSummary: pullRequestContext.diffSummary,
+              diffPatch: pullRequestContext.diffPatch,
+              template: pullRequestContext.template,
+            });
         try {
           pull = await createGithubPullRequest(token, project.repoOwner, project.repoName, {
-            title,
+            title: operation.pullRequestTitle ?? generated!.title,
             head: checkpoint.branch ?? expectedBranch,
             base: checkpoint.baseBranch ?? baseBranch,
-            body,
+            body: operation.pullRequestBody ?? generated!.body,
             draft: operation.pullRequestDraft ?? false,
           });
           status = "succeeded";

@@ -43,6 +43,17 @@ export function createThreadFeatureBranch(title: string, threadId: string) {
   return `autopr/${trimmedSlug}-${suffix}`;
 }
 
+/** Create a short, valid branch from model- or user-supplied semantic text. */
+export function createSemanticFeatureBranch(value: string) {
+  const withoutRefPrefix = value
+    .trim()
+    .replace(/^refs\/heads\//i, "")
+    .replace(/^(?:autopr|feature|feat|fix|chore)\//i, "");
+  const slug = safeIdentifier(withoutRefPrefix, "project-changes");
+  const availableSlugLength = MAX_BRANCH_LENGTH - "autopr/".length;
+  return `autopr/${slug.slice(0, availableSlugLength).replace(/-+$/g, "") || "project-changes"}`;
+}
+
 /**
  * Keep generated feature branches stable while avoiding an existing local ref.
  * Git refs are case-sensitive on some filesystems and case-insensitive on

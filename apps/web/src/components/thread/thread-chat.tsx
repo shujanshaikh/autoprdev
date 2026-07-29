@@ -743,6 +743,9 @@ function ThreadChatRuntime({
     lastEventId: thread?.triggerSessionLastEventId,
   };
   const hasAutoSubmittedInitialPromptRef = useRef(false);
+  const titleGenerationRequestedRef = useRef<boolean | null>(null);
+  titleGenerationRequestedRef.current ??= initialMessages.some((message) => message.role === "user")
+    || (Boolean(thread?.title) && thread.title !== "New thread");
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
   const changedFileRequestRef = useRef(0);
@@ -1396,6 +1399,26 @@ function ThreadChatRuntime({
       return;
     }
 
+    if (!titleGenerationRequestedRef.current) {
+      titleGenerationRequestedRef.current = true;
+      const titleMessage = text.trim() || (files.length > 0 ? "Review the attached image" : "");
+      if (titleMessage) {
+        void fetch(`/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "generate_title",
+            message: titleMessage,
+          }),
+        }).then((response) => {
+          if (!response.ok) throw new Error(`Thread title generation failed with status ${response.status}.`);
+        }).catch((titleError) => {
+          titleGenerationRequestedRef.current = false;
+          console.error("Could not generate the thread title", titleError);
+        });
+      }
+    }
+
     clearError();
     const hasFiles = files.length > 0;
 
@@ -1417,7 +1440,7 @@ function ThreadChatRuntime({
 
     await sendMessage({ text: nextMessage });
     setDiffPromptContexts([]);
-  }, [clearError, diffPromptContexts, disabled, imageUploads, sendMessage, serverStreaming, status]);
+  }, [clearError, diffPromptContexts, disabled, imageUploads, projectId, sendMessage, serverStreaming, status, threadId]);
 
   useEffect(() => {
     if (hasAutoSubmittedInitialPromptRef.current || !ready) {

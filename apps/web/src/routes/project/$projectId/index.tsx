@@ -586,7 +586,7 @@ function ProjectOverviewPage() {
       const uploadedImages = await resolvePromptImages();
       const threadId = await createThread({
         projectId,
-        title: prompt || "New thread",
+        title: "New thread",
         demoEnabled: effectiveDemoEnabled,
         workspaceMode,
       });

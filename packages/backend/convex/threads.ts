@@ -502,6 +502,35 @@ export const updateTitle = mutation({
   },
 });
 
+export const updateGeneratedTitle = mutation({
+  args: {
+    threadId: v.string(),
+    title: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const title = args.title.trim();
+    if (!title || title.length > 200) {
+      throw new ConvexError({ code: "INVALID_THREAD_TITLE" });
+    }
+
+    if (thread.title !== "New thread") return false;
+
+    await ctx.db.patch(thread._id, { title, updatedAt: Date.now() });
+    return true;
+  },
+});
+
 export const setSettlement = mutation({
   args: {
     threadId: v.string(),

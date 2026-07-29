@@ -556,13 +556,21 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
   return { commitSha, remoteSha: pushedState.remoteSha, pushed: true, alreadyPushed: false };
 }
 
-export async function countProjectSandboxCommitsAhead(options: {
+export interface ProjectSandboxPullRequestContext {
+  commitsAhead: number;
+  commitSummary: string;
+  diffSummary: string;
+  diffPatch: string;
+  template?: string;
+}
+
+export async function readProjectSandboxPullRequestContext(options: {
   sandboxId: string;
   baseBranch: string;
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
-}) {
+}): Promise<ProjectSandboxPullRequestContext> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const remoteBase = `refs/remotes/origin/${options.baseBranch}`;
@@ -578,13 +586,36 @@ export async function countProjectSandboxCommitsAhead(options: {
       redactGitDiagnostic(sandboxCommandOutput(fetchBase), [options.githubToken]),
     );
   }
-  const result = await runSandboxCommand(
-    sandbox,
-    `cd ${shellEscape(repoPath)} && git rev-list --count ${shellEscape(remoteBase)}..HEAD`,
-  );
-  const count = Number(sandboxCommandOutput(result).trim());
-  if (!Number.isFinite(count)) throw new Error("Could not compare the thread branch with its base branch.");
-  return count;
+  const quotedRepoPath = shellEscape(repoPath);
+  const quotedRange = shellEscape(`${remoteBase}..HEAD`);
+  const quotedMergeRange = shellEscape(`${remoteBase}...HEAD`);
+  const [countResult, commitsResult, statResult, patchResult, templateResult] = await Promise.all([
+    runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git rev-list --count ${quotedRange}`),
+    runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git log --format='%h %s' ${quotedRange}`),
+    runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git diff --stat ${quotedMergeRange}`),
+    runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git diff --no-ext-diff --unified=40 ${quotedMergeRange}`),
+    runSandboxCommand(
+      sandbox,
+      [
+        `cd ${quotedRepoPath}`,
+        "for path in .github/pull_request_template.md .github/PULL_REQUEST_TEMPLATE.md pull_request_template.md PULL_REQUEST_TEMPLATE.md docs/pull_request_template.md; do",
+        "  if [ -f \"$path\" ]; then head -c 40000 \"$path\"; break; fi",
+        "done",
+      ].join("\n"),
+    ),
+  ]);
+  const commitsAhead = Number(sandboxCommandOutput(countResult).trim());
+  if (!Number.isFinite(commitsAhead)) {
+    throw new Error("Could not compare the thread branch with its base branch.");
+  }
+  const template = sandboxCommandOutput(templateResult).trim();
+  return {
+    commitsAhead,
+    commitSummary: sandboxCommandOutput(commitsResult).trim(),
+    diffSummary: sandboxCommandOutput(statResult).trim(),
+    diffPatch: sandboxCommandOutput(patchResult).trim(),
+    template: template || undefined,
+  };
 }
 
 export async function pullProjectSandboxBranch(options: {

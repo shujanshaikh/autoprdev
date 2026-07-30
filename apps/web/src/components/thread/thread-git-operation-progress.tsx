@@ -5,6 +5,8 @@ import { Button } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { AlertTriangle, Check, Circle, Loader2, RotateCcw } from "lucide-react";
 
+import { GitHubLogo } from "#/components/icons/github-logo";
+
 type GitOperation = Doc<"gitOperations">;
 
 const phaseLabels: Record<GitWorkflowPhase, string> = {
@@ -35,7 +37,15 @@ export function ThreadGitOperationProgress({
           const running = operation.status === "running" && operation.currentPhase === phase;
           const failed = result?.status === "failed";
           const complete = result?.status === "succeeded" || result?.status === "skipped";
-          const Icon = running ? Loader2 : failed ? AlertTriangle : complete ? Check : Circle;
+          const Icon = phase === "push" && complete
+            ? GitHubLogo
+            : running
+              ? Loader2
+              : failed
+                ? AlertTriangle
+                : complete
+                  ? Check
+                  : Circle;
           return (
             <li key={phase} className="flex items-start gap-2.5 text-xs">
               <Icon

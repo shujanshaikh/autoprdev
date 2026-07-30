@@ -22,7 +22,6 @@ import { useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowDownToLine,
-  ArrowUpRight,
   Check,
   ChevronDown,
   ExternalLink,
@@ -30,10 +29,12 @@ import {
   GitCommitHorizontal,
   GitPullRequest,
   Loader2,
-  Upload,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { ElementType } from "react";
+import { useMemo, useState } from "react";
 
+import { GitHubLogo } from "#/components/icons/github-logo";
 import { ThreadGitOperationProgress } from "#/components/thread/thread-git-operation-progress";
 
 import {
@@ -76,14 +77,14 @@ type ThreadCommitState = {
 
 const actionIcons = {
   commit: GitCommitHorizontal,
-  commit_push: ArrowUpRight,
-  push: Upload,
+  commit_push: GitHubLogo,
+  push: GitHubLogo,
   pull: ArrowDownToLine,
   create_pr: GitPullRequest,
-  push_create_pr: GitPullRequest,
-  commit_push_create_pr: GitPullRequest,
+  push_create_pr: GitHubLogo,
+  commit_push_create_pr: GitHubLogo,
   view_pr: ExternalLink,
-} satisfies Record<ThreadGitAction, typeof GitBranch>;
+} satisfies Record<ThreadGitAction, ElementType>;
 
 const pendingLabels: Record<GitActionVariables["action"], string> = {
   commit: "Committing changes…",
@@ -116,10 +117,10 @@ export function ThreadCommitButton({
   thread,
 }: ThreadCommitButtonProps & { thread?: ThreadCommitState | null }) {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(true);
   const [dialogAction, setDialogAction] = useState<Exclude<ThreadGitAction, "view_pr"> | null>(null);
   const [commitMessageDraft, setCommitMessageDraft] = useState("");
   const [activeOperationId, setActiveOperationId] = useState<string>();
-  const presentedOperationId = useRef<string>();
   const queryClient = useQueryClient();
   const gitStatusQuery = useThreadGitStatusQuery({
     projectId,
@@ -136,14 +137,6 @@ export function ThreadCommitButton({
     (!activeOperationId && latestOperation.status !== "succeeded")
   ) ? latestOperation : undefined;
 
-  useEffect(() => {
-    if (!activeOperation || presentedOperationId.current === activeOperation.operationId) return;
-    presentedOperationId.current = activeOperation.operationId;
-    setActiveOperationId(activeOperation.operationId);
-    setDialogAction(activeOperation.requestedAction);
-    if (!dialogOpen) setDialogOpen(true);
-  }, [activeOperation, dialogOpen]);
-
   const mutation = useMutation<GitActionResponse, Error, GitActionVariables>({
     mutationKey: ["thread", projectId, threadId, "git-mutation"],
     mutationFn: async ({ action, commitMessage, operationId }) => {
@@ -155,15 +148,16 @@ export function ThreadCommitButton({
           body: JSON.stringify({ action, commitMessage, operationId }),
         },
       );
-      const body = (await response.json().catch(() => ({}))) as GitActionResponse;
       if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as GitActionResponse;
         throw new Error(
           typeof body.error === "string"
             ? body.error
             : body.error?.message || "Could not complete the Git operation.",
         );
       }
-      return body;
+      const body = await response.json();
+      return body as GitActionResponse;
     },
     onSuccess: () => {
       setCommitMessageDraft("");
@@ -191,10 +185,12 @@ export function ThreadCommitButton({
     }
 
     setDialogAction(action);
-    setDialogOpen(true);
-    if (action !== "commit" && action !== "commit_push") {
+    if (action === "commit" || action === "commit_push") {
+      setDialogOpen(true);
+    } else {
       const operationId = crypto.randomUUID();
       setActiveOperationId(operationId);
+      setProgressOpen(true);
       mutation.mutate({ action, operationId });
     }
   };
@@ -205,6 +201,8 @@ export function ThreadCommitButton({
     mutation.reset();
     const operationId = crypto.randomUUID();
     setActiveOperationId(operationId);
+    setDialogOpen(false);
+    setProgressOpen(true);
     mutation.mutate({
       action: dialogAction,
       operationId,
@@ -230,6 +228,18 @@ export function ThreadCommitButton({
   const primaryTitle = disabled
     ? "Git actions are unavailable while this thread is loading."
     : primaryAvailability.reason || resolution.primaryLabel;
+  const progressAction = activeOperation?.requestedAction ?? activeAction;
+  const progressBranch = activeOperation?.branch ?? result?.branch ?? status?.currentBranch;
+  const progressVisible = progressOpen && Boolean(activeOperation || busy || result || error);
+  const progressTitle = activeOperation?.status === "failed" || error
+    ? "GitHub action failed"
+    : activeOperation?.status === "succeeded" || result
+      ? progressAction && (progressAction === "commit" || progressAction === "pull")
+        ? "Git action complete"
+        : "GitHub action complete"
+      : progressAction
+        ? pendingLabels[progressAction]
+        : "Working with GitHub…";
 
   return (
     <>
@@ -297,7 +307,7 @@ export function ThreadCommitButton({
       </ButtonGroup>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !busy && setDialogOpen(open)}>
-        <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-[420px]" showCloseButton={!busy}>
+        <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-[420px]">
           <DialogHeader className="border-b border-border px-5 pb-3 pt-4">
             <DialogTitle className="flex items-center gap-2 text-sm font-medium text-foreground">
               {activeAction ? (() => {
@@ -315,8 +325,8 @@ export function ThreadCommitButton({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="px-5 py-4" aria-live="polite">
-            {isCommitDialog && !busy && !result ? (
+          <div className="px-5 py-4">
+            {isCommitDialog ? (
               <Textarea
                 aria-label="Commit message"
                 value={commitMessageDraft}
@@ -327,22 +337,81 @@ export function ThreadCommitButton({
                 className="min-h-24 resize-none bg-muted/20 text-sm leading-relaxed placeholder:text-muted-foreground/75"
               />
             ) : null}
+          </div>
 
+          <DialogFooter className="flex-row items-center justify-end gap-2 border-t border-border px-5 py-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            {isCommitDialog ? (
+              <Button type="button" size="sm" onClick={submitCommit}>
+                {dialogAction === "commit_push" ? (
+                  <GitHubLogo className="size-3.5" aria-hidden />
+                ) : null}
+                {dialogAction === "commit_push" ? "Commit & push" : "Commit"}
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {progressVisible ? (
+        <aside
+          aria-label="GitHub operation"
+          className="git-operation-panel-in fixed right-3 top-15 z-50 w-[calc(100vw-1.5rem)] max-w-[380px] overflow-hidden rounded-lg border border-border/80 bg-popover text-popover-foreground shadow-2xl shadow-black/15 sm:right-4 sm:top-16"
+        >
+          <div className="flex items-start gap-3 border-b border-border/70 px-4 py-3.5">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm">
+              <GitHubLogo className="size-4.5" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <p className="truncate text-sm font-medium text-foreground">{progressTitle}</p>
+              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                {progressBranch ? (
+                  <>
+                    <GitBranch className="size-3 shrink-0" aria-hidden />
+                    <span className="truncate font-mono">{progressBranch}</span>
+                  </>
+                ) : (
+                  "Repository activity"
+                )}
+              </p>
+            </div>
+            {!busy && activeOperation?.status !== "running" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Dismiss GitHub operation"
+                onClick={() => setProgressOpen(false)}
+                className="-mr-1 -mt-1 size-7 shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3.5" aria-hidden />
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="px-4 py-3.5">
             {activeOperation ? (
               <ThreadGitOperationProgress
                 operation={activeOperation}
                 retrying={mutation.isPending}
                 onRetry={retryOperation}
               />
-            ) : busy && activeAction ? (
+            ) : busy && progressAction ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                {pendingLabels[activeAction]}
+                {pendingLabels[progressAction]}
               </div>
             ) : null}
 
             {result && !activeOperation ? (
-              <div className="relative overflow-hidden border border-primary/20 bg-primary/[0.04]" role="status">
+              <div className="relative overflow-hidden rounded-sm border border-primary/20 bg-primary/[0.04]" role="status">
                 <div className="absolute inset-y-0 left-0 w-[3px] bg-primary" />
                 <div className="py-3 pl-5 pr-4">
                   <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
@@ -354,16 +423,10 @@ export function ThreadCommitButton({
                       {result.commitMessage}
                     </p>
                   ) : null}
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
                     {shortSha(result.commitSha) ? (
-                      <span className="border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground">
+                      <span className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground">
                         {shortSha(result.commitSha)}
-                      </span>
-                    ) : null}
-                    {result.branch ? (
-                      <span className="inline-flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-                        <GitBranch className="size-2.5 shrink-0" aria-hidden />
-                        <span className="truncate font-mono uppercase tracking-wider">{result.branch}</span>
                       </span>
                     ) : null}
                     {result.url ? (
@@ -383,7 +446,7 @@ export function ThreadCommitButton({
             ) : null}
 
             {error && !activeOperation ? (
-              <div className="relative overflow-hidden border border-destructive/20 bg-destructive/[0.04]" role="alert">
+              <div className="relative overflow-hidden rounded-sm border border-destructive/20 bg-destructive/[0.04]" role="alert">
                 <div className="absolute inset-y-0 left-0 w-[3px] bg-destructive" />
                 <div className="flex gap-2.5 py-3 pl-5 pr-4">
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
@@ -392,34 +455,8 @@ export function ThreadCommitButton({
               </div>
             ) : null}
           </div>
-
-          <DialogFooter className="flex-row items-center justify-end gap-2 border-t border-border px-5 py-3">
-            {result ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => setDialogOpen(false)}>
-                Close
-              </Button>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => setDialogOpen(false)}
-                >
-                  {busy ? "Working…" : "Cancel"}
-                </Button>
-                {isCommitDialog ? (
-                  <Button type="button" size="sm" disabled={busy} onClick={submitCommit}>
-                    {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-                    {dialogAction === "commit_push" ? "Commit & push" : "Commit"}
-                  </Button>
-                ) : null}
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </aside>
+      ) : null}
     </>
   );
 }

@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import { Check, CheckCheck, ChevronDown, ChevronRight, Copy, FileDiff, MessageSquarePlus } from "lucide-react-native";
+import { Check, CheckCheck, ChevronDown, ChevronRight, Copy, FileDiff, MessageSquare, MessageSquarePlus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -217,6 +217,27 @@ export function ChangesScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.screen }]}>
+      <View style={[styles.viewSwitcherWrap, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
+        <View style={[styles.viewSwitcher, { backgroundColor: theme.surfaceSoft }]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [styles.viewOption, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <MessageSquare color={theme.muted} size={14} />
+            <Text style={[styles.viewOptionText, { color: theme.muted }]}>Chat</Text>
+          </Pressable>
+          <View style={[styles.viewOption, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
+            <FileDiff color={theme.ink} size={14} />
+            <Text style={[styles.viewOptionText, { color: theme.ink }]}>Diff</Text>
+            {entries.length > 0 ? (
+              <View style={[styles.viewBadge, { backgroundColor: theme.accentSoft }]}>
+                <Text style={[styles.viewBadgeText, { color: theme.ink }]}>{entries.length}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </View>
       <View style={[styles.reviewSummary, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
         <View style={styles.summaryTop}>
           <View>
@@ -301,6 +322,12 @@ export function ChangesScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  viewSwitcherWrap: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 7 },
+  viewSwitcher: { alignSelf: "center", minWidth: 210, borderRadius: 10, padding: 3, flexDirection: "row", gap: 3 },
+  viewOption: { flex: 1, minHeight: 32, borderRadius: 8, borderWidth: 1, borderColor: "transparent", paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  viewOptionText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
+  viewBadge: { minWidth: 19, height: 19, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
+  viewBadgeText: { fontFamily: "Inter_700Bold", fontSize: 9 },
   reviewSummary: { borderBottomWidth: 1, padding: 14, gap: 10 },
   summaryTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   summaryTitle: { fontFamily: "Inter_700Bold", fontSize: 14 },

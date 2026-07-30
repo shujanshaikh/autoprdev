@@ -105,6 +105,9 @@ importers:
       expo-font:
         specifier: ~56.0.7
         version: 56.0.7(expo@56.0.18)(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      expo-glass-effect:
+        specifier: ~56.0.4
+        version: 56.0.4(expo@56.0.18)(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
       expo-image:
         specifier: ~56.0.11
         version: 56.0.11(expo@56.0.18)(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
@@ -5462,6 +5465,13 @@ packages:
 
   expo-font@56.0.7:
     resolution: {integrity: sha512-hpU/vRwPzsby9lPGkA4blDqLIIXYzoWnCZHr6PxvcWbY/uPObAiyhh6q+e0WYsB65SthK+PLH95jEnVag7fwEg==}
+    peerDependencies:
+      expo: '*'
+      react: '*'
+      react-native: '*'
+
+  expo-glass-effect@56.0.4:
+    resolution: {integrity: sha512-xI9rXtDwi7RW82uAlfyaXO6+k21ApWJ2tHAWYqPr/FjfmZbKsgNJ4Q0iZzGPCwboqjTGxaRZ61SZxBl8hDt5iA==}
     peerDependencies:
       expo: '*'
       react: '*'
@@ -14761,6 +14771,12 @@ snapshots:
     dependencies:
       expo: 56.0.18(@babel/core@7.29.0)(@expo/dom-webview@56.0.6)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
       fontfaceobserver: 2.3.0
+      react: 19.2.3
+      react-native: 0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3)
+
+  expo-glass-effect@56.0.4(expo@56.0.18)(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3):
+    dependencies:
+      expo: 56.0.18(@babel/core@7.29.0)(@expo/dom-webview@56.0.6)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
       react: 19.2.3
       react-native: 0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3)
 

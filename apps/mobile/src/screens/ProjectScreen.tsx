@@ -1,27 +1,121 @@
 import { api } from "@autopr/backend/convex/_generated/api";
+import { useUploadFile } from "@convex-dev/r2/react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
+import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import {
   Archive,
+  ArrowUp,
+  Check,
+  ChevronDown,
   ChevronRight,
   GitBranch,
   GitPullRequest,
+  ImagePlus,
+  Layers,
   MessageSquare,
   Play,
   Plus,
   Search,
   Square,
   Trash2,
+  Video,
+  X,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { GlassSurface } from "../components/GlassSurface";
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton, SecondaryButton, StatusPill } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
-import type { RootStackParamList } from "../types";
+import { useWebQuery } from "../hooks/useWebQuery";
+import {
+  DEFAULT_CODEX_REASONING_EFFORT,
+  formatCodexModelLabel,
+  formatReasoningEffort,
+  getCodexModelOptions,
+  getCodexReasoningEfforts,
+  isCodexReasoningEffortForModel,
+  selectCodexModel,
+  type CodexReasoningEffort,
+} from "../lib/codexModels";
+import type { PromptFilePart, RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Project">;
+
+type CodexStatus = {
+  connected: boolean;
+  models?: string[];
+};
+
+type PendingImage = {
+  id: string;
+  uri: string;
+  fileName: string;
+  mediaType: string;
+};
+
+const QUICK_ACTIONS = [
+  "Summarize latest changes",
+  "Review my latest PR",
+  "Suggest a new feature",
+  "Create a task for…",
+] as const;
+
+const PromptImageItem = memo(function PromptImageItem({
+  image,
+  onRemove,
+}: {
+  image: PendingImage;
+  onRemove: (imageId: string) => void;
+}) {
+  const theme = useAppTheme();
+  const remove = useCallback(() => onRemove(image.id), [image.id, onRemove]);
+  return (
+    <View>
+      <Image source={{ uri: image.uri }} style={styles.promptImage} />
+      <Pressable
+        accessibilityLabel={`Remove ${image.fileName}`}
+        onPress={remove}
+        style={[styles.removeImage, { backgroundColor: theme.code }]}
+      >
+        <X color={theme.codeInk} size={12} />
+      </Pressable>
+    </View>
+  );
+});
+
+const ModelOptionItem = memo(function ModelOptionItem({
+  model,
+  selected,
+  onSelect,
+}: {
+  model: string;
+  selected: boolean;
+  onSelect: (model: string) => void;
+}) {
+  const theme = useAppTheme();
+  const select = useCallback(() => onSelect(model), [model, onSelect]);
+  return (
+    <Pressable
+      onPress={select}
+      style={[
+        styles.optionChip,
+        {
+          backgroundColor: selected ? theme.accentSoft : theme.surfaceSoft,
+          borderColor: selected ? theme.accent : theme.line,
+        },
+      ]}
+    >
+      {selected ? <Check color={theme.accent} size={12} /> : null}
+      <Text style={[styles.optionText, { color: selected ? theme.ink : theme.muted }]}>
+        {formatCodexModelLabel(model)}
+      </Text>
+    </Pressable>
+  );
+});
 
 function relativeTime(timestamp: number) {
   const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
@@ -43,15 +137,59 @@ export function ProjectScreen({ navigation, route }: Props) {
   const stopSandbox = useAction(api.projectActions.stopSandbox);
   const removeProject = useAction(api.projectActions.removeWithSandbox);
   const removeThread = useAction(api.projectActions.removeThreadWithWorktree);
+  const userSettings = useQuery(api.userSettings.get, {});
+  const uploadImage = useUploadFile(api.imageUploads);
+  const convex = useConvex();
+  const codex = useWebQuery<CodexStatus>(["codex", "status"], "/api/codex/status", {
+    staleTime: 60_000,
+    retry: false,
+  });
   const [creating, setCreating] = useState(false);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [threadFilter, setThreadFilter] = useState<"active" | "archived" | "all">("active");
+  const [prompt, setPrompt] = useState("");
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [selectedModelChoice, setSelectedModelChoice] = useState<string>();
+  const [reasoningEffort, setReasoningEffort] = useState<CodexReasoningEffort>(DEFAULT_CODEX_REASONING_EFFORT);
+  const [workspaceMode, setWorkspaceMode] = useState<"checkout" | "worktree">("checkout");
+  const [demoEnabled, setDemoEnabled] = useState(false);
+  const [showPromptControls, setShowPromptControls] = useState(false);
+
+  const selectedModel = useMemo(
+    () => selectCodexModel(codex.data?.models, selectedModelChoice),
+    [codex.data?.models, selectedModelChoice],
+  );
+  const modelOptions = useMemo(
+    () => getCodexModelOptions(codex.data?.models, selectedModel),
+    [codex.data?.models, selectedModel],
+  );
+  const reasoningOptions = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
+  const removePromptImage = useCallback((imageId: string) => {
+    setPendingImages((current) => current.filter((image) => image.id !== imageId));
+  }, []);
+  const selectModel = useCallback((model: string) => setSelectedModelChoice(model), []);
+  const renderPromptImage = useCallback(
+    ({ item }: { item: PendingImage }) => <PromptImageItem image={item} onRemove={removePromptImage} />,
+    [removePromptImage],
+  );
+  const renderModelOption = useCallback(
+    ({ item }: { item: string }) => (
+      <ModelOptionItem model={item} selected={item === selectedModel} onSelect={selectModel} />
+    ),
+    [selectModel, selectedModel],
+  );
 
   useEffect(() => {
     if (project?.projectId) void markOpened({ projectId: project.projectId });
   }, [markOpened, project?.projectId]);
+
+  useEffect(() => {
+    if (!isCodexReasoningEffortForModel(selectedModel, reasoningEffort)) {
+      setReasoningEffort(getCodexReasoningEfforts(selectedModel)[0] ?? DEFAULT_CODEX_REASONING_EFFORT);
+    }
+  }, [reasoningEffort, selectedModel]);
 
   const filteredThreads = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -73,12 +211,64 @@ export function ProjectScreen({ navigation, route }: Props) {
     return <EmptyState icon={GitBranch} title="Project not found" body="This workspace may have been removed." />;
   }
 
-  const newThread = async () => {
+  const chooseImages = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.85,
+      allowsMultipleSelection: true,
+      selectionLimit: 6,
+    });
+    if (result.canceled) return;
+    setPendingImages((current) => [
+      ...current,
+      ...result.assets.map((asset, index) => ({
+        id: `${Date.now()}:${index}:${asset.assetId ?? asset.uri}`,
+        uri: asset.uri,
+        fileName: asset.fileName ?? `image-${Date.now()}-${index + 1}.jpg`,
+        mediaType: asset.mimeType ?? "image/jpeg",
+      })),
+    ].slice(0, 6));
+  };
+
+  const uploadPendingImages = async (): Promise<PromptFilePart[]> => await Promise.all(pendingImages.map(async (image) => {
+    const imageResponse = await fetch(image.uri);
+    if (!imageResponse.ok) throw new Error(`Could not read ${image.fileName}.`);
+    const blob = await imageResponse.blob();
+    const file = Object.assign(blob, { name: image.fileName, lastModified: Date.now() }) as File;
+    const key = await uploadImage(file);
+    const url = await convex.query(api.imageUploads.getUrl, { key });
+    return {
+      type: "file" as const,
+      filename: image.fileName,
+      mediaType: image.mediaType,
+      url,
+      providerMetadata: { autopr: { r2Key: key } },
+    };
+  }));
+
+  const newThread = async (initialPrompt?: string) => {
+    const text = (initialPrompt ?? prompt).trim();
     setCreating(true);
     setError(null);
     try {
-      const threadId = await createThread({ projectId, workspaceMode: "worktree" });
-      navigation.navigate("Thread", { projectId, threadId, title: "New thread" });
+      const initialFiles = await uploadPendingImages();
+      const threadId = await createThread({
+        projectId,
+        title: "New thread",
+        workspaceMode,
+        demoEnabled: Boolean(userSettings?.demoRecordingExperimentEnabled && demoEnabled),
+      });
+      navigation.navigate("Thread", {
+        projectId,
+        threadId,
+        title: "New thread",
+        ...(text ? { initialPrompt: text } : {}),
+        ...(initialFiles.length > 0 ? { initialFiles } : {}),
+        ...(selectedModel ? { initialModel: selectedModel } : {}),
+        initialReasoningEffort: reasoningEffort,
+      });
+      setPrompt("");
+      setPendingImages([]);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Could not create a thread.");
     } finally {
@@ -121,7 +311,15 @@ export function ProjectScreen({ navigation, route }: Props) {
 
   const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch ?? "Unknown branch";
   const ready = project.sandboxStatus === "ready";
-
+  const runtimeStarted = project.sandboxRuntimeStatus === "started";
+  const promptReady = ready && runtimeStarted && codex.data?.connected === true;
+  const promptPlaceholder = !ready
+    ? "Workspace is still being prepared…"
+    : !runtimeStarted
+      ? "Start the workspace to create a task"
+      : codex.data?.connected === false
+        ? "Connect Codex in Settings"
+        : `Ask ${project.repoName || "the agent"} anything…`;
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -174,6 +372,144 @@ export function ProjectScreen({ navigation, route }: Props) {
         </View>
 
         {error ? <ErrorNotice message={error} /> : null}
+
+        <View style={styles.promptSection}>
+          <Text style={[styles.promptEyebrow, { color: theme.faint }]}>NEW TASK</Text>
+          <Text style={[styles.promptTitle, { color: theme.ink }]}>What do you want to work on?</Text>
+          <View style={styles.promptMeta}>
+            <GitBranch color={theme.faint} size={12} />
+            <Text numberOfLines={1} style={[styles.promptMetaText, { color: theme.muted }]}>{project.repoFullName}</Text>
+            <Text style={[styles.promptMetaDot, { color: theme.faint }]}>·</Text>
+            <Text numberOfLines={1} style={[styles.promptMetaText, { color: theme.muted }]}>{branch}</Text>
+          </View>
+
+          <GlassSurface interactive radius={18} style={styles.promptBox}>
+            {pendingImages.length > 0 ? (
+              <FlatList
+                horizontal
+                data={pendingImages}
+                keyExtractor={(image) => image.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.promptImages}
+                renderItem={renderPromptImage}
+              />
+            ) : null}
+            <TextInput
+              accessibilityLabel="Task prompt"
+              editable={!creating && promptReady}
+              multiline
+              value={prompt}
+              onChangeText={setPrompt}
+              placeholder={promptPlaceholder}
+              placeholderTextColor={theme.faint}
+              style={[styles.taskInput, { color: theme.ink }]}
+            />
+            <View style={styles.promptToolbar}>
+              <Pressable
+                accessibilityLabel="Add photos"
+                disabled={!promptReady || creating}
+                onPress={() => void chooseImages()}
+                style={[styles.promptToolButton, { backgroundColor: theme.surfaceSoft }]}
+              >
+                <ImagePlus color={theme.muted} size={17} />
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Choose model and reasoning"
+                onPress={() => setShowPromptControls((value) => !value)}
+                style={styles.promptSelector}
+              >
+                <Text numberOfLines={1} style={[styles.promptSelectorText, { color: theme.muted }]}>
+                  {formatCodexModelLabel(selectedModel)} · {formatReasoningEffort(reasoningEffort)}
+                </Text>
+                <ChevronDown color={theme.faint} size={13} />
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Send task"
+                disabled={!promptReady || creating || (!prompt.trim() && pendingImages.length === 0)}
+                onPress={() => void newThread()}
+                style={[
+                  styles.promptSend,
+                  {
+                    backgroundColor: theme.accent,
+                    opacity: !promptReady || creating || (!prompt.trim() && pendingImages.length === 0) ? 0.35 : 1,
+                  },
+                ]}
+              >
+                <ArrowUp color={theme.accentInk} size={18} strokeWidth={2.6} />
+              </Pressable>
+            </View>
+          </GlassSurface>
+
+          {showPromptControls ? (
+            <View style={[styles.promptControls, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+              <Text style={[styles.controlLabel, { color: theme.faint }]}>MODEL</Text>
+              <FlatList
+                horizontal
+                data={modelOptions}
+                keyExtractor={(model) => model}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.controlRow}
+                renderItem={renderModelOption}
+              />
+              <Text style={[styles.controlLabel, { color: theme.faint }]}>REASONING</Text>
+              <View style={styles.controlRow}>
+                {reasoningOptions.map((effort) => {
+                  const selected = effort === reasoningEffort;
+                  return (
+                    <Pressable
+                      key={effort}
+                      onPress={() => setReasoningEffort(effort)}
+                      style={[styles.optionChip, { backgroundColor: selected ? theme.accentSoft : theme.surfaceSoft, borderColor: selected ? theme.accent : theme.line }]}
+                    >
+                      <Text style={[styles.optionText, { color: selected ? theme.ink : theme.muted }]}>{formatReasoningEffort(effort)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
+          <View style={styles.taskOptions}>
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: workspaceMode === "worktree" }}
+              onPress={() => setWorkspaceMode((value) => value === "checkout" ? "worktree" : "checkout")}
+              style={[styles.taskOption, { backgroundColor: theme.surfaceSoft }]}
+            >
+              <Layers color={theme.muted} size={14} />
+              <Text style={[styles.taskOptionText, { color: theme.muted }]}>
+                {workspaceMode === "checkout" ? "Current checkout" : "New worktree"}
+              </Text>
+            </Pressable>
+            {userSettings?.demoRecordingExperimentEnabled ? (
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: demoEnabled }}
+                onPress={() => setDemoEnabled((value) => !value)}
+                style={[styles.taskOption, { backgroundColor: demoEnabled ? theme.accentSoft : theme.surfaceSoft }]}
+              >
+                <Video color={demoEnabled ? theme.accent : theme.muted} size={14} />
+                <Text style={[styles.taskOptionText, { color: demoEnabled ? theme.ink : theme.muted }]}>Demo</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View style={styles.quickActions}>
+            {QUICK_ACTIONS.map((action) => (
+              <Pressable
+                key={action}
+                disabled={!promptReady || creating}
+                onPress={() => {
+                  setPrompt(action);
+                  void newThread(action);
+                }}
+                style={[styles.quickAction, { borderColor: theme.line, opacity: promptReady ? 1 : 0.45 }]}
+              >
+                <Text style={[styles.quickActionText, { color: theme.muted }]}>{action}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
 
         <Pressable
           onPress={() => navigation.navigate("PullRequests", { projectId, title: project.repoName })}
@@ -329,6 +665,33 @@ const styles = StyleSheet.create({
   branch: { flexShrink: 1, fontFamily: "Inter_400Regular", fontSize: 12 },
   actions: { flexDirection: "row", gap: 9 },
   flexButton: { flex: 1 },
+  promptSection: { alignItems: "center", paddingVertical: 18 },
+  promptEyebrow: { fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 1.8 },
+  promptTitle: { marginTop: 8, fontFamily: "Inter_700Bold", fontSize: 24, letterSpacing: -0.8, textAlign: "center" },
+  promptMeta: { maxWidth: "100%", marginTop: 9, marginBottom: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  promptMetaText: { flexShrink: 1, fontFamily: "Inter_500Medium", fontSize: 10 },
+  promptMetaDot: { fontFamily: "Inter_700Bold", fontSize: 10 },
+  promptBox: { width: "100%", minHeight: 128, padding: 10 },
+  promptImages: { gap: 8, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
+  promptImage: { width: 62, height: 62, borderRadius: 10 },
+  removeImage: { position: "absolute", right: -5, top: -5, width: 21, height: 21, borderRadius: 999, alignItems: "center", justifyContent: "center" },
+  taskInput: { minHeight: 72, maxHeight: 154, paddingHorizontal: 6, paddingTop: 6, paddingBottom: 8, fontFamily: "Inter_400Regular", fontSize: 15, lineHeight: 22 },
+  promptToolbar: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 5 },
+  promptToolButton: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  promptSelector: { flex: 1, minWidth: 0, minHeight: 34, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", gap: 4 },
+  promptSelectorText: { flexShrink: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  promptSend: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  promptControls: { width: "100%", marginTop: 9, borderWidth: 1, borderRadius: 12, padding: 11, gap: 8 },
+  controlLabel: { fontFamily: "Inter_700Bold", fontSize: 8, letterSpacing: 1.1 },
+  controlRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  optionChip: { minHeight: 31, borderWidth: 1, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
+  optionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  taskOptions: { width: "100%", marginTop: 9, flexDirection: "row", justifyContent: "flex-end", gap: 6 },
+  taskOption: { minHeight: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
+  taskOptionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  quickActions: { marginTop: 13, flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 7 },
+  quickAction: { minHeight: 31, borderRadius: 16, borderWidth: 1, paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
+  quickActionText: { fontFamily: "Inter_500Medium", fontSize: 10 },
   pullRow: {
     minHeight: 54,
     borderRadius: 8,

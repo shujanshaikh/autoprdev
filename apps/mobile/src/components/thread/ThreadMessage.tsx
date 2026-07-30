@@ -29,34 +29,46 @@ export type ThreadMessageValue = {
   updatedAt?: number;
 };
 
+const messageTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+function keyed<T>(items: readonly T[], baseKey: (item: T) => string) {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = baseKey(item);
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { item, key: `${base}:${occurrence}` };
+  });
+}
+
 function displayToolName(name: string) {
   return name.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function timeLabel(timestamp?: number) {
   if (!timestamp) return "";
-  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(timestamp);
+  return messageTimeFormatter.format(timestamp);
 }
 
 function inlineMarkdown(value: string, color: string, muted: string): ReactNode[] {
   const tokens = value.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\([^)]+\))/g);
-  return tokens.map((token, index) => {
+  return keyed(tokens, (token) => token).map(({ item: token, key }) => {
     if (token.startsWith("`") && token.endsWith("`")) {
       return (
-        <Text key={`${token}:${index}`} style={[styles.inlineCode, { backgroundColor: muted }]}>
+        <Text key={key} style={[styles.inlineCode, { backgroundColor: muted }]}>
           {token.slice(1, -1)}
         </Text>
       );
     }
     if (token.startsWith("**") && token.endsWith("**")) {
-      return <Text key={`${token}:${index}`} style={styles.bold}>{token.slice(2, -2)}</Text>;
+      return <Text key={key} style={styles.bold}>{token.slice(2, -2)}</Text>;
     }
     const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link) {
       return (
         <Text
           accessibilityRole="link"
-          key={`${token}:${index}`}
+          key={key}
           onPress={() => void Linking.openURL(link[2] ?? "")}
           style={[styles.link, { color }]}
         >
@@ -112,10 +124,10 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
 
   return (
     <View style={styles.richText}>
-      {blocks.map((block, index) => {
+      {keyed(blocks, (block) => `${block.kind}:${block.value}:${block.kind === "code" ? block.language : block.style}`).map(({ item: block, key }) => {
         if (block.kind === "code") {
           return (
-            <View key={`code:${index}`} style={[styles.codeBlock, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
+            <View key={key} style={[styles.codeBlock, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
               {block.language ? (
                 <Text style={[styles.codeLanguage, { color: theme.codeMuted }]}>{block.language}</Text>
               ) : null}
@@ -125,10 +137,10 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
             </View>
           );
         }
-        if (!block.value && block.style === "body") return <View key={`space:${index}`} style={styles.paragraphSpace} />;
+        if (!block.value && block.style === "body") return <View key={key} style={styles.paragraphSpace} />;
         return (
           <View
-            key={`line:${index}`}
+            key={key}
             style={[
               styles.line,
               block.style === "quote" && [styles.quote, { borderLeftColor: theme.strongLine }],
@@ -178,8 +190,10 @@ function WorkLog({ parts, live }: { parts: MessagePartView[]; live: boolean }) {
       </Pressable>
       {expanded ? (
         <View style={[styles.workItems, { borderLeftColor: theme.line }]}>
-          {activities.map((part, index) => (
-            <View key={`${part.kind}:${index}`} style={styles.workItem}>
+          {keyed(activities, (part) => part.kind === "reasoning"
+            ? `reasoning:${part.text}`
+            : `tool:${part.name}:${part.state ?? ""}:${part.summary ?? ""}`).map(({ item: part, key }) => (
+            <View key={key} style={styles.workItem}>
               {part.kind === "tool"
                 ? part.state === "output-available"
                   ? <Check color={theme.success} size={13} />
@@ -224,12 +238,12 @@ export function ThreadMessage({
     return (
       <View style={styles.userMessage}>
         <View style={[styles.userBubble, { backgroundColor: theme.surfaceSoft, borderColor: theme.line }]}>
-          {textParts.map((part, index) => part.kind === "text"
-            ? <RichMessageText key={`${message.messageId}:text:${index}`} value={part.text} />
+          {keyed(textParts, (part) => part.kind === "text" ? part.text : part.kind).map(({ item: part, key }) => part.kind === "text"
+            ? <RichMessageText key={`${message.messageId}:text:${key}`} value={part.text} />
             : null)}
-          {images.map((part, index) => part.kind === "file" ? (
+          {keyed(images, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
             <Image
-              key={`${message.messageId}:image:${index}`}
+              key={`${message.messageId}:image:${key}`}
               accessibilityLabel={part.filename ?? "Attached image"}
               source={{ uri: part.url }}
               style={[styles.userImage, { backgroundColor: theme.surface }]}
@@ -260,12 +274,12 @@ export function ThreadMessage({
         ) : null}
       </View>
       <WorkLog parts={parts} live={isLast && isLive} />
-      {textParts.map((part, index) => part.kind === "text"
-        ? <RichMessageText key={`${message.messageId}:text:${index}`} value={part.text} />
+      {keyed(textParts, (part) => part.kind === "text" ? part.text : part.kind).map(({ item: part, key }) => part.kind === "text"
+        ? <RichMessageText key={`${message.messageId}:text:${key}`} value={part.text} />
         : null)}
-      {images.map((part, index) => part.kind === "file" ? (
+      {keyed(images, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
         <Image
-          key={`${message.messageId}:image:${index}`}
+          key={`${message.messageId}:image:${key}`}
           accessibilityLabel={part.filename ?? "Attached image"}
           source={{ uri: part.url }}
           style={[styles.assistantImage, { backgroundColor: theme.surfaceSoft }]}

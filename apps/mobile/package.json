@@ -24,6 +24,7 @@
     "expo-clipboard": "^56.0.4",
     "expo-dev-client": "~56.0.24",
     "expo-font": "~56.0.7",
+    "expo-glass-effect": "~56.0.4",
     "expo-image": "~56.0.11",
     "expo-image-picker": "^56.0.22",
     "expo-secure-store": "^56.0.4",

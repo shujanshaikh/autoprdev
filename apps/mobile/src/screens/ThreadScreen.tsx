@@ -4,7 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { useConvex, useMutation } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import {
   Archive,
   ArrowDown,
@@ -17,6 +17,7 @@ import {
   GitCommitHorizontal,
   GitPullRequest,
   ImagePlus,
+  MessageSquare,
   MoreHorizontal,
   TerminalSquare,
   X,
@@ -26,6 +27,7 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -37,13 +39,25 @@ import {
 import { webRequest } from "../api/web";
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
+import { GlassSurface } from "../components/GlassSurface";
 import { ThreadMessage } from "../components/thread/ThreadMessage";
 import { mobileConfig } from "../config";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadData } from "../hooks/useThreadData";
 import { useWebMutation, useWebQuery } from "../hooks/useWebQuery";
 import { extractDiffEntries } from "../lib/diff";
-import type { RootStackParamList } from "../types";
+import { consumeInitialThreadSubmit } from "../lib/initialThreadSubmit";
+import {
+  DEFAULT_CODEX_REASONING_EFFORT,
+  formatCodexModelLabel,
+  formatReasoningEffort,
+  getCodexModelOptions,
+  getCodexReasoningEfforts,
+  isCodexReasoningEffortForModel,
+  selectCodexModel,
+  type CodexReasoningEffort,
+} from "../lib/codexModels";
+import type { PromptFilePart, RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Thread">;
 
@@ -59,7 +73,10 @@ type GitStatus = {
     changedFiles: Array<{ path: string; additions?: number; deletions?: number }>;
     aheadCount: number | null;
     behindCount: number | null;
-    pullRequest?: { number: number; url: string; state: string };
+    aheadOfBaseCount?: number | null;
+    detachedHead?: boolean;
+    diverged?: boolean | null;
+    pullRequest?: { number: number; url: string; state: string; title?: string; draft?: boolean };
   };
 };
 
@@ -72,6 +89,14 @@ type PendingImage = {
 type ComposerOption = {
   kind: "model" | "effort";
   value: string;
+  label: string;
+};
+
+type OptimisticMessage = {
+  messageId: string;
+  role: "user";
+  parts: unknown[];
+  createdAt: number;
 };
 
 function id() {
@@ -90,42 +115,73 @@ export function ThreadScreen({ navigation, route }: Props) {
   const git = useWebQuery<GitStatus>(
     ["git-status", projectId, threadId],
     `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?gitStatus=1&refresh=1`,
-    { enabled: Boolean(project?.sandboxStatus === "ready" && thread), staleTime: 20_000, retry: false },
+    {
+      enabled: Boolean(project?.sandboxStatus === "ready" && thread),
+      staleTime: 20_000,
+      refetchInterval: thread?.isLive ? 5_000 : 30_000,
+      retry: false,
+    },
   );
   const refetchGit = git.refetch;
   const setSettlement = useMutation(api.threads.setSettlement);
+  const latestGitOperation = useQuery(api.threads.getLatestGitOperation, { threadId });
   const uploadImage = useUploadFile(api.imageUploads);
   const convex = useConvex();
-  const [prompt, setPrompt] = useState("");
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [reasoningEffort, setReasoningEffort] = useState("medium");
+  const [prompt, setPrompt] = useState(route.params.initialPrompt ?? "");
+  const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(route.params.initialModel);
+  const [reasoningEffort, setReasoningEffort] = useState<CodexReasoningEffort>(
+    isCodexReasoningEffortForModel(route.params.initialModel, route.params.initialReasoningEffort)
+      ? route.params.initialReasoningEffort
+      : DEFAULT_CODEX_REASONING_EFFORT,
+  );
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
+  const [handoffFiles, setHandoffFiles] = useState<PromptFilePart[]>(route.params.initialFiles ?? []);
+  const [optimisticMessage, setOptimisticMessage] = useState<OptimisticMessage | null>(null);
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
+  const [activeSeconds, setActiveSeconds] = useState(0);
   const listRef = useRef<FlatList>(null);
   const promptRef = useRef<TextInput>(null);
+  const autoSubmitRef = useRef(false);
+  const activeRunStartedAtRef = useRef<number | undefined>(undefined);
+  const selectedModel = useMemo(
+    () => selectCodexModel(codex.data?.models, selectedModelChoice),
+    [codex.data?.models, selectedModelChoice],
+  );
+  const modelOptions = useMemo(
+    () => getCodexModelOptions(codex.data?.models, selectedModel),
+    [codex.data?.models, selectedModel],
+  );
+  const reasoningOptions = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
+  const displayMessages = useMemo(() => {
+    if (!optimisticMessage || messages.some((message) => message.messageId === optimisticMessage.messageId)) {
+      return messages;
+    }
+    return [...messages, optimisticMessage];
+  }, [messages, optimisticMessage]);
   const diffs = useMemo(() => extractDiffEntries(messages), [messages]);
   const running = Boolean(thread?.isLive || sending);
   const diffDraftKey = `autopr.mobile.diff-draft:${threadId}`;
   const composerDraftKey = `autopr.mobile.composer-draft:${threadId}`;
   const composerOptions = useMemo<ComposerOption[]>(() => [
-    ...(codex.data?.models ?? []).map((value) => ({ kind: "model" as const, value })),
-    ...["low", "medium", "high", "xhigh"].map((value) => ({ kind: "effort" as const, value })),
-  ], [codex.data?.models]);
+    ...modelOptions.map((value) => ({ kind: "model" as const, value, label: formatCodexModelLabel(value) })),
+    ...reasoningOptions.map((value) => ({ kind: "effort" as const, value, label: formatReasoningEffort(value) })),
+  ], [modelOptions, reasoningOptions]);
 
   const renderMessage = useCallback(({ item, index }: {
-    item: (typeof messages)[number];
+    item: (typeof displayMessages)[number];
     index: number;
   }) => (
     <ThreadMessage
       message={item}
-      isLast={index === messages.length - 1}
+      isLast={index === displayMessages.length - 1}
       isLive={Boolean(thread?.isLive)}
     />
-  ), [messages.length, thread?.isLive]);
+  ), [displayMessages.length, thread?.isLive]);
 
   const updateLatestPosition = useCallback((nativeEvent: {
     contentSize: { height: number };
@@ -145,8 +201,8 @@ export function ThreadScreen({ navigation, route }: Props) {
     return (
       <Pressable
         onPress={() => {
-          if (option.kind === "model") setSelectedModel(option.value);
-          else setReasoningEffort(option.value);
+          if (option.kind === "model") setSelectedModelChoice(option.value);
+          else if (isCodexReasoningEffortForModel(selectedModel, option.value)) setReasoningEffort(option.value);
         }}
         style={[
           styles.controlChip,
@@ -157,15 +213,29 @@ export function ThreadScreen({ navigation, route }: Props) {
         ]}
       >
         <Text style={[styles.controlText, { color: selected ? theme.secondary : theme.muted }]}>
-          {option.value}
+          {option.label}
         </Text>
       </Pressable>
     );
   }, [reasoningEffort, selectedModel, theme]);
 
   useEffect(() => {
-    if (!selectedModel && codex.data?.models?.[0]) setSelectedModel(codex.data.models[0]);
-  }, [codex.data?.models, selectedModel]);
+    if (!isCodexReasoningEffortForModel(selectedModel, reasoningEffort)) {
+      setReasoningEffort(reasoningOptions[0] ?? DEFAULT_CODEX_REASONING_EFFORT);
+    }
+  }, [reasoningEffort, reasoningOptions, selectedModel]);
+
+  useEffect(() => {
+    if (!thread?.isLive) {
+      activeRunStartedAtRef.current = undefined;
+      return;
+    }
+    activeRunStartedAtRef.current ??= Date.now();
+    const update = () => setActiveSeconds(Math.max(0, Math.floor((Date.now() - (activeRunStartedAtRef.current ?? Date.now())) / 1000)));
+    update();
+    const timer = setInterval(update, 1_000);
+    return () => clearInterval(timer);
+  }, [thread?.isLive]);
 
   useEffect(() => {
     let active = true;
@@ -192,13 +262,13 @@ export function ThreadScreen({ navigation, route }: Props) {
   }, [composerDraftKey, prompt]);
 
   useEffect(() => {
-    if (messages.length > 0) {
+    if (displayMessages.length > 0) {
       const timer = setTimeout(() => {
         if (!awayFromLatest) listRef.current?.scrollToEnd({ animated: true });
       }, 80);
       return () => clearTimeout(timer);
     }
-  }, [awayFromLatest, messages.length]);
+  }, [awayFromLatest, displayMessages.length]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -283,14 +353,23 @@ export function ThreadScreen({ navigation, route }: Props) {
     }
   };
 
-  const send = async () => {
-    const text = prompt.trim();
-    if ((!text && !pendingImage) || running || !thread || !project) return;
+  const send = async (initial?: {
+    text?: string;
+    files?: PromptFilePart[];
+    isActive?: () => boolean;
+  }) => {
+    const isActive = initial?.isActive ?? (() => true);
+    const text = (initial?.text ?? prompt).trim();
+    const initialFiles = initial?.files ?? (messages.length === 0 ? handoffFiles : []);
+    if ((!text && !pendingImage && initialFiles.length === 0) || running || !thread || !project) return;
     setSending(true);
     setSendError(null);
     try {
-      const parts: unknown[] = text ? [{ type: "text", text }] : [];
-      if (pendingImage) {
+      const parts: unknown[] = [
+        ...(text ? [{ type: "text", text }] : []),
+        ...initialFiles,
+      ];
+      if (pendingImage && initialFiles.length === 0) {
         const imageResponse = await fetch(pendingImage.uri);
         if (!imageResponse.ok) {
           throw new Error("The selected image could not be read.");
@@ -310,8 +389,10 @@ export function ThreadScreen({ navigation, route }: Props) {
           providerMetadata: { autopr: { r2Key: key } },
         });
       }
+      if (!isActive()) return;
 
       const messageId = id();
+      setOptimisticMessage({ messageId, role: "user", parts, createdAt: Date.now() });
       const response = await authenticatedWebFetch(
         `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`,
         {
@@ -330,8 +411,10 @@ export function ThreadScreen({ navigation, route }: Props) {
         const body = await response.json().catch(() => null) as { error?: string } | null;
         throw new Error(body?.error ?? `Could not start the agent (${response.status}).`);
       }
+      if (!isActive()) return;
       setPrompt("");
       setPendingImage(null);
+      setHandoffFiles([]);
       void AsyncStorage.removeItem(composerDraftKey);
       if (thread.title === "New thread" && text) {
         const token = await getAccessToken();
@@ -342,20 +425,59 @@ export function ThreadScreen({ navigation, route }: Props) {
         ).catch(() => undefined);
       }
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Could not send the message.");
+      if (isActive()) {
+        setOptimisticMessage(null);
+        setSendError(error instanceof Error ? error.message : "Could not send the message.");
+      }
     } finally {
       setSending(false);
     }
   };
 
   const stop = async () => {
-    if (!thread?.currentRunId) return;
-    const response = await authenticatedWebFetch(
-      `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(thread.currentRunId)}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
-    );
-    if (!response.ok) setSendError("The active run could not be stopped.");
+    if (!thread?.currentRunId || stopping) return;
+    setStopping(true);
+    setSendError(null);
+    try {
+      const response = await authenticatedWebFetch(
+        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(thread.currentRunId)}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      if (!response.ok) throw new Error("The active run could not be stopped.");
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "The active run could not be stopped.");
+    } finally {
+      setStopping(false);
+    }
   };
+
+  useEffect(() => {
+    if (
+      autoSubmitRef.current
+      || loading
+      || messages.length > 0
+      || !thread
+      || !project
+      || project.sandboxStatus !== "ready"
+      || codex.data?.connected !== true
+      || (!route.params.initialPrompt && !route.params.initialFiles?.length)
+    ) {
+      return;
+    }
+    autoSubmitRef.current = true;
+    let active = true;
+    const cancelHandoff = consumeInitialThreadSubmit(threadId, () => {
+      void send({
+        text: route.params.initialPrompt,
+        files: route.params.initialFiles,
+        isActive: () => active,
+      });
+    });
+    return () => {
+      active = false;
+      cancelHandoff();
+    };
+  }, [codex.data?.connected, loading, messages.length, project, route.params.initialFiles, route.params.initialPrompt, thread, threadId]);
 
   if (loading) return <LoadingState label="Loading conversation…" />;
   if (!project || !thread || thread.projectId !== projectId) {
@@ -364,6 +486,11 @@ export function ThreadScreen({ navigation, route }: Props) {
 
   const canChat = project.sandboxStatus === "ready" && codex.data?.connected;
   const gitStatus = git.data?.status ?? thread.gitStatus;
+  const gitActionsDisabled = gitAction.isPending
+    || running
+    || Boolean(gitStatus?.detachedHead)
+    || Boolean(gitStatus?.diverged)
+    || Boolean((gitStatus?.behindCount ?? 0) > 0 && gitStatus?.hasWorkingTreeChanges);
 
   return (
     <KeyboardAvoidingView
@@ -371,6 +498,28 @@ export function ThreadScreen({ navigation, route }: Props) {
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       style={[styles.screen, { backgroundColor: theme.screen }]}
     >
+      <View style={[styles.viewSwitcherWrap, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
+        <View style={[styles.viewSwitcher, { backgroundColor: theme.surfaceSoft }]}>
+          <View style={[styles.viewOption, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
+            <MessageSquare color={theme.ink} size={14} />
+            <Text style={[styles.viewOptionText, { color: theme.ink }]}>Chat</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("Changes", { projectId, threadId, title: thread.title })}
+            style={({ pressed }) => [styles.viewOption, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <FileDiff color={theme.muted} size={14} />
+            <Text style={[styles.viewOptionText, { color: theme.muted }]}>Diff</Text>
+            {diffs.length > 0 ? (
+              <View style={[styles.viewBadge, { backgroundColor: theme.accentSoft }]}>
+                <Text style={[styles.viewBadgeText, { color: theme.ink }]}>{diffs.length}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </View>
+      </View>
+
       <View style={[styles.threadContext, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <GitBranch color={theme.muted} size={14} />
         <Text numberOfLines={1} style={[styles.contextBranch, { color: theme.muted }]}>
@@ -379,7 +528,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         {running ? (
           <View style={styles.contextStatus}>
             <View style={[styles.contextDot, { backgroundColor: theme.accent }]} />
-            <Text style={[styles.contextStatusText, { color: theme.muted }]}>Agent working</Text>
+            <Text style={[styles.contextStatusText, { color: theme.muted }]}>Agent working · {activeSeconds}s</Text>
           </View>
         ) : null}
         <Pressable
@@ -398,15 +547,21 @@ export function ThreadScreen({ navigation, route }: Props) {
         </Pressable>
       </View>
 
-      {(hydrationError || sendError || git.error || gitAction.error) ? (
+      {(hydrationError || sendError || thread.agentRunIssue?.message || thread.workflowIssue?.message || git.error || gitAction.error) ? (
         <View style={styles.errorWrap}>
           <ErrorNotice message={
-            hydrationError ?? sendError ?? git.error?.message ?? gitAction.error?.message ?? "Something went wrong."
+            hydrationError
+              ?? sendError
+              ?? thread.agentRunIssue?.message
+              ?? thread.workflowIssue?.message
+              ?? git.error?.message
+              ?? gitAction.error?.message
+              ?? "Something went wrong."
           } />
         </View>
       ) : null}
 
-      {messages.length === 0 ? (
+      {displayMessages.length === 0 ? (
         <View style={styles.threadEmpty}>
           <View style={[styles.emptyBot, { backgroundColor: theme.accentSoft }]}>
             <Bot color={theme.accent} size={28} />
@@ -440,7 +595,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         <View style={styles.feed}>
           <FlatList
             ref={listRef}
-            data={messages}
+            data={displayMessages}
             keyExtractor={(message) => message.messageId}
             contentContainerStyle={styles.messages}
             keyboardDismissMode="interactive"
@@ -475,12 +630,15 @@ export function ThreadScreen({ navigation, route }: Props) {
       )}
 
       <View style={[styles.composerWrap, { backgroundColor: theme.screen }]}>
-        {pendingImage ? (
+        {pendingImage || handoffFiles.length > 0 ? (
           <View style={styles.attachment}>
-            <Image source={{ uri: pendingImage.uri }} style={styles.attachmentImage} />
+            <Image source={{ uri: pendingImage?.uri ?? handoffFiles[0]?.url }} style={styles.attachmentImage} />
             <Pressable
               accessibilityLabel="Remove image"
-              onPress={() => setPendingImage(null)}
+              onPress={() => {
+                setPendingImage(null);
+                setHandoffFiles([]);
+              }}
               style={[styles.removeAttachment, { backgroundColor: theme.code }]}
             >
               <X color={theme.codeInk} size={13} />
@@ -497,15 +655,13 @@ export function ThreadScreen({ navigation, route }: Props) {
             renderItem={renderComposerOption}
           />
         ) : null}
-        <View
+        <GlassSurface
+          interactive
+          radius={composerFocused ? 16 : 28}
           style={[
             styles.composer,
             composerFocused ? styles.composerExpanded : styles.composerCollapsed,
-            {
-              backgroundColor: theme.surfaceSoft,
-              borderColor: composerFocused ? theme.strongLine : theme.line,
-              boxShadow: "0 6px 14px rgba(0,0,0,0.12)",
-            },
+            { borderColor: composerFocused ? theme.strongLine : theme.line },
           ]}
         >
           <TextInput
@@ -542,7 +698,7 @@ export function ThreadScreen({ navigation, route }: Props) {
                   style={[styles.modelButton, { backgroundColor: theme.surface }]}
                 >
                   <Text numberOfLines={1} style={[styles.modelText, { color: theme.muted }]}>
-                    {selectedModel?.replace(/^gpt-/, "") ?? "Model"} · {reasoningEffort}
+                    {formatCodexModelLabel(selectedModel)} · {formatReasoningEffort(reasoningEffort)}
                   </Text>
                   <ChevronDown color={theme.faint} size={13} />
                 </Pressable>
@@ -551,8 +707,9 @@ export function ThreadScreen({ navigation, route }: Props) {
             {running ? (
               <Pressable
                 accessibilityLabel="Stop agent"
+                disabled={stopping}
                 onPress={() => void stop()}
-                style={[styles.sendButton, { backgroundColor: theme.dangerSoft }]}
+                style={[styles.sendButton, { backgroundColor: theme.dangerSoft, opacity: stopping ? 0.55 : 1 }]}
               >
                 <CircleStop color={theme.danger} size={19} />
               </Pressable>
@@ -573,7 +730,27 @@ export function ThreadScreen({ navigation, route }: Props) {
               </Pressable>
             )}
           </View>
-        </View>
+        </GlassSurface>
+
+        {latestGitOperation?.status === "running" || latestGitOperation?.status === "failed" ? (
+          <View style={[
+            styles.gitOperation,
+            { backgroundColor: latestGitOperation.status === "failed" ? theme.dangerSoft : theme.accentSoft },
+          ]}>
+            <View style={[
+              styles.gitOperationDot,
+              { backgroundColor: latestGitOperation.status === "failed" ? theme.danger : theme.accent },
+            ]} />
+            <Text numberOfLines={2} style={[
+              styles.gitOperationText,
+              { color: latestGitOperation.status === "failed" ? theme.danger : theme.ink },
+            ]}>
+              {latestGitOperation.status === "failed"
+                ? latestGitOperation.failure?.message ?? "Git operation failed"
+                : `${latestGitOperation.currentPhase?.replace(/_/g, " ") ?? latestGitOperation.requestedAction.replace(/_/g, " ")}…`}
+            </Text>
+          </View>
+        ) : null}
 
         {gitStatus ? (
           <View style={styles.gitBar}>
@@ -586,21 +763,54 @@ export function ThreadScreen({ navigation, route }: Props) {
             </View>
             {gitStatus.hasWorkingTreeChanges ? (
               <Pressable
-                disabled={gitAction.isPending || running}
-                onPress={() => gitAction.mutate("commit_push")}
+                disabled={gitActionsDisabled}
+                onPress={() => gitAction.mutate(gitStatus.pullRequest ? "commit_push" : "commit_push_create_pr")}
                 style={[styles.gitAction, { backgroundColor: theme.surfaceSoft }]}
               >
-                <Text style={[styles.gitActionText, { color: theme.ink }]}>Commit + push</Text>
+                <Text style={[styles.gitActionText, { color: theme.ink }]}>
+                  {gitStatus.pullRequest ? "Commit + push" : "Commit, push + PR"}
+                </Text>
               </Pressable>
             ) : null}
             {gitStatus.aheadCount && !gitStatus.pullRequest ? (
               <Pressable
-                disabled={gitAction.isPending || running}
+                disabled={gitActionsDisabled}
                 onPress={() => gitAction.mutate("push_create_pr")}
                 style={[styles.gitAction, { backgroundColor: theme.accentSoft }]}
               >
                 <GitPullRequest color={theme.accent} size={14} />
                 <Text style={[styles.gitActionText, { color: theme.accent }]}>Open PR</Text>
+              </Pressable>
+            ) : null}
+            {!gitStatus.hasWorkingTreeChanges && !gitStatus.aheadCount && (gitStatus.behindCount ?? 0) > 0 ? (
+              <Pressable
+                disabled={gitActionsDisabled}
+                onPress={() => gitAction.mutate("pull")}
+                style={[styles.gitAction, { backgroundColor: theme.surfaceSoft }]}
+              >
+                <Text style={[styles.gitActionText, { color: theme.ink }]}>Update branch</Text>
+              </Pressable>
+            ) : null}
+            {!gitStatus.hasWorkingTreeChanges
+              && !gitStatus.aheadCount
+              && !gitStatus.pullRequest
+              && (gitStatus.aheadOfBaseCount ?? 0) > 0 ? (
+                <Pressable
+                  disabled={gitActionsDisabled}
+                  onPress={() => gitAction.mutate("create_pr")}
+                  style={[styles.gitAction, { backgroundColor: theme.accentSoft }]}
+                >
+                  <GitPullRequest color={theme.accent} size={14} />
+                  <Text style={[styles.gitActionText, { color: theme.ink }]}>Create PR</Text>
+                </Pressable>
+              ) : null}
+            {gitStatus.pullRequest?.url ? (
+              <Pressable
+                onPress={() => void Linking.openURL(gitStatus.pullRequest?.url ?? "")}
+                style={[styles.gitAction, { backgroundColor: theme.accentSoft }]}
+              >
+                <GitPullRequest color={theme.accent} size={14} />
+                <Text style={[styles.gitActionText, { color: theme.ink }]}>PR #{gitStatus.pullRequest.number}</Text>
               </Pressable>
             ) : null}
             {!running ? (
@@ -645,6 +855,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerBadgeText: { fontFamily: "Inter_700Bold", fontSize: 8 },
+  viewSwitcherWrap: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 7 },
+  viewSwitcher: { alignSelf: "center", minWidth: 210, borderRadius: 10, padding: 3, flexDirection: "row", gap: 3 },
+  viewOption: { flex: 1, minHeight: 32, borderRadius: 8, borderWidth: 1, borderColor: "transparent", paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  viewOptionText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
+  viewBadge: { minWidth: 19, height: 19, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
+  viewBadgeText: { fontFamily: "Inter_700Bold", fontSize: 9 },
   threadContext: {
     minHeight: 42,
     borderBottomWidth: 1,
@@ -711,6 +927,9 @@ const styles = StyleSheet.create({
   modelText: { maxWidth: 175, fontFamily: "Inter_600SemiBold", fontSize: 10 },
   sendButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   gitBar: { minHeight: 35, flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5, paddingHorizontal: 2 },
+  gitOperation: { minHeight: 35, marginTop: 6, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8 },
+  gitOperationDot: { width: 7, height: 7, borderRadius: 99 },
+  gitOperationText: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 10, textTransform: "capitalize" },
   gitSummary: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 5 },
   gitText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 10, textTransform: "capitalize" },
   gitAction: { minHeight: 29, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },

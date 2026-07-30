@@ -13,10 +13,26 @@ export type MobileSession = {
   user: MobileUser;
 };
 
+export type PromptFilePart = {
+  type: "file";
+  filename: string;
+  mediaType: string;
+  url: string;
+  providerMetadata: { autopr: { r2Key: string } };
+};
+
 export type RootStackParamList = {
   Projects: undefined;
   Project: { projectId: string; title?: string };
-  Thread: { projectId: string; threadId: string; title?: string };
+  Thread: {
+    projectId: string;
+    threadId: string;
+    title?: string;
+    initialPrompt?: string;
+    initialFiles?: PromptFilePart[];
+    initialModel?: string;
+    initialReasoningEffort?: string;
+  };
   Changes: { projectId: string; threadId: string; title?: string };
   Terminal: { projectId: string; threadId: string; title?: string };
   Environment: { projectId: string; title?: string };

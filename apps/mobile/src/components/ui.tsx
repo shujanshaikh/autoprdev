@@ -3,48 +3,13 @@ import type { ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
   type PressableProps,
-  type ScrollViewProps,
-  type ViewStyle,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAppTheme } from "../hooks/useAppTheme";
-
-export function Screen({
-  children,
-  scroll = false,
-  contentContainerStyle,
-  ...scrollProps
-}: {
-  children: ReactNode;
-  scroll?: boolean;
-  contentContainerStyle?: ViewStyle;
-} & Omit<ScrollViewProps, "contentContainerStyle">) {
-  const theme = useAppTheme();
-  if (scroll) {
-    return (
-      <SafeAreaView edges={["bottom"]} style={[styles.flex, { backgroundColor: theme.screen }]}>
-        <ScrollView
-          contentContainerStyle={[styles.screenContent, contentContainerStyle]}
-          keyboardShouldPersistTaps="handled"
-          {...scrollProps}
-        >
-          {children}
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-  return (
-    <SafeAreaView edges={["bottom"]} style={[styles.flex, { backgroundColor: theme.screen }]}>
-      {children}
-    </SafeAreaView>
-  );
-}
 
 export function PrimaryButton({
   label,
@@ -192,8 +157,6 @@ export function StatusPill({
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  screenContent: { padding: 16, paddingBottom: 32 },
   button: {
     minHeight: 48,
     borderRadius: 8,

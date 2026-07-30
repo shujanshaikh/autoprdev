@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import { Check, CheckCheck, ChevronDown, ChevronRight, Copy, FileDiff, MessageSquare, MessageSquarePlus } from "lucide-react-native";
+import { Check, CheckCheck, ChevronDown, ChevronRight, Copy, FileDiff, MessageSquare, MessageSquarePlus, WrapText } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -34,10 +34,12 @@ function fallbackPatch(entry: DiffEntry) {
 function DiffRow({
   line,
   selected,
+  wrapped,
   onPress,
 }: {
   line: DiffLine;
   selected: boolean;
+  wrapped: boolean;
   onPress: () => void;
 }) {
   const theme = useAppTheme();
@@ -51,7 +53,7 @@ function DiffRow({
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.diffRow, { backgroundColor }]}
+      style={[styles.diffRow, wrapped && styles.diffRowWrapped, { backgroundColor }]}
     >
       <View style={[
         styles.changeBar,
@@ -66,7 +68,7 @@ function DiffRow({
       <Text style={[styles.marker, { color: textColor }]}>
         {isAdd ? "+" : isDelete ? "−" : isHunk ? "@" : " "}
       </Text>
-      <Text numberOfLines={1} style={[styles.code, { color: textColor }]}>
+      <Text numberOfLines={wrapped ? undefined : 1} style={[styles.code, { color: textColor }]}>
         {line.content || " "}
       </Text>
     </Pressable>
@@ -78,6 +80,7 @@ function FileReview({
   viewed,
   collapsed,
   selection,
+  wrapped,
   onViewed,
   onCollapsed,
   onSelect,
@@ -86,6 +89,7 @@ function FileReview({
   viewed: boolean;
   collapsed: boolean;
   selection: Selection | null;
+  wrapped: boolean;
   onViewed: () => void;
   onCollapsed: () => void;
   onSelect: (line: DiffLine) => void;
@@ -125,17 +129,18 @@ function FileReview({
       </View>
       {!collapsed ? (
         <ScrollView
-          horizontal
+          horizontal={!wrapped}
           nestedScrollEnabled
           showsHorizontalScrollIndicator
           style={{ backgroundColor: theme.code }}
         >
-          <View style={styles.diffBody}>
+          <View style={[styles.diffBody, wrapped && styles.diffBodyWrapped]}>
             {lines.length > 0 ? lines.map((line) => (
               <DiffRow
                 key={line.id}
                 line={line}
                 selected={selection?.entry.id === entry.id && selection.line.id === line.id}
+                wrapped={wrapped}
                 onPress={() => onSelect(line)}
               />
             )) : (
@@ -155,9 +160,11 @@ export function ChangesScreen({ navigation, route }: Props) {
   const entries = useMemo(() => extractDiffEntries(messages), [messages]);
   const viewedKey = `autopr.mobile.viewed-diffs:${threadId}`;
   const draftKey = `autopr.mobile.diff-draft:${threadId}`;
+  const wrapKey = "autopr.mobile.diff-wrap";
   const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [wrapped, setWrapped] = useState(false);
 
   useEffect(() => {
     void AsyncStorage.getItem(viewedKey).then((stored) => {
@@ -166,6 +173,10 @@ export function ChangesScreen({ navigation, route }: Props) {
       if (Array.isArray(ids)) setViewed(new Set(ids.filter((value): value is string => typeof value === "string")));
     });
   }, [viewedKey]);
+
+  useEffect(() => {
+    void AsyncStorage.getItem(wrapKey).then((stored) => setWrapped(stored === "1"));
+  }, [wrapKey]);
 
   const updateViewed = useCallback((entryId: string) => {
     const next = new Set(viewed);
@@ -181,6 +192,7 @@ export function ChangesScreen({ navigation, route }: Props) {
       viewed={viewed.has(entry.id)}
       collapsed={collapsed.has(entry.id)}
       selection={selection}
+      wrapped={wrapped}
       onViewed={() => updateViewed(entry.id)}
       onCollapsed={() => setCollapsed((current) => {
         const next = new Set(current);
@@ -191,7 +203,7 @@ export function ChangesScreen({ navigation, route }: Props) {
       onSelect={(line) => setSelection((current) =>
         current?.entry.id === entry.id && current.line.id === line.id ? null : { entry, line })}
     />
-  ), [collapsed, selection, updateViewed, viewed]);
+  ), [collapsed, selection, updateViewed, viewed, wrapped]);
 
   const askAboutSelection = async () => {
     if (!selection) return;
@@ -276,6 +288,21 @@ export function ChangesScreen({ navigation, route }: Props) {
             <Copy color={theme.muted} size={15} />
             <Text style={[styles.summaryButtonText, { color: theme.muted }]}>Copy file list</Text>
           </Pressable>
+          <Pressable
+            accessibilityState={{ selected: wrapped }}
+            onPress={() => {
+              const next = !wrapped;
+              setWrapped(next);
+              void AsyncStorage.setItem(wrapKey, next ? "1" : "0");
+            }}
+            style={[
+              styles.summaryButton,
+              { backgroundColor: wrapped ? theme.accentSoft : theme.surfaceSoft },
+            ]}
+          >
+            <WrapText color={wrapped ? theme.accent : theme.muted} size={15} />
+            <Text style={[styles.summaryButtonText, { color: wrapped ? theme.ink : theme.muted }]}>Wrap</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -336,7 +363,7 @@ const styles = StyleSheet.create({
   summaryStat: { fontFamily: "Inter_700Bold", fontSize: 12 },
   progressTrack: { height: 4, borderRadius: 999, overflow: "hidden" },
   progressFill: { height: 4, borderRadius: 999 },
-  summaryActions: { flexDirection: "row", gap: 7 },
+  summaryActions: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   summaryButton: { borderRadius: 9, paddingHorizontal: 9, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 6 },
   summaryButtonText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
   error: { padding: 12 },
@@ -350,7 +377,9 @@ const styles = StyleSheet.create({
   stat: { fontFamily: "Inter_700Bold", fontSize: 10 },
   viewedBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: "center", justifyContent: "center", marginLeft: 3 },
   diffBody: { minWidth: 900, paddingVertical: 6 },
+  diffBodyWrapped: { minWidth: 0, width: "100%" },
   diffRow: { height: 24, minWidth: 900, flexDirection: "row", alignItems: "center" },
+  diffRowWrapped: { height: "auto", minHeight: 24, minWidth: 0, alignItems: "flex-start", paddingVertical: 3 },
   changeBar: { width: 3, height: "100%" },
   lineNumber: { width: 42, paddingRight: 8, textAlign: "right", fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 10 },
   marker: { width: 20, textAlign: "center", fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 11 },

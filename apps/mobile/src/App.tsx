@@ -5,7 +5,7 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   DarkTheme as NavigationDarkTheme,
   DefaultTheme as NavigationLightTheme,
@@ -14,8 +14,8 @@ import {
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { GitPullRequest, X } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, AppState, Platform, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -239,6 +239,17 @@ function ConnectedApp() {
   const [convex] = useState(() => new ConvexReactClient(mobileConfig.convexUrl, {
     unsavedChangesWarning: false,
   }));
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      focusManager.setFocused(state === "active");
+    });
+    focusManager.setFocused(AppState.currentState === "active");
+    return () => {
+      subscription.remove();
+      focusManager.setFocused(undefined);
+    };
+  }, []);
 
   return (
     <ConvexProviderWithAuth client={convex} useAuth={useConvexAuthBridge}>

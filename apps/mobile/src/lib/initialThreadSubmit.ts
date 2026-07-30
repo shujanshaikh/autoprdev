@@ -13,6 +13,10 @@ export function consumeInitialThreadSubmit(threadId: string, onConsume: () => vo
     return AsyncStorage.setItem(submitKey(threadId), "submitted").then(() => {
       if (active) onConsume();
     });
+  }).catch(() => {
+    // A storage failure should not strand a freshly-created thread without
+    // submitting the prompt that created it.
+    if (active) onConsume();
   });
   return () => {
     active = false;

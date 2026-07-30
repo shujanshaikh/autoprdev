@@ -14,6 +14,7 @@ import {
   ImagePlus,
   Layers,
   MessageSquare,
+  MoreHorizontal,
   Play,
   Plus,
   Search,
@@ -103,6 +104,7 @@ export function ProjectScreen({ navigation, route }: Props) {
   const project = useQuery(api.projects.get, { projectId });
   const threads = useQuery(api.threads.listByProject, { projectId });
   const createThread = useMutation(api.threads.create);
+  const setSettlement = useMutation(api.threads.setSettlement);
   const markOpened = useMutation(api.projects.markOpened);
   const startSandbox = useAction(api.projectActions.startSandbox);
   const stopSandbox = useAction(api.projectActions.stopSandbox);
@@ -287,15 +289,12 @@ export function ProjectScreen({ navigation, route }: Props) {
 
   const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch ?? "Unknown branch";
   const ready = project.sandboxStatus === "ready";
-  const runtimeStarted = project.sandboxRuntimeStatus === "started";
-  const promptReady = ready && runtimeStarted && codex.data?.connected === true;
+  const promptReady = ready && codex.data?.connected === true;
   const promptPlaceholder = !ready
     ? "Workspace is still being prepared…"
-    : !runtimeStarted
-      ? "Start the workspace to create a task"
-      : codex.data?.connected === false
-        ? "Connect Codex in Settings"
-        : `Ask ${project.repoName || "the agent"} anything…`;
+    : codex.data?.connected === false
+      ? "Connect Codex in Settings"
+      : `Ask ${project.repoName || "the agent"} anything…`;
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -571,7 +570,39 @@ export function ProjectScreen({ navigation, route }: Props) {
                 ) : thread.isLive ? (
                   <StatusPill label="Agent working" tone="success" />
                 ) : null}
-                <ChevronRight color={theme.faint} size={17} />
+                <Pressable
+                  accessibilityLabel={`Conversation actions for ${thread.title}`}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    const archived = thread.settledOverride === "settled";
+                    Alert.alert(thread.title, undefined, [
+                      {
+                        text: "Open",
+                        onPress: () => navigation.navigate("Thread", {
+                          projectId,
+                          threadId: thread.threadId,
+                          title: thread.title,
+                        }),
+                      },
+                      {
+                        text: archived ? "Restore" : "Archive",
+                        onPress: () => void setSettlement({
+                          threadId: thread.threadId,
+                          settled: !archived,
+                        }),
+                      },
+                      {
+                        text: "Delete",
+                        style: "destructive",
+                        onPress: () => confirmRemoveThread(thread.threadId, thread.title),
+                      },
+                      { text: "Cancel", style: "cancel" },
+                    ]);
+                  }}
+                  style={styles.threadMenu}
+                >
+                  <MoreHorizontal color={theme.faint} size={18} />
+                </Pressable>
               </Pressable>
             ))}
           </View>
@@ -680,5 +711,6 @@ const styles = StyleSheet.create({
   threadTitleLine: { flexDirection: "row", alignItems: "center", gap: 7 },
   threadTitle: { flexShrink: 1, fontFamily: "Inter_600SemiBold", fontSize: 14 },
   threadMeta: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 7 },
+  threadMenu: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   liveDot: { width: 7, height: 7, borderRadius: 999 },
 });

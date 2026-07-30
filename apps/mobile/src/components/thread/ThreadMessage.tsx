@@ -4,12 +4,18 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   Copy,
+  ExternalLink,
+  FileText,
+  Play,
   Sparkles,
   ToolCase,
+  Video,
 } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  ActivityIndicator,
   Linking,
   Pressable,
   ScrollView,
@@ -18,6 +24,8 @@ import {
   View,
 } from "react-native";
 
+import { webRequest } from "../../api/web";
+import { useAuth } from "../../auth/AuthProvider";
 import { useAppTheme } from "../../hooks/useAppTheme";
 import { messageParts, type MessagePartView } from "../../lib/messages";
 
@@ -25,6 +33,7 @@ export type ThreadMessageValue = {
   messageId: string;
   role: string;
   parts: unknown[];
+  metadata?: unknown;
   createdAt?: number;
   updatedAt?: number;
 };
@@ -50,8 +59,36 @@ function timeLabel(timestamp?: number) {
   return messageTimeFormatter.format(timestamp);
 }
 
+function runSummary(metadata: unknown) {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return "";
+  const value = metadata as Record<string, unknown>;
+  const usage = typeof value.usage === "object" && value.usage !== null && !Array.isArray(value.usage)
+    ? value.usage as Record<string, unknown>
+    : null;
+  const run = typeof value.run === "object" && value.run !== null && !Array.isArray(value.run)
+    ? value.run as Record<string, unknown>
+    : null;
+  const cost = usage && typeof usage.cost === "object" && usage.cost !== null && !Array.isArray(usage.cost)
+    ? usage.cost as Record<string, unknown>
+    : null;
+  const totalTokens = typeof usage?.totalTokens === "number" ? usage.totalTokens : undefined;
+  const duration = typeof run?.durationSeconds === "number" ? run.durationSeconds : undefined;
+  const totalCost = typeof cost?.total === "number" ? cost.total : undefined;
+  const details: string[] = [];
+  if (duration !== undefined) {
+    details.push(duration < 60 ? `${Math.round(duration)}s` : `${Math.floor(duration / 60)}m ${Math.round(duration) % 60}s`);
+  }
+  if (totalTokens !== undefined) {
+    details.push(totalTokens >= 1_000 ? `${(totalTokens / 1_000).toFixed(totalTokens >= 100_000 ? 0 : 1)}k tokens` : `${totalTokens} tokens`);
+  }
+  if (totalCost !== undefined && totalCost > 0) {
+    details.push(totalCost < 0.0001 ? "<$0.0001" : `$${totalCost.toFixed(totalCost < 1 ? 4 : 2)}`);
+  }
+  return details.join(" · ");
+}
+
 function inlineMarkdown(value: string, color: string, muted: string): ReactNode[] {
-  const tokens = value.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\([^)]+\))/g);
+  const tokens = value.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\*[^*\n]+\*|\[[^\]\n]+\]\([^)]+\))/g);
   return keyed(tokens, (token) => token).map(({ item: token, key }) => {
     if (token.startsWith("`") && token.endsWith("`")) {
       return (
@@ -62,6 +99,12 @@ function inlineMarkdown(value: string, color: string, muted: string): ReactNode[
     }
     if (token.startsWith("**") && token.endsWith("**")) {
       return <Text key={key} style={styles.bold}>{token.slice(2, -2)}</Text>;
+    }
+    if (token.startsWith("~~") && token.endsWith("~~")) {
+      return <Text key={key} style={styles.strikethrough}>{token.slice(2, -2)}</Text>;
+    }
+    if (token.startsWith("*") && token.endsWith("*")) {
+      return <Text key={key} style={styles.italic}>{token.slice(1, -1)}</Text>;
     }
     const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link) {
@@ -85,7 +128,12 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
   const blocks = useMemo(() => {
     const result: Array<
       | { kind: "code"; value: string; language: string }
-      | { kind: "line"; value: string; style: "body" | "heading" | "bullet" | "quote" }
+      | {
+          kind: "line";
+          value: string;
+          style: "body" | "heading" | "bullet" | "numbered" | "quote";
+          marker?: string;
+        }
     > = [];
     const lines = value.split("\n");
     let code: string[] | null = null;
@@ -108,6 +156,17 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
       }
       if (/^#{1,3}\s/.test(line)) {
         result.push({ kind: "line", value: line.replace(/^#{1,3}\s+/, ""), style: "heading" });
+      } else if (/^\s*\d+\.\s+/.test(line)) {
+        const marker = line.match(/^\s*(\d+\.)\s+/)?.[1] ?? "1.";
+        result.push({ kind: "line", value: line.replace(/^\s*\d+\.\s+/, ""), style: "numbered", marker });
+      } else if (/^\s*[-*]\s+\[[ xX]\]\s+/.test(line)) {
+        const checked = /^\s*[-*]\s+\[[xX]\]/.test(line);
+        result.push({
+          kind: "line",
+          value: line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/, ""),
+          style: "bullet",
+          marker: checked ? "☑" : "☐",
+        });
       } else if (/^\s*[-*]\s+/.test(line)) {
         result.push({ kind: "line", value: line.replace(/^\s*[-*]\s+/, ""), style: "bullet" });
       } else if (/^>\s?/.test(line)) {
@@ -146,7 +205,11 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
               block.style === "quote" && [styles.quote, { borderLeftColor: theme.strongLine }],
             ]}
           >
-            {block.style === "bullet" ? <Text style={[styles.bullet, { color: textColor }]}>•</Text> : null}
+            {block.style === "bullet" || block.style === "numbered" ? (
+              <Text style={[styles.bullet, { color: textColor }]}>
+                {block.marker ?? "•"}
+              </Text>
+            ) : null}
             <Text
               selectable
               style={[
@@ -161,6 +224,63 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
           </View>
         );
       })}
+    </View>
+  );
+}
+
+function WorkLogItem({
+  part,
+}: {
+  part: Extract<MessagePartView, { kind: "reasoning" | "tool" }>;
+}) {
+  const theme = useAppTheme();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const canExpand = part.kind === "tool" && Boolean(part.details);
+  return (
+    <View style={styles.workItem}>
+      {part.kind === "tool"
+        ? part.failed
+          ? <CircleAlert color={theme.danger} size={13} />
+          : part.state === "output-available"
+            ? <Check color={theme.success} size={13} />
+            : <ToolCase color={theme.muted} size={13} />
+        : <Sparkles color={theme.accent} size={13} />}
+      <View style={styles.workCopy}>
+        <Pressable
+          accessibilityRole={canExpand ? "button" : undefined}
+          accessibilityState={canExpand ? { expanded: detailsOpen } : undefined}
+          disabled={!canExpand}
+          onPress={() => setDetailsOpen((value) => !value)}
+          style={styles.workItemHeading}
+        >
+          <Text style={[styles.workName, { color: theme.ink }]}>
+            {part.kind === "tool" ? displayToolName(part.name) : "Reasoning"}
+          </Text>
+          {canExpand
+            ? detailsOpen
+              ? <ChevronDown color={theme.faint} size={13} />
+              : <ChevronRight color={theme.faint} size={13} />
+            : null}
+        </Pressable>
+        {part.kind === "reasoning" || part.summary ? (
+          <Text style={[
+            styles.workSummary,
+            { color: part.kind === "tool" && part.failed ? theme.danger : theme.muted },
+          ]}>
+            {part.kind === "reasoning" ? part.text : part.summary}
+          </Text>
+        ) : null}
+        {part.kind === "tool" && part.details && detailsOpen ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <Text
+              selectable
+              style={[styles.toolDetails, { color: theme.codeMuted, backgroundColor: theme.code }]}
+            >
+              {part.details}
+            </Text>
+          </ScrollView>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -193,23 +313,7 @@ function WorkLog({ parts, live }: { parts: MessagePartView[]; live: boolean }) {
           {keyed(activities, (part) => part.kind === "reasoning"
             ? `reasoning:${part.text}`
             : `tool:${part.name}:${part.state ?? ""}:${part.summary ?? ""}`).map(({ item: part, key }) => (
-            <View key={key} style={styles.workItem}>
-              {part.kind === "tool"
-                ? part.state === "output-available"
-                  ? <Check color={theme.success} size={13} />
-                  : <ToolCase color={theme.muted} size={13} />
-                : <Sparkles color={theme.accent} size={13} />}
-              <View style={styles.workCopy}>
-                <Text style={[styles.workName, { color: theme.ink }]}>
-                  {part.kind === "tool" ? displayToolName(part.name) : "Reasoning"}
-                </Text>
-                {part.kind === "reasoning" || part.summary ? (
-                  <Text numberOfLines={expanded ? 8 : 2} style={[styles.workSummary, { color: theme.muted }]}>
-                    {part.kind === "reasoning" ? part.text : part.summary}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
+            <WorkLogItem key={key} part={part} />
           ))}
         </View>
       ) : null}
@@ -217,21 +321,110 @@ function WorkLog({ parts, live }: { parts: MessagePartView[]; live: boolean }) {
   );
 }
 
+function RecordingCard({
+  recording,
+  projectId,
+  threadId,
+}: {
+  recording: Extract<MessagePartView, { kind: "recording" }>;
+  projectId: string;
+  threadId: string;
+}) {
+  const theme = useAppTheme();
+  const { getAccessToken } = useAuth();
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const open = async () => {
+    if (opening) return;
+    setOpening(true);
+    setError(undefined);
+    try {
+      if (recording.url) {
+        await Linking.openURL(recording.url);
+        return;
+      }
+      const request = async (forceRefresh = false) => {
+        const token = await getAccessToken(forceRefresh);
+        if (!token) throw new Error("Sign in to open this recording.");
+        return await webRequest<{ url: string }>(
+          `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?recordingId=${encodeURIComponent(recording.id)}&prepare=1`,
+          token,
+        );
+      };
+      let result: { url: string };
+      try {
+        result = await request();
+      } catch {
+        result = await request(true);
+      }
+      await Linking.openURL(result.url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The recording could not be opened.");
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  const duration = recording.durationSeconds === undefined
+    ? null
+    : recording.durationSeconds < 60
+      ? `${Math.max(1, Math.round(recording.durationSeconds))}s`
+      : `${Math.floor(recording.durationSeconds / 60)}:${String(Math.round(recording.durationSeconds) % 60).padStart(2, "0")}`;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={opening}
+      onPress={() => void open()}
+      style={({ pressed }) => [
+        styles.recording,
+        {
+          backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
+          borderColor: error ? theme.danger : theme.line,
+        },
+      ]}
+    >
+      <View style={[styles.recordingIcon, { backgroundColor: theme.accentSoft }]}>
+        {opening
+          ? <ActivityIndicator color={theme.accent} size="small" />
+          : <Video color={theme.accent} size={19} />}
+      </View>
+      <View style={styles.recordingCopy}>
+        <Text numberOfLines={1} style={[styles.recordingTitle, { color: theme.ink }]}>
+          {recording.title ?? "Demo walkthrough"}
+        </Text>
+        <Text numberOfLines={2} style={[styles.recordingMeta, { color: error ? theme.danger : theme.muted }]}>
+          {(error ?? [duration, recording.status].filter(Boolean).join(" · ")) || "Screen recording"}
+        </Text>
+      </View>
+      {opening ? null : <Play color={theme.muted} size={17} />}
+    </Pressable>
+  );
+}
+
 export function ThreadMessage({
   message,
   isLast,
   isLive,
+  projectId,
+  threadId,
 }: {
   message: ThreadMessageValue;
   isLast: boolean;
   isLive: boolean;
+  projectId: string;
+  threadId: string;
 }) {
   const theme = useAppTheme();
   const parts = messageParts(message.parts);
   const isUser = message.role === "user";
   const textParts = parts.filter((part) => part.kind === "text");
   const images = parts.filter((part) => part.kind === "file" && part.mediaType.startsWith("image/"));
+  const files = parts.filter((part) => part.kind === "file" && !part.mediaType.startsWith("image/"));
+  const recordings = parts.filter((part) => part.kind === "recording");
   const timestamp = timeLabel(message.updatedAt ?? message.createdAt);
+  const assistantRunSummary = runSummary(message.metadata);
   const copyText = textParts.map((part) => part.kind === "text" ? part.text : "").join("\n\n");
 
   if (isUser) {
@@ -248,6 +441,20 @@ export function ThreadMessage({
               source={{ uri: part.url }}
               style={[styles.userImage, { backgroundColor: theme.surface }]}
             />
+          ) : null)}
+          {keyed(files, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
+            <Pressable
+              accessibilityRole="link"
+              key={`${message.messageId}:file:${key}`}
+              onPress={() => void Linking.openURL(part.url)}
+              style={[styles.fileCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
+            >
+              <FileText color={theme.muted} size={17} />
+              <Text numberOfLines={1} style={[styles.fileName, { color: theme.ink }]}>
+                {part.filename ?? part.mediaType}
+              </Text>
+              <ExternalLink color={theme.faint} size={14} />
+            </Pressable>
           ) : null)}
         </View>
         <View style={styles.messageMeta}>
@@ -285,12 +492,37 @@ export function ThreadMessage({
           style={[styles.assistantImage, { backgroundColor: theme.surfaceSoft }]}
         />
       ) : null)}
-      {(timestamp || copyText) && !(isLast && isLive) ? (
+      {keyed(files, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
+        <Pressable
+          accessibilityRole="link"
+          key={`${message.messageId}:file:${key}`}
+          onPress={() => void Linking.openURL(part.url)}
+          style={[styles.fileCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
+        >
+          <FileText color={theme.muted} size={17} />
+          <Text numberOfLines={1} style={[styles.fileName, { color: theme.ink }]}>
+            {part.filename ?? part.mediaType}
+          </Text>
+          <ExternalLink color={theme.faint} size={14} />
+        </Pressable>
+      ) : null)}
+      {keyed(recordings, (part) => part.kind === "recording" ? part.id : part.kind).map(({ item: part, key }) => part.kind === "recording" ? (
+        <RecordingCard
+          key={`${message.messageId}:recording:${key}`}
+          recording={part}
+          projectId={projectId}
+          threadId={threadId}
+        />
+      ) : null)}
+      {(timestamp || copyText || assistantRunSummary) && !(isLast && isLive) ? (
         <View style={[styles.messageMeta, styles.assistantMeta]}>
           {copyText ? (
             <Pressable accessibilityLabel="Copy response" onPress={() => void Clipboard.setStringAsync(copyText)} style={styles.copyButton}>
               <Copy color={theme.faint} size={13} />
             </Pressable>
+          ) : null}
+          {assistantRunSummary ? (
+            <Text style={[styles.runSummary, { color: theme.faint }]}>{assistantRunSummary}</Text>
           ) : null}
           {timestamp ? <Text style={[styles.timestamp, { color: theme.faint }]}>{timestamp}</Text> : null}
         </View>
@@ -304,6 +536,8 @@ const styles = StyleSheet.create({
   line: { minWidth: 0, flexDirection: "row" },
   body: { flexShrink: 1, fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 22 },
   bold: { fontFamily: "Inter_700Bold" },
+  italic: { fontStyle: "italic" },
+  strikethrough: { textDecorationLine: "line-through" },
   heading: { fontFamily: "Inter_600SemiBold", fontSize: 16, lineHeight: 23, marginTop: 5 },
   bullet: { width: 16, fontFamily: "Inter_600SemiBold", fontSize: 14, lineHeight: 22 },
   quote: { borderLeftWidth: 2, paddingLeft: 10, marginVertical: 3 },
@@ -325,6 +559,7 @@ const styles = StyleSheet.create({
   messageMeta: { minHeight: 24, flexDirection: "row", alignItems: "center", gap: 2, paddingTop: 2 },
   assistantMeta: { justifyContent: "flex-start" },
   timestamp: { fontFamily: "Inter_500Medium", fontSize: 10 },
+  runSummary: { fontFamily: "Inter_500Medium", fontSize: 9, fontVariant: ["tabular-nums"] },
   copyButton: { width: 28, height: 26, alignItems: "center", justifyContent: "center" },
   workLog: { marginBottom: 2 },
   workHeader: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6 },
@@ -332,6 +567,15 @@ const styles = StyleSheet.create({
   workItems: { borderLeftWidth: 1, marginLeft: 6, paddingLeft: 13, gap: 10, paddingVertical: 5 },
   workItem: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   workCopy: { flex: 1, minWidth: 0 },
+  workItemHeading: { minHeight: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   workName: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
   workSummary: { fontFamily: "Inter_400Regular", fontSize: 11, lineHeight: 16, marginTop: 3 },
+  toolDetails: { minWidth: 280, maxWidth: 620, borderRadius: 7, padding: 9, fontFamily: "monospace", fontSize: 10, lineHeight: 15, marginTop: 7 },
+  fileCard: { minHeight: 48, borderRadius: 9, borderWidth: 1, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 9 },
+  fileName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 11 },
+  recording: { minHeight: 66, borderRadius: 12, borderWidth: 1, padding: 11, flexDirection: "row", alignItems: "center", gap: 10 },
+  recordingIcon: { width: 40, height: 40, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  recordingCopy: { flex: 1, minWidth: 0 },
+  recordingTitle: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  recordingMeta: { fontFamily: "Inter_400Regular", fontSize: 10, lineHeight: 15, marginTop: 4 },
 });

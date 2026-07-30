@@ -1,4 +1,5 @@
 import { api } from "@autopr/backend/convex/_generated/api";
+import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { useUploadFile } from "@convex-dev/r2/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -13,6 +14,7 @@ import {
   ArrowUp,
   Bot,
   ChevronDown,
+  CircleAlert,
   CircleStop,
   FileDiff,
   GitBranch,
@@ -20,14 +22,18 @@ import {
   ImagePlus,
   MessageSquare,
   MoreHorizontal,
+  Pencil,
   SlidersHorizontal,
+  Video,
   X,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  AppState,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -69,19 +75,7 @@ type CodexStatus = {
   models?: string[];
 };
 
-type GitStatus = {
-  status: {
-    kind: string;
-    hasWorkingTreeChanges: boolean;
-    changedFiles: Array<{ path: string; additions?: number; deletions?: number }>;
-    aheadCount: number | null;
-    behindCount: number | null;
-    aheadOfBaseCount?: number | null;
-    detachedHead?: boolean;
-    diverged?: boolean | null;
-    pullRequest?: { number: number; url: string; state: string; title?: string; draft?: boolean };
-  };
-};
+type GitStatusResponse = { status: ThreadGitStatus };
 
 type PendingImage = {
   id: string;
@@ -157,7 +151,7 @@ export function ThreadScreen({ navigation, route }: Props) {
     staleTime: 60_000,
     retry: false,
   });
-  const git = useWebQuery<GitStatus>(
+  const git = useWebQuery<GitStatusResponse>(
     ["git-status", projectId, threadId],
     `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?gitStatus=1&refresh=1`,
     {
@@ -169,6 +163,9 @@ export function ThreadScreen({ navigation, route }: Props) {
   );
   const refetchGit = git.refetch;
   const setSettlement = useMutation(api.threads.setSettlement);
+  const updateTitle = useMutation(api.threads.updateTitle);
+  const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
+  const userSettings = useQuery(api.userSettings.get, {});
   const latestGitOperation = useQuery(api.threads.getLatestGitOperation, { threadId });
   const uploadImage = useUploadFile(api.imageUploads);
   const convex = useConvex();
@@ -188,6 +185,10 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [stopping, setStopping] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
+  const [renameVisible, setRenameVisible] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [demoSaving, setDemoSaving] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const [activeSeconds, setActiveSeconds] = useState(0);
@@ -261,6 +262,18 @@ export function ThreadScreen({ navigation, route }: Props) {
       ));
     }
   }, []);
+  const toggleDemo = useCallback(async () => {
+    if (!thread || demoSaving) return;
+    setDemoSaving(true);
+    setSendError(null);
+    try {
+      await setDemoEnabled({ threadId, demoEnabled: !thread.demoEnabled });
+    } catch (cause) {
+      setSendError(cause instanceof Error ? cause.message : "Could not update demo recording.");
+    } finally {
+      setDemoSaving(false);
+    }
+  }, [demoSaving, setDemoEnabled, thread, threadId]);
   const renderComposerAttachment = useCallback(
     ({ item }: { item: ComposerAttachment }) => (
       <ComposerAttachmentItem attachment={item} onRemove={removeComposerAttachment} />
@@ -276,8 +289,10 @@ export function ThreadScreen({ navigation, route }: Props) {
       message={item}
       isLast={index === displayMessages.length - 1}
       isLive={Boolean(thread?.isLive)}
+      projectId={projectId}
+      threadId={threadId}
     />
-  ), [displayMessages.length, thread?.isLive]);
+  ), [displayMessages.length, projectId, thread?.isLive, threadId]);
 
   const updateLatestPosition = useCallback((nativeEvent: {
     contentSize: { height: number };
@@ -318,6 +333,8 @@ export function ThreadScreen({ navigation, route }: Props) {
       const combined = [draft, diffDraft].filter(Boolean).join("\n\n");
       if (combined) setPrompt(combined);
       if (diffDraft) void AsyncStorage.removeItem(diffDraftKey);
+    }).catch(() => {
+      if (active) setSendError("The saved message draft could not be restored.");
     });
     return () => {
       active = false;
@@ -369,6 +386,17 @@ export function ThreadScreen({ navigation, route }: Props) {
             accessibilityLabel="More conversation actions"
             onPress={() => Alert.alert("Conversation tools", undefined, [
               {
+                text: "Rename conversation",
+                onPress: () => {
+                  setRenameTitle(thread?.title ?? "");
+                  setRenameVisible(true);
+                },
+              },
+              ...(userSettings?.demoRecordingExperimentEnabled ? [{
+                text: thread?.demoEnabled ? "Disable demo recording" : "Enable demo recording",
+                onPress: () => void toggleDemo(),
+              }] : []),
+              {
                 text: "Environment variables",
                 onPress: () => navigation.navigate("Environment", { projectId, title: project?.repoName }),
               },
@@ -386,7 +414,19 @@ export function ThreadScreen({ navigation, route }: Props) {
         </View>
       ),
     });
-  }, [diffs.length, navigation, project?.repoName, projectId, refetchGit, route.params.title, theme, thread?.title, threadId]);
+  }, [
+    diffs.length,
+    navigation,
+    project?.repoName,
+    projectId,
+    refetchGit,
+    route.params.title,
+    theme,
+    thread,
+    threadId,
+    toggleDemo,
+    userSettings?.demoRecordingExperimentEnabled,
+  ]);
 
   const authenticatedWebFetch = useCallback(async (path: string, init: RequestInit) => {
     const execute = async (token: string) => {
@@ -483,6 +523,15 @@ export function ThreadScreen({ navigation, route }: Props) {
     }
   }, [beginAgentStream, thread?.currentRunId, thread?.isLive]);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && thread?.isLive && thread.currentRunId) {
+        beginAgentStream(thread.currentRunId);
+      }
+    });
+    return () => subscription.remove();
+  }, [beginAgentStream, thread?.currentRunId, thread?.isLive]);
+
   useEffect(() => () => {
     streamAbortRef.current?.abort();
     if (streamRenderTimerRef.current) clearTimeout(streamRenderTimerRef.current);
@@ -515,7 +564,13 @@ export function ThreadScreen({ navigation, route }: Props) {
     const isActive = initial?.isActive ?? (() => true);
     const text = (initial?.text ?? prompt).trim();
     const initialFiles = initial?.files ?? (messages.length === 0 ? handoffFiles : []);
-    if ((!text && pendingImages.length === 0 && initialFiles.length === 0) || running || !thread || !project) return;
+    if (
+      (!text && pendingImages.length === 0 && initialFiles.length === 0)
+      || running
+      || demoSaving
+      || !thread
+      || !project
+    ) return;
     setSending(true);
     setSendError(null);
     setStreamingAssistant(null);
@@ -605,7 +660,18 @@ export function ThreadScreen({ navigation, route }: Props) {
     try {
       const response = await authenticatedWebFetch(
         `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(runId)}`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(streamingAssistant ? {
+              assistantMessage: {
+                id: streamingAssistant.messageId,
+                parts: streamingAssistant.parts,
+              },
+            } : {}),
+          }),
+        },
       );
       if (!response.ok) throw new Error("The active run could not be stopped.");
     } catch (error) {
@@ -650,6 +716,15 @@ export function ThreadScreen({ navigation, route }: Props) {
 
   const canChat = project.sandboxStatus === "ready" && codex.data?.connected;
   const gitStatus = git.data?.status ?? thread.gitStatus;
+  const expectedBranch = thread.workspaceMode === "worktree" ? thread.featureBranch : undefined;
+  const checkedOutBranch = gitStatus?.detachedHead
+    ? `detached@${gitStatus.localHeadSha?.slice(0, 7) ?? "HEAD"}`
+    : gitStatus?.currentBranch;
+  const branchMismatch = Boolean(
+    expectedBranch
+    && checkedOutBranch
+    && checkedOutBranch !== expectedBranch,
+  );
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -679,9 +754,13 @@ export function ThreadScreen({ navigation, route }: Props) {
       </View>
 
       <View style={[styles.threadContext, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-        <GitBranch color={theme.muted} size={14} />
+        {branchMismatch
+          ? <CircleAlert color={theme.warning} size={14} />
+          : <GitBranch color={theme.muted} size={14} />}
         <Text numberOfLines={1} style={[styles.contextBranch, { color: theme.muted }]}>
-          {thread.featureBranch ?? thread.baseBranch ?? "Preparing branch"}
+          {branchMismatch
+            ? `${checkedOutBranch} · expected ${expectedBranch}`
+            : checkedOutBranch ?? thread.featureBranch ?? thread.baseBranch ?? "Preparing branch"}
         </Text>
         {running ? (
           <View style={styles.contextStatus}>
@@ -858,6 +937,27 @@ export function ThreadScreen({ navigation, route }: Props) {
                     {formatReasoningEffort(reasoningEffort)}
                   </Text>
                 </Pressable>
+                {userSettings?.demoRecordingExperimentEnabled ? (
+                  <Pressable
+                    accessibilityLabel={thread.demoEnabled ? "Disable demo recording" : "Enable demo recording"}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: Boolean(thread.demoEnabled), disabled: demoSaving || running }}
+                    disabled={demoSaving || running}
+                    onPress={() => void toggleDemo()}
+                    style={[
+                      styles.demoButton,
+                      {
+                        backgroundColor: thread.demoEnabled ? theme.accentSoft : theme.surface,
+                        opacity: demoSaving ? 0.5 : 1,
+                      },
+                    ]}
+                  >
+                    <Video color={thread.demoEnabled ? theme.accent : theme.faint} size={14} />
+                    <Text style={[styles.demoText, { color: thread.demoEnabled ? theme.ink : theme.muted }]}>
+                      Demo
+                    </Text>
+                  </Pressable>
+                ) : null}
               </>
             ) : null}
             {running ? (
@@ -872,13 +972,21 @@ export function ThreadScreen({ navigation, route }: Props) {
             ) : (
               <Pressable
                 accessibilityLabel="Send message"
-                disabled={(!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0) || !canChat}
+                disabled={
+                  (!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0)
+                  || !canChat
+                  || demoSaving
+                }
                 onPress={() => void send()}
                 style={[
                   styles.sendButton,
                   {
                     backgroundColor: theme.accent,
-                    opacity: (!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0) || !canChat ? 0.35 : 1,
+                    opacity: (
+                      (!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0)
+                      || !canChat
+                      || demoSaving
+                    ) ? 0.35 : 1,
                   },
                 ]}
               >
@@ -977,6 +1085,83 @@ export function ThreadScreen({ navigation, route }: Props) {
         onSelectReasoningEffort={setReasoningEffort}
         onClose={() => setShowControls(false)}
       />
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setRenameVisible(false)}
+        transparent
+        visible={renameVisible}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.modalBackdrop}
+        >
+          <Pressable
+            accessibilityLabel="Close rename conversation"
+            onPress={() => setRenameVisible(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[styles.renameCard, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
+            <View style={styles.renameHeading}>
+              <View style={[styles.renameIcon, { backgroundColor: theme.accentSoft }]}>
+                <Pencil color={theme.accent} size={17} />
+              </View>
+              <View style={styles.renameCopy}>
+                <Text style={[styles.renameTitle, { color: theme.ink }]}>Rename conversation</Text>
+                <Text style={[styles.renameBody, { color: theme.muted }]}>Use a short title that describes the outcome.</Text>
+              </View>
+            </View>
+            <TextInput
+              accessibilityLabel="Conversation title"
+              autoFocus
+              maxLength={120}
+              onChangeText={setRenameTitle}
+              placeholder="Conversation title"
+              placeholderTextColor={theme.faint}
+              returnKeyType="done"
+              value={renameTitle}
+              onSubmitEditing={() => {
+                if (!renameTitle.trim() || renameSaving) return;
+                setRenameSaving(true);
+                void updateTitle({ threadId, title: renameTitle.trim() })
+                  .then(() => setRenameVisible(false))
+                  .catch((cause) => setSendError(
+                    cause instanceof Error ? cause.message : "Could not rename the conversation.",
+                  ))
+                  .finally(() => setRenameSaving(false));
+              }}
+              style={[styles.renameInput, { color: theme.ink, backgroundColor: theme.surface, borderColor: theme.strongLine }]}
+            />
+            <View style={styles.renameActions}>
+              <Pressable
+                onPress={() => setRenameVisible(false)}
+                style={[styles.renameButton, { backgroundColor: theme.surfaceSoft }]}
+              >
+                <Text style={[styles.renameButtonText, { color: theme.muted }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                disabled={!renameTitle.trim() || renameSaving}
+                onPress={() => {
+                  setRenameSaving(true);
+                  void updateTitle({ threadId, title: renameTitle.trim() })
+                    .then(() => setRenameVisible(false))
+                    .catch((cause) => setSendError(
+                      cause instanceof Error ? cause.message : "Could not rename the conversation.",
+                    ))
+                    .finally(() => setRenameSaving(false));
+                }}
+                style={[
+                  styles.renameButton,
+                  { backgroundColor: theme.accent, opacity: !renameTitle.trim() || renameSaving ? 0.45 : 1 },
+                ]}
+              >
+                <Text style={[styles.renameButtonText, { color: theme.accentInk }]}>
+                  {renameSaving ? "Saving…" : "Save"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1070,6 +1255,8 @@ const styles = StyleSheet.create({
   modelText: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
   reasoningButton: { minHeight: 34, maxWidth: 105, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
   reasoningText: { flexShrink: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  demoButton: { minHeight: 34, borderRadius: 8, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 },
+  demoText: { fontFamily: "Inter_600SemiBold", fontSize: 9 },
   sendButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   gitBar: { minHeight: 35, flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5, paddingHorizontal: 2 },
   gitOperation: { minHeight: 35, marginTop: 6, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8 },
@@ -1079,4 +1266,15 @@ const styles = StyleSheet.create({
   gitText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 10, textTransform: "capitalize" },
   gitAction: { minHeight: 29, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
   gitActionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.38)", padding: 14 },
+  renameCard: { borderWidth: 1, borderRadius: 18, padding: 15, gap: 14, marginBottom: 6 },
+  renameHeading: { flexDirection: "row", alignItems: "center", gap: 10 },
+  renameIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  renameCopy: { flex: 1, minWidth: 0 },
+  renameTitle: { fontFamily: "Inter_700Bold", fontSize: 14 },
+  renameBody: { fontFamily: "Inter_400Regular", fontSize: 10, lineHeight: 15, marginTop: 3 },
+  renameInput: { height: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontFamily: "Inter_500Medium", fontSize: 13 },
+  renameActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+  renameButton: { minWidth: 82, height: 40, borderRadius: 11, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
+  renameButtonText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
 });

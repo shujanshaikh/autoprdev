@@ -1,0 +1,95 @@
+export type ParsedEnvEntry = {
+  envName: string;
+  value: string;
+};
+
+const ENV_ASSIGNMENT_PATTERN = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
+
+function decodeDoubleQuotedValue(value: string) {
+  let decoded = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character !== "\\" || index === value.length - 1) {
+      decoded += character;
+      continue;
+    }
+    const next = value[index + 1];
+    if (next === "n") decoded += "\n";
+    else if (next === "r") decoded += "\r";
+    else if (next === '"') decoded += '"';
+    else if (next === "\\") decoded += "\\";
+    else decoded += `\\${next}`;
+    index += 1;
+  }
+  return decoded;
+}
+
+function closingQuoteIndex(value: string, quote: "'" | '"') {
+  for (let index = 1; index < value.length; index += 1) {
+    if (value[index] !== quote) continue;
+    if (quote === "'") return index;
+    let slashCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) {
+      slashCount += 1;
+    }
+    if (slashCount % 2 === 0) return index;
+  }
+  return -1;
+}
+
+export function parseEnvFile(input: string) {
+  const lines = input.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+  const entriesByName = new Map<string, ParsedEnvEntry>();
+  const errors: string[] = [];
+  const duplicateNames = new Set<string>();
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const trimmed = (lines[lineIndex] ?? "").trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const assignment = trimmed.match(ENV_ASSIGNMENT_PATTERN);
+    if (!assignment) {
+      errors.push(`Line ${lineIndex + 1}: expected NAME=value.`);
+      continue;
+    }
+
+    const envName = assignment[1] ?? "";
+    let rawValue = assignment[2] ?? "";
+    let parsedValue: string;
+    if (rawValue.startsWith('"') || rawValue.startsWith("'")) {
+      const quote = rawValue[0] as "'" | '"';
+      let closingIndex = closingQuoteIndex(rawValue, quote);
+      while (closingIndex < 0 && lineIndex + 1 < lines.length) {
+        lineIndex += 1;
+        rawValue += `\n${lines[lineIndex] ?? ""}`;
+        closingIndex = closingQuoteIndex(rawValue, quote);
+      }
+      if (closingIndex < 0) {
+        errors.push(`Line ${lineIndex + 1}: ${envName} has an unterminated quoted value.`);
+        continue;
+      }
+      const trailing = rawValue.slice(closingIndex + 1).trim();
+      if (trailing && !trailing.startsWith("#")) {
+        errors.push(`Line ${lineIndex + 1}: unexpected text after ${envName}.`);
+        continue;
+      }
+      const quotedValue = rawValue.slice(1, closingIndex);
+      parsedValue = quote === '"' ? decodeDoubleQuotedValue(quotedValue) : quotedValue;
+    } else {
+      const commentIndex = rawValue.search(/\s+#/);
+      parsedValue = (commentIndex >= 0 ? rawValue.slice(0, commentIndex) : rawValue).trim();
+    }
+
+    if (!parsedValue) {
+      errors.push(`Line ${lineIndex + 1}: ${envName} has an empty value.`);
+      continue;
+    }
+    if (entriesByName.has(envName)) duplicateNames.add(envName);
+    entriesByName.set(envName, { envName, value: parsedValue });
+  }
+
+  return {
+    entries: [...entriesByName.values()],
+    errors,
+    duplicateNames: [...duplicateNames],
+  };
+}

@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -46,11 +47,23 @@ async function terminalText(data: unknown) {
   return "";
 }
 
+function terminalSize(width: number, height: number) {
+  return {
+    cols: Math.max(40, Math.min(160, Math.floor((width - 26) / 7))),
+    rows: Math.max(14, Math.min(60, Math.floor((height - 118) / 17))),
+  };
+}
+
 export function TerminalScreen({ route }: Props) {
   const { projectId, threadId } = route.params;
   const theme = useAppTheme();
   const getTerminal = useAction(api.projectActions.getPtyTerminal);
+  const resizeTerminal = useAction(api.projectActions.resizePtyTerminal);
   const killTerminal = useAction(api.projectActions.killPtyTerminal);
+  const dimensions = useWindowDimensions();
+  const initialSizeRef = useRef<ReturnType<typeof terminalSize> | null>(null);
+  initialSizeRef.current ??= terminalSize(dimensions.width, dimensions.height);
+  const initialSize = initialSizeRef.current;
   const [output, setOutput] = useState("");
   const [command, setCommand] = useState("");
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
@@ -67,7 +80,11 @@ export function TerminalScreen({ route }: Props) {
     const start = async () => {
       setStatus("connecting");
       setError(null);
-      const terminal = await getTerminal({ projectId, threadId, cols: 100, rows: 32 });
+      const terminal = await getTerminal({
+        projectId,
+        threadId,
+        ...initialSize,
+      });
       if (!active) {
         await killTerminal({ projectId, sessionId: terminal.sessionId }).catch(() => undefined);
         return;
@@ -108,7 +125,17 @@ export function TerminalScreen({ route }: Props) {
       sessionRef.current = null;
       if (sessionId) void killTerminal({ projectId, sessionId }).catch(() => undefined);
     };
-  }, [attempt, getTerminal, killTerminal, projectId, threadId]);
+  }, [attempt, getTerminal, initialSize, killTerminal, projectId, threadId]);
+
+  useEffect(() => {
+    const sessionId = sessionRef.current;
+    if (status !== "connected" || !sessionId) return;
+    const size = terminalSize(dimensions.width, dimensions.height);
+    const timer = setTimeout(() => {
+      void resizeTerminal({ projectId, sessionId, ...size }).catch(() => undefined);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [dimensions.height, dimensions.width, projectId, resizeTerminal, status]);
 
   const send = () => {
     const value = command.trim();

@@ -196,18 +196,18 @@ const styles = StyleSheet.create({
   screenContent: { padding: 16, paddingBottom: 32 },
   button: {
     minHeight: 48,
-    borderRadius: 14,
+    borderRadius: 8,
     paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 9,
   },
-  buttonCompact: { minHeight: 38, borderRadius: 11, paddingHorizontal: 13 },
+  buttonCompact: { minHeight: 38, borderRadius: 7, paddingHorizontal: 13 },
   buttonText: { fontFamily: "Inter_700Bold", fontSize: 14 },
   secondaryButton: {
     minHeight: 48,
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 18,
     alignItems: "center",
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   emptyIcon: {
     width: 52,
     height: 52,
-    borderRadius: 17,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 5,
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
   },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 32 },
   loadingText: { fontFamily: "Inter_500Medium", fontSize: 13 },
-  notice: { borderWidth: 1, borderRadius: 12, padding: 12 },
+  notice: { borderWidth: 1, borderRadius: 8, padding: 12 },
   noticeText: { fontFamily: "Inter_500Medium", fontSize: 13, lineHeight: 18 },
   sectionLabel: {
     fontFamily: "Inter_700Bold",
@@ -245,6 +245,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 9,
   },
-  pill: { maxWidth: 150, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
+  pill: { maxWidth: 150, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 5 },
   pillText: { fontFamily: "Inter_700Bold", fontSize: 10, letterSpacing: 0.2 },
 });

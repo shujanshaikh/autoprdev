@@ -15,7 +15,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { GitPullRequest } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, StatusBar, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { ActivityIndicator, Platform, StatusBar, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
@@ -32,6 +32,7 @@ import { SettingsScreen } from "./screens/SettingsScreen";
 import { SignInScreen } from "./screens/SignInScreen";
 import { TerminalScreen } from "./screens/TerminalScreen";
 import { ThreadScreen } from "./screens/ThreadScreen";
+import { AppThemeProvider } from "./theme/ThemeProvider";
 import type { RootStackParamList } from "./types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -76,12 +77,11 @@ function useConvexAuthBridge() {
 
 function Navigator() {
   const theme = useAppTheme();
-  const colorScheme = useColorScheme();
   const { session, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
   if (!session) return <SignInScreen />;
 
-  const navigationTheme = colorScheme === "light"
+  const navigationTheme = theme.mode === "light"
     ? {
         ...NavigationLightTheme,
         colors: {
@@ -134,7 +134,7 @@ function Navigator() {
         <Stack.Screen
           name="Changes"
           component={ChangesScreen}
-          options={{ title: "Changes", presentation: "modal" }}
+          options={{ title: "Changes", presentation: "fullScreenModal" }}
         />
         <Stack.Screen
           name="Terminal"
@@ -144,20 +144,48 @@ function Navigator() {
         <Stack.Screen
           name="Environment"
           component={EnvironmentScreen}
-          options={{ title: "Environment" }}
+          options={{
+            title: "Environment",
+            presentation: Platform.OS === "ios" ? "formSheet" : "card",
+            sheetAllowedDetents: [0.55, 0.92],
+            sheetGrabberVisible: true,
+          }}
         />
         <Stack.Screen
           name="Branches"
           component={BranchesScreen}
-          options={{ title: "Switch branch" }}
+          options={{
+            title: "Switch branch",
+            presentation: Platform.OS === "ios" ? "formSheet" : "card",
+            sheetAllowedDetents: [0.55, 0.92],
+            sheetGrabberVisible: true,
+          }}
         />
         <Stack.Screen
           name="PullRequests"
           component={PullRequestsScreen}
           options={{ title: "Pull requests" }}
         />
-        <Stack.Screen name="AddProject" component={AddProjectScreen} options={{ title: "New project" }} />
-        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: "Settings" }} />
+        <Stack.Screen
+          name="AddProject"
+          component={AddProjectScreen}
+          options={{
+            title: "New project",
+            presentation: Platform.OS === "ios" ? "formSheet" : "card",
+            sheetAllowedDetents: [0.92],
+            sheetGrabberVisible: true,
+          }}
+        />
+        <Stack.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{
+            title: "Settings",
+            presentation: Platform.OS === "ios" ? "formSheet" : "card",
+            sheetAllowedDetents: [0.7, 0.92],
+            sheetGrabberVisible: true,
+          }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -186,7 +214,7 @@ function ConnectedApp() {
   );
 }
 
-export default function App() {
+function AppContent() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -218,6 +246,14 @@ export default function App() {
         </AuthProvider>
       )}
     </SafeAreaProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AppThemeProvider>
+      <AppContent />
+    </AppThemeProvider>
   );
 }
 

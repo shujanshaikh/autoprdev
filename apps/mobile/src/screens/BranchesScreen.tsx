@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
   content: { flexGrow: 1, padding: 16, paddingBottom: 36, gap: 12 },
   search: {
     height: 47,
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 13,
     flexDirection: "row",
@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 14 },
   empty: { minHeight: 420 },
-  list: { borderRadius: 17, borderWidth: 1, overflow: "hidden" },
+  list: { borderRadius: 10, borderWidth: 1, overflow: "hidden" },
   row: { minHeight: 67, padding: 11, flexDirection: "row", alignItems: "center", gap: 10 },
   branchMark: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   copy: { flex: 1, minWidth: 0 },

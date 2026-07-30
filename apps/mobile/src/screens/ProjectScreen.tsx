@@ -9,11 +9,12 @@ import {
   MessageSquare,
   Play,
   Plus,
+  Search,
   Square,
   Trash2,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton, SecondaryButton, StatusPill } from "../components/ui";
@@ -45,10 +46,27 @@ export function ProjectScreen({ navigation, route }: Props) {
   const [creating, setCreating] = useState(false);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [threadFilter, setThreadFilter] = useState<"active" | "archived" | "all">("active");
 
   useEffect(() => {
     if (project?.projectId) void markOpened({ projectId: project.projectId });
   }, [markOpened, project?.projectId]);
+
+  const filteredThreads = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return (threads ?? []).filter((thread) => {
+      const archived = thread.settledOverride === "settled";
+      const matchesFilter = threadFilter === "all"
+        || (threadFilter === "archived" ? archived : !archived);
+      const matchesSearch = !query || [
+        thread.title,
+        thread.featureBranch,
+        thread.baseBranch,
+      ].some((value) => value?.toLowerCase().includes(query));
+      return matchesFilter && matchesSearch;
+    });
+  }, [search, threadFilter, threads]);
 
   if (project === undefined || threads === undefined) return <LoadingState label="Opening project…" />;
   if (!project) {
@@ -171,8 +189,46 @@ export function ProjectScreen({ navigation, route }: Props) {
 
         <View style={styles.threadHeading}>
           <Text style={[styles.sectionTitle, { color: theme.ink }]}>Conversations</Text>
-          <Text style={[styles.count, { color: theme.faint }]}>{String(threads.length).padStart(2, "0")}</Text>
+          <Text style={[styles.count, { color: theme.faint }]}>{String(filteredThreads.length).padStart(2, "0")}</Text>
         </View>
+
+        {threads.length > 0 ? (
+          <>
+            <View style={[styles.threadSearch, { backgroundColor: theme.surfaceSoft, borderColor: theme.line }]}>
+              <Search color={theme.faint} size={15} />
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search conversations"
+                placeholderTextColor={theme.faint}
+                style={[styles.threadSearchInput, { color: theme.ink }]}
+              />
+            </View>
+            <View style={[styles.filters, { backgroundColor: theme.surfaceSoft }]}>
+              {(["active", "archived", "all"] as const).map((filter) => {
+                const selected = threadFilter === filter;
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    key={filter}
+                    onPress={() => setThreadFilter(filter)}
+                    style={[
+                      styles.filter,
+                      selected && { backgroundColor: theme.surface, borderColor: theme.line },
+                    ]}
+                  >
+                    <Text style={[styles.filterText, { color: selected ? theme.ink : theme.muted }]}>
+                      {filter[0]?.toUpperCase()}{filter.slice(1)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
 
         {threads.length === 0 ? (
           <View style={styles.emptyWrap}>
@@ -191,9 +247,16 @@ export function ProjectScreen({ navigation, route }: Props) {
               }
             />
           </View>
+        ) : filteredThreads.length === 0 ? (
+          <View style={styles.filteredEmpty}>
+            <Text style={[styles.filteredEmptyTitle, { color: theme.ink }]}>No matching conversations</Text>
+            <Text style={[styles.filteredEmptyBody, { color: theme.muted }]}>
+              Try another search or change the filter.
+            </Text>
+          </View>
         ) : (
           <View style={[styles.threadList, { borderColor: theme.line, backgroundColor: theme.surface }]}>
-            {threads.map((thread, index) => (
+            {filteredThreads.map((thread, index) => (
               <Pressable
                 key={thread.threadId}
                 onPress={() => navigation.navigate("Thread", {
@@ -257,9 +320,9 @@ export function ProjectScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, paddingBottom: 36, gap: 14 },
-  repoCard: { borderRadius: 18, borderWidth: 1, padding: 15, gap: 14 },
+  repoCard: { borderRadius: 10, borderWidth: 1, padding: 15, gap: 14 },
   repoTop: { flexDirection: "row", alignItems: "center", gap: 11 },
-  repoMark: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  repoMark: { width: 44, height: 44, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   repoCopy: { flex: 1, minWidth: 0 },
   repoName: { fontFamily: "Inter_700Bold", fontSize: 15 },
   branchLine: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: 5 },
@@ -268,7 +331,7 @@ const styles = StyleSheet.create({
   flexButton: { flex: 1 },
   pullRow: {
     minHeight: 54,
-    borderRadius: 15,
+    borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 15,
     flexDirection: "row",
@@ -285,8 +348,16 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 18, letterSpacing: -0.4 },
   count: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
+  threadSearch: { height: 42, borderRadius: 8, borderWidth: 1, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 8 },
+  threadSearchInput: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12 },
+  filters: { borderRadius: 8, padding: 3, flexDirection: "row", gap: 3 },
+  filter: { flex: 1, minHeight: 33, borderRadius: 6, borderWidth: 1, borderColor: "transparent", alignItems: "center", justifyContent: "center" },
+  filterText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
   emptyWrap: { minHeight: 330 },
-  threadList: { borderRadius: 17, borderWidth: 1, overflow: "hidden" },
+  filteredEmpty: { minHeight: 160, alignItems: "center", justifyContent: "center", padding: 24 },
+  filteredEmptyTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  filteredEmptyBody: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 6 },
+  threadList: { borderRadius: 10, borderWidth: 1, overflow: "hidden" },
   threadRow: { minHeight: 76, padding: 13, flexDirection: "row", alignItems: "center", gap: 9 },
   threadCopy: { flex: 1, minWidth: 0 },
   threadTitleLine: { flexDirection: "row", alignItems: "center", gap: 7 },

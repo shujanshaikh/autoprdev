@@ -5,7 +5,6 @@ import { z } from "zod";
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 
 const redirectUriSchema = z
-  .string()
   .url()
   .refine((value) => {
     const url = new URL(value);

@@ -172,7 +172,7 @@ export function AddProjectScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   content: { flexGrow: 1, padding: 16, paddingBottom: 36 },
   connectScreen: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 12 },
-  githubMark: { width: 62, height: 62, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  githubMark: { width: 62, height: 62, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   connectTitle: { fontFamily: "Inter_700Bold", fontSize: 22, marginTop: 5 },
   connectBody: {
     maxWidth: 330,
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   search: {
     height: 48,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 8,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 13,
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   searchInput: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 14 },
-  list: { maxHeight: 390, borderWidth: 1, borderRadius: 16, overflow: "hidden" },
+  list: { maxHeight: 390, borderWidth: 1, borderRadius: 10, overflow: "hidden" },
   row: { minHeight: 67, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   rowCopy: { flex: 1, minWidth: 0 },
   rowTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13 },

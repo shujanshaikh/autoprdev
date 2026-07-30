@@ -5,6 +5,11 @@ thread chat, Git controls, terminal access, sandbox environment variables, pull
 requests, settings, image prompts, and unified diff review. The remote desktop
 surface is intentionally omitted.
 
+The native theme mirrors the shared web tokens from `packages/ui`: neutral
+canvas and surfaces, pale-magenta primary actions, matching operational colors,
+and Inter typography. Appearance can follow the device or be pinned to Light or
+Dark from Settings.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and set:

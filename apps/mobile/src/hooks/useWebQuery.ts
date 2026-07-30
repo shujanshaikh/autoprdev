@@ -1,6 +1,7 @@
 import {
   useMutation,
   useQuery,
+  useQueryClient,
   type UseMutationOptions,
   type UseQueryOptions,
 } from "@tanstack/react-query";
@@ -37,6 +38,8 @@ export function useWebMutation<TData, TVariables>(
   options: UseMutationOptions<TData, Error, TVariables> = {},
 ) {
   const { getAccessToken } = useAuth();
+  const queryClient = useQueryClient();
+  const { onSuccess, ...mutationOptions } = options;
   return useMutation<TData, Error, TVariables>({
     mutationFn: async (variables) => {
       const token = await getAccessToken();
@@ -50,6 +53,10 @@ export function useWebMutation<TData, TVariables>(
         return await mutation(variables, refreshed);
       }
     },
-    ...options,
+    ...mutationOptions,
+    onSuccess: async (...args) => {
+      await queryClient.invalidateQueries();
+      await onSuccess?.(...args);
+    },
   });
 }

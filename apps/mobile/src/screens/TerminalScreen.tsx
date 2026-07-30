@@ -2,7 +2,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAction } from "convex/react";
 import { Eraser, RefreshCw, Send, TerminalSquare } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -60,44 +60,55 @@ export function TerminalScreen({ route }: Props) {
   const sessionRef = useRef<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  const connect = useCallback(async () => {
-    setStatus("connecting");
-    setError(null);
-    const terminal = await getTerminal({ projectId, threadId, cols: 100, rows: 32 });
-    sessionRef.current = terminal.sessionId;
-    const socket = new WebSocket(terminal.websocketUrl, "X-Daytona-SDK-Version~");
-    socket.binaryType = "arraybuffer";
-    socketRef.current = socket;
-    socket.onopen = () => {
-      setStatus("connected");
-      socket.send(new TextEncoder().encode("\r"));
-    };
-    socket.onmessage = (event) => {
-      void terminalText(event.data).then((text) => {
-        if (!text) return;
-        setOutput((current) => `${current}${stripAnsi(text)}`.slice(-120_000));
-        requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
-      });
-    };
-    socket.onerror = () => setError("Terminal connection failed.");
-    socket.onclose = () => setStatus("disconnected");
-  }, [getTerminal, projectId, threadId]);
-
   useEffect(() => {
     let active = true;
-    void connect().catch((cause) => {
-      if (active) {
-        setStatus("disconnected");
-        setError(cause instanceof Error ? cause.message : "Could not start the terminal.");
+    let socket: WebSocket | null = null;
+    let sessionId: string | null = null;
+    const start = async () => {
+      setStatus("connecting");
+      setError(null);
+      const terminal = await getTerminal({ projectId, threadId, cols: 100, rows: 32 });
+      if (!active) {
+        await killTerminal({ projectId, sessionId: terminal.sessionId }).catch(() => undefined);
+        return;
       }
+      sessionId = terminal.sessionId;
+      sessionRef.current = sessionId;
+      socket = new WebSocket(terminal.websocketUrl, "X-Daytona-SDK-Version~");
+      socketRef.current = socket;
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => {
+        if (!active || !socket) return;
+        setStatus("connected");
+        socket.send(new TextEncoder().encode("\r"));
+      };
+      socket.onmessage = (event) => {
+        void terminalText(event.data).then((text) => {
+          if (!active || !text) return;
+          setOutput((current) => `${current}${stripAnsi(text)}`.slice(-120_000));
+          requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
+        });
+      };
+      socket.onerror = () => {
+        if (active) setError("Terminal connection failed.");
+      };
+      socket.onclose = () => {
+        if (active) setStatus("disconnected");
+      };
+    };
+    void start().catch((cause) => {
+      if (!active) return;
+      setStatus("disconnected");
+      setError(cause instanceof Error ? cause.message : "Could not start the terminal.");
     });
     return () => {
       active = false;
-      socketRef.current?.close();
-      const sessionId = sessionRef.current;
+      socket?.close();
+      socketRef.current = null;
+      sessionRef.current = null;
       if (sessionId) void killTerminal({ projectId, sessionId }).catch(() => undefined);
     };
-  }, [attempt, connect, killTerminal, projectId]);
+  }, [attempt, getTerminal, killTerminal, projectId, threadId]);
 
   const send = () => {
     const value = command.trim();

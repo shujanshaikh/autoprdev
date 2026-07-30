@@ -15,6 +15,7 @@ const config: ExpoConfig = {
     predictiveBackGestureEnabled: true,
   },
   plugins: [
+    "expo-image",
     "expo-secure-store",
     "expo-web-browser",
     [

@@ -1,8 +1,9 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "convex/react";
-import { ChevronRight, FolderGit2, Plus, Settings2 } from "lucide-react-native";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ChevronRight, FolderGit2, Plus, Search, Settings2 } from "lucide-react-native";
+import { useMemo, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { EmptyState, LoadingState, PrimaryButton, SectionLabel, StatusPill } from "../components/ui";
@@ -24,6 +25,17 @@ function relativeTime(timestamp: number | undefined) {
 export function ProjectsScreen({ navigation }: Props) {
   const theme = useAppTheme();
   const projects = useQuery(api.projects.list, {});
+  const [search, setSearch] = useState("");
+  const filteredProjects = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return projects ?? [];
+    return (projects ?? []).filter((project) => [
+      project.repoFullName,
+      project.currentBranch,
+      project.repoBranch,
+      project.defaultBranch,
+    ].some((value) => value?.toLowerCase().includes(query)));
+  }, [projects, search]);
 
   if (projects === undefined) return <LoadingState label="Loading workspaces…" />;
 
@@ -31,20 +43,33 @@ export function ProjectsScreen({ navigation }: Props) {
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
       <View style={styles.hero}>
         <View>
-          <Text style={[styles.kicker, { color: theme.muted }]}>WORKSPACES</Text>
-          <Text style={[styles.title, { color: theme.ink }]}>What are we shipping?</Text>
+          <Text style={[styles.kicker, { color: theme.accent }]}>AUTOPR</Text>
+          <Text style={[styles.title, { color: theme.ink }]}>Projects</Text>
         </View>
-        <Pressable
-          accessibilityLabel="Open settings"
-          accessibilityRole="button"
-          onPress={() => navigation.navigate("Settings")}
-          style={({ pressed }) => [
-            styles.iconButton,
-            { backgroundColor: theme.surface, borderColor: theme.line, opacity: pressed ? 0.7 : 1 },
-          ]}
-        >
-          <Settings2 color={theme.ink} size={19} />
-        </Pressable>
+        <View style={styles.heroActions}>
+          <Pressable
+            accessibilityLabel="Add project"
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("AddProject")}
+            style={({ pressed }) => [
+              styles.iconButton,
+              { backgroundColor: theme.accent, borderColor: theme.accent, opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            <Plus color={theme.accentInk} size={19} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Open settings"
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("Settings")}
+            style={({ pressed }) => [
+              styles.iconButton,
+              { backgroundColor: theme.surface, borderColor: theme.line, opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            <Settings2 color={theme.ink} size={19} />
+          </Pressable>
+        </View>
       </View>
 
       {projects.length === 0 ? (
@@ -65,11 +90,22 @@ export function ProjectsScreen({ navigation }: Props) {
           contentContainerStyle={styles.content}
           refreshControl={<RefreshControl refreshing={false} tintColor={theme.accent} />}
         >
-          <PrimaryButton icon={Plus} label="New project" onPress={() => navigation.navigate("AddProject")} />
+          <View style={[styles.search, { backgroundColor: theme.surfaceSoft, borderColor: theme.line }]}>
+            <Search color={theme.faint} size={16} />
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search projects and branches"
+              placeholderTextColor={theme.faint}
+              style={[styles.searchInput, { color: theme.ink }]}
+            />
+          </View>
           <View style={styles.section}>
             <SectionLabel>Recent projects</SectionLabel>
             <View style={[styles.list, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-              {projects.map((project, index) => {
+              {filteredProjects.map((project, index) => {
                 const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch;
                 return (
                   <Pressable
@@ -126,21 +162,24 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  heroActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   kicker: { fontFamily: "Inter_700Bold", fontSize: 10, letterSpacing: 1.2, marginBottom: 5 },
   title: { fontFamily: "Inter_700Bold", fontSize: 25, letterSpacing: -0.8 },
   iconButton: {
     width: 42,
     height: 42,
-    borderRadius: 13,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   content: { padding: 16, paddingBottom: 36 },
-  section: { marginTop: 26 },
-  list: { borderRadius: 17, borderWidth: 1, overflow: "hidden" },
+  search: { height: 44, borderRadius: 8, borderWidth: 1, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  searchInput: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 13 },
+  section: { marginTop: 22 },
+  list: { borderRadius: 10, borderWidth: 1, overflow: "hidden" },
   row: { minHeight: 82, padding: 13, flexDirection: "row", alignItems: "center", gap: 12 },
-  repoIcon: { width: 43, height: 43, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  repoIcon: { width: 43, height: 43, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   rowCopy: { flex: 1, minWidth: 0 },
   rowTitleLine: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowTitle: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 14 },

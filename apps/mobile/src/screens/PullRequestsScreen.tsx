@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
   content: { flexGrow: 1, padding: 16, paddingBottom: 36 },
   search: {
     height: 47,
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 13,
     flexDirection: "row",
@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 14 },
   empty: { minHeight: 420 },
-  list: { borderRadius: 17, borderWidth: 1, overflow: "hidden" },
+  list: { borderRadius: 10, borderWidth: 1, overflow: "hidden" },
   row: { minHeight: 84, padding: 12, flexDirection: "row", alignItems: "center", gap: 9 },
   numberColumn: { width: 42, alignItems: "center", gap: 5 },
   number: { fontFamily: "Inter_600SemiBold", fontSize: 10 },

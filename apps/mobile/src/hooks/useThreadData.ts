@@ -7,6 +7,8 @@ type StoredMessage = {
   role: "system" | "user" | "assistant";
   parts: unknown[];
   metadata?: unknown;
+  createdAt?: number;
+  updatedAt?: number;
   partsR2Key?: string;
   partsBlobSizeBytes?: number;
   partsBlobSha256?: string;

@@ -2,35 +2,32 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { useUploadFile } from "@convex-dev/r2/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useConvex, useMutation } from "convex/react";
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   Bot,
   ChevronDown,
   CircleStop,
   FileDiff,
+  GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
   ImagePlus,
-  KeyRound,
-  RefreshCw,
-  Send,
-  Sparkles,
-  ToolCase,
+  MoreHorizontal,
   TerminalSquare,
   X,
 } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -39,13 +36,13 @@ import {
 
 import { webRequest } from "../api/web";
 import { useAuth } from "../auth/AuthProvider";
-import { ErrorNotice, LoadingState, StatusPill } from "../components/ui";
+import { ErrorNotice, LoadingState } from "../components/ui";
+import { ThreadMessage } from "../components/thread/ThreadMessage";
 import { mobileConfig } from "../config";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadData } from "../hooks/useThreadData";
 import { useWebMutation, useWebQuery } from "../hooks/useWebQuery";
 import { extractDiffEntries } from "../lib/diff";
-import { messageParts } from "../lib/messages";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Thread">;
@@ -72,110 +69,13 @@ type PendingImage = {
   mediaType: string;
 };
 
+type ComposerOption = {
+  kind: "model" | "effort";
+  value: string;
+};
+
 function id() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function displayToolName(name: string) {
-  return name.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function MessageCard({
-  message,
-  isLast,
-  isLive,
-}: {
-  message: { messageId: string; role: string; parts: unknown[] };
-  isLast: boolean;
-  isLive: boolean;
-}) {
-  const theme = useAppTheme();
-  const parts = messageParts(message.parts);
-  const isUser = message.role === "user";
-  return (
-    <View style={[styles.message, isUser && styles.userMessage]}>
-      <View style={styles.messageHeading}>
-        <View style={[
-          styles.messageAvatar,
-          { backgroundColor: isUser ? theme.accentSoft : theme.surfaceSoft },
-        ]}>
-          {isUser
-            ? <Text style={[styles.you, { color: theme.accent }]}>YOU</Text>
-            : <Bot color={theme.ink} size={16} />}
-        </View>
-        <Text style={[styles.messageAuthor, { color: theme.muted }]}>
-          {isUser ? "You" : "AutoPR agent"}
-        </Text>
-        {!isUser && isLast && isLive ? <StatusPill label="Working" tone="success" /> : null}
-      </View>
-      <View style={styles.partList}>
-        {parts.map((part, index) => {
-          if (part.kind === "text") {
-            return (
-              <Text
-                key={`${message.messageId}:text:${index}`}
-                selectable
-                style={[
-                  styles.messageText,
-                  isUser && [styles.userBubble, { backgroundColor: theme.accentSoft, color: theme.ink }],
-                  !isUser && { color: theme.ink },
-                ]}
-              >
-                {part.text}
-              </Text>
-            );
-          }
-          if (part.kind === "reasoning") {
-            return (
-              <View
-                key={`${message.messageId}:reasoning:${index}`}
-                style={[styles.reasoning, { borderLeftColor: theme.accent, backgroundColor: theme.surfaceSoft }]}
-              >
-                <View style={styles.reasoningHeading}>
-                  <Sparkles color={theme.accent} size={13} />
-                  <Text style={[styles.reasoningLabel, { color: theme.accent }]}>Reasoning</Text>
-                </View>
-                <Text numberOfLines={5} style={[styles.reasoningText, { color: theme.muted }]}>{part.text}</Text>
-              </View>
-            );
-          }
-          if (part.kind === "file" && part.mediaType.startsWith("image/")) {
-            return (
-              <Image
-                key={`${message.messageId}:file:${index}`}
-                accessibilityLabel={part.filename ?? "Attached image"}
-                source={{ uri: part.url }}
-                style={[styles.messageImage, { backgroundColor: theme.surfaceSoft }]}
-              />
-            );
-          }
-          if (part.kind === "tool") {
-            const finished = part.state === "output-available";
-            return (
-              <View
-                key={`${message.messageId}:tool:${index}`}
-                style={[styles.tool, { backgroundColor: theme.surface, borderColor: theme.line }]}
-              >
-                <View style={[styles.toolIcon, { backgroundColor: theme.surfaceSoft }]}>
-                  <ToolCase color={theme.muted} size={14} />
-                </View>
-                <View style={styles.toolCopy}>
-                  <Text style={[styles.toolName, { color: theme.ink }]}>{displayToolName(part.name)}</Text>
-                  {part.summary ? (
-                    <Text numberOfLines={2} style={[styles.toolSummary, { color: theme.muted }]}>{part.summary}</Text>
-                  ) : null}
-                </View>
-                {finished
-                  ? <StatusPill label="Done" tone="success" />
-                  : <ActivityIndicator size="small" color={theme.accent} />}
-              </View>
-            );
-          }
-          return null;
-        })}
-      </View>
-    </View>
-  );
 }
 
 export function ThreadScreen({ navigation, route }: Props) {
@@ -192,6 +92,7 @@ export function ThreadScreen({ navigation, route }: Props) {
     `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?gitStatus=1&refresh=1`,
     { enabled: Boolean(project?.sandboxStatus === "ready" && thread), staleTime: 20_000, retry: false },
   );
+  const refetchGit = git.refetch;
   const setSettlement = useMutation(api.threads.setSettlement);
   const uploadImage = useUploadFile(api.imageUploads);
   const convex = useConvex();
@@ -202,29 +103,145 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
   const listRef = useRef<FlatList>(null);
+  const promptRef = useRef<TextInput>(null);
   const diffs = useMemo(() => extractDiffEntries(messages), [messages]);
   const running = Boolean(thread?.isLive || sending);
-  const draftKey = `autopr.mobile.diff-draft:${threadId}`;
+  const diffDraftKey = `autopr.mobile.diff-draft:${threadId}`;
+  const composerDraftKey = `autopr.mobile.composer-draft:${threadId}`;
+  const composerOptions = useMemo<ComposerOption[]>(() => [
+    ...(codex.data?.models ?? []).map((value) => ({ kind: "model" as const, value })),
+    ...["low", "medium", "high", "xhigh"].map((value) => ({ kind: "effort" as const, value })),
+  ], [codex.data?.models]);
+
+  const renderMessage = useCallback(({ item, index }: {
+    item: (typeof messages)[number];
+    index: number;
+  }) => (
+    <ThreadMessage
+      message={item}
+      isLast={index === messages.length - 1}
+      isLive={Boolean(thread?.isLive)}
+    />
+  ), [messages.length, thread?.isLive]);
+
+  const updateLatestPosition = useCallback((nativeEvent: {
+    contentSize: { height: number };
+    layoutMeasurement: { height: number };
+    contentOffset: { y: number };
+  }) => {
+    const distance = nativeEvent.contentSize.height
+      - nativeEvent.layoutMeasurement.height
+      - nativeEvent.contentOffset.y;
+    setAwayFromLatest(distance > 120);
+  }, []);
+
+  const renderComposerOption = useCallback(({ item: option }: { item: ComposerOption }) => {
+    const selected = option.kind === "model"
+      ? selectedModel === option.value
+      : reasoningEffort === option.value;
+    return (
+      <Pressable
+        onPress={() => {
+          if (option.kind === "model") setSelectedModel(option.value);
+          else setReasoningEffort(option.value);
+        }}
+        style={[
+          styles.controlChip,
+          {
+            backgroundColor: selected ? theme.accentSoft : theme.surfaceSoft,
+            borderColor: selected ? theme.accent : theme.line,
+          },
+        ]}
+      >
+        <Text style={[styles.controlText, { color: selected ? theme.secondary : theme.muted }]}>
+          {option.value}
+        </Text>
+      </Pressable>
+    );
+  }, [reasoningEffort, selectedModel, theme]);
 
   useEffect(() => {
     if (!selectedModel && codex.data?.models?.[0]) setSelectedModel(codex.data.models[0]);
   }, [codex.data?.models, selectedModel]);
 
   useEffect(() => {
-    void AsyncStorage.getItem(draftKey).then((draft) => {
-      if (!draft) return;
-      setPrompt((current) => current ? `${current}\n\n${draft}` : draft);
-      void AsyncStorage.removeItem(draftKey);
+    let active = true;
+    void Promise.all([
+      AsyncStorage.getItem(composerDraftKey),
+      AsyncStorage.getItem(diffDraftKey),
+    ]).then(([draft, diffDraft]) => {
+      if (!active) return;
+      const combined = [draft, diffDraft].filter(Boolean).join("\n\n");
+      if (combined) setPrompt(combined);
+      if (diffDraft) void AsyncStorage.removeItem(diffDraftKey);
     });
-  }, [draftKey]);
+    return () => {
+      active = false;
+    };
+  }, [composerDraftKey, diffDraftKey]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (prompt.trim()) void AsyncStorage.setItem(composerDraftKey, prompt);
+      else void AsyncStorage.removeItem(composerDraftKey);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [composerDraftKey, prompt]);
 
   useEffect(() => {
     if (messages.length > 0) {
-      const timer = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+      const timer = setTimeout(() => {
+        if (!awayFromLatest) listRef.current?.scrollToEnd({ animated: true });
+      }, 80);
       return () => clearTimeout(timer);
     }
-  }, [messages.length]);
+  }, [awayFromLatest, messages.length]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: thread?.title ?? route.params.title ?? "Conversation",
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Review changes"
+            onPress={() => navigation.navigate("Changes", { projectId, threadId, title: thread?.title })}
+            style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
+          >
+            <FileDiff color={theme.ink} size={18} />
+            {diffs.length > 0 ? (
+              <View style={[styles.headerBadge, { backgroundColor: theme.accent }]}>
+                <Text style={[styles.headerBadgeText, { color: theme.accentInk }]}>{diffs.length}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Open terminal"
+            onPress={() => navigation.navigate("Terminal", { projectId, threadId, title: thread?.title })}
+            style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
+          >
+            <TerminalSquare color={theme.ink} size={18} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="More conversation actions"
+            onPress={() => Alert.alert("Conversation tools", undefined, [
+              {
+                text: "Environment variables",
+                onPress: () => navigation.navigate("Environment", { projectId, title: project?.repoName }),
+              },
+              { text: "Refresh Git status", onPress: () => void refetchGit() },
+              { text: "Cancel", style: "cancel" },
+            ])}
+            style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
+          >
+            <MoreHorizontal color={theme.ink} size={19} />
+          </Pressable>
+        </View>
+      ),
+    });
+  }, [diffs.length, navigation, project?.repoName, projectId, refetchGit, route.params.title, theme, thread?.title, threadId]);
 
   const gitAction = useWebMutation(
     async (action: "commit" | "push" | "create_pr" | "commit_push" | "push_create_pr" | "commit_push_create_pr" | "pull", token) =>
@@ -233,7 +250,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         token,
         { method: "POST", body: JSON.stringify({ action }) },
       ),
-    { onSuccess: () => void git.refetch() },
+    { onSuccess: () => void refetchGit() },
   );
 
   const authenticatedWebFetch = async (path: string, init: RequestInit) => {
@@ -274,7 +291,11 @@ export function ThreadScreen({ navigation, route }: Props) {
     try {
       const parts: unknown[] = text ? [{ type: "text", text }] : [];
       if (pendingImage) {
-        const blob = await fetch(pendingImage.uri).then((response) => response.blob());
+        const imageResponse = await fetch(pendingImage.uri);
+        if (!imageResponse.ok) {
+          throw new Error("The selected image could not be read.");
+        }
+        const blob = await imageResponse.blob();
         const file = Object.assign(blob, {
           name: pendingImage.fileName,
           lastModified: Date.now(),
@@ -311,6 +332,7 @@ export function ThreadScreen({ navigation, route }: Props) {
       }
       setPrompt("");
       setPendingImage(null);
+      void AsyncStorage.removeItem(composerDraftKey);
       if (thread.title === "New thread" && text) {
         const token = await getAccessToken();
         void webRequest(
@@ -349,43 +371,30 @@ export function ThreadScreen({ navigation, route }: Props) {
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       style={[styles.screen, { backgroundColor: theme.screen }]}
     >
-      <View style={[styles.reviewRibbon, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+      <View style={[styles.threadContext, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+        <GitBranch color={theme.muted} size={14} />
+        <Text numberOfLines={1} style={[styles.contextBranch, { color: theme.muted }]}>
+          {thread.featureBranch ?? thread.baseBranch ?? "Preparing branch"}
+        </Text>
+        {running ? (
+          <View style={styles.contextStatus}>
+            <View style={[styles.contextDot, { backgroundColor: theme.accent }]} />
+            <Text style={[styles.contextStatusText, { color: theme.muted }]}>Agent working</Text>
+          </View>
+        ) : null}
         <Pressable
           onPress={() => navigation.navigate("Changes", { projectId, threadId, title: thread.title })}
-          style={styles.ribbonMain}
+          style={({ pressed }) => [
+            styles.changeSummary,
+            { backgroundColor: pressed ? theme.surfaceSoft : "transparent" },
+          ]}
         >
-          <FileDiff color={theme.accent} size={18} />
-          <View style={styles.ribbonCopy}>
-            <Text style={[styles.ribbonTitle, { color: theme.ink }]}>
-              {diffs.length > 0 ? `${diffs.length} changed ${diffs.length === 1 ? "file" : "files"}` : "Review changes"}
-            </Text>
-            <Text numberOfLines={1} style={[styles.ribbonMeta, { color: theme.muted }]}>
-              {thread.featureBranch ?? thread.baseBranch ?? "Preparing branch"}
-            </Text>
-          </View>
+          <FileDiff color={theme.muted} size={14} />
+          <Text style={[styles.changeCount, { color: theme.ink }]}>
+            {diffs.length > 0 ? `${diffs.length} files` : "Changes"}
+          </Text>
           <Text style={[styles.diffStats, { color: theme.add }]}>+{diffs.reduce((sum, entry) => sum + entry.additions, 0)}</Text>
           <Text style={[styles.diffStats, { color: theme.delete }]}>−{diffs.reduce((sum, entry) => sum + entry.deletions, 0)}</Text>
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Open terminal"
-          onPress={() => navigation.navigate("Terminal", { projectId, threadId, title: thread.title })}
-          style={[styles.ribbonButton, { borderLeftColor: theme.line }]}
-        >
-          <TerminalSquare color={theme.muted} size={16} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Manage environment variables"
-          onPress={() => navigation.navigate("Environment", { projectId, title: project.repoName })}
-          style={[styles.ribbonButton, { borderLeftColor: theme.line }]}
-        >
-          <KeyRound color={theme.muted} size={16} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Refresh Git status"
-          onPress={() => void git.refetch()}
-          style={[styles.ribbonButton, { borderLeftColor: theme.line }]}
-        >
-          <RefreshCw color={theme.muted} size={16} />
         </Pressable>
       </View>
 
@@ -406,21 +415,66 @@ export function ThreadScreen({ navigation, route }: Props) {
           <Text style={[styles.emptyBody, { color: theme.muted }]}>
             Be specific about the outcome. The agent will inspect this repository, make the change, and return a reviewable diff.
           </Text>
+          <View style={styles.starters}>
+            {["Explain this codebase", "Fix failing checks", "Review the current branch"].map((starter) => (
+              <Pressable
+                key={starter}
+                onPress={() => {
+                  setPrompt(starter);
+                  setTimeout(() => promptRef.current?.focus(), 50);
+                }}
+                style={({ pressed }) => [
+                  styles.starter,
+                  {
+                    backgroundColor: pressed ? theme.accentSoft : theme.surface,
+                    borderColor: theme.line,
+                  },
+                ]}
+              >
+                <Text style={[styles.starterText, { color: theme.ink }]}>{starter}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
       ) : (
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(message) => message.messageId}
-          contentContainerStyle={styles.messages}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item, index }) => (
-            <MessageCard message={item} isLast={index === messages.length - 1} isLive={Boolean(thread.isLive)} />
-          )}
-        />
+        <View style={styles.feed}>
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={(message) => message.messageId}
+            contentContainerStyle={styles.messages}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => {
+              if (!awayFromLatest) listRef.current?.scrollToEnd({ animated: false });
+            }}
+            onMomentumScrollEnd={({ nativeEvent }) => updateLatestPosition(nativeEvent)}
+            onScrollEndDrag={({ nativeEvent }) => updateLatestPosition(nativeEvent)}
+            renderItem={renderMessage}
+          />
+          {awayFromLatest ? (
+            <Pressable
+              accessibilityLabel="Scroll to latest message"
+              onPress={() => {
+                listRef.current?.scrollToEnd({ animated: true });
+                setAwayFromLatest(false);
+              }}
+              style={[
+                styles.latestButton,
+                {
+                  backgroundColor: theme.surfaceRaised,
+                  borderColor: theme.line,
+                  boxShadow: "0 3px 8px rgba(0,0,0,0.12)",
+                },
+              ]}
+            >
+              <ArrowDown color={theme.ink} size={17} />
+            </Pressable>
+          ) : null}
+        </View>
       )}
 
-      <View style={[styles.composerWrap, { backgroundColor: theme.surface, borderTopColor: theme.line }]}>
+      <View style={[styles.composerWrap, { backgroundColor: theme.screen }]}>
         {pendingImage ? (
           <View style={styles.attachment}>
             <Image source={{ uri: pendingImage.uri }} style={styles.attachmentImage} />
@@ -433,62 +487,67 @@ export function ThreadScreen({ navigation, route }: Props) {
             </Pressable>
           </View>
         ) : null}
-        {showControls ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.controls}>
-            {(codex.data?.models ?? []).map((model) => (
-              <Pressable
-                key={model}
-                onPress={() => setSelectedModel(model)}
-                style={[
-                  styles.controlChip,
-                  {
-                    backgroundColor: selectedModel === model ? theme.accentSoft : theme.surfaceSoft,
-                    borderColor: selectedModel === model ? theme.accent : theme.line,
-                  },
-                ]}
-              >
-                <Text style={[styles.controlText, { color: selectedModel === model ? theme.accent : theme.muted }]}>{model}</Text>
-              </Pressable>
-            ))}
-            {["low", "medium", "high", "xhigh"].map((effort) => (
-              <Pressable
-                key={effort}
-                onPress={() => setReasoningEffort(effort)}
-                style={[
-                  styles.controlChip,
-                  {
-                    backgroundColor: reasoningEffort === effort ? theme.accentSoft : theme.surfaceSoft,
-                    borderColor: reasoningEffort === effort ? theme.accent : theme.line,
-                  },
-                ]}
-              >
-                <Text style={[styles.controlText, { color: reasoningEffort === effort ? theme.accent : theme.muted }]}>
-                  {effort}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+        {showControls && composerFocused ? (
+          <FlatList
+            horizontal
+            data={composerOptions}
+            keyExtractor={(option) => `${option.kind}:${option.value}`}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.controls}
+            renderItem={renderComposerOption}
+          />
         ) : null}
-        <View style={[styles.composer, { backgroundColor: theme.screen, borderColor: theme.line }]}>
+        <View
+          style={[
+            styles.composer,
+            composerFocused ? styles.composerExpanded : styles.composerCollapsed,
+            {
+              backgroundColor: theme.surfaceSoft,
+              borderColor: composerFocused ? theme.strongLine : theme.line,
+              boxShadow: "0 6px 14px rgba(0,0,0,0.12)",
+            },
+          ]}
+        >
           <TextInput
+            ref={promptRef}
             multiline
             value={prompt}
             onChangeText={setPrompt}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => {
+              setComposerFocused(false);
+              setShowControls(false);
+            }}
             editable={!running && canChat}
-            placeholder={canChat ? "Add a follow-up…" : codex.data?.connected === false ? "Connect Codex in Settings" : "Workspace unavailable"}
+            placeholder={canChat
+              ? messages.length > 0 ? "Add a follow-up…" : "Describe a task…"
+              : codex.data?.connected === false ? "Connect Codex in Settings" : "Workspace unavailable"}
             placeholderTextColor={theme.faint}
-            style={[styles.prompt, { color: theme.ink }]}
+            scrollEnabled={composerFocused}
+            style={[
+              styles.prompt,
+              composerFocused ? styles.promptExpanded : styles.promptCollapsed,
+              { color: theme.ink },
+            ]}
           />
-          <View style={styles.composerActions}>
-            <Pressable accessibilityLabel="Add image" disabled={running} onPress={() => void chooseImage()} style={styles.smallAction}>
-              <ImagePlus color={theme.muted} size={19} />
-            </Pressable>
-            <Pressable accessibilityLabel="Model and reasoning" onPress={() => setShowControls((value) => !value)} style={styles.modelButton}>
-              <Text numberOfLines={1} style={[styles.modelText, { color: theme.muted }]}>
-                {selectedModel?.replace(/^gpt-/, "") ?? "Model"} · {reasoningEffort}
-              </Text>
-              <ChevronDown color={theme.faint} size={13} />
-            </Pressable>
+          <View style={[styles.composerActions, !composerFocused && styles.composerActionsCollapsed]}>
+            {composerFocused ? (
+              <>
+                <Pressable accessibilityLabel="Add image" disabled={running} onPress={() => void chooseImage()} style={styles.smallAction}>
+                  <ImagePlus color={theme.muted} size={18} />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="Model and reasoning"
+                  onPress={() => setShowControls((value) => !value)}
+                  style={[styles.modelButton, { backgroundColor: theme.surface }]}
+                >
+                  <Text numberOfLines={1} style={[styles.modelText, { color: theme.muted }]}>
+                    {selectedModel?.replace(/^gpt-/, "") ?? "Model"} · {reasoningEffort}
+                  </Text>
+                  <ChevronDown color={theme.faint} size={13} />
+                </Pressable>
+              </>
+            ) : null}
             {running ? (
               <Pressable
                 accessibilityLabel="Stop agent"
@@ -510,7 +569,7 @@ export function ThreadScreen({ navigation, route }: Props) {
                   },
                 ]}
               >
-                <Send color={theme.accentInk} size={18} />
+                <ArrowUp color={theme.accentInk} size={19} strokeWidth={2.5} />
               </Pressable>
             )}
           </View>
@@ -572,55 +631,88 @@ export function ThreadScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  reviewRibbon: { minHeight: 59, borderBottomWidth: 1, flexDirection: "row" },
-  ribbonMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
-  ribbonCopy: { flex: 1, minWidth: 0 },
-  ribbonTitle: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  ribbonMeta: { fontFamily: "Inter_400Regular", fontSize: 10, marginTop: 4 },
-  diffStats: { fontFamily: "Inter_700Bold", fontSize: 11 },
-  ribbonButton: { width: 48, alignItems: "center", justifyContent: "center", borderLeftWidth: 1 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  headerButton: { width: 34, height: 36, alignItems: "center", justifyContent: "center" },
+  headerBadge: {
+    position: "absolute",
+    right: 1,
+    top: 1,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBadgeText: { fontFamily: "Inter_700Bold", fontSize: 8 },
+  threadContext: {
+    minHeight: 42,
+    borderBottomWidth: 1,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  contextBranch: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 10 },
+  contextStatus: { flexDirection: "row", alignItems: "center", gap: 5 },
+  contextDot: { width: 6, height: 6, borderRadius: 99 },
+  contextStatusText: { fontFamily: "Inter_500Medium", fontSize: 9 },
+  changeSummary: { minHeight: 30, borderRadius: 6, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", gap: 5 },
+  changeCount: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  diffStats: { fontFamily: "Inter_700Bold", fontSize: 9 },
   errorWrap: { paddingHorizontal: 12, paddingTop: 10 },
-  threadEmpty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
-  emptyBot: { width: 62, height: 62, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  emptyTitle: { fontFamily: "Inter_700Bold", fontSize: 20 },
+  threadEmpty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, paddingVertical: 20 },
+  emptyBot: { width: 52, height: 52, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 15 },
+  emptyTitle: { fontFamily: "Inter_600SemiBold", fontSize: 20, letterSpacing: -0.45 },
   emptyBody: { maxWidth: 330, fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 9 },
-  messages: { padding: 16, paddingBottom: 24 },
-  message: { marginBottom: 25 },
-  userMessage: { alignItems: "flex-end" },
-  messageHeading: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 9, alignSelf: "stretch" },
-  messageAvatar: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  you: { fontFamily: "Inter_700Bold", fontSize: 8 },
-  messageAuthor: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  partList: { width: "100%", gap: 8 },
-  messageText: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 22 },
-  userBubble: { alignSelf: "flex-end", maxWidth: "88%", borderRadius: 17, borderBottomRightRadius: 5, paddingHorizontal: 14, paddingVertical: 10 },
-  reasoning: { borderLeftWidth: 2, borderRadius: 10, padding: 11 },
-  reasoningHeading: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 5 },
-  reasoningLabel: { fontFamily: "Inter_700Bold", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.7 },
-  reasoningText: { fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 18 },
-  messageImage: { width: 210, height: 160, borderRadius: 14, alignSelf: "flex-end" },
-  tool: { minHeight: 54, borderWidth: 1, borderRadius: 13, padding: 10, flexDirection: "row", alignItems: "center", gap: 9 },
-  toolIcon: { width: 32, height: 32, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  toolCopy: { flex: 1, minWidth: 0 },
-  toolName: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  toolSummary: { fontFamily: "Inter_400Regular", fontSize: 10, lineHeight: 14, marginTop: 4 },
-  composerWrap: { borderTopWidth: 1, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 7 },
+  starters: { width: "100%", maxWidth: 340, gap: 7, marginTop: 21 },
+  starter: { minHeight: 44, borderRadius: 7, borderWidth: 1, paddingHorizontal: 13, justifyContent: "center" },
+  starterText: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  feed: { flex: 1 },
+  messages: { paddingHorizontal: 17, paddingTop: 20, paddingBottom: 28 },
+  latestButton: {
+    position: "absolute",
+    right: 16,
+    bottom: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  composerWrap: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 7 },
   attachment: { alignSelf: "flex-start", marginBottom: 7, marginLeft: 4 },
-  attachmentImage: { width: 58, height: 58, borderRadius: 11 },
+  attachmentImage: { width: 64, height: 64, borderRadius: 8 },
   removeAttachment: { position: "absolute", right: -5, top: -5, width: 22, height: 22, borderRadius: 999, alignItems: "center", justifyContent: "center" },
   controls: { gap: 7, paddingBottom: 8, paddingHorizontal: 3 },
-  controlChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+  controlChip: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 7 },
   controlText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
-  composer: { borderRadius: 16, borderWidth: 1, padding: 9 },
-  prompt: { minHeight: 42, maxHeight: 116, fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 20, paddingHorizontal: 3, paddingTop: 3 },
-  composerActions: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 5 },
+  composer: {
+    borderWidth: 1,
+  },
+  composerCollapsed: {
+    minHeight: 50,
+    borderRadius: 25,
+    paddingLeft: 16,
+    paddingRight: 6,
+    paddingVertical: 5,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  composerExpanded: { borderRadius: 12, padding: 10 },
+  prompt: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 21 },
+  promptCollapsed: { flex: 1, height: 38, paddingHorizontal: 0, paddingVertical: 8 },
+  promptExpanded: { minHeight: 76, maxHeight: 142, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
+  composerActions: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  composerActionsCollapsed: { marginTop: 0 },
   smallAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  modelButton: { flex: 1, flexDirection: "row", alignItems: "center", gap: 4 },
-  modelText: { maxWidth: 165, fontFamily: "Inter_600SemiBold", fontSize: 10 },
-  sendButton: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  gitBar: { minHeight: 39, flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5 },
+  modelButton: { flex: 1, minHeight: 34, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 4 },
+  modelText: { maxWidth: 175, fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  sendButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  gitBar: { minHeight: 35, flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5, paddingHorizontal: 2 },
   gitSummary: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 5 },
   gitText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 10, textTransform: "capitalize" },
-  gitAction: { minHeight: 30, borderRadius: 9, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
+  gitAction: { minHeight: 29, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
   gitActionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
 });

@@ -67,7 +67,7 @@ export function SignInScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 24, paddingBottom: 18 },
   top: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 12 },
-  mark: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  mark: { width: 42, height: 42, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   wordmark: { fontFamily: "Inter_700Bold", fontSize: 20, letterSpacing: -0.5 },
   hero: { flex: 1, justifyContent: "center", paddingBottom: 40 },
   eyebrow: {

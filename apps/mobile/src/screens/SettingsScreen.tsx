@@ -9,6 +9,8 @@ import {
   LogOut,
   MoonStar,
   ReceiptText,
+  Smartphone,
+  Sun,
   UserRound,
 } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
@@ -16,8 +18,9 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-nat
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, SectionLabel, StatusPill } from "../components/ui";
 import { mobileConfig } from "../config";
-import { useAppTheme } from "../hooks/useAppTheme";
+import { useAppTheme, useAppThemePreference } from "../hooks/useAppTheme";
 import { useWebQuery } from "../hooks/useWebQuery";
+import type { ThemePreference } from "../theme";
 
 type CodexStatus = {
   connected: boolean;
@@ -28,6 +31,7 @@ type CodexStatus = {
 
 export function SettingsScreen() {
   const theme = useAppTheme();
+  const { preference, setPreference } = useAppThemePreference();
   const { session, signOut } = useAuth();
   const userSettings = useQuery(api.userSettings.get, {});
   const costs = useQuery(api.sandboxCosts.summaryForCurrentUser, {});
@@ -112,6 +116,55 @@ export function SettingsScreen() {
         </View>
       </View>
 
+      <SectionLabel>Appearance</SectionLabel>
+      <View style={[styles.appearanceGroup, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+        <View style={styles.appearanceHeading}>
+          <View style={[styles.rowIcon, { backgroundColor: theme.surfaceSoft }]}>
+            <MoonStar color={theme.ink} size={18} />
+          </View>
+          <View style={styles.rowCopy}>
+            <Text style={[styles.rowTitle, { color: theme.ink }]}>Color mode</Text>
+            <Text style={[styles.rowBody, { color: theme.muted }]}>
+              Uses the same neutral and magenta palette as AutoPR web.
+            </Text>
+          </View>
+        </View>
+        <View style={[styles.themePicker, { backgroundColor: theme.surfaceSoft }]}>
+          {([
+            ["system", "System", Smartphone],
+            ["light", "Light", Sun],
+            ["dark", "Dark", MoonStar],
+          ] as const satisfies ReadonlyArray<readonly [ThemePreference, string, typeof Sun]>).map(
+            ([value, label, Icon]) => {
+              const selected = preference === value;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  key={value}
+                  onPress={() => void setPreference(value)}
+                  style={[
+                    styles.themeOption,
+                    selected && {
+                      backgroundColor: theme.surfaceRaised,
+                      borderColor: theme.line,
+                    },
+                  ]}
+                >
+                  <Icon color={selected ? theme.ink : theme.muted} size={14} />
+                  <Text style={[
+                    styles.themeOptionText,
+                    { color: selected ? theme.ink : theme.muted },
+                  ]}>
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            },
+          )}
+        </View>
+      </View>
+
       <SectionLabel>Experiments</SectionLabel>
       <View style={[styles.group, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <View style={styles.row}>
@@ -127,15 +180,6 @@ export function SettingsScreen() {
             onValueChange={(value) => void setLabs({ enabled: value })}
             trackColor={{ false: theme.strongLine, true: theme.accent }}
           />
-        </View>
-        <View style={[styles.row, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.line }]}>
-          <View style={[styles.rowIcon, { backgroundColor: theme.surfaceSoft }]}>
-            <MoonStar color={theme.ink} size={18} />
-          </View>
-          <View style={styles.rowCopy}>
-            <Text style={[styles.rowTitle, { color: theme.ink }]}>Appearance</Text>
-            <Text style={[styles.rowBody, { color: theme.muted }]}>Follows your device setting</Text>
-          </View>
         </View>
       </View>
 
@@ -155,17 +199,32 @@ export function SettingsScreen() {
 
 const styles = StyleSheet.create({
   content: { flexGrow: 1, padding: 16, paddingBottom: 36, gap: 12 },
-  profile: { borderWidth: 1, borderRadius: 17, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
-  avatar: { width: 48, height: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  profile: { borderWidth: 1, borderRadius: 10, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
+  avatar: { width: 48, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { fontFamily: "Inter_700Bold", fontSize: 15 },
   profileEmail: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 5 },
-  group: { borderWidth: 1, borderRadius: 17, overflow: "hidden", marginBottom: 10 },
+  group: { borderWidth: 1, borderRadius: 10, overflow: "hidden", marginBottom: 10 },
   row: { minHeight: 68, padding: 12, flexDirection: "row", alignItems: "center", gap: 11 },
-  rowIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  rowIcon: { width: 38, height: 38, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   rowCopy: { flex: 1, minWidth: 0 },
   rowTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   rowBody: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 5 },
-  signOut: { borderRadius: 15, borderWidth: 1, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 6 },
+  appearanceGroup: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 12, marginBottom: 10 },
+  appearanceHeading: { flexDirection: "row", alignItems: "center", gap: 11 },
+  themePicker: { borderRadius: 8, padding: 3, flexDirection: "row", gap: 3 },
+  themeOption: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "transparent",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  themeOptionText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
+  signOut: { borderRadius: 10, borderWidth: 1, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 6 },
   signOutText: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
 });

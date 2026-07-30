@@ -2,8 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 import { Check, CheckCheck, ChevronDown, ChevronRight, Copy, FileDiff, MessageSquarePlus } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
@@ -167,15 +167,31 @@ export function ChangesScreen({ navigation, route }: Props) {
     });
   }, [viewedKey]);
 
-  const updateViewed = (entryId: string) => {
-    setViewed((current) => {
-      const next = new Set(current);
-      if (next.has(entryId)) next.delete(entryId);
-      else next.add(entryId);
-      void AsyncStorage.setItem(viewedKey, JSON.stringify([...next]));
-      return next;
-    });
-  };
+  const updateViewed = useCallback((entryId: string) => {
+    const next = new Set(viewed);
+    if (next.has(entryId)) next.delete(entryId);
+    else next.add(entryId);
+    setViewed(next);
+    void AsyncStorage.setItem(viewedKey, JSON.stringify([...next]));
+  }, [viewed, viewedKey]);
+
+  const renderFileReview = useCallback(({ item: entry }: { item: DiffEntry }) => (
+    <FileReview
+      entry={entry}
+      viewed={viewed.has(entry.id)}
+      collapsed={collapsed.has(entry.id)}
+      selection={selection}
+      onViewed={() => updateViewed(entry.id)}
+      onCollapsed={() => setCollapsed((current) => {
+        const next = new Set(current);
+        if (next.has(entry.id)) next.delete(entry.id);
+        else next.add(entry.id);
+        return next;
+      })}
+      onSelect={(line) => setSelection((current) =>
+        current?.entry.id === entry.id && current.line.id === line.id ? null : { entry, line })}
+    />
+  ), [collapsed, selection, updateViewed, viewed]);
 
   const askAboutSelection = async () => {
     if (!selection) return;
@@ -253,26 +269,12 @@ export function ChangesScreen({ navigation, route }: Props) {
             : "Start a task in the conversation to create a reviewable diff."}
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.files}>
-          {entries.map((entry) => (
-            <FileReview
-              key={entry.id}
-              entry={entry}
-              viewed={viewed.has(entry.id)}
-              collapsed={collapsed.has(entry.id)}
-              selection={selection}
-              onViewed={() => updateViewed(entry.id)}
-              onCollapsed={() => setCollapsed((current) => {
-                const next = new Set(current);
-                if (next.has(entry.id)) next.delete(entry.id);
-                else next.add(entry.id);
-                return next;
-              })}
-              onSelect={(line) => setSelection((current) =>
-                current?.entry.id === entry.id && current.line.id === line.id ? null : { entry, line })}
-            />
-          ))}
-        </ScrollView>
+        <FlatList
+          data={entries}
+          keyExtractor={(entry) => entry.id}
+          contentContainerStyle={styles.files}
+          renderItem={renderFileReview}
+        />
       )}
 
       {selection ? (
@@ -312,7 +314,7 @@ const styles = StyleSheet.create({
   summaryButtonText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
   error: { padding: 12 },
   files: { padding: 10, paddingBottom: 100, gap: 10 },
-  file: { borderWidth: 1, borderRadius: 14, overflow: "hidden" },
+  file: { borderWidth: 1, borderRadius: 8, overflow: "hidden" },
   fileHeader: { minHeight: 58, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 7 },
   headerIcon: { width: 28, height: 36, alignItems: "center", justifyContent: "center" },
   fileCopy: { flex: 1, minWidth: 0 },

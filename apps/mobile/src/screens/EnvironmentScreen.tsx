@@ -133,15 +133,15 @@ export function EnvironmentScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   content: { flexGrow: 1, padding: 16, paddingBottom: 36, gap: 12 },
-  notice: { borderRadius: 14, padding: 13, flexDirection: "row", alignItems: "flex-start", gap: 9, marginBottom: 7 },
+  notice: { borderRadius: 8, padding: 13, flexDirection: "row", alignItems: "flex-start", gap: 9, marginBottom: 7 },
   noticeText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 18 },
-  form: { borderWidth: 1, borderRadius: 17, padding: 13, gap: 10, marginBottom: 12 },
+  form: { borderWidth: 1, borderRadius: 10, padding: 13, gap: 10, marginBottom: 12 },
   input: { height: 46, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 12 },
   valueRow: { height: 46, borderWidth: 1, borderRadius: 12, flexDirection: "row", alignItems: "center" },
   valueInput: { flex: 1, paddingHorizontal: 12, fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 12 },
   eye: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   empty: { minHeight: 250 },
-  list: { borderWidth: 1, borderRadius: 16, overflow: "hidden" },
+  list: { borderWidth: 1, borderRadius: 10, overflow: "hidden" },
   row: { minHeight: 66, padding: 12, flexDirection: "row", alignItems: "center", gap: 9 },
   rowCopy: { flex: 1 },
   name: { fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 12, fontWeight: "600" },

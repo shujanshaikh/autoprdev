@@ -173,11 +173,12 @@
   --project-muted: var(--framer-ink-muted);
   --project-selected: var(--framer-surface-2);
   --project-selected-strong: var(--framer-accent-blue);
-  --sidebar: var(--framer-surface-1);
+  /* Sidebar sits a step below the main surface so the two panes read apart. */
+  --sidebar: oklch(0.9560 0 0);
   --sidebar-foreground: var(--framer-ink);
-  --sidebar-accent: var(--framer-surface-2);
+  --sidebar-accent: oklch(0.9280 0 0);
   --sidebar-accent-foreground: var(--framer-ink);
-  --sidebar-border: var(--framer-hairline-soft);
+  --sidebar-border: oklch(0.9020 0 0);
 
   background: var(--project-bg);
   color: var(--foreground);
@@ -192,11 +193,11 @@
   --project-muted: var(--framer-ink-muted);
   --project-selected: var(--framer-surface-2);
   --project-selected-strong: var(--framer-accent-blue);
-  --sidebar: var(--framer-surface-1);
+  --sidebar: oklch(0.1560 0 0);
   --sidebar-foreground: var(--framer-ink);
-  --sidebar-accent: var(--framer-surface-2);
+  --sidebar-accent: oklch(0.2120 0 0);
   --sidebar-accent-foreground: var(--framer-ink);
-  --sidebar-border: var(--framer-hairline-soft);
+  --sidebar-border: oklch(0.2210 0 0);
 }
 
 .project-shell [data-slot="sidebar"],

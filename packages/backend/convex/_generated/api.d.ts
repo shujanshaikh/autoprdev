@@ -20,6 +20,7 @@ import type * as lib_gitWorkflow from "../lib/gitWorkflow.js";
 import type * as lib_github from "../lib/github.js";
 import type * as lib_githubPullRequest from "../lib/githubPullRequest.js";
 import type * as lib_github_oauth from "../lib/github_oauth.js";
+import type * as lib_sandboxCommandOutput from "../lib/sandboxCommandOutput.js";
 import type * as lib_threadWorktree from "../lib/threadWorktree.js";
 import type * as lib_userSettings from "../lib/userSettings.js";
 import type * as lib_uuid from "../lib/uuid.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   "lib/github": typeof lib_github;
   "lib/githubPullRequest": typeof lib_githubPullRequest;
   "lib/github_oauth": typeof lib_github_oauth;
+  "lib/sandboxCommandOutput": typeof lib_sandboxCommandOutput;
   "lib/threadWorktree": typeof lib_threadWorktree;
   "lib/userSettings": typeof lib_userSettings;
   "lib/uuid": typeof lib_uuid;

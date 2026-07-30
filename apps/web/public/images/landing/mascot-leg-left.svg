@@ -1,6 +1,6 @@
 <svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 30.2309 44.176" fill="none" xmlns="http://www.w3.org/2000/svg">
 <g id="Group 2">
-<ellipse id="Ellipse 2" cx="15.1155" cy="22.0881" rx="15.1154" ry="22.0879" fill="var(--fill-0, white)"/>
-<path id="Intersect" d="M12.5635 0.755729C18.4179 0.755847 23.1641 8.19391 23.1641 17.369C23.164 26.544 18.4178 33.9822 12.5635 33.9823C6.70918 33.9823 1.96306 26.544 1.96296 17.369C1.96296 8.19384 6.70912 0.755729 12.5635 0.755729Z" fill="var(--fill-0, black)"/>
+<ellipse id="Ellipse 2" cx="15.1155" cy="22.0881" rx="15.1154" ry="22.0879" fill="var(--fill-0, #ffeffd)"/>
+<path id="Intersect" d="M12.5635 0.755729C18.4179 0.755847 23.1641 8.19391 23.1641 17.369C23.164 26.544 18.4178 33.9822 12.5635 33.9823C6.70918 33.9823 1.96306 26.544 1.96296 17.369C1.96296 8.19384 6.70912 0.755729 12.5635 0.755729Z" fill="var(--fill-0, #2d062d)"/>
 </g>
 </svg>

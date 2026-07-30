@@ -52,13 +52,6 @@ const toneText: Record<StatusTone, string> = {
   danger: "text-[color:var(--framer-gradient-coral)]",
 };
 
-const toneDot: Record<StatusTone, string> = {
-  quiet: "bg-[color:color-mix(in_srgb,var(--framer-ink-muted)_60%,transparent)]",
-  info: "bg-[color:var(--framer-accent-blue)]",
-  attention: "bg-[color:var(--framer-gradient-orange)]",
-  danger: "bg-[color:var(--framer-gradient-coral)]",
-};
-
 const shellClassName =
   "hidden h-7 min-w-0 max-w-full items-center gap-2 rounded-[var(--radius-pill)] border border-transparent pl-2 pr-2 font-mono text-[11px] lg:inline-flex";
 
@@ -131,7 +124,10 @@ export function ThreadGitStatusIndicator({
       aria-label={`${description}. Refresh Git status.`}
       title={description}
     >
-      <span className={cn("size-1.5 shrink-0 rounded-full transition-colors", toneDot[tone])} aria-hidden />
+      <GitBranch
+        className={cn("size-3.5 shrink-0 transition-colors", toneText[tone])}
+        aria-hidden
+      />
       <span className="min-w-0 truncate font-medium text-foreground/85">{branch}</span>
 
       {hasCounts ? (

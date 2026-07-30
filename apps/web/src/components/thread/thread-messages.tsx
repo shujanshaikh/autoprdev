@@ -497,7 +497,7 @@ export function ThreadMessages({
 
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
-    <ConversationContent>
+    <ConversationContent className="pb-[10.5rem]">
     {keyedMessages.length === 0 && !showingInitialPromptHandoff ? (
       <ConversationEmptyState className="mx-auto max-w-[680px] items-start px-6 py-10 text-left sm:px-8" icon={<Bot className="size-6 text-muted-foreground" />}>
         <div className="max-w-xl">
@@ -884,7 +884,7 @@ export function ThreadMessages({
     <div className="h-8 shrink-0" />
     </ConversationContent>
     <ConversationMessageNavigation messages={userMessageNavigation} />
-    <ConversationScrollButton className="bottom-4" />
+    <ConversationScrollButton className="bottom-[11.5rem]" />
   </Conversation>
   );
 }

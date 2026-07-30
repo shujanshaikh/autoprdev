@@ -1602,13 +1602,13 @@ function ThreadChatRuntime({
       <div
         id="thread-chat-panel"
         className={cn(
-          "h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden transition-opacity duration-200 ease-out motion-reduce:transition-none",
-          diffPanelOpen ? "hidden lg:grid" : "grid",
+          "relative h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-200 ease-out motion-reduce:transition-none",
+          diffPanelOpen ? "hidden lg:flex" : "flex",
           showMaximizedDiffPanel && "lg:pointer-events-none lg:opacity-0",
         )}
         aria-hidden={showMaximizedDiffPanel || undefined}
       >
-        <div className="relative min-h-0 min-w-0 overflow-hidden">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           <ThreadMessages
             keyedMessages={keyedMessages}
             ready={ready}
@@ -1626,12 +1626,12 @@ function ThreadChatRuntime({
           />
         </div>
 
-        <div className="relative min-w-0 bg-background px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
-          <div className="mx-auto w-full min-w-0 max-w-[680px]">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 min-w-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-10 sm:px-8">
+          <div className="pointer-events-auto mx-auto w-full min-w-0 max-w-[680px]">
             <AgentRunIssuePanel issue={thread?.agentRunIssue ?? thread?.workflowIssue} />
             <PromptInputProvider>
               <PromptInput
-                className="min-w-0 max-w-full"
+                className="min-w-0 max-w-full border-[color:var(--project-line)] bg-[color:var(--project-panel-soft)] shadow-[0_18px_40px_-24px_rgb(0_0_0_/_0.75)] has-[[data-slot=input-group-control]:focus-visible]:border-[color:var(--project-strong-line)] has-[[data-slot=input-group-control]:focus-visible]:bg-[color:var(--project-panel-soft)] dark:bg-[color:var(--project-panel-soft)] dark:has-[[data-slot=input-group-control]:focus-visible]:bg-[color:var(--project-panel-soft)]"
                 accept="image/*"
                 clearOnSubmit="submit"
                 multiple

@@ -26,6 +26,7 @@ import { AddProjectScreen } from "./screens/AddProjectScreen";
 import { BranchesScreen } from "./screens/BranchesScreen";
 import { ChangesScreen } from "./screens/ChangesScreen";
 import { EnvironmentScreen } from "./screens/EnvironmentScreen";
+import { GitActionsScreen } from "./screens/GitActionsScreen";
 import { NewTaskScreen } from "./screens/NewTaskScreen";
 import { ProjectScreen } from "./screens/ProjectScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
@@ -159,6 +160,16 @@ function Navigator() {
               </Pressable>
             ),
           })}
+        />
+        <Stack.Screen
+          name="GitActions"
+          component={GitActionsScreen}
+          options={{
+            title: "Git actions",
+            presentation: Platform.OS === "ios" ? "formSheet" : "card",
+            sheetAllowedDetents: [0.7, 0.92],
+            sheetGrabberVisible: true,
+          }}
         />
         <Stack.Screen
           name="Terminal"

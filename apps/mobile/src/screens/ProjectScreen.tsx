@@ -7,7 +7,6 @@ import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import {
   Archive,
   ArrowUp,
-  Check,
   ChevronDown,
   ChevronRight,
   GitBranch,
@@ -28,6 +27,8 @@ import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, Vi
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GlassSurface } from "../components/GlassSurface";
+import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
+import { OpenAIIcon } from "../components/OpenAIIcon";
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton, SecondaryButton, StatusPill } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebQuery } from "../hooks/useWebQuery";
@@ -87,36 +88,6 @@ const PromptImageItem = memo(function PromptImageItem({
   );
 });
 
-const ModelOptionItem = memo(function ModelOptionItem({
-  model,
-  selected,
-  onSelect,
-}: {
-  model: string;
-  selected: boolean;
-  onSelect: (model: string) => void;
-}) {
-  const theme = useAppTheme();
-  const select = useCallback(() => onSelect(model), [model, onSelect]);
-  return (
-    <Pressable
-      onPress={select}
-      style={[
-        styles.optionChip,
-        {
-          backgroundColor: selected ? theme.accentSoft : theme.surfaceSoft,
-          borderColor: selected ? theme.accent : theme.line,
-        },
-      ]}
-    >
-      {selected ? <Check color={theme.accent} size={12} /> : null}
-      <Text style={[styles.optionText, { color: selected ? theme.ink : theme.muted }]}>
-        {formatCodexModelLabel(model)}
-      </Text>
-    </Pressable>
-  );
-});
-
 function relativeTime(timestamp: number) {
   const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
   if (minutes < 1) return "just now";
@@ -171,16 +142,9 @@ export function ProjectScreen({ navigation, route }: Props) {
   const removePromptImage = useCallback((imageId: string) => {
     setPendingImages((current) => current.filter((image) => image.id !== imageId));
   }, []);
-  const selectModel = useCallback((model: string) => setSelectedModelChoice(model), []);
   const renderPromptImage = useCallback(
     ({ item }: { item: PendingImage }) => <PromptImageItem image={item} onRemove={removePromptImage} />,
     [removePromptImage],
-  );
-  const renderModelOption = useCallback(
-    ({ item }: { item: string }) => (
-      <ModelOptionItem model={item} selected={item === selectedModel} onSelect={selectModel} />
-    ),
-    [selectModel, selectedModel],
   );
 
   useEffect(() => {
@@ -431,6 +395,7 @@ export function ProjectScreen({ navigation, route }: Props) {
                 onPress={() => setShowPromptControls((value) => !value)}
                 style={styles.promptSelector}
               >
+                <OpenAIIcon size={16} />
                 <Text numberOfLines={1} style={[styles.promptSelectorText, { color: theme.muted }]}>
                   {formatCodexModelLabel(selectedModel)} · {formatReasoningEffort(reasoningEffort)}
                 </Text>
@@ -452,35 +417,6 @@ export function ProjectScreen({ navigation, route }: Props) {
               </Pressable>
             </View>
           </GlassSurface>
-
-          {showPromptControls ? (
-            <View style={[styles.promptControls, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-              <Text style={[styles.controlLabel, { color: theme.faint }]}>MODEL</Text>
-              <FlatList
-                horizontal
-                data={modelOptions}
-                keyExtractor={(model) => model}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.controlRow}
-                renderItem={renderModelOption}
-              />
-              <Text style={[styles.controlLabel, { color: theme.faint }]}>REASONING</Text>
-              <View style={styles.controlRow}>
-                {reasoningOptions.map((effort) => {
-                  const selected = effort === reasoningEffort;
-                  return (
-                    <Pressable
-                      key={effort}
-                      onPress={() => setReasoningEffort(effort)}
-                      style={[styles.optionChip, { backgroundColor: selected ? theme.accentSoft : theme.surfaceSoft, borderColor: selected ? theme.accent : theme.line }]}
-                    >
-                      <Text style={[styles.optionText, { color: selected ? theme.ink : theme.muted }]}>{formatReasoningEffort(effort)}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          ) : null}
 
           <View style={styles.taskOptions}>
             <Pressable
@@ -662,6 +598,16 @@ export function ProjectScreen({ navigation, route }: Props) {
           )}
         />
       </ScrollView>
+      <ModelReasoningSheet
+        visible={showPromptControls}
+        models={modelOptions}
+        selectedModel={selectedModel}
+        reasoningEfforts={reasoningOptions}
+        selectedReasoningEffort={reasoningEffort}
+        onSelectModel={setSelectedModelChoice}
+        onSelectReasoningEffort={setReasoningEffort}
+        onClose={() => setShowPromptControls(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -694,11 +640,6 @@ const styles = StyleSheet.create({
   promptSelector: { flex: 1, minWidth: 0, minHeight: 34, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", gap: 4 },
   promptSelectorText: { flexShrink: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
   promptSend: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  promptControls: { width: "100%", marginTop: 9, borderWidth: 1, borderRadius: 12, padding: 11, gap: 8 },
-  controlLabel: { fontFamily: "Inter_700Bold", fontSize: 8, letterSpacing: 1.1 },
-  controlRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  optionChip: { minHeight: 31, borderWidth: 1, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
-  optionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
   taskOptions: { width: "100%", marginTop: 9, flexDirection: "row", justifyContent: "flex-end", gap: 6 },
   taskOption: { minHeight: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
   taskOptionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },

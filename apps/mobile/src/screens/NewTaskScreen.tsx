@@ -1,7 +1,9 @@
 import { api } from "@autopr/backend/convex/_generated/api";
+import type { Doc } from "@autopr/backend/convex/_generated/dataModel";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "convex/react";
 import { ChevronRight, FolderGit2, Plus } from "lucide-react-native";
+import { memo, useCallback } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -11,9 +13,66 @@ import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "NewTask">;
 
+const projectKey = (project: Doc<"projects">) => project.projectId;
+
+const ProjectChoiceRow = memo(function ProjectChoiceRow({
+  project,
+  onOpen,
+}: {
+  project: Doc<"projects">;
+  onOpen: (projectId: string, title: string) => void;
+}) {
+  const theme = useAppTheme();
+  const ready = project.sandboxStatus === "ready";
+  const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch;
+  const open = useCallback(
+    () => onOpen(project.projectId, project.repoName),
+    [onOpen, project.projectId, project.repoName],
+  );
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={!ready}
+      onPress={open}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
+          borderColor: theme.line,
+          opacity: ready ? 1 : 0.58,
+        },
+      ]}
+    >
+      <View style={[styles.icon, { backgroundColor: theme.accentSoft }]}>
+        <FolderGit2 color={theme.accent} size={20} />
+      </View>
+      <View style={styles.copy}>
+        <Text numberOfLines={1} style={[styles.repo, { color: theme.ink }]}>
+          {project.repoFullName}
+        </Text>
+        <Text numberOfLines={1} style={[styles.branch, { color: theme.muted }]}>
+          {branch ?? "Default branch"}
+        </Text>
+      </View>
+      <StatusPill
+        label={ready ? "Ready" : project.sandboxStatus}
+        tone={ready ? "success" : project.sandboxStatus === "failed" ? "danger" : "warning"}
+      />
+      <ChevronRight color={theme.faint} size={17} />
+    </Pressable>
+  );
+});
+
 export function NewTaskScreen({ navigation }: Props) {
   const theme = useAppTheme();
   const projects = useQuery(api.projects.list, {});
+  const openProject = useCallback((projectId: string, title: string) => {
+    navigation.replace("Project", { projectId, title, focusComposer: true });
+  }, [navigation]);
+  const renderProject = useCallback(
+    ({ item }: { item: Doc<"projects"> }) => <ProjectChoiceRow project={item} onOpen={openProject} />,
+    [openProject],
+  );
 
   if (projects === undefined) return <LoadingState label="Loading projects…" />;
 
@@ -35,48 +94,9 @@ export function NewTaskScreen({ navigation }: Props) {
       ) : (
         <FlatList
           data={projects}
-          keyExtractor={(project) => project.projectId}
+          keyExtractor={projectKey}
           contentContainerStyle={styles.list}
-          renderItem={({ item: project }) => {
-            const ready = project.sandboxStatus === "ready";
-            const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch;
-            return (
-              <Pressable
-                accessibilityRole="button"
-                disabled={!ready}
-                onPress={() => navigation.replace("Project", {
-                  projectId: project.projectId,
-                  title: project.repoName,
-                  focusComposer: true,
-                })}
-                style={({ pressed }) => [
-                  styles.row,
-                  {
-                    backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
-                    borderColor: theme.line,
-                    opacity: ready ? 1 : 0.58,
-                  },
-                ]}
-              >
-                <View style={[styles.icon, { backgroundColor: theme.accentSoft }]}>
-                  <FolderGit2 color={theme.accent} size={20} />
-                </View>
-                <View style={styles.copy}>
-                  <Text numberOfLines={1} style={[styles.repo, { color: theme.ink }]}>
-                    {project.repoFullName}
-                  </Text>
-                  <Text numberOfLines={1} style={[styles.branch, { color: theme.muted }]}>
-                    {branch ?? "Default branch"}
-                  </Text>
-                </View>
-                <StatusPill
-                  label={ready ? "Ready" : project.sandboxStatus}
-                  tone={ready ? "success" : project.sandboxStatus === "failed" ? "danger" : "warning"}
-                />
-                <ChevronRight color={theme.faint} size={17} />
-              </Pressable>
-            );
-          }}
+          renderItem={renderProject}
         />
       )}
       <Pressable

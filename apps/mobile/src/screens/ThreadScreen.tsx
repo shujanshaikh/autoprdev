@@ -17,11 +17,10 @@ import {
   FileDiff,
   GitBranch,
   GitCommitHorizontal,
-  GitPullRequest,
   ImagePlus,
   MessageSquare,
   MoreHorizontal,
-  TerminalSquare,
+  SlidersHorizontal,
   X,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -29,7 +28,6 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -42,11 +40,13 @@ import { webRequest } from "../api/web";
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { GlassSurface } from "../components/GlassSurface";
+import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
+import { OpenAIIcon } from "../components/OpenAIIcon";
 import { ThreadMessage } from "../components/thread/ThreadMessage";
 import { mobileConfig } from "../config";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadData } from "../hooks/useThreadData";
-import { useWebMutation, useWebQuery } from "../hooks/useWebQuery";
+import { useWebQuery } from "../hooks/useWebQuery";
 import { extractDiffEntries } from "../lib/diff";
 import { consumeAgentRunStream } from "../lib/agentStream";
 import { consumeInitialThreadSubmit } from "../lib/initialThreadSubmit";
@@ -88,12 +88,6 @@ type PendingImage = {
   uri: string;
   fileName: string;
   mediaType: string;
-};
-
-type ComposerOption = {
-  kind: "model" | "effort";
-  value: string;
-  label: string;
 };
 
 type OptimisticMessage = {
@@ -239,10 +233,6 @@ export function ThreadScreen({ navigation, route }: Props) {
   const running = Boolean(thread?.isLive || sending || streamStatus !== "idle");
   const diffDraftKey = `autopr.mobile.diff-draft:${threadId}`;
   const composerDraftKey = `autopr.mobile.composer-draft:${threadId}`;
-  const composerOptions = useMemo<ComposerOption[]>(() => [
-    ...modelOptions.map((value) => ({ kind: "model" as const, value, label: formatCodexModelLabel(value) })),
-    ...reasoningOptions.map((value) => ({ kind: "effort" as const, value, label: formatReasoningEffort(value) })),
-  ], [modelOptions, reasoningOptions]);
   const composerAttachments = useMemo<ComposerAttachment[]>(() => [
     ...pendingImages.map((image) => ({
       key: `pending:${image.id}`,
@@ -299,31 +289,6 @@ export function ThreadScreen({ navigation, route }: Props) {
       - nativeEvent.contentOffset.y;
     setAwayFromLatest(distance > 120);
   }, []);
-
-  const renderComposerOption = useCallback(({ item: option }: { item: ComposerOption }) => {
-    const selected = option.kind === "model"
-      ? selectedModel === option.value
-      : reasoningEffort === option.value;
-    return (
-      <Pressable
-        onPress={() => {
-          if (option.kind === "model") setSelectedModelChoice(option.value);
-          else if (isCodexReasoningEffortForModel(selectedModel, option.value)) setReasoningEffort(option.value);
-        }}
-        style={[
-          styles.controlChip,
-          {
-            backgroundColor: selected ? theme.accentSoft : theme.surfaceSoft,
-            borderColor: selected ? theme.accent : theme.line,
-          },
-        ]}
-      >
-        <Text style={[styles.controlText, { color: selected ? theme.secondary : theme.muted }]}>
-          {option.label}
-        </Text>
-      </Pressable>
-    );
-  }, [reasoningEffort, selectedModel, theme]);
 
   useEffect(() => {
     if (!isCodexReasoningEffortForModel(selectedModel, reasoningEffort)) {
@@ -394,11 +359,11 @@ export function ThreadScreen({ navigation, route }: Props) {
             ) : null}
           </Pressable>
           <Pressable
-            accessibilityLabel="Open terminal"
-            onPress={() => navigation.navigate("Terminal", { projectId, threadId, title: thread?.title })}
+            accessibilityLabel="Git actions"
+            onPress={() => navigation.navigate("GitActions", { projectId, threadId, title: thread?.title })}
             style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
           >
-            <TerminalSquare color={theme.ink} size={18} />
+            <GitCommitHorizontal color={theme.ink} size={18} />
           </Pressable>
           <Pressable
             accessibilityLabel="More conversation actions"
@@ -406,6 +371,10 @@ export function ThreadScreen({ navigation, route }: Props) {
               {
                 text: "Environment variables",
                 onPress: () => navigation.navigate("Environment", { projectId, title: project?.repoName }),
+              },
+              {
+                text: "Terminal",
+                onPress: () => navigation.navigate("Terminal", { projectId, threadId, title: thread?.title }),
               },
               { text: "Refresh Git status", onPress: () => void refetchGit() },
               { text: "Cancel", style: "cancel" },
@@ -418,16 +387,6 @@ export function ThreadScreen({ navigation, route }: Props) {
       ),
     });
   }, [diffs.length, navigation, project?.repoName, projectId, refetchGit, route.params.title, theme, thread?.title, threadId]);
-
-  const gitAction = useWebMutation(
-    async (action: "commit" | "push" | "create_pr" | "commit_push" | "push_create_pr" | "commit_push_create_pr" | "pull", token) =>
-      await webRequest<Record<string, unknown>>(
-        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`,
-        token,
-        { method: "POST", body: JSON.stringify({ action }) },
-      ),
-    { onSuccess: () => void refetchGit() },
-  );
 
   const authenticatedWebFetch = useCallback(async (path: string, init: RequestInit) => {
     const execute = async (token: string) => {
@@ -691,12 +650,6 @@ export function ThreadScreen({ navigation, route }: Props) {
 
   const canChat = project.sandboxStatus === "ready" && codex.data?.connected;
   const gitStatus = git.data?.status ?? thread.gitStatus;
-  const gitActionsDisabled = gitAction.isPending
-    || running
-    || Boolean(gitStatus?.detachedHead)
-    || Boolean(gitStatus?.diverged)
-    || Boolean((gitStatus?.behindCount ?? 0) > 0 && gitStatus?.hasWorkingTreeChanges);
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -758,7 +711,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         </Pressable>
       </View>
 
-      {(hydrationError || sendError || thread.agentRunIssue?.message || thread.workflowIssue?.message || git.error || gitAction.error) ? (
+      {(hydrationError || sendError || thread.agentRunIssue?.message || thread.workflowIssue?.message || git.error) ? (
         <View style={styles.errorWrap}>
           <ErrorNotice message={
             hydrationError
@@ -766,7 +719,6 @@ export function ThreadScreen({ navigation, route }: Props) {
               ?? thread.agentRunIssue?.message
               ?? thread.workflowIssue?.message
               ?? git.error?.message
-              ?? gitAction.error?.message
               ?? "Something went wrong."
           } />
         </View>
@@ -851,16 +803,6 @@ export function ThreadScreen({ navigation, route }: Props) {
             contentContainerStyle={styles.attachments}
           />
         ) : null}
-        {showControls && composerFocused ? (
-          <FlatList
-            horizontal
-            data={composerOptions}
-            keyExtractor={(option) => `${option.kind}:${option.value}`}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.controls}
-            renderItem={renderComposerOption}
-          />
-        ) : null}
         <GlassSurface
           interactive
           radius={composerFocused ? 16 : 28}
@@ -876,10 +818,7 @@ export function ThreadScreen({ navigation, route }: Props) {
             value={prompt}
             onChangeText={setPrompt}
             onFocus={() => setComposerFocused(true)}
-            onBlur={() => {
-              setComposerFocused(false);
-              setShowControls(false);
-            }}
+            onBlur={() => setComposerFocused(false)}
             editable={!running && canChat}
             placeholder={canChat
               ? messages.length > 0 ? "Add a follow-up…" : "Describe a task…"
@@ -899,14 +838,25 @@ export function ThreadScreen({ navigation, route }: Props) {
                   <ImagePlus color={theme.muted} size={18} />
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="Model and reasoning"
-                  onPress={() => setShowControls((value) => !value)}
+                  accessibilityLabel="Select model"
+                  onPress={() => setShowControls(true)}
                   style={[styles.modelButton, { backgroundColor: theme.surface }]}
                 >
+                  <OpenAIIcon size={15} />
                   <Text numberOfLines={1} style={[styles.modelText, { color: theme.muted }]}>
-                    {formatCodexModelLabel(selectedModel)} · {formatReasoningEffort(reasoningEffort)}
+                    {formatCodexModelLabel(selectedModel)}
                   </Text>
                   <ChevronDown color={theme.faint} size={13} />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="Select reasoning effort"
+                  onPress={() => setShowControls(true)}
+                  style={[styles.reasoningButton, { backgroundColor: theme.surface }]}
+                >
+                  <SlidersHorizontal color={theme.muted} size={14} />
+                  <Text numberOfLines={1} style={[styles.reasoningText, { color: theme.muted }]}>
+                    {formatReasoningEffort(reasoningEffort)}
+                  </Text>
                 </Pressable>
               </>
             ) : null}
@@ -982,58 +932,19 @@ export function ThreadScreen({ navigation, route }: Props) {
                 {gitStatus.aheadCount ? ` · ${gitStatus.aheadCount} ahead` : ""}
               </Text>
             </View>
-            {gitStatus.hasWorkingTreeChanges ? (
-              <Pressable
-                disabled={gitActionsDisabled}
-                onPress={() => gitAction.mutate(gitStatus.pullRequest ? "commit_push" : "commit_push_create_pr")}
-                style={[styles.gitAction, { backgroundColor: theme.surfaceSoft }]}
-              >
-                <Text style={[styles.gitActionText, { color: theme.ink }]}>
-                  {gitStatus.pullRequest ? "Commit + push" : "Commit, push + PR"}
-                </Text>
-              </Pressable>
-            ) : null}
-            {gitStatus.aheadCount && !gitStatus.pullRequest ? (
-              <Pressable
-                disabled={gitActionsDisabled}
-                onPress={() => gitAction.mutate("push_create_pr")}
-                style={[styles.gitAction, { backgroundColor: theme.accentSoft }]}
-              >
-                <GitPullRequest color={theme.accent} size={14} />
-                <Text style={[styles.gitActionText, { color: theme.accent }]}>Open PR</Text>
-              </Pressable>
-            ) : null}
-            {!gitStatus.hasWorkingTreeChanges && !gitStatus.aheadCount && (gitStatus.behindCount ?? 0) > 0 ? (
-              <Pressable
-                disabled={gitActionsDisabled}
-                onPress={() => gitAction.mutate("pull")}
-                style={[styles.gitAction, { backgroundColor: theme.surfaceSoft }]}
-              >
-                <Text style={[styles.gitActionText, { color: theme.ink }]}>Update branch</Text>
-              </Pressable>
-            ) : null}
-            {!gitStatus.hasWorkingTreeChanges
-              && !gitStatus.aheadCount
-              && !gitStatus.pullRequest
-              && (gitStatus.aheadOfBaseCount ?? 0) > 0 ? (
-                <Pressable
-                  disabled={gitActionsDisabled}
-                  onPress={() => gitAction.mutate("create_pr")}
-                  style={[styles.gitAction, { backgroundColor: theme.accentSoft }]}
-                >
-                  <GitPullRequest color={theme.accent} size={14} />
-                  <Text style={[styles.gitActionText, { color: theme.ink }]}>Create PR</Text>
-                </Pressable>
-              ) : null}
-            {gitStatus.pullRequest?.url ? (
-              <Pressable
-                onPress={() => void Linking.openURL(gitStatus.pullRequest?.url ?? "")}
-                style={[styles.gitAction, { backgroundColor: theme.accentSoft }]}
-              >
-                <GitPullRequest color={theme.accent} size={14} />
-                <Text style={[styles.gitActionText, { color: theme.ink }]}>PR #{gitStatus.pullRequest.number}</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              accessibilityLabel="Open Git actions"
+              disabled={running}
+              onPress={() => navigation.navigate("GitActions", { projectId, threadId, title: thread.title })}
+              style={[styles.gitAction, { backgroundColor: theme.accentSoft, opacity: running ? 0.45 : 1 }]}
+            >
+              <Text style={[styles.gitActionText, { color: theme.ink }]}>
+                {gitStatus.hasWorkingTreeChanges
+                  ? "Commit"
+                  : gitStatus.pullRequest ? `PR #${gitStatus.pullRequest.number}` : "Git actions"}
+              </Text>
+              <ChevronDown color={theme.faint} size={12} />
+            </Pressable>
             {!running ? (
               <Pressable
                 accessibilityLabel={thread.settledOverride === "settled" ? "Restore conversation" : "Archive conversation"}
@@ -1056,6 +967,16 @@ export function ThreadScreen({ navigation, route }: Props) {
           </View>
         ) : null}
       </View>
+      <ModelReasoningSheet
+        visible={showControls}
+        models={modelOptions}
+        selectedModel={selectedModel}
+        reasoningEfforts={reasoningOptions}
+        selectedReasoningEffort={reasoningEffort}
+        onSelectModel={setSelectedModelChoice}
+        onSelectReasoningEffort={setReasoningEffort}
+        onClose={() => setShowControls(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1123,9 +1044,6 @@ const styles = StyleSheet.create({
   attachment: { marginRight: 2 },
   attachmentImage: { width: 64, height: 64, borderRadius: 8 },
   removeAttachment: { position: "absolute", right: -5, top: -5, width: 22, height: 22, borderRadius: 999, alignItems: "center", justifyContent: "center" },
-  controls: { gap: 7, paddingBottom: 8, paddingHorizontal: 3 },
-  controlChip: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 7 },
-  controlText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
   composer: {
     borderWidth: 1,
   },
@@ -1148,8 +1066,10 @@ const styles = StyleSheet.create({
   connectionDot: { width: 6, height: 6, borderRadius: 3 },
   connectionText: { fontFamily: "Inter_500Medium", fontSize: 9 },
   smallAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  modelButton: { flex: 1, minHeight: 34, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 4 },
-  modelText: { maxWidth: 175, fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  modelButton: { flex: 1, minWidth: 0, minHeight: 34, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 6 },
+  modelText: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  reasoningButton: { minHeight: 34, maxWidth: 105, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
+  reasoningText: { flexShrink: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
   sendButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   gitBar: { minHeight: 35, flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5, paddingHorizontal: 2 },
   gitOperation: { minHeight: 35, marginTop: 6, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8 },

@@ -13,9 +13,10 @@ import {
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
-import { GitPullRequest } from "lucide-react-native";
+import { GitPullRequest, X } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, StatusBar, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
@@ -25,6 +26,7 @@ import { AddProjectScreen } from "./screens/AddProjectScreen";
 import { BranchesScreen } from "./screens/BranchesScreen";
 import { ChangesScreen } from "./screens/ChangesScreen";
 import { EnvironmentScreen } from "./screens/EnvironmentScreen";
+import { NewTaskScreen } from "./screens/NewTaskScreen";
 import { ProjectScreen } from "./screens/ProjectScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
@@ -109,7 +111,7 @@ function Navigator() {
     <NavigationContainer theme={navigationTheme}>
       <Stack.Navigator
         screenOptions={{
-          headerBackTitle: "",
+          headerBackButtonDisplayMode: "minimal",
           headerShadowVisible: false,
           headerStyle: { backgroundColor: theme.surface },
           headerTintColor: theme.ink,
@@ -121,6 +123,16 @@ function Navigator() {
         }}
       >
         <Stack.Screen name="Projects" component={ProjectsScreen} options={{ headerShown: false }} />
+        <Stack.Screen
+          name="NewTask"
+          component={NewTaskScreen}
+          options={{
+            title: "New task",
+            presentation: Platform.OS === "ios" ? "formSheet" : "card",
+            sheetAllowedDetents: [0.55, 0.92],
+            sheetGrabberVisible: true,
+          }}
+        />
         <Stack.Screen
           name="Project"
           component={ProjectScreen}
@@ -134,7 +146,19 @@ function Navigator() {
         <Stack.Screen
           name="Changes"
           component={ChangesScreen}
-          options={{ title: "Changes", presentation: "fullScreenModal" }}
+          options={({ navigation }) => ({
+            title: "Changes",
+            presentation: "fullScreenModal",
+            headerLeft: () => (
+              <Pressable
+                accessibilityLabel="Close changes"
+                onPress={() => navigation.goBack()}
+                style={({ pressed }) => [styles.closeButton, { opacity: pressed ? 0.55 : 1 }]}
+              >
+                <X color={theme.ink} size={20} />
+              </Pressable>
+            ),
+          })}
         />
         <Stack.Screen
           name="Terminal"
@@ -251,13 +275,17 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AppThemeProvider>
-      <AppContent />
-    </AppThemeProvider>
+    <GestureHandlerRootView style={styles.app}>
+      <AppThemeProvider>
+        <AppContent />
+      </AppThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  app: { flex: 1 },
+  closeButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30 },
   configMark: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: 15 },
   configTitle: { fontFamily: "Inter_700Bold", fontSize: 20, textAlign: "center" },

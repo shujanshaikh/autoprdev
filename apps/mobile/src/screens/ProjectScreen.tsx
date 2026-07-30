@@ -23,7 +23,7 @@ import {
   Video,
   X,
 } from "lucide-react-native";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -156,6 +156,8 @@ export function ProjectScreen({ navigation, route }: Props) {
   const [workspaceMode, setWorkspaceMode] = useState<"checkout" | "worktree">("checkout");
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [showPromptControls, setShowPromptControls] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const promptRef = useRef<TextInput>(null);
 
   const selectedModel = useMemo(
     () => selectCodexModel(codex.data?.models, selectedModelChoice),
@@ -190,6 +192,16 @@ export function ProjectScreen({ navigation, route }: Props) {
       setReasoningEffort(getCodexReasoningEfforts(selectedModel)[0] ?? DEFAULT_CODEX_REASONING_EFFORT);
     }
   }, [reasoningEffort, selectedModel]);
+
+  useEffect(() => {
+    if (!route.params.focusComposer || project === undefined) return;
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: 185, animated: true });
+      promptRef.current?.focus();
+      navigation.setParams({ focusComposer: undefined });
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [navigation, project, route.params.focusComposer]);
 
   const filteredThreads = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -322,7 +334,7 @@ export function ProjectScreen({ navigation, route }: Props) {
         : `Ask ${project.repoName || "the agent"} anything…`;
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={[styles.repoCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
           <View style={styles.repoTop}>
             <View style={[styles.repoMark, { backgroundColor: theme.accentSoft }]}>
@@ -395,6 +407,7 @@ export function ProjectScreen({ navigation, route }: Props) {
               />
             ) : null}
             <TextInput
+              ref={promptRef}
               accessibilityLabel="Task prompt"
               editable={!creating && promptReady}
               multiline

@@ -19,6 +19,7 @@ const requestSchema = z.discriminatedUnion("action", [
     action: z.literal("start"),
     redirectUri: redirectUriSchema,
     screenHint: z.enum(["sign-in", "sign-up"]).optional(),
+    provider: z.enum(["authkit", "google"]).optional(),
   }),
   z.object({
     action: z.literal("exchange"),
@@ -71,9 +72,11 @@ async function POST({ request }: { request: Request }) {
     if (parsed.data.action === "start") {
       const authorization = await workos.userManagement.getAuthorizationUrlWithPKCE({
         clientId,
-        provider: "authkit",
+        provider: parsed.data.provider === "google" ? "GoogleOAuth" : "authkit",
         redirectUri: parsed.data.redirectUri,
-        screenHint: parsed.data.screenHint,
+        ...(parsed.data.provider === "google"
+          ? {}
+          : { screenHint: parsed.data.screenHint }),
       });
       return Response.json(authorization, {
         headers: { "Cache-Control": "private, no-store" },

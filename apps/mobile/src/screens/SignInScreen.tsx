@@ -1,21 +1,23 @@
-import { GitPullRequest, ShieldCheck, Sparkles } from "lucide-react-native";
+import { GitPullRequest } from "lucide-react-native";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "../auth/AuthProvider";
-import { ErrorNotice, PrimaryButton, SecondaryButton } from "../components/ui";
+import { ErrorNotice } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 
 export function SignInScreen() {
   const theme = useAppTheme();
   const { signIn, authError } = useAuth();
-  const [mode, setMode] = useState<"sign-in" | "sign-up" | null>(null);
+  const [mode, setMode] = useState<"google" | "sign-in" | "sign-up" | null>(null);
 
-  const authenticate = async (nextMode: "sign-in" | "sign-up") => {
+  const authenticate = async (nextMode: "google" | "sign-in" | "sign-up") => {
     setMode(nextMode);
     try {
-      await signIn(nextMode);
+      await signIn(nextMode === "google"
+        ? { provider: "google" }
+        : { provider: "authkit", screenHint: nextMode });
     } finally {
       setMode(null);
     }
@@ -23,41 +25,81 @@ export function SignInScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.screen }]}>
-      <View style={styles.top}>
-        <View style={[styles.mark, { backgroundColor: theme.accent }]}>
-          <GitPullRequest color={theme.accentInk} size={26} strokeWidth={2.4} />
+      <View style={styles.content}>
+        <View style={styles.brand}>
+          <View style={[styles.mark, { backgroundColor: theme.accent }]}>
+            <GitPullRequest color={theme.accentInk} size={25} strokeWidth={2.4} />
+          </View>
+          <Text style={[styles.wordmark, { color: theme.ink }]}>AutoPR</Text>
         </View>
-        <Text style={[styles.wordmark, { color: theme.ink }]}>AutoPR</Text>
-      </View>
-
-      <View style={styles.hero}>
-        <View style={[styles.eyebrow, { backgroundColor: theme.accentSoft }]}>
-          <Sparkles color={theme.accent} size={13} />
-          <Text style={[styles.eyebrowText, { color: theme.accent }]}>YOUR AGENTS, IN YOUR POCKET</Text>
-        </View>
-        <Text style={[styles.title, { color: theme.ink }]}>Review the work.{`\n`}Ship the change.</Text>
+        <Text style={[styles.title, { color: theme.ink }]}>Sign in to AutoPR</Text>
         <Text style={[styles.body, { color: theme.muted }]}>
-          Start coding tasks, follow live progress, inspect every diff, and open pull requests from mobile.
+          Continue to your projects, conversations, and live agent work.
         </Text>
-      </View>
 
-      <View style={styles.actions}>
-        {authError ? <ErrorNotice message={authError} /> : null}
-        <PrimaryButton
-          label="Sign in with AuthKit"
-          loading={mode === "sign-in"}
-          onPress={() => void authenticate("sign-in")}
-        />
-        <SecondaryButton
-          label="Create an account"
-          disabled={mode !== null}
-          onPress={() => void authenticate("sign-up")}
-        />
-        <View style={styles.security}>
-          <ShieldCheck color={theme.faint} size={14} />
-          <Text style={[styles.securityText, { color: theme.faint }]}>
-            Tokens stay in your device keychain. Authentication is handled by your AutoPR web backend.
-          </Text>
+        <View style={styles.actions}>
+          {authError ? <ErrorNotice message={authError} /> : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={mode !== null}
+            onPress={() => void authenticate("google")}
+            style={({ pressed }) => [
+              styles.googleButton,
+              {
+                backgroundColor: theme.ink,
+                opacity: mode !== null ? 0.5 : pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            {mode === "google" ? (
+              <ActivityIndicator color={theme.screen} size="small" />
+            ) : (
+              <>
+                <View style={[styles.googleMark, { backgroundColor: theme.surfaceRaised }]}>
+                  <Text style={styles.googleLetter}>G</Text>
+                </View>
+                <Text style={[styles.googleText, { color: theme.screen }]}>Continue with Google</Text>
+              </>
+            )}
+          </Pressable>
+
+          <View style={styles.divider}>
+            <View style={[styles.dividerLine, { backgroundColor: theme.line }]} />
+            <Text style={[styles.dividerText, { color: theme.faint }]}>OR</Text>
+            <View style={[styles.dividerLine, { backgroundColor: theme.line }]} />
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={mode !== null}
+            onPress={() => void authenticate("sign-in")}
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              {
+                backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
+                borderColor: theme.line,
+                opacity: mode !== null ? 0.5 : 1,
+              },
+            ]}
+          >
+            {mode === "sign-in"
+              ? <ActivityIndicator color={theme.ink} size="small" />
+              : <Text style={[styles.secondaryText, { color: theme.ink }]}>Continue another way</Text>}
+          </Pressable>
+        </View>
+
+        <View style={styles.signupRow}>
+          <Text style={[styles.signupCopy, { color: theme.muted }]}>New to AutoPR?</Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={mode !== null}
+            onPress={() => void authenticate("sign-up")}
+            hitSlop={8}
+          >
+            <Text style={[styles.signupLink, { color: theme.ink }]}>
+              {mode === "sign-up" ? "Opening…" : "Create account"}
+            </Text>
+          </Pressable>
         </View>
       </View>
     </SafeAreaView>
@@ -65,25 +107,24 @@ export function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 24, paddingBottom: 18 },
-  top: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 12 },
-  mark: { width: 42, height: 42, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  wordmark: { fontFamily: "Inter_700Bold", fontSize: 20, letterSpacing: -0.5 },
-  hero: { flex: 1, justifyContent: "center", paddingBottom: 40 },
-  eyebrow: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    marginBottom: 21,
-  },
-  eyebrowText: { fontFamily: "Inter_700Bold", fontSize: 10, letterSpacing: 0.65 },
-  title: { fontFamily: "Inter_700Bold", fontSize: 43, lineHeight: 48, letterSpacing: -1.9 },
-  body: { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 25, marginTop: 18, maxWidth: 360 },
-  actions: { gap: 10 },
-  security: { flexDirection: "row", alignItems: "flex-start", gap: 7, paddingHorizontal: 8, marginTop: 4 },
-  securityText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 11, lineHeight: 16 },
+  screen: { flex: 1, paddingHorizontal: 24 },
+  content: { flex: 1, width: "100%", maxWidth: 390, alignSelf: "center", justifyContent: "center", paddingBottom: 22 },
+  brand: { alignItems: "center", gap: 12, marginBottom: 40 },
+  mark: { width: 54, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  wordmark: { fontFamily: "Inter_700Bold", fontSize: 19, letterSpacing: -0.5 },
+  title: { fontFamily: "Inter_700Bold", fontSize: 27, lineHeight: 33, letterSpacing: -0.9, textAlign: "center" },
+  body: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 21, marginTop: 10, textAlign: "center" },
+  actions: { gap: 10, marginTop: 30 },
+  googleButton: { minHeight: 52, borderRadius: 12, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 11 },
+  googleMark: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  googleLetter: { color: "#4285F4", fontFamily: "Inter_700Bold", fontSize: 15 },
+  googleText: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  divider: { height: 30, flexDirection: "row", alignItems: "center", gap: 12 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dividerText: { fontFamily: "Inter_600SemiBold", fontSize: 9, letterSpacing: 1 },
+  secondaryButton: { minHeight: 50, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  secondaryText: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  signupRow: { marginTop: 25, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5 },
+  signupCopy: { fontFamily: "Inter_400Regular", fontSize: 13 },
+  signupLink: { fontFamily: "Inter_600SemiBold", fontSize: 13, textDecorationLine: "underline" },
 });

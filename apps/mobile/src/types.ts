@@ -23,7 +23,8 @@ export type PromptFilePart = {
 
 export type RootStackParamList = {
   Projects: undefined;
-  Project: { projectId: string; title?: string };
+  Project: { projectId: string; title?: string; focusComposer?: boolean };
+  NewTask: undefined;
   Thread: {
     projectId: string;
     threadId: string;

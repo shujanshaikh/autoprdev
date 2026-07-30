@@ -90,6 +90,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.100.8
         version: 5.100.8(react@19.2.3)
+      ai:
+        specifier: ^6.0.168
+        version: 6.0.168(zod@4.4.3)
       convex:
         specifier: 'catalog:'
         version: 1.41.0(react@19.2.3)
@@ -8650,6 +8653,13 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.3.6
 
+  '@ai-sdk/gateway@3.0.104(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.8
+      '@ai-sdk/provider-utils': 4.0.23(zod@4.4.3)
+      '@vercel/oidc': 3.2.0
+      zod: 4.4.3
+
   '@ai-sdk/openai@3.0.53(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
@@ -8662,6 +8672,13 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.0.8
       zod: 4.3.6
+
+  '@ai-sdk/provider-utils@4.0.23(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.8
+      '@standard-schema/spec': 1.1.0
+      eventsource-parser: 3.0.8
+      zod: 4.4.3
 
   '@ai-sdk/provider@3.0.8':
     dependencies:
@@ -13569,6 +13586,14 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       zod: 4.3.6
 
+  ai@6.0.168(zod@4.4.3):
+    dependencies:
+      '@ai-sdk/gateway': 3.0.104(zod@4.4.3)
+      '@ai-sdk/provider': 3.0.8
+      '@ai-sdk/provider-utils': 4.0.23(zod@4.4.3)
+      '@opentelemetry/api': 1.9.0
+      zod: 4.4.3
+
   ajv-formats@3.0.1(ajv@8.18.0):
     optionalDependencies:
       ajv: 8.18.0
@@ -18445,7 +18470,6 @@ snapshots:
 
   zod@4.3.6: {}
 
-  zod@4.4.3:
-    optional: true
+  zod@4.4.3: {}
 
   zwitch@2.0.4: {}

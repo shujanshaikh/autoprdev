@@ -25,7 +25,10 @@ type AuthContextValue = {
   session: MobileSession | null;
   isLoading: boolean;
   authError: string | null;
-  signIn: (screenHint?: "sign-in" | "sign-up") => Promise<void>;
+  signIn: (options?: {
+    screenHint?: "sign-in" | "sign-up";
+    provider?: "authkit" | "google";
+  }) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<string | null>;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
@@ -125,7 +128,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return current.accessToken;
   }, [refresh]);
 
-  const signIn = useCallback(async (screenHint: "sign-in" | "sign-up" = "sign-in") => {
+  const signIn = useCallback(async ({
+    screenHint = "sign-in",
+    provider = "authkit",
+  }: {
+    screenHint?: "sign-in" | "sign-up";
+    provider?: "authkit" | "google";
+  } = {}) => {
     setAuthError(null);
     try {
       const flow = await webRequest<{
@@ -134,11 +143,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         codeVerifier: string;
       }>("/api/mobile/auth", null, {
         method: "POST",
-        body: JSON.stringify({ action: "start", redirectUri: REDIRECT_URI, screenHint }),
+        body: JSON.stringify({
+          action: "start",
+          redirectUri: REDIRECT_URI,
+          screenHint,
+          provider,
+        }),
       });
       await SecureStore.setItemAsync(VERIFIER_KEY, flow.codeVerifier);
       const result = await WebBrowser.openAuthSessionAsync(flow.url, REDIRECT_URI);
-      if (result.type !== "success") return;
+      if (result.type !== "success") {
+        await SecureStore.deleteItemAsync(VERIFIER_KEY);
+        return;
+      }
 
       const callback = new URL(result.url);
       const code = callback.searchParams.get("code");

@@ -2,6 +2,8 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { useUploadFile } from "@convex-dev/r2/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import type { UIMessage } from "ai";
+import { fetch as expoFetch } from "expo/fetch";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useConvex, useMutation, useQuery } from "convex/react";
@@ -22,7 +24,7 @@ import {
   TerminalSquare,
   X,
 } from "lucide-react-native";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -46,6 +48,7 @@ import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadData } from "../hooks/useThreadData";
 import { useWebMutation, useWebQuery } from "../hooks/useWebQuery";
 import { extractDiffEntries } from "../lib/diff";
+import { consumeAgentRunStream } from "../lib/agentStream";
 import { consumeInitialThreadSubmit } from "../lib/initialThreadSubmit";
 import {
   DEFAULT_CODEX_REASONING_EFFORT,
@@ -81,6 +84,7 @@ type GitStatus = {
 };
 
 type PendingImage = {
+  id: string;
   uri: string;
   fileName: string;
   mediaType: string;
@@ -99,9 +103,56 @@ type OptimisticMessage = {
   createdAt: number;
 };
 
+type StreamingAssistantMessage = {
+  messageId: string;
+  role: "assistant";
+  parts: unknown[];
+  createdAt: number;
+};
+
+type AgentStreamStatus = "idle" | "connecting" | "reconnecting" | "streaming";
+
+type ComposerAttachment = {
+  key: string;
+  uri: string;
+  filename: string;
+  source: "pending" | "handoff";
+  identity: string;
+};
+
+const attachmentKey = (attachment: ComposerAttachment) => attachment.key;
+
+const ComposerAttachmentItem = memo(function ComposerAttachmentItem({
+  attachment,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  onRemove: (source: ComposerAttachment["source"], identity: string) => void;
+}) {
+  const theme = useAppTheme();
+  const remove = useCallback(
+    () => onRemove(attachment.source, attachment.identity),
+    [attachment.identity, attachment.source, onRemove],
+  );
+  return (
+    <View style={styles.attachment}>
+      <Image source={{ uri: attachment.uri }} style={styles.attachmentImage} />
+      <Pressable
+        accessibilityLabel={`Remove ${attachment.filename}`}
+        onPress={remove}
+        style={[styles.removeAttachment, { backgroundColor: theme.code }]}
+      >
+        <X color={theme.codeInk} size={13} />
+      </Pressable>
+    </View>
+  );
+});
+
 function id() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+const streamingFetch = expoFetch as unknown as typeof globalThis.fetch;
 
 export function ThreadScreen({ navigation, route }: Props) {
   const { projectId, threadId } = route.params;
@@ -134,9 +185,11 @@ export function ThreadScreen({ navigation, route }: Props) {
       ? route.params.initialReasoningEffort
       : DEFAULT_CODEX_REASONING_EFFORT,
   );
-  const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [handoffFiles, setHandoffFiles] = useState<PromptFilePart[]>(route.params.initialFiles ?? []);
   const [optimisticMessage, setOptimisticMessage] = useState<OptimisticMessage | null>(null);
+  const [streamingAssistant, setStreamingAssistant] = useState<StreamingAssistantMessage | null>(null);
+  const [streamStatus, setStreamStatus] = useState<AgentStreamStatus>("idle");
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -148,6 +201,11 @@ export function ThreadScreen({ navigation, route }: Props) {
   const promptRef = useRef<TextInput>(null);
   const autoSubmitRef = useRef(false);
   const activeRunStartedAtRef = useRef<number | undefined>(undefined);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const activeStreamRunIdRef = useRef<string | null>(null);
+  const completedStreamRunIdRef = useRef<string | null>(null);
+  const pendingStreamMessageRef = useRef<StreamingAssistantMessage | null>(null);
+  const streamRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedModel = useMemo(
     () => selectCodexModel(codex.data?.models, selectedModelChoice),
     [codex.data?.models, selectedModelChoice],
@@ -158,19 +216,67 @@ export function ThreadScreen({ navigation, route }: Props) {
   );
   const reasoningOptions = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
   const displayMessages = useMemo(() => {
-    if (!optimisticMessage || messages.some((message) => message.messageId === optimisticMessage.messageId)) {
-      return messages;
+    let next = [...messages];
+    if (optimisticMessage && !next.some((message) => message.messageId === optimisticMessage.messageId)) {
+      next.push(optimisticMessage);
     }
-    return [...messages, optimisticMessage];
-  }, [messages, optimisticMessage]);
-  const diffs = useMemo(() => extractDiffEntries(messages), [messages]);
-  const running = Boolean(thread?.isLive || sending);
+    if (streamingAssistant) {
+      const persistedIndex = next.findIndex(
+        (message) => message.messageId === streamingAssistant.messageId,
+      );
+      if (persistedIndex >= 0) {
+        next[persistedIndex] = {
+          ...next[persistedIndex],
+          ...streamingAssistant,
+        };
+      } else {
+        next.push(streamingAssistant);
+      }
+    }
+    return next;
+  }, [messages, optimisticMessage, streamingAssistant]);
+  const diffs = useMemo(() => extractDiffEntries(displayMessages), [displayMessages]);
+  const running = Boolean(thread?.isLive || sending || streamStatus !== "idle");
   const diffDraftKey = `autopr.mobile.diff-draft:${threadId}`;
   const composerDraftKey = `autopr.mobile.composer-draft:${threadId}`;
   const composerOptions = useMemo<ComposerOption[]>(() => [
     ...modelOptions.map((value) => ({ kind: "model" as const, value, label: formatCodexModelLabel(value) })),
     ...reasoningOptions.map((value) => ({ kind: "effort" as const, value, label: formatReasoningEffort(value) })),
   ], [modelOptions, reasoningOptions]);
+  const composerAttachments = useMemo<ComposerAttachment[]>(() => [
+    ...pendingImages.map((image) => ({
+      key: `pending:${image.id}`,
+      uri: image.uri,
+      filename: image.fileName,
+      source: "pending" as const,
+      identity: image.id,
+    })),
+    ...handoffFiles.map((file) => ({
+      key: `handoff:${file.providerMetadata.autopr.r2Key}`,
+      uri: file.url,
+      filename: file.filename,
+      source: "handoff" as const,
+      identity: file.providerMetadata.autopr.r2Key,
+    })),
+  ], [handoffFiles, pendingImages]);
+  const removeComposerAttachment = useCallback((
+    source: ComposerAttachment["source"],
+    identity: string,
+  ) => {
+    if (source === "pending") {
+      setPendingImages((current) => current.filter((image) => image.id !== identity));
+    } else {
+      setHandoffFiles((current) => current.filter(
+        (file) => file.providerMetadata.autopr.r2Key !== identity,
+      ));
+    }
+  }, []);
+  const renderComposerAttachment = useCallback(
+    ({ item }: { item: ComposerAttachment }) => (
+      <ComposerAttachmentItem attachment={item} onRemove={removeComposerAttachment} />
+    ),
+    [removeComposerAttachment],
+  );
 
   const renderMessage = useCallback(({ item, index }: {
     item: (typeof displayMessages)[number];
@@ -323,11 +429,11 @@ export function ThreadScreen({ navigation, route }: Props) {
     { onSuccess: () => void refetchGit() },
   );
 
-  const authenticatedWebFetch = async (path: string, init: RequestInit) => {
+  const authenticatedWebFetch = useCallback(async (path: string, init: RequestInit) => {
     const execute = async (token: string) => {
       const headers = new Headers(init.headers);
       headers.set("Authorization", `Bearer ${token}`);
-      return await fetch(`${mobileConfig.webUrl}${path}`, { ...init, headers });
+      return await streamingFetch(`${mobileConfig.webUrl}${path}`, { ...init, headers });
     };
     const token = await getAccessToken();
     if (!token) throw new Error("Sign in to continue.");
@@ -335,22 +441,111 @@ export function ThreadScreen({ navigation, route }: Props) {
     if (response.status !== 401) return response;
     const refreshed = await getAccessToken(true);
     return refreshed ? await execute(refreshed) : response;
-  };
+  }, [getAccessToken]);
+
+  const publishStreamingMessage = useCallback((message: StreamingAssistantMessage) => {
+    pendingStreamMessageRef.current = message;
+    if (streamRenderTimerRef.current) return;
+    streamRenderTimerRef.current = setTimeout(() => {
+      streamRenderTimerRef.current = null;
+      const latest = pendingStreamMessageRef.current;
+      if (latest) setStreamingAssistant(latest);
+    }, 48);
+  }, []);
+
+  const beginAgentStream = useCallback((runId: string) => {
+    if (
+      activeStreamRunIdRef.current === runId
+      || completedStreamRunIdRef.current === runId
+    ) {
+      return;
+    }
+
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    activeStreamRunIdRef.current = runId;
+    setStreamStatus("connecting");
+
+    const lastMessage = messages.at(-1);
+    const lastAssistant = lastMessage?.role === "assistant" && lastMessage.parts.length === 0
+      ? lastMessage
+      : undefined;
+    const initialMessage = lastAssistant
+      ? {
+          id: lastAssistant.messageId,
+          role: "assistant" as const,
+          parts: lastAssistant.parts as UIMessage["parts"],
+        }
+      : undefined;
+
+    void consumeAgentRunStream({
+      runId,
+      streamPath: `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(runId)}/stream`,
+      fetchAuthenticated: authenticatedWebFetch,
+      signal: controller.signal,
+      initialMessage,
+      onStatus: setStreamStatus,
+      onMessage: (message) => {
+        if (controller.signal.aborted) return;
+        publishStreamingMessage({
+          messageId: message.id || lastAssistant?.messageId || `stream:${runId}`,
+          role: "assistant",
+          parts: message.parts,
+          createdAt: Date.now(),
+        });
+      },
+    })
+      .then(() => {
+        if (!controller.signal.aborted) completedStreamRunIdRef.current = runId;
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setSendError(error instanceof Error ? error.message : "The live response disconnected.");
+        }
+      })
+      .finally(() => {
+        if (activeStreamRunIdRef.current === runId) {
+          activeStreamRunIdRef.current = null;
+          setStreamStatus("idle");
+        }
+      });
+  }, [authenticatedWebFetch, messages, projectId, publishStreamingMessage, threadId]);
+
+  useEffect(() => {
+    if (thread?.isLive && thread.currentRunId) {
+      beginAgentStream(thread.currentRunId);
+      return;
+    }
+    if (!thread?.isLive) {
+      streamAbortRef.current?.abort();
+      activeStreamRunIdRef.current = null;
+      setStreamStatus("idle");
+    }
+  }, [beginAgentStream, thread?.currentRunId, thread?.isLive]);
+
+  useEffect(() => () => {
+    streamAbortRef.current?.abort();
+    if (streamRenderTimerRef.current) clearTimeout(streamRenderTimerRef.current);
+  }, []);
 
   const chooseImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.85,
-      allowsMultipleSelection: false,
+      allowsMultipleSelection: true,
+      selectionLimit: Math.max(1, 6 - pendingImages.length),
     });
-    const asset = result.assets?.[0];
-    if (!result.canceled && asset) {
-      setPendingImage({
+    if (result.canceled) return;
+    setPendingImages((current) => [
+      ...current,
+      ...result.assets.map((asset, index) => ({
+        id: `${Date.now()}:${index}:${asset.assetId ?? asset.uri}`,
         uri: asset.uri,
-        fileName: asset.fileName ?? `image-${Date.now()}.jpg`,
+        fileName: asset.fileName ?? `image-${Date.now()}-${index + 1}.jpg`,
         mediaType: asset.mimeType ?? "image/jpeg",
-      });
-    }
+      })),
+    ].slice(0, 6));
   };
 
   const send = async (initial?: {
@@ -361,34 +556,39 @@ export function ThreadScreen({ navigation, route }: Props) {
     const isActive = initial?.isActive ?? (() => true);
     const text = (initial?.text ?? prompt).trim();
     const initialFiles = initial?.files ?? (messages.length === 0 ? handoffFiles : []);
-    if ((!text && !pendingImage && initialFiles.length === 0) || running || !thread || !project) return;
+    if ((!text && pendingImages.length === 0 && initialFiles.length === 0) || running || !thread || !project) return;
     setSending(true);
     setSendError(null);
+    setStreamingAssistant(null);
+    pendingStreamMessageRef.current = null;
+    if (streamRenderTimerRef.current) {
+      clearTimeout(streamRenderTimerRef.current);
+      streamRenderTimerRef.current = null;
+    }
     try {
       const parts: unknown[] = [
         ...(text ? [{ type: "text", text }] : []),
         ...initialFiles,
       ];
-      if (pendingImage && initialFiles.length === 0) {
-        const imageResponse = await fetch(pendingImage.uri);
-        if (!imageResponse.ok) {
-          throw new Error("The selected image could not be read.");
-        }
+      const uploadedImages = await Promise.all(pendingImages.map(async (image) => {
+        const imageResponse = await fetch(image.uri);
+        if (!imageResponse.ok) throw new Error(`The selected image ${image.fileName} could not be read.`);
         const blob = await imageResponse.blob();
         const file = Object.assign(blob, {
-          name: pendingImage.fileName,
+          name: image.fileName,
           lastModified: Date.now(),
         }) as File;
         const key = await uploadImage(file);
         const url = await convex.query(api.imageUploads.getUrl, { key });
-        parts.push({
+        return {
           type: "file",
-          filename: pendingImage.fileName,
-          mediaType: pendingImage.mediaType,
+          filename: image.fileName,
+          mediaType: image.mediaType,
           url,
           providerMetadata: { autopr: { r2Key: key } },
-        });
-      }
+        };
+      }));
+      parts.push(...uploadedImages);
       if (!isActive()) return;
 
       const messageId = id();
@@ -411,9 +611,12 @@ export function ThreadScreen({ navigation, route }: Props) {
         const body = await response.json().catch(() => null) as { error?: string } | null;
         throw new Error(body?.error ?? `Could not start the agent (${response.status}).`);
       }
+      const runId = response.headers.get("x-trigger-run-id");
+      if (!runId) throw new Error("The agent started without a live response ID.");
+      beginAgentStream(runId);
       if (!isActive()) return;
       setPrompt("");
-      setPendingImage(null);
+      setPendingImages([]);
       setHandoffFiles([]);
       void AsyncStorage.removeItem(composerDraftKey);
       if (thread.title === "New thread" && text) {
@@ -435,12 +638,14 @@ export function ThreadScreen({ navigation, route }: Props) {
   };
 
   const stop = async () => {
-    if (!thread?.currentRunId || stopping) return;
+    const runId = thread?.currentRunId ?? activeStreamRunIdRef.current;
+    if (!runId || stopping) return;
     setStopping(true);
     setSendError(null);
+    streamAbortRef.current?.abort();
     try {
       const response = await authenticatedWebFetch(
-        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(thread.currentRunId)}`,
+        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(runId)}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
       );
       if (!response.ok) throw new Error("The active run could not be stopped.");
@@ -528,7 +733,13 @@ export function ThreadScreen({ navigation, route }: Props) {
         {running ? (
           <View style={styles.contextStatus}>
             <View style={[styles.contextDot, { backgroundColor: theme.accent }]} />
-            <Text style={[styles.contextStatusText, { color: theme.muted }]}>Agent working · {activeSeconds}s</Text>
+            <Text style={[styles.contextStatusText, { color: theme.muted }]}>
+              {streamStatus === "reconnecting"
+                ? "Reconnecting"
+                : streamStatus === "connecting"
+                  ? "Connecting"
+                  : sending ? "Starting" : "Agent working"} · {activeSeconds}s
+            </Text>
           </View>
         ) : null}
         <Pressable
@@ -630,20 +841,15 @@ export function ThreadScreen({ navigation, route }: Props) {
       )}
 
       <View style={[styles.composerWrap, { backgroundColor: theme.screen }]}>
-        {pendingImage || handoffFiles.length > 0 ? (
-          <View style={styles.attachment}>
-            <Image source={{ uri: pendingImage?.uri ?? handoffFiles[0]?.url }} style={styles.attachmentImage} />
-            <Pressable
-              accessibilityLabel="Remove image"
-              onPress={() => {
-                setPendingImage(null);
-                setHandoffFiles([]);
-              }}
-              style={[styles.removeAttachment, { backgroundColor: theme.code }]}
-            >
-              <X color={theme.codeInk} size={13} />
-            </Pressable>
-          </View>
+        {composerAttachments.length > 0 ? (
+          <FlatList
+            horizontal
+            data={composerAttachments}
+            keyExtractor={attachmentKey}
+            renderItem={renderComposerAttachment}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.attachments}
+          />
         ) : null}
         {showControls && composerFocused ? (
           <FlatList
@@ -716,13 +922,13 @@ export function ThreadScreen({ navigation, route }: Props) {
             ) : (
               <Pressable
                 accessibilityLabel="Send message"
-                disabled={(!prompt.trim() && !pendingImage) || !canChat}
+                disabled={(!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0) || !canChat}
                 onPress={() => void send()}
                 style={[
                   styles.sendButton,
                   {
                     backgroundColor: theme.accent,
-                    opacity: (!prompt.trim() && !pendingImage) || !canChat ? 0.35 : 1,
+                    opacity: (!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0) || !canChat ? 0.35 : 1,
                   },
                 ]}
               >
@@ -731,6 +937,21 @@ export function ThreadScreen({ navigation, route }: Props) {
             )}
           </View>
         </GlassSurface>
+        {running ? (
+          <View style={styles.connectionRow}>
+            <View style={[
+              styles.connectionDot,
+              { backgroundColor: streamStatus === "reconnecting" ? theme.warning : theme.success },
+            ]} />
+            <Text style={[styles.connectionText, { color: theme.faint }]}>
+              {streamStatus === "reconnecting"
+                ? "Reconnecting to live response…"
+                : streamStatus === "connecting"
+                  ? "Connecting to live response…"
+                  : sending ? "Starting agent…" : "Live response connected"}
+            </Text>
+          </View>
+        ) : null}
 
         {latestGitOperation?.status === "running" || latestGitOperation?.status === "failed" ? (
           <View style={[
@@ -898,7 +1119,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   composerWrap: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 7 },
-  attachment: { alignSelf: "flex-start", marginBottom: 7, marginLeft: 4 },
+  attachments: { gap: 8, paddingHorizontal: 4, paddingTop: 4, paddingBottom: 9 },
+  attachment: { marginRight: 2 },
   attachmentImage: { width: 64, height: 64, borderRadius: 8 },
   removeAttachment: { position: "absolute", right: -5, top: -5, width: 22, height: 22, borderRadius: 999, alignItems: "center", justifyContent: "center" },
   controls: { gap: 7, paddingBottom: 8, paddingHorizontal: 3 },
@@ -922,6 +1144,9 @@ const styles = StyleSheet.create({
   promptExpanded: { minHeight: 76, maxHeight: 142, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
   composerActions: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   composerActionsCollapsed: { marginTop: 0 },
+  connectionRow: { minHeight: 22, paddingHorizontal: 7, paddingTop: 4, flexDirection: "row", alignItems: "center", gap: 6 },
+  connectionDot: { width: 6, height: 6, borderRadius: 3 },
+  connectionText: { fontFamily: "Inter_500Medium", fontSize: 9 },
   smallAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   modelButton: { flex: 1, minHeight: 34, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 4 },
   modelText: { maxWidth: 175, fontFamily: "Inter_600SemiBold", fontSize: 10 },

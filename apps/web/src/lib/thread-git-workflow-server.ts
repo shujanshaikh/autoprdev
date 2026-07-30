@@ -7,6 +7,7 @@ import {
   fetchGithubPullRequestForBranch,
 } from "@autopr/backend/convex/lib/github_oauth";
 import type { GitWorkflowAction, GitWorkflowPhase } from "@autopr/backend/convex/lib/gitWorkflow";
+import { resolveGithubPullRequestHead } from "@autopr/backend/convex/lib/githubPullRequest";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { CodexConnectionError } from "#/lib/codex-auth-server";
@@ -164,27 +165,18 @@ export async function runThreadGitWorkflow(options: {
   const operation = begin.operation;
   if (!operation) throw new Error("Could not create the Git operation checkpoint.");
 
+  const releaseOperationLease = () => convexMutation(api.threads.releaseGitOperationLease, {
+    threadId: options.threadId,
+    operationId: operation.operationId,
+  });
+
   const failBeforeExecution = async (error: unknown, phase: GitWorkflowPhase) => {
     const failure = phaseError(error, phase);
     const now = Date.now();
-    await convexMutation(api.threads.failGitOperation, {
-      threadId: options.threadId,
-      operationId: operation.operationId,
-      failure: {
-        code: failure.code,
-        message: failure.message,
-        phase,
-        retryable: failure.retryable,
-        recoveryAction: failure.recoveryAction,
-        diagnostics: failure.diagnostics,
-      },
-      result: {
-        phase,
-        status: "failed",
-        startedAt: now,
-        completedAt: now,
-        summary: failure.message,
-        diagnostics: failure.diagnostics,
+    try {
+      await convexMutation(api.threads.failGitOperation, {
+        threadId: options.threadId,
+        operationId: operation.operationId,
         failure: {
           code: failure.code,
           message: failure.message,
@@ -193,8 +185,26 @@ export async function runThreadGitWorkflow(options: {
           recoveryAction: failure.recoveryAction,
           diagnostics: failure.diagnostics,
         },
-      },
-    });
+        result: {
+          phase,
+          status: "failed",
+          startedAt: now,
+          completedAt: now,
+          summary: failure.message,
+          diagnostics: failure.diagnostics,
+          failure: {
+            code: failure.code,
+            message: failure.message,
+            phase,
+            retryable: failure.retryable,
+            recoveryAction: failure.recoveryAction,
+            diagnostics: failure.diagnostics,
+          },
+        },
+      });
+    } finally {
+      await releaseOperationLease().catch(() => undefined);
+    }
     return Response.json({
       operationId: operation.operationId,
       status: "failed",
@@ -441,18 +451,30 @@ export async function runThreadGitWorkflow(options: {
           recoveryAction: "Commit a change to the thread branch before creating a pull request.",
         });
       }
+      const head = resolveGithubPullRequestHead({
+        baseOwner: project.repoOwner,
+        localBranch: checkpoint.branch ?? expectedBranch,
+        importedHeadBranch: thread.githubPullRequestHeadBranch,
+        importedHeadRepository: thread.githubPullRequestHeadRepository,
+      });
       await convexMutation(api.threads.markPullRequestCreating, {
         threadId: options.threadId,
-        branch: checkpoint.branch ?? expectedBranch,
+        branch: head.branch,
       });
-      const existingPull = await fetchGithubPullRequestForBranch(
-        token,
-        project.repoOwner,
-        project.repoName,
-        checkpoint.branch ?? expectedBranch,
-        { base: checkpoint.baseBranch ?? baseBranch, state: "open" },
-      );
-      let pull: { number: number; htmlUrl: string } | undefined = existingPull;
+      let pull: { number: number; htmlUrl: string } | undefined =
+        thread.pullRequestNumber && thread.pullRequestUrl
+          ? { number: thread.pullRequestNumber, htmlUrl: thread.pullRequestUrl }
+          : await fetchGithubPullRequestForBranch(
+              token,
+              project.repoOwner,
+              project.repoName,
+              head.branch,
+              {
+                base: checkpoint.baseBranch ?? baseBranch,
+                state: "open",
+                headOwner: head.owner,
+              },
+            );
       let status: "succeeded" | "skipped" = "skipped";
       if (!pull) {
         const generated = operation.pullRequestTitle && operation.pullRequestBody
@@ -462,7 +484,7 @@ export async function runThreadGitWorkflow(options: {
               projectId: options.projectId,
               threadId: options.threadId,
               baseBranch: checkpoint.baseBranch ?? baseBranch,
-              headBranch: checkpoint.branch ?? expectedBranch,
+              headBranch: head.reference,
               commitSummary: pullRequestContext.commitSummary,
               diffSummary: pullRequestContext.diffSummary,
               diffPatch: pullRequestContext.diffPatch,
@@ -471,7 +493,7 @@ export async function runThreadGitWorkflow(options: {
         try {
           pull = await createGithubPullRequest(token, project.repoOwner, project.repoName, {
             title: operation.pullRequestTitle ?? generated!.title,
-            head: checkpoint.branch ?? expectedBranch,
+            head: head.reference,
             base: checkpoint.baseBranch ?? baseBranch,
             body: operation.pullRequestBody ?? generated!.body,
             draft: operation.pullRequestDraft ?? false,
@@ -482,8 +504,12 @@ export async function runThreadGitWorkflow(options: {
             token,
             project.repoOwner,
             project.repoName,
-            checkpoint.branch ?? expectedBranch,
-            { base: checkpoint.baseBranch ?? baseBranch, state: "open" },
+            head.branch,
+            {
+              base: checkpoint.baseBranch ?? baseBranch,
+              state: "open",
+              headOwner: head.owner,
+            },
           );
           if (!pull) throw error;
         }
@@ -491,7 +517,7 @@ export async function runThreadGitWorkflow(options: {
       if (!pull) throw new Error("GitHub did not return the created pull request.");
       await convexMutation(api.threads.markPullRequestCreated, {
         threadId: options.threadId,
-        branch: checkpoint.branch ?? expectedBranch,
+        branch: head.branch,
         url: pull.htmlUrl,
         number: pull.number,
       });
@@ -568,6 +594,7 @@ export async function runThreadGitWorkflow(options: {
     if (!completed) throw new Error("The completed Git operation could not be loaded.");
     return Response.json(operationResponse(completed));
   } catch (error) {
+    await releaseOperationLease().catch(() => undefined);
     const latest = await convexQuery(api.threads.getGitOperation, {
       threadId: options.threadId,
       operationId: operation.operationId,

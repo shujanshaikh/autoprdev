@@ -237,7 +237,14 @@ export const attachGithubPullRequest = mutation({
     if (thread.pullRequestNumber) {
       throw new ConvexError({ code: "THREAD_ALREADY_HAS_PULL_REQUEST" });
     }
-    if (!isThreadCompatibleWithGithubPullRequest(thread)) {
+    const existingMessage = await ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .first();
+    if (!isThreadCompatibleWithGithubPullRequest({
+      ...thread,
+      hasMessages: Boolean(existingMessage),
+    })) {
       throw new ConvexError({
         code: "THREAD_NOT_COMPATIBLE",
         message: "Choose a thread that has not started and does not have a materialized worktree.",
@@ -451,11 +458,19 @@ export const listByProject = query({
       return [];
     }
 
-    return await ctx.db
+    const threads = await ctx.db
       .query("threads")
       .withIndex("by_author_project", (q) => q.eq("authorId", identity.subject).eq("projectId", args.projectId))
       .order("desc")
       .collect();
+
+    return await Promise.all(threads.map(async (thread) => {
+      const message = await ctx.db
+        .query("messages")
+        .withIndex("by_thread", (q) => q.eq("threadId", thread.threadId))
+        .first();
+      return { ...thread, hasMessages: Boolean(message) };
+    }));
   },
 });
 
@@ -1289,6 +1304,22 @@ export const completeGitOperation = mutation({
         updatedAt: now,
       });
     }
+    return null;
+  },
+});
+
+export const releaseGitOperationLease = mutation({
+  args: { threadId: v.string(), operationId: v.string() },
+  handler: async (ctx, args) => {
+    const thread = await requireThreadForAuthor(ctx, args.threadId);
+    if (thread.gitMutationId !== args.operationId) return null;
+
+    await ctx.db.patch(thread._id, {
+      gitMutationId: undefined,
+      gitMutationAction: undefined,
+      gitMutationStartedAt: undefined,
+      updatedAt: Date.now(),
+    });
     return null;
   },
 });

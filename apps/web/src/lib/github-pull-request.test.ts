@@ -5,8 +5,10 @@ import {
   githubRepositoriesMatch,
   isThreadCompatibleWithGithubPullRequest,
   parseGithubPullRequestReference,
+  resolveGithubPullRequestHead,
 } from "@autopr/backend/convex/lib/githubPullRequest";
 import {
+  fetchGithubPullRequestForBranch,
   GithubApiError,
   resolveGithubPullRequest,
 } from "@autopr/backend/convex/lib/github_oauth";
@@ -48,12 +50,28 @@ describe("parseGithubPullRequestReference", () => {
     expect(githubRepositoriesMatch("other/widget", "acme/widget")).toBe(false);
   });
 
+  it("preserves the persisted source branch and owner for imported fork pull requests", () => {
+    expect(resolveGithubPullRequestHead({
+      baseOwner: "acme",
+      localBranch: "autopr/pr-42-abcdef123456",
+      importedHeadBranch: "retry-fix",
+      importedHeadRepository: "contributor/widget",
+    })).toEqual({
+      branch: "retry-fix",
+      owner: "contributor",
+      reference: "contributor:retry-fix",
+    });
+  });
+
   it("only attaches to threads without live or materialized work", () => {
     expect(isThreadCompatibleWithGithubPullRequest({ worktreeStatus: "pending" })).toBe(true);
     expect(isThreadCompatibleWithGithubPullRequest({ worktreeStatus: "cleaned" })).toBe(true);
     expect(isThreadCompatibleWithGithubPullRequest({ worktreeStatus: "ready" })).toBe(false);
     expect(isThreadCompatibleWithGithubPullRequest({ worktreeStatus: "failed" })).toBe(false);
     expect(isThreadCompatibleWithGithubPullRequest({ isLive: true })).toBe(false);
+    expect(isThreadCompatibleWithGithubPullRequest({ currentRunId: "run-1" })).toBe(false);
+    expect(isThreadCompatibleWithGithubPullRequest({ triggerSessionCreatedAt: 1 })).toBe(false);
+    expect(isThreadCompatibleWithGithubPullRequest({ hasMessages: true })).toBe(false);
     expect(isThreadCompatibleWithGithubPullRequest({ pullRequestNumber: 42 })).toBe(false);
   });
 });
@@ -146,5 +164,18 @@ describe("resolveGithubPullRequest", () => {
       .mockResolvedValueOnce(response({ permissions: { push: true } }))
       .mockResolvedValueOnce(response({ name: "retry-fix" })));
     await expect(resolveGithubPullRequest("token", "acme", "widget", 42)).resolves.toMatchObject({ state: "merged" });
+  });
+
+  it("looks up a fork branch using its persisted owner", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchGithubPullRequestForBranch("token", "acme", "widget", "retry-fix", {
+      base: "main",
+      state: "open",
+      headOwner: "contributor",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("head=contributor%3Aretry-fix");
   });
 });

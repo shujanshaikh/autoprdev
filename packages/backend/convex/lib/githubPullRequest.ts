@@ -91,12 +91,38 @@ export function githubRepositoriesMatch(left: string, right: string) {
   return left.trim().replace(/\.git$/i, "").toLowerCase() === right.trim().replace(/\.git$/i, "").toLowerCase();
 }
 
+export function resolveGithubPullRequestHead(options: {
+  baseOwner: string;
+  localBranch: string;
+  importedHeadBranch?: string;
+  importedHeadRepository?: string;
+}) {
+  const importedOwner = options.importedHeadRepository?.split("/", 1)[0]?.trim();
+  const importedBranch = options.importedHeadBranch?.trim();
+  const branch = importedBranch && importedOwner ? importedBranch : options.localBranch;
+  const owner = importedBranch && importedOwner ? importedOwner : options.baseOwner;
+
+  return {
+    branch,
+    owner,
+    reference: owner.toLowerCase() === options.baseOwner.toLowerCase()
+      ? branch
+      : `${owner}:${branch}`,
+  };
+}
+
 export function isThreadCompatibleWithGithubPullRequest(thread: {
   pullRequestNumber?: number;
   isLive?: boolean;
+  currentRunId?: string;
+  triggerSessionCreatedAt?: number;
+  hasMessages?: boolean;
   worktreeStatus?: "pending" | "provisioning" | "ready" | "failed" | "cleaned";
 }) {
   return !thread.pullRequestNumber &&
     !thread.isLive &&
+    !thread.currentRunId &&
+    !thread.triggerSessionCreatedAt &&
+    !thread.hasMessages &&
     (thread.worktreeStatus === undefined || thread.worktreeStatus === "pending" || thread.worktreeStatus === "cleaned");
 }

@@ -174,7 +174,19 @@ function Navigator() {
         <Stack.Screen
           name="Terminal"
           component={TerminalScreen}
-          options={{ title: "Terminal", presentation: "modal" }}
+          options={({ navigation }) => ({
+            title: "Terminal",
+            presentation: "fullScreenModal",
+            headerLeft: () => (
+              <Pressable
+                accessibilityLabel="Close terminal"
+                onPress={() => navigation.goBack()}
+                style={({ pressed }) => [styles.closeButton, { opacity: pressed ? 0.55 : 1 }]}
+              >
+                <X color={theme.ink} size={20} />
+              </Pressable>
+            ),
+          })}
         />
         <Stack.Screen
           name="Environment"

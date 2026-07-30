@@ -9,6 +9,7 @@ const config: ExpoConfig = {
   platforms: ["ios", "android"],
   userInterfaceStyle: "automatic",
   ios: {
+    bundleIdentifier: "com.shujanshaikh.autopr",
     supportsTablet: true,
   },
   android: {

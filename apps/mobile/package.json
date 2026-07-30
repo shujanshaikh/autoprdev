@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "expo start --clear",
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
     "convex": "catalog:",
     "expo": "~56.0.12",
     "expo-clipboard": "^56.0.4",
+    "expo-dev-client": "~56.0.24",
     "expo-font": "~56.0.7",
     "expo-image": "~56.0.11",
     "expo-image-picker": "^56.0.22",

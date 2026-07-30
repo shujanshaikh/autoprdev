@@ -14,6 +14,16 @@ const config: ExpoConfig = {
   android: {
     predictiveBackGestureEnabled: true,
   },
+  plugins: [
+    "expo-secure-store",
+    "expo-web-browser",
+    [
+      "expo-image-picker",
+      {
+        photosPermission: "AutoPR uses selected photos only when you attach them to an agent task.",
+      },
+    ],
+  ],
 };
 
 export default config;

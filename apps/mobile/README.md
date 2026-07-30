@@ -1,16 +1,25 @@
 # AutoPR Mobile
 
-A small Expo/React Native shell that mirrors AutoPR's web landing theme. It is intentionally UI-only so authentication and Convex integration can be added against stable product requirements later.
+The Expo client mirrors AutoPR's web workflow with a mobile-native project list,
+thread chat, Git controls, terminal access, sandbox environment variables, pull
+requests, settings, image prompts, and unified diff review. The remote desktop
+surface is intentionally omitted.
 
-## Commands
+## Configuration
 
-From the repository root:
+Copy `.env.example` to `.env` and set:
 
-```sh
-pnpm --filter @autopr/mobile start
-pnpm --filter @autopr/mobile android
-pnpm --filter @autopr/mobile ios
-pnpm --filter @autopr/mobile check-types
-```
+- `EXPO_PUBLIC_CONVEX_URL` to the same deployment used by `apps/web`.
+- `EXPO_PUBLIC_WEB_URL` to a reachable HTTPS deployment of `apps/web`.
 
-The app follows the device appearance setting and is configured for iOS and Android.
+Add `autopr://auth/callback` to the Redirects list for the same WorkOS
+application used by Convex. The mobile app uses PKCE; the web backend performs
+the confidential code exchange and refreshes the session tokens.
+
+The web deployment must also have its existing `WORKOS_CLIENT_ID`,
+`WORKOS_API_KEY`, and Convex configuration.
+
+## Run
+
+Use `pnpm --filter @autopr/mobile start`. A development build is recommended
+for testing the custom `autopr://` authentication callback.

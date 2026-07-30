@@ -1,13 +1,95 @@
 import "@tanstack/react-start/server-only";
 
+import { getRequestHeader } from "@tanstack/react-start/server";
 import { WorkOS } from "@workos-inc/node";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 export class GithubConnectionError extends Error {
   constructor(message = "Connect GitHub to continue.") {
     super(message);
     this.name = "GithubConnectionError";
   }
+}
+
+type AuthKitState = Awaited<ReturnType<typeof getAuth>>;
+type AuthenticatedWorkOSAuth = {
+  user: NonNullable<AuthKitState["user"]>;
+  accessToken: string;
+  sessionId: string;
+  organizationId?: string;
+  role?: string;
+  roles?: string[];
+  permissions?: string[];
+  entitlements?: string[];
+  featureFlags?: string[];
+};
+
+const mobileAuthCache = new Map<string, {
+  expiresAt: number;
+  auth: AuthenticatedWorkOSAuth;
+}>();
+
+function getWorkOSClientId() {
+  const clientId = process.env.WORKOS_CLIENT_ID;
+  if (!clientId) {
+    throw new GithubConnectionError("Set WORKOS_CLIENT_ID before authenticating.");
+  }
+  return clientId;
+}
+
+async function getBearerAuth(accessToken: string): Promise<AuthenticatedWorkOSAuth> {
+  const cached = mobileAuthCache.get(accessToken);
+  if (cached && cached.expiresAt > Date.now()) return cached.auth;
+
+  const clientId = getWorkOSClientId();
+  const jwks = createRemoteJWKSet(
+    new URL(`https://api.workos.com/sso/jwks/${encodeURIComponent(clientId)}`),
+  );
+  const { payload } = await jwtVerify(accessToken, jwks, {
+    issuer: ["https://api.workos.com", "https://api.workos.com/"],
+  });
+
+  if (
+    typeof payload.sub !== "string" ||
+    (payload.client_id !== undefined && payload.client_id !== clientId)
+  ) {
+    throw new GithubConnectionError("Unauthorized");
+  }
+
+  const user = await getWorkOS().userManagement.getUser(payload.sub);
+  const auth = {
+    user,
+    accessToken,
+    sessionId: typeof payload.sid === "string" ? payload.sid : "",
+    organizationId: typeof payload.org_id === "string" ? payload.org_id : undefined,
+    role: typeof payload.role === "string" ? payload.role : undefined,
+    roles: Array.isArray(payload.roles)
+      ? payload.roles.filter((role): role is string => typeof role === "string")
+      : undefined,
+    permissions: Array.isArray(payload.permissions)
+      ? payload.permissions.filter((permission): permission is string => typeof permission === "string")
+      : undefined,
+    entitlements: Array.isArray(payload.entitlements)
+      ? payload.entitlements.filter((entitlement): entitlement is string => typeof entitlement === "string")
+      : undefined,
+    featureFlags: Array.isArray(payload.feature_flags)
+      ? payload.feature_flags.filter((flag): flag is string => typeof flag === "string")
+      : undefined,
+  } satisfies AuthenticatedWorkOSAuth;
+
+  mobileAuthCache.set(accessToken, {
+    auth,
+    expiresAt: Math.min(
+      typeof payload.exp === "number" ? payload.exp * 1000 : Date.now() + 60_000,
+      Date.now() + 60_000,
+    ),
+  });
+  if (mobileAuthCache.size > 100) {
+    const firstKey = mobileAuthCache.keys().next().value;
+    if (typeof firstKey === "string") mobileAuthCache.delete(firstKey);
+  }
+  return auth;
 }
 
 function normalizeWorkOSErrorMessage(error: unknown) {
@@ -40,14 +122,33 @@ function getWorkOSApiKey() {
   return apiKey;
 }
 
-export async function requireWorkOSAuth() {
+export async function requireWorkOSAuth(): Promise<AuthenticatedWorkOSAuth> {
+  const authorization = getRequestHeader("authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    const accessToken = authorization.slice("Bearer ".length).trim();
+    if (!accessToken) throw new GithubConnectionError("Unauthorized");
+
+    try {
+      return await getBearerAuth(accessToken);
+    } catch (error) {
+      if (error instanceof GithubConnectionError) throw error;
+      throw new GithubConnectionError("Unauthorized");
+    }
+  }
+
   const authState = await getAuth();
 
   if (!authState.user) {
     throw new GithubConnectionError("Unauthorized");
   }
 
-  return authState;
+  return {
+    ...authState,
+    user: authState.user,
+    accessToken: authState.accessToken ?? "",
+    sessionId: authState.sessionId ?? "",
+    organizationId: authState.organizationId ?? undefined,
+  };
 }
 
 export async function getGithubOAuthToken(userId: string, organizationId?: string | null): Promise<string> {

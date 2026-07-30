@@ -16,4 +16,12 @@ function Home() {
   return <LandingHome />;
 }
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: metadata.title },
+      { name: "description", content: metadata.description },
+    ],
+  }),
+  component: Home,
+});

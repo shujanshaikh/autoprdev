@@ -1,24 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createSandbox } from "@autopr/agent/sandbox";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { fetchGithubPullRequestForBranch } from "@autopr/backend/convex/lib/github_oauth";
+import type { GithubPullRequestSummary } from "@autopr/backend/convex/lib/gitStatus";
+import { APICallError } from "ai";
 import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
-import { CodexConnectionError } from "#/lib/codex-auth-server";
-import { generateCommitMessage } from "#/lib/commit-messages";
-import {
-  commitPreparedProjectSandboxChanges,
-  prepareProjectSandboxCommit,
-  SandboxNoChangesError,
-} from "#/lib/daytona-project-sandbox";
+import { pullProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
+import { generateThreadTitle } from "#/lib/generated-git-metadata";
 import {
   getGithubOAuthToken,
-  getGithubUserIdentity,
   GithubConnectionError,
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
+import { readThreadGitStatus } from "#/lib/thread-git-status-server";
+import { runThreadGitWorkflow } from "#/lib/thread-git-workflow-server";
+import {
+  ThreadGitMutationConflictError,
+  withThreadGitMutation,
+} from "#/lib/thread-git-mutation-server";
 
 type DaytonaRecording = {
   fileName?: string;
@@ -45,11 +48,26 @@ const RECORDING_PREVIEW_EXPIRES_SECONDS = 60 * 60;
 const RECORDING_READY_ATTEMPTS = 10;
 const RECORDING_READY_RETRY_MS = 1_000;
 
-const postRequestSchema = z.object({
-  action: z.literal("commit"),
-  push: z.boolean().optional(),
-  commitMessage: z.string().trim().min(1).max(500).optional(),
-});
+const postRequestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("generate_title"),
+    message: z.string().trim().min(1).max(8_000),
+  }),
+  z.object({
+    action: z.enum([
+      "commit",
+      "push",
+      "create_pr",
+      "commit_push",
+      "push_create_pr",
+      "commit_push_create_pr",
+      "pull",
+    ]),
+    operationId: z.uuid().optional(),
+    push: z.boolean().optional(),
+    commitMessage: z.string().trim().min(1).max(500).optional(),
+  }),
+]);
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -145,22 +163,6 @@ async function createRecordingPreview(options: {
   };
 }
 
-function workOSCommitIdentity(user: {
-  firstName?: string | null;
-  lastName?: string | null;
-  email?: string | null;
-}) {
-  const email = user.email?.trim();
-
-  if (!email) {
-    throw new Error("Could not determine your commit author email.");
-  }
-
-  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || email.split("@")[0] || email;
-
-  return { name, email };
-}
-
 async function GET(
   req: Request,
   { params }: { params: Promise<{ projectId: string; threadId: string }> },
@@ -168,6 +170,92 @@ async function GET(
   const { searchParams } = new URL(req.url);
   const recordingId = searchParams.get("recordingId")?.trim();
   const shouldPrepare = searchParams.get("prepare") === "1";
+
+  if (searchParams.get("gitStatus") === "1") {
+    const { projectId, threadId } = await params;
+    const [project, thread] = await Promise.all([
+      convexQuery(api.projects.get, { projectId }),
+      convexQuery(api.threads.get, { threadId }),
+    ]);
+
+    if (!project || !thread || thread.projectId !== projectId) {
+      return Response.json(
+        { error: { code: "THREAD_NOT_FOUND", message: "Thread not found." } },
+        { status: 404 },
+      );
+    }
+    if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+      return Response.json(
+        { error: { code: "PROJECT_SANDBOX_NOT_READY", message: "Project sandbox is not ready." } },
+        { status: 409 },
+      );
+    }
+
+    try {
+      const worktree = await convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId });
+      let githubToken: string | undefined;
+        let pullRequest: GithubPullRequestSummary | undefined = thread.pullRequestNumber && thread.pullRequestUrl
+        ? {
+            number: thread.pullRequestNumber,
+            title: thread.githubPullRequestTitle ?? thread.title,
+            url: thread.pullRequestUrl,
+            state: thread.githubPullRequestState ?? "unknown",
+            draft: thread.githubPullRequestDraft ?? false,
+          }
+        : undefined;
+
+      try {
+        const authState = await requireWorkOSAuth();
+        githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+        const existing = await fetchGithubPullRequestForBranch(
+          githubToken,
+          project.repoOwner,
+          project.repoName,
+          worktree.featureBranch,
+        );
+        if (existing) {
+          pullRequest = {
+            number: existing.number,
+            title: existing.title,
+            url: existing.htmlUrl,
+            state: existing.state,
+            draft: existing.draft,
+          };
+        }
+      } catch (error) {
+        if (!(error instanceof GithubConnectionError)) {
+          // PR discovery is best-effort and must not hide local Git status.
+          console.warn("Could not discover the thread pull request", safeErrorMessage(error, "GitHub unavailable."));
+        }
+      }
+
+      const status = await readThreadGitStatus({
+        sandboxId: project.sandboxId,
+        worktreePath: worktree.worktreePath,
+        baseBranch: worktree.baseBranch,
+        repositoryUrl: project.cloneUrl,
+        refreshRemote: searchParams.get("refresh") !== "0",
+        githubToken,
+        pullRequest,
+      });
+      await convexMutation(api.threads.updateGitStatus, { threadId, status });
+
+      return Response.json(
+        { status },
+        { headers: { "Cache-Control": "private, no-store" } },
+      );
+    } catch (error) {
+      return Response.json(
+        {
+          error: {
+            code: "GIT_STATUS_REFRESH_FAILED",
+            message: safeErrorMessage(error, "Could not refresh thread Git status."),
+          },
+        },
+        { status: 502 },
+      );
+    }
+  }
 
   if (!recordingId) {
     return Response.json({ error: "Missing recordingId." }, { status: 400 });
@@ -187,6 +275,7 @@ async function GET(
   if (project.sandboxStatus !== "ready" || !project.sandboxId) {
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
+  const sandboxId = project.sandboxId;
 
   let recordingMetadata: ReturnType<typeof findDemoRecordingMetadataInParts> = null;
   for (const message of messages) {
@@ -206,7 +295,7 @@ async function GET(
 
   try {
     const preview = await createRecordingPreview({
-      sandboxId: project.sandboxId,
+      sandboxId,
       recordingId,
     });
     const upload = await convexAction(api.recordingArtifactActions.ensureUploaded, {
@@ -273,7 +362,14 @@ async function DELETE(
     return Response.json({ error: "Thread not found." }, { status: 404 });
   }
 
-  await convexMutation(api.threads.remove, { threadId });
+  try {
+    await convexAction(api.projectActions.removeThreadWithWorktree, { projectId, threadId });
+  } catch (error) {
+    return Response.json(
+      { error: safeErrorMessage(error, "Could not safely clean up the thread worktree.") },
+      { status: 409 },
+    );
+  }
 
   return Response.json({ projectId, threadId });
 }
@@ -298,88 +394,100 @@ async function POST(
     return Response.json({ error: "Thread not found." }, { status: 404 });
   }
 
+  if (parsed.data.action === "generate_title") {
+    try {
+      const title = await generateThreadTitle({
+        // Codex auth only needs cookies/headers. Recreate the request from
+        // primitives so framework-owned Fetch objects never cross into the
+        // Node/Undici auth provider after their JSON body has been consumed.
+        request: new Request(req.url, { headers: new Headers(req.headers) }),
+        projectId,
+        threadId,
+        message: parsed.data.message,
+      });
+      const updated = await convexMutation(api.threads.updateGeneratedTitle, {
+        threadId,
+        title,
+      });
+      return Response.json({ title, updated });
+    } catch (error) {
+      const status = APICallError.isInstance(error)
+        && error.statusCode
+        && error.statusCode >= 400
+        && error.statusCode <= 599
+        ? error.statusCode
+        : 500;
+      return Response.json({
+        error: safeErrorMessage(error, "Could not generate the thread title."),
+      }, { status });
+    }
+  }
+
   if (project.sandboxStatus !== "ready" || !project.sandboxId) {
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
+  const sandboxId = project.sandboxId;
 
-  if (thread.commitStatus) {
-    return Response.json({
-      error: thread.commitStatus === "pushed"
-        ? "Changes for this thread have already been committed and pushed."
-        : "Changes for this thread have already been committed.",
-      status: thread.commitStatus,
-      branch: thread.commitBranch,
-      commitSha: thread.commitSha,
-      commitMessage: thread.commitMessage,
-    }, { status: 409 });
+  const requestedAction = parsed.data.action === "commit" && parsed.data.push
+    ? "commit_push"
+    : parsed.data.action;
+
+  if (requestedAction !== "pull") {
+    try {
+      return await runThreadGitWorkflow({
+        request: req,
+        projectId,
+        threadId,
+        input: {
+          operationId: parsed.data.operationId ?? crypto.randomUUID(),
+          action: requestedAction,
+          commitMessage: parsed.data.commitMessage,
+        },
+      });
+    } catch (error) {
+      if (error instanceof ThreadGitMutationConflictError) {
+        return Response.json({
+          error: { code: "GIT_OPERATION_CONFLICT", message: error.message },
+        }, { status: 409 });
+      }
+      return Response.json({
+        error: { code: "GIT_OPERATION_FAILED", message: safeErrorMessage(error, "Could not start the Git operation.") },
+      }, { status: 500 });
+    }
   }
 
   try {
-    const authState = await requireWorkOSAuth();
-    let gitIdentity = workOSCommitIdentity(authState.user);
-    let githubUsername: string | undefined;
-    let githubToken: string | undefined;
-
-    if (parsed.data.push) {
-      githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
-      githubUsername = "x-access-token";
-
-      try {
-        const githubIdentity = await getGithubUserIdentity(authState.user, githubToken);
-        gitIdentity = {
-          name: githubIdentity.name,
-          email: githubIdentity.email,
-        };
-        githubUsername = githubIdentity.username;
-      } catch (error) {
-        if (!(error instanceof GithubConnectionError)) {
-          throw error;
-        }
-      }
-    }
-
-    const prepared = await prepareProjectSandboxCommit({
-      sandboxId: project.sandboxId,
-      repoName: project.repoName,
-      sandboxWorkDir: project.sandboxWorkDir,
-    });
-    const commitMessage = parsed.data.commitMessage ?? await generateCommitMessage({
-      request: req,
-      projectId,
+    return await withThreadGitMutation({
       threadId,
-      branch: prepared.branch,
-      status: prepared.status,
-      diff: prepared.diff,
-    });
-    const result = await commitPreparedProjectSandboxChanges({
-      sandboxId: project.sandboxId,
-      commitMessage,
-      authorName: gitIdentity.name,
-      authorEmail: gitIdentity.email,
-      push: parsed.data.push,
-      githubUsername,
-      githubToken,
-      repoName: project.repoName,
-      sandboxWorkDir: project.sandboxWorkDir,
-    });
-    const status = result.pushed ? "pushed" : "committed";
-
-    await convexMutation(api.threads.markChangesCommitted, {
-      threadId,
-      status,
-      branch: result.branch,
-      commitSha: result.commitSha,
-      commitMessage,
-    });
-
-    return Response.json({
-      status,
-      branch: result.branch,
-      commitSha: result.commitSha,
-      commitMessage,
+      action: "pull",
+      run: async () => {
+        const [worktree, authState] = await Promise.all([
+          convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId }),
+          requireWorkOSAuth(),
+        ]);
+        const githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+        const result = await pullProjectSandboxBranch({
+          sandboxId,
+          branch: worktree.featureBranch,
+          githubToken,
+          repoName: project.repoName,
+          sandboxWorkDir: worktree.worktreePath,
+          target: thread.githubPullRequestHeadCloneUrl && thread.githubPullRequestHeadBranch
+            ? {
+                remoteUrl: thread.githubPullRequestHeadCloneUrl,
+                remoteBranch: thread.githubPullRequestHeadBranch,
+              }
+            : undefined,
+        });
+        await convexMutation(api.threads.invalidateGitStatus, {
+          threadId,
+          reason: "pull_rebase",
+        });
+        return Response.json({ status: "updated", ...result });
+      },
     });
   } catch (error) {
-    if (error instanceof SandboxNoChangesError) {
+    if (error instanceof ThreadGitMutationConflictError) {
       return Response.json({ error: error.message }, { status: 409 });
     }
 
@@ -387,11 +495,7 @@ async function POST(
       return Response.json({ error: error.message }, { status: 401 });
     }
 
-    if (error instanceof CodexConnectionError) {
-      return Response.json({ error: error.message }, { status: error.status });
-    }
-
-    return Response.json({ error: safeErrorMessage(error, "Could not commit sandbox changes.") }, { status: 500 });
+    return Response.json({ error: safeErrorMessage(error, "Could not update the thread branch.") }, { status: 500 });
   }
 }
 

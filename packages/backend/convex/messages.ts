@@ -494,7 +494,11 @@ export const upsertIncomingAgentSessionMessagesInternal = internalMutation({
     }
 
     if (args.messages.length > 0) {
-      await ctx.db.patch(thread._id, { updatedAt: now });
+      const hasUserActivity = args.messages.some((message) => message.role === "user");
+      await ctx.db.patch(thread._id, {
+        updatedAt: now,
+        ...(hasUserActivity ? { settledOverride: undefined, settledAt: undefined } : {}),
+      });
     }
 
     return null;
@@ -673,6 +677,8 @@ export const createTurn = mutation({
 
     await ctx.db.patch(thread._id, {
       updatedAt: now,
+      settledOverride: undefined,
+      settledAt: undefined,
     });
 
     return args.assistantMessageId;

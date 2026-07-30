@@ -20,6 +20,10 @@ export function agentUserTag(userId: string) {
   return `user:${userId}`;
 }
 
+export function threadSandboxCacheKey(projectCacheKey: string, threadId: string) {
+  return `${projectCacheKey}:thread:${threadId}`;
+}
+
 export interface CodexAgentModelOptions {
   provider: "openai-codex";
   modelId: string;

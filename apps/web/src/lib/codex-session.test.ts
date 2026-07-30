@@ -104,6 +104,25 @@ describe("Codex account session resolution", () => {
     );
   });
 
+  it("normalizes request objects created by another server runtime", () => {
+    const foreignRequest = {
+      bodyUsed: false,
+      headers: new Headers({ cookie: "workos_session=workos-1" }),
+      method: "POST",
+      url: "https://autopr.dev/api/project/project-1/thread/thread-1",
+    } as Request;
+
+    const restored = requestWithChatGPTSession(foreignRequest, "lwc_session=desktop-session");
+
+    expect(restored).toBeInstanceOf(Request);
+    expect(restored.method).toBe("POST");
+    expect(restored.url).toBe(foreignRequest.url);
+    expect(restored.body).toBeNull();
+    expect(restored.headers.get("cookie")).toBe(
+      "workos_session=workos-1; lwc_session=desktop-session",
+    );
+  });
+
   it("returns both device and account sessions for a complete disconnect", () => {
     expect(
       getCodexSessionCookieHeaders(

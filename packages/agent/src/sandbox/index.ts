@@ -80,7 +80,14 @@ export interface DaytonaSandbox {
   };
   git: {
     status(path: string): Promise<unknown>;
-    clone(url: string, path: string, branch?: string): Promise<unknown>;
+    clone(
+      url: string,
+      path: string,
+      branch?: string,
+      commitId?: string,
+      username?: string,
+      password?: string,
+    ): Promise<unknown>;
     add(path: string, files: string[]): Promise<unknown>;
     commit(
       path: string,
@@ -89,7 +96,21 @@ export interface DaytonaSandbox {
       email: string,
       allowEmpty?: boolean,
     ): Promise<{ sha: string }>;
-    push(path: string, username?: string, password?: string): Promise<unknown>;
+    push(
+      path: string,
+      username?: string,
+      password?: string,
+      branch?: string,
+      remote?: string,
+      setUpstream?: boolean,
+    ): Promise<unknown>;
+    pull(
+      path: string,
+      username?: string,
+      password?: string,
+      branch?: string,
+      remote?: string,
+    ): Promise<unknown>;
   };
   fs: {
     downloadFile(path: string): Promise<Uint8Array>;
@@ -98,6 +119,18 @@ export interface DaytonaSandbox {
     searchFiles(path: string, pattern: string): Promise<{ files: string[] }>;
   };
   process: {
+    executeCommand(
+      command: string,
+      cwd?: string,
+      env?: Record<string, string>,
+      timeout?: number,
+    ): Promise<{
+      exitCode?: number;
+      result?: string;
+      stdout?: string;
+      stderr?: string;
+      artifacts?: { stdout?: string };
+    }>;
     createSession(sessionId: string): Promise<unknown>;
     executeSessionCommand(
       sessionId: string,

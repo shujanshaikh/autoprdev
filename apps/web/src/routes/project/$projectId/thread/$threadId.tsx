@@ -13,6 +13,7 @@ import type { CodexPromptConnectionIssue } from "#/components/codex-prompt-conne
 import { ThreadChat } from "#/components/thread/thread-chat";
 import { parseThreadDiffDeepLink } from "#/components/thread/thread-diff-panel-utils";
 import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
+import { ThreadGitStatusIndicator } from "#/components/thread/thread-git-status-indicator";
 import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
 
@@ -287,11 +288,20 @@ function ProjectThreadPageContent() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-border bg-background">
+      <header className="relative z-10 flex h-12 shrink-0 items-center border-b border-[color:var(--sidebar-border)] bg-[color:var(--sidebar)]">
         <div className="min-w-0 flex-1 pl-14 pr-2 lg:pl-0">
           <p className="truncate text-sm font-medium text-foreground lg:hidden">
             {thread?.title ?? "Untitled conversation"}
           </p>
+          {thread ? (
+            <ThreadGitStatusIndicator
+              projectId={projectId}
+              threadId={threadId}
+              persistedStatus={thread.gitStatus}
+              invalidatedAt={thread.gitStatusInvalidatedAt}
+              isLive={Boolean(thread.isLive)}
+            />
+          ) : null}
         </div>
 
         <ThreadCommitButton
@@ -313,7 +323,7 @@ function ProjectThreadPageContent() {
                 data-diff-panel-state={diffPanelOpen ? "open" : "closed"}
                 onClick={() => handleDiffPanelOpenChange(!diffPanelOpen)}
                 className={cn(
-                  "group/changes-trigger relative hidden h-full w-12 shrink-0 items-center justify-center border-l border-border text-muted-foreground/85 lg:flex",
+                  "group/changes-trigger relative hidden h-full w-12 shrink-0 items-center justify-center border-l border-[color:var(--sidebar-border)] text-muted-foreground/85 lg:flex",
                   "transition-[background-color,color,transform,box-shadow] duration-200 ease-out",
                   "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground active:bg-[color:var(--project-selected)]",
                   "focus-visible:bg-[color:var(--project-panel-soft)] focus-visible:ring-[1.5px] focus-visible:ring-[color:var(--cohere-form-focus)] focus-visible:ring-offset-0",
@@ -363,7 +373,7 @@ function ProjectThreadPageContent() {
 
       <nav
         aria-label="Thread view"
-        className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background px-3 lg:hidden"
+        className="flex h-12 shrink-0 items-center gap-1 border-b border-[color:var(--sidebar-border)] bg-[color:var(--sidebar)] px-3 lg:hidden"
       >
         <button
           type="button"

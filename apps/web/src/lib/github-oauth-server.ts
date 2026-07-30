@@ -200,10 +200,6 @@ export async function getGithubUserIdentity(
   };
 }
 
-export function authenticatedGithubCloneUrl(token: string, owner: string, repo: string) {
-  return `https://x-access-token:${encodeURIComponent(token)}@github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}.git`;
-}
-
 export function safeErrorMessage(error: unknown, fallback = "Something went wrong.") {
   return error instanceof Error ? error.message : fallback;
 }

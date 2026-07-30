@@ -6,7 +6,7 @@ import { chat } from "@trigger.dev/sdk/ai";
 import { z } from "zod";
 
 import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import {
   codexErrorResponse,
   getCodexAgentModelConfig,
@@ -17,6 +17,7 @@ import {
   agentProjectTag,
   agentThreadTag,
   agentUserTag,
+  threadSandboxCacheKey,
   type AgentChatClientData,
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
@@ -73,6 +74,9 @@ type AgentThread = {
   projectId: string;
   authorId: string;
   demoEnabled?: boolean;
+  baseBranch?: string;
+  featureBranch?: string;
+  worktreePath?: string;
 };
 
 type AgentUserSettings = {
@@ -133,12 +137,18 @@ async function createTrustedClientData(options: {
   userSettings: AgentUserSettings;
   requested: AgentChatClientInput;
 }) {
-  const codex = await getCodexAgentModelConfig(
-    options.request,
-    options.requested.model,
-    options.requested.reasoningEffort,
-  );
-  const persistenceGrant = await createAgentPersistenceGrant();
+  const [worktree, codex, persistenceGrant] = await Promise.all([
+    convexAction(api.projectActions.resolveThreadWorkspace, {
+      projectId: options.project.projectId,
+      threadId: options.thread.threadId,
+    }),
+    getCodexAgentModelConfig(
+      options.request,
+      options.requested.model,
+      options.requested.reasoningEffort,
+    ),
+    createAgentPersistenceGrant(),
+  ]);
 
   await convexMutation(api.threads.addAgentSessionPersistenceGrant, {
     threadId: options.thread.threadId,
@@ -148,11 +158,14 @@ async function createTrustedClientData(options: {
   const clientData: AgentChatClientData = {
     projectId: options.project.projectId,
     threadId: options.thread.threadId,
-    sandboxCacheKey: options.project.sandboxCacheKey,
+    sandboxCacheKey: threadSandboxCacheKey(
+      options.project.sandboxCacheKey,
+      options.thread.threadId,
+    ),
     sandboxId: options.project.sandboxId,
-    sandboxWorkDir: options.project.sandboxWorkDir,
+    sandboxWorkDir: worktree.worktreePath,
     repoUrl: options.project.cloneUrl,
-    repoBranch: options.project.repoBranch,
+    repoBranch: worktree.featureBranch,
     repoName: options.project.repoName,
     persistenceToken: persistenceGrant.token,
     demoEnabled: Boolean(

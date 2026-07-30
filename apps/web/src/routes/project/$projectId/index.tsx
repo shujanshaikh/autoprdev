@@ -32,6 +32,8 @@ import {
   ArrowUp,
   CircleAlert,
   GitBranch,
+  GitFork,
+  GitPullRequest,
   ImagePlus,
   Loader2,
   MessageSquare,
@@ -69,7 +71,12 @@ import {
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
 import { useCodexStatus } from "#/lib/codex-status";
+import { deleteThreadWithCleanup } from "#/lib/delete-thread";
+import { useProjectSandboxBranchQuery } from "#/lib/project-sandbox-branch-query";
 import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
+import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
+
+const OPEN_PULL_REQUEST_VALUE = "__open_github_pull_request__";
 
 function relativeTime(date: number) {
   const seconds = Math.floor((Date.now() - date) / 1000);
@@ -86,9 +93,11 @@ type GithubBranch = {
   name: string;
   sha: string;
   protected: boolean;
+  localOnly?: boolean;
 };
 
 type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
+type ThreadWorkspaceMode = "checkout" | "worktree";
 
 type ProjectPromptImage = {
   id: string;
@@ -107,6 +116,81 @@ const revokeObjectUrl = (url: string | undefined) => {
     URL.revokeObjectURL(url);
   }
 };
+
+function ThreadWorkspaceSelect({
+  value,
+  currentBranch,
+  branchIsRefreshing,
+  branchReadFailed,
+  branchUnavailable,
+  disabled,
+  onChange,
+}: {
+  value: ThreadWorkspaceMode;
+  currentBranch: string;
+  branchIsRefreshing: boolean;
+  branchReadFailed: boolean;
+  branchUnavailable: boolean;
+  disabled: boolean;
+  onChange: (value: ThreadWorkspaceMode) => void;
+}) {
+  const isWorktree = value === "worktree";
+
+  return (
+    <Select value={value} onValueChange={(nextValue) => onChange(nextValue as ThreadWorkspaceMode)}>
+      <SelectTrigger
+        size="sm"
+        className="h-7 max-w-[11rem] gap-1 border-none bg-transparent px-1.5 font-mono text-[11px] font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-muted/30 [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5"
+        disabled={disabled}
+        aria-label="Thread workspace"
+        title={branchUnavailable
+          ? `Start the Daytona sandbox to verify its checkout. Last known branch: ${currentBranch}.`
+          : branchReadFailed
+          ? `Showing cached branch ${currentBranch}; Daytona could not be reached.`
+          : `Daytona checkout: ${currentBranch}`}
+      >
+        {isWorktree ? (
+          <GitFork className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+        ) : branchIsRefreshing ? (
+          <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+        ) : (
+          <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
+        )}
+        <SelectValue>{isWorktree ? "New worktree" : currentBranch}</SelectValue>
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        side="top"
+        sideOffset={8}
+        className="w-72 min-w-72 rounded-[var(--radius-lg)] p-1"
+      >
+        <SelectItem value="checkout" className="rounded-[var(--radius-md)] py-2 pr-7 pl-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <GitBranch className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="min-w-0">
+              <span className="block text-xs font-medium">Current checkout</span>
+              <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                Use {currentBranch}; changes stay in this checkout.
+              </span>
+            </span>
+          </div>
+        </SelectItem>
+        <SelectItem value="worktree" className="rounded-[var(--radius-md)] py-2 pr-7 pl-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <GitFork className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+            <span className="min-w-0">
+              <span className="block text-xs font-medium">New worktree</span>
+              <span className="block text-[10px] text-muted-foreground">
+                Create an isolated feature branch and checkout.
+              </span>
+            </span>
+          </div>
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -195,16 +279,17 @@ function ProjectOverviewPage() {
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const codexStatusQuery = useCodexStatus(isAuthenticated);
   const createThread = useMutation(api.threads.create);
-  const removeThread = useMutation(api.threads.remove);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const startSandbox = useAction(api.projectActions.startSandbox);
   const stopSandbox = useAction(api.projectActions.stopSandbox);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [isOpeningPullRequest, setIsOpeningPullRequest] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState<string | undefined>();
   const [pendingDeleteThread, setPendingDeleteThread] = useState<{ threadId: string; title: string } | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<{ projectId: string; branch: string } | undefined>();
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>();
+  const [workspaceMode, setWorkspaceMode] = useState<ThreadWorkspaceMode>("checkout");
   const availableCodexModels = useMemo(
     () => normalizeCodexModelList(codexStatusQuery.data?.models),
     [codexStatusQuery.data?.models],
@@ -252,7 +337,24 @@ function ProjectOverviewPage() {
   }, []);
 
   const openThreads = threads?.filter((t) => t.isLive) ?? [];
-  const currentBranch = project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch ?? "main";
+  const checkoutOpenThreads = openThreads.filter((thread) =>
+    thread.workspaceMode === "checkout" ||
+    (thread.workspaceMode === undefined && !thread.featureBranch && !thread.worktreePath),
+  );
+  const sandboxBranchQuery = useProjectSandboxBranchQuery({
+    projectId,
+    enabled: Boolean(project && project.sandboxStatus === "ready"),
+  });
+  const metadataBranch = project?.currentBranch ?? project?.repoBranch ?? project?.defaultBranch ?? "main";
+  const currentBranch = sandboxBranchQuery.data?.branch
+    ?? (sandboxBranchQuery.data?.detachedHead
+      ? `detached@${sandboxBranchQuery.data.commitSha.slice(0, 7)}`
+      : metadataBranch);
+  const isReadingSandboxBranch = Boolean(
+    project?.sandboxStatus === "ready" && !sandboxBranchQuery.data && sandboxBranchQuery.isFetching,
+  );
+  const sandboxBranchReadFailed = sandboxBranchQuery.isError;
+  const sandboxBranchUnavailable = sandboxBranchQuery.data?.available === false;
   const selectedBranch =
     selectedBranchOverride?.projectId === projectId && selectedBranchOverride.branch !== currentBranch
       ? selectedBranchOverride.branch
@@ -278,6 +380,15 @@ function ProjectOverviewPage() {
   });
 
   const branches = branchesQuery.data?.branches ?? EMPTY_BRANCHES;
+  const displayedBranches = branches.some((branch) => branch.name === currentBranch)
+    ? branches
+    : [{
+        name: currentBranch,
+        sha: sandboxBranchQuery.data?.commitSha ?? `local-${currentBranch}`,
+        protected: false,
+        localOnly: sandboxBranchQuery.data?.available === true
+          && sandboxBranchQuery.data.branch === currentBranch,
+      }, ...branches];
   const isLoadingBranches = branchesQuery.isPending && Boolean(project);
   const branchesError =
     branchesQuery.error instanceof Error
@@ -285,6 +396,9 @@ function ProjectOverviewPage() {
       : branchesQuery.isError
         ? "Could not load branches."
         : undefined;
+  const sandboxBranchError = sandboxBranchQuery.error instanceof Error
+    ? sandboxBranchQuery.error.message
+    : undefined;
   const sandboxRuntimeStatusQuery = useReactQuery({
     queryKey: ["sandbox-runtime-status", projectId, project?.sandboxStatus],
     enabled: Boolean(project && project.sandboxStatus === "ready"),
@@ -307,11 +421,15 @@ function ProjectOverviewPage() {
       setSelectedBranchOverride(undefined);
       setError(branchError instanceof Error ? branchError.message : "Could not switch branches.");
     },
+    onSuccess: async () => {
+      await sandboxBranchQuery.refetch();
+      setSelectedBranchOverride(undefined);
+    },
   });
 
   const isSwitchingBranch = switchBranchMutation.isPending;
   const mutateSwitchBranch = switchBranchMutation.mutate;
-  const displayedError = error ?? branchesError;
+  const displayedError = error ?? branchesError ?? sandboxBranchError;
   const refreshedSandboxRuntimeStatus = sandboxRuntimeStatusQuery.isError
     ? "unknown"
     : sandboxRuntimeStatusQuery.data?.status;
@@ -329,7 +447,12 @@ function ProjectOverviewPage() {
         ? "unavailable"
         : undefined;
   const promptReady = Boolean(project && project.sandboxStatus === "ready" && isCodexConnected);
-  const promptControlsDisabled = !promptReady || isCreatingThread;
+  const promptControlsDisabled = !promptReady
+    || isCreatingThread
+    || !isSandboxStarted
+    || isReadingSandboxBranch
+    || sandboxBranchQuery.data?.detachedHead === true
+    || sandboxBranchUnavailable;
   const sandboxRuntimeButton = (() => {
     if (isTogglingSandbox) {
       return { icon: Loader2, label: "Updating Sandbox", variant: "outline" as const };
@@ -512,8 +635,9 @@ function ProjectOverviewPage() {
       const uploadedImages = await resolvePromptImages();
       const threadId = await createThread({
         projectId,
-        title: prompt || "New thread",
+        title: "New thread",
         demoEnabled: effectiveDemoEnabled,
+        workspaceMode,
       });
       if (uploadedImages.length > 0) {
         window.sessionStorage.setItem(
@@ -548,6 +672,7 @@ function ProjectOverviewPage() {
     router,
     selectedModel,
     selectedReasoningEffort,
+    workspaceMode,
   ]);
 
   const handlePromptSubmit = useCallback(
@@ -570,12 +695,15 @@ function ProjectOverviewPage() {
         ? await stopSandbox({ projectId })
         : await startSandbox({ projectId });
       setSandboxRuntimeStatusOverride({ projectId, status: result.status });
+      if (result.status === "started") {
+        await sandboxBranchQuery.refetch();
+      }
     } catch (sandboxError) {
       setError(sandboxError instanceof Error ? sandboxError.message : "Could not update the sandbox.");
     } finally {
       setIsTogglingSandbox(false);
     }
-  }, [isSandboxStarted, isTogglingSandbox, project, projectId, startSandbox, stopSandbox]);
+  }, [isSandboxStarted, isTogglingSandbox, project, projectId, sandboxBranchQuery.refetch, startSandbox, stopSandbox]);
 
   const handleDeleteThread = useCallback(
     async (threadId: string, title: string) => {
@@ -592,14 +720,14 @@ function ProjectOverviewPage() {
     setDeletingThreadId(pendingDeleteThread.threadId);
     setError(undefined);
     try {
-      await removeThread({ threadId: pendingDeleteThread.threadId });
+      await deleteThreadWithCleanup(projectId, pendingDeleteThread.threadId);
       setPendingDeleteThread(undefined);
     } catch (threadError) {
       setError(threadError instanceof Error ? threadError.message : "Could not delete the thread.");
     } finally {
       setDeletingThreadId(undefined);
     }
-  }, [pendingDeleteThread, removeThread]);
+  }, [pendingDeleteThread, projectId]);
 
   const isConfirmingDelete = Boolean(pendingDeleteThread);
   const isDeletingPendingThread = Boolean(pendingDeleteThread && deletingThreadId === pendingDeleteThread.threadId);
@@ -624,8 +752,10 @@ function ProjectOverviewPage() {
       return;
     }
 
-    if (openThreads.length > 0) {
-      const confirmed = window.confirm("Switching branch affects the sandbox used by new and existing threads.");
+    if (checkoutOpenThreads.length > 0) {
+      const confirmed = window.confirm(
+        `Switching branch changes the checkout used by ${checkoutOpenThreads.length} live checkout-backed thread${checkoutOpenThreads.length === 1 ? "" : "s"}. Worktree-backed threads are unaffected.`,
+      );
       if (!confirmed) {
         setSelectedBranchOverride(undefined);
         return;
@@ -634,7 +764,7 @@ function ProjectOverviewPage() {
 
     setSelectedBranchOverride({ projectId, branch });
     mutateSwitchBranch(branch);
-  }, [currentBranch, openThreads.length, project, projectId, mutateSwitchBranch]);
+  }, [checkoutOpenThreads.length, currentBranch, project, projectId, mutateSwitchBranch]);
 
   const quickActions = [
     "Summarize latest changes",
@@ -644,6 +774,7 @@ function ProjectOverviewPage() {
   ];
 
   return (
+    <>
     <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="minimal-scrollbar relative flex flex-1 flex-col overflow-y-auto">
@@ -674,7 +805,13 @@ function ProjectOverviewPage() {
                             <GitBranch className="size-3 shrink-0" aria-hidden="true" />
                             <span className="truncate">{project.repoFullName ?? "project"}</span>
                           </span>
-                          <Select value={selectedBranch} onValueChange={(branch) => branch && void switchBranch(branch)}>
+                          <Select value={selectedBranch} onValueChange={(branch) => {
+                            if (branch === OPEN_PULL_REQUEST_VALUE) {
+                              setIsOpeningPullRequest(true);
+                            } else if (branch) {
+                              void switchBranch(branch);
+                            }
+                          }}>
                             <SelectTrigger
                               size="sm"
                               className="h-7 max-w-64 border-border/70 bg-background/35 px-2.5 font-mono text-[11px] text-muted-foreground/90 hover:border-border hover:bg-muted/35 hover:text-foreground [&_[data-slot=select-value]]:min-w-0"
@@ -693,7 +830,7 @@ function ProjectOverviewPage() {
                               alignItemWithTrigger={false}
                               className="max-h-72 w-[min(calc(100vw-2rem),22rem)] min-w-64 p-1"
                             >
-                              {branches.map((branch) => (
+                              {displayedBranches.map((branch) => (
                                 <SelectItem
                                   key={branch.sha}
                                   value={branch.name}
@@ -707,13 +844,31 @@ function ProjectOverviewPage() {
                                         protected
                                       </span>
                                     ) : null}
+                                    {branch.localOnly ? (
+                                      <span className="shrink-0 rounded-[3px] border border-border/70 px-1 py-0.5 text-[10px] leading-none text-muted-foreground">
+                                        checked out
+                                      </span>
+                                    ) : null}
                                   </span>
                                 </SelectItem>
                               ))}
+                              <SelectItem value={OPEN_PULL_REQUEST_VALUE} className="mt-1 border-t border-border pt-2">
+                                <span className="flex items-center gap-2 font-medium text-primary">
+                                  <GitPullRequest className="size-3" aria-hidden="true" />
+                                  Open GitHub PR…
+                                </span>
+                              </SelectItem>
                             </SelectContent>
                           </Select>
-                          {isSwitchingBranch || project.branchSwitchStatus === "switching" ? (
+                          {isSwitchingBranch || project.branchSwitchStatus === "switching" || isReadingSandboxBranch ? (
                             <Loader2 className="size-3 animate-spin text-primary" aria-hidden="true" />
+                          ) : sandboxBranchReadFailed || sandboxBranchUnavailable ? (
+                            <CircleAlert
+                              className="size-3 text-amber-500"
+                              aria-label={sandboxBranchUnavailable
+                                ? "Daytona sandbox is not running"
+                                : "Could not verify the Daytona branch"}
+                            />
                           ) : null}
                         </div>
                       </div>
@@ -900,6 +1055,17 @@ function ProjectOverviewPage() {
                             </button>
                           </div>
                         </div>
+                        <div className="mx-auto flex w-[calc(100%-2rem)] min-w-0 items-center justify-end px-1 pt-1">
+                          <ThreadWorkspaceSelect
+                            value={workspaceMode}
+                            currentBranch={currentBranch}
+                            branchIsRefreshing={isReadingSandboxBranch}
+                            branchReadFailed={sandboxBranchReadFailed}
+                            branchUnavailable={sandboxBranchUnavailable}
+                            disabled={promptControlsDisabled}
+                            onChange={setWorkspaceMode}
+                          />
+                        </div>
                       </form>
 
                       <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -1024,6 +1190,15 @@ function ProjectOverviewPage() {
                           <MessageSquarePlus className="size-3" aria-hidden="true" />
                           New
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsOpeningPullRequest(true)}
+                          disabled={project.sandboxStatus !== "ready"}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-pill)] border border-border/70 px-3 font-mono text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <GitPullRequest className="size-3" aria-hidden="true" />
+                          Open PR
+                        </button>
                       </div>
                     </div>
 
@@ -1076,7 +1251,13 @@ function ProjectOverviewPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+    </Dialog>
+      <OpenGithubPullRequestDialog
+        projectId={projectId}
+        open={isOpeningPullRequest}
+        onOpenChange={setIsOpeningPullRequest}
+      />
+    </>
   );
 }
 

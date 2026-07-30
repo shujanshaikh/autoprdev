@@ -5,8 +5,19 @@ import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { action } from "./_generated/server";
+import { action, type ActionCtx } from "./_generated/server";
 import { normalizeGithubUrl } from "./lib/github";
+import { sandboxCommandText } from "./lib/sandboxCommandOutput";
+import {
+  assessWorktreeCleanup,
+  createThreadFeatureBranch,
+  createThreadWorktreePath,
+  decideWorktreeProvision,
+  parseGitWorktreeList,
+  resolveThreadBaseBranch,
+  resolveThreadWorkspaceMode,
+  type ThreadWorkspaceMode,
+} from "./lib/threadWorktree";
 
 const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready"), v.literal("failed"));
 
@@ -66,6 +77,18 @@ interface PtyTerminalResult {
   cwd: string;
 }
 
+interface ThreadWorktreeResult {
+  baseBranch: string;
+  featureBranch: string;
+  worktreePath: string;
+  headSha: string;
+  upstreamBranch?: string;
+}
+
+interface ThreadWorkspaceResult extends ThreadWorktreeResult {
+  workspaceMode: ThreadWorkspaceMode;
+}
+
 type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
 
 interface SandboxRuntimeStatusResult {
@@ -97,6 +120,29 @@ type ComputerUseDiagnostics = {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFailure = false) {
+  const sessionId = `thread-worktree-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  await sandbox.process.createSession(sessionId);
+
+  try {
+    const result = await sandbox.process.executeSessionCommand(
+      sessionId,
+      { command, suppressInputEcho: true },
+      120,
+    );
+    if (!allowFailure && typeof result.exitCode === "number" && result.exitCode !== 0) {
+      throw new Error(sandboxCommandText(result) || "Sandbox Git command failed.");
+    }
+    return result;
+  } finally {
+    await sandbox.process.deleteSession(sessionId).catch(() => undefined);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -633,6 +679,364 @@ async function bootstrapRepositorySandbox(options: {
   };
 }
 
+async function readThreadWorktreeState(
+  sandbox: DaytonaSandbox,
+  repositoryPath: string,
+  featureBranch: string,
+) {
+  const quotedRepositoryPath = shellQuote(repositoryPath);
+  await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} worktree prune`);
+  const list = sandboxCommandText(
+    await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} worktree list --porcelain`),
+  );
+  const branchCheck = await runSandboxShell(
+    sandbox,
+    `git -C ${quotedRepositoryPath} show-ref --verify --quiet ${shellQuote(`refs/heads/${featureBranch}`)}`,
+    true,
+  );
+
+  return {
+    entries: parseGitWorktreeList(list),
+    branchExists: branchCheck.exitCode === 0,
+  };
+}
+
+async function provisionThreadWorktree(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  threadId: string,
+): Promise<ThreadWorktreeResult> {
+  const { project, thread } = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
+    authorId,
+    projectId,
+    threadId,
+  });
+
+  if (resolveThreadWorkspaceMode(thread) !== "worktree") {
+    throw new ConvexError({ code: "THREAD_WORKTREE_NOT_ENABLED" });
+  }
+
+  if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+    throw new ConvexError({ code: "PROJECT_NOT_READY" });
+  }
+
+  const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
+    DEFAULT_SANDBOX_WORKDIR,
+    sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
+  );
+  const baseBranch = resolveThreadBaseBranch(thread, project);
+  if (!baseBranch) {
+    throw new ConvexError({ code: "THREAD_BASE_BRANCH_UNKNOWN" });
+  }
+  const featureBranch = thread.featureBranch ?? createThreadFeatureBranch(thread.title, thread.threadId);
+  const expectedWorktreePath = createThreadWorktreePath(
+    repositoryPath,
+    project.repoName,
+    thread.threadId,
+  );
+  const worktreePath = thread.worktreePath ?? expectedWorktreePath;
+  if (worktreePath !== expectedWorktreePath) {
+    throw new ConvexError({ code: "THREAD_WORKTREE_PATH_UNSAFE" });
+  }
+
+  await ctx.runMutation(internal.threads.reserveWorktreeInternal, {
+    authorId,
+    threadId,
+    baseBranch,
+    featureBranch,
+    worktreePath,
+  });
+
+  try {
+    const sandbox = await ensureSandboxStarted(project.sandboxId);
+    let state = await readThreadWorktreeState(sandbox, repositoryPath, featureBranch);
+    let decision = decideWorktreeProvision({
+      entries: state.entries,
+      desiredPath: worktreePath,
+      featureBranch,
+      branchExists: state.branchExists,
+    });
+
+    if (decision.kind === "conflict") {
+      throw new Error(decision.message);
+    }
+
+    if (decision.kind !== "ready") {
+      const pathCheck = await runSandboxShell(sandbox, `test -e ${shellQuote(worktreePath)}`, true);
+      if (pathCheck.exitCode === 0) {
+        throw new Error(`The thread worktree path already exists but is not registered with Git: ${worktreePath}`);
+      }
+
+      await runSandboxShell(sandbox, `mkdir -p ${shellQuote(worktreePath.slice(0, worktreePath.lastIndexOf("/")))}`);
+      const quotedRepositoryPath = shellQuote(repositoryPath);
+      const creationPoint = thread.githubPullRequestHeadSha ?? baseBranch;
+      if (decision.kind === "create-branch-and-worktree" && thread.githubPullRequestHeadSha) {
+        const objectCheck = await runSandboxShell(
+          sandbox,
+          `git -C ${quotedRepositoryPath} cat-file -e ${shellQuote(`${thread.githubPullRequestHeadSha}^{commit}`)}`,
+          true,
+        );
+        if (objectCheck.exitCode !== 0) {
+          throw new Error("The pull request commit is no longer available locally. Re-open the PR from GitHub to fetch it again.");
+        }
+      }
+      const addCommand = decision.kind === "create-from-existing-branch"
+        ? `git -C ${quotedRepositoryPath} worktree add ${shellQuote(worktreePath)} ${shellQuote(featureBranch)}`
+        : `git -C ${quotedRepositoryPath} worktree add -b ${shellQuote(featureBranch)} ${shellQuote(worktreePath)} ${shellQuote(creationPoint)}`;
+
+      try {
+        await runSandboxShell(sandbox, addCommand);
+      } catch (error) {
+        // Concurrent retries can race after both inspect the same state. Re-read
+        // Git's authoritative worktree registry before deciding the retry failed.
+        state = await readThreadWorktreeState(sandbox, repositoryPath, featureBranch);
+        decision = decideWorktreeProvision({
+          entries: state.entries,
+          desiredPath: worktreePath,
+          featureBranch,
+          branchExists: state.branchExists,
+        });
+        if (decision.kind !== "ready") throw error;
+      }
+    }
+
+    const quotedWorktreePath = shellQuote(worktreePath);
+    const headSha = sandboxCommandText(
+      await runSandboxShell(sandbox, `git -C ${quotedWorktreePath} rev-parse HEAD`),
+    );
+    const upstreamResult = await runSandboxShell(
+      sandbox,
+      `git -C ${quotedWorktreePath} rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'`,
+      true,
+    );
+    const upstreamBranch = upstreamResult.exitCode === 0
+      ? sandboxCommandText(upstreamResult) || undefined
+      : undefined;
+
+    await ctx.runMutation(internal.threads.markWorktreeReadyInternal, {
+      authorId,
+      threadId,
+      worktreePath,
+      headSha,
+      upstreamBranch,
+    });
+
+    return { baseBranch, featureBranch, worktreePath, headSha, upstreamBranch };
+  } catch (error) {
+    await ctx.runMutation(internal.threads.markWorktreeFailedInternal, {
+      authorId,
+      threadId,
+      error: errorMessage(error),
+    }).catch(() => undefined);
+    throw new ConvexError({
+      code: "THREAD_WORKTREE_PROVISION_FAILED",
+      message: errorMessage(error),
+    });
+  }
+}
+
+export const ensureThreadWorktree = action({
+  args: { projectId: v.string(), threadId: v.string() },
+  returns: v.object({
+    baseBranch: v.string(),
+    featureBranch: v.string(),
+    worktreePath: v.string(),
+    headSha: v.string(),
+    upstreamBranch: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<ThreadWorktreeResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED" });
+    return await provisionThreadWorktree(ctx, identity.subject, args.projectId, args.threadId);
+  },
+});
+
+async function resolveThreadWorkspaceForAuthor(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  threadId: string,
+): Promise<ThreadWorkspaceResult> {
+  const { project, thread } = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
+    authorId,
+    projectId,
+    threadId,
+  });
+  const workspaceMode = resolveThreadWorkspaceMode(thread);
+
+  if (workspaceMode === "worktree") {
+    return {
+      workspaceMode,
+      ...await provisionThreadWorktree(ctx, authorId, projectId, threadId),
+    };
+  }
+
+  if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+    throw new ConvexError({ code: "PROJECT_NOT_READY" });
+  }
+
+  const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
+    DEFAULT_SANDBOX_WORKDIR,
+    sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
+  );
+  const sandbox = await ensureSandboxStarted(project.sandboxId);
+  const quotedRepositoryPath = shellQuote(repositoryPath);
+  const featureBranch = sandboxCommandText(
+    await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} branch --show-current`),
+  );
+  if (!featureBranch) {
+    throw new ConvexError({
+      code: "PROJECT_CHECKOUT_DETACHED",
+      message: "The project checkout is detached. Check out a branch before running this thread.",
+    });
+  }
+
+  const headSha = sandboxCommandText(
+    await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} rev-parse HEAD`),
+  );
+  const upstreamResult = await runSandboxShell(
+    sandbox,
+    `git -C ${quotedRepositoryPath} rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'`,
+    true,
+  );
+  const upstreamBranch = upstreamResult.exitCode === 0
+    ? sandboxCommandText(upstreamResult) || undefined
+    : undefined;
+
+  return {
+    workspaceMode,
+    baseBranch: project.defaultBranch ?? thread.baseBranch ?? featureBranch,
+    featureBranch,
+    worktreePath: repositoryPath,
+    headSha,
+    upstreamBranch,
+  };
+}
+
+export const resolveThreadWorkspace = action({
+  args: { projectId: v.string(), threadId: v.string() },
+  returns: v.object({
+    workspaceMode: v.union(v.literal("checkout"), v.literal("worktree")),
+    baseBranch: v.string(),
+    featureBranch: v.string(),
+    worktreePath: v.string(),
+    headSha: v.string(),
+    upstreamBranch: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<ThreadWorkspaceResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED" });
+    return await resolveThreadWorkspaceForAuthor(
+      ctx,
+      identity.subject,
+      args.projectId,
+      args.threadId,
+    );
+  },
+});
+
+async function cleanupThreadWorktreeForAuthor(
+  ctx: ActionCtx,
+  authorId: string,
+  args: { projectId: string; threadId: string },
+): Promise<{ removed: boolean; branchPreserved: true }> {
+  const { project, thread } = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
+    authorId,
+    projectId: args.projectId,
+    threadId: args.threadId,
+  });
+
+  if (resolveThreadWorkspaceMode(thread) === "checkout") {
+    return { removed: false, branchPreserved: true };
+  }
+
+  if (!thread.worktreePath || !project.sandboxId) {
+    await ctx.runMutation(internal.threads.markWorktreeCleanedInternal, {
+      authorId,
+      threadId: args.threadId,
+    });
+    return { removed: false, branchPreserved: true };
+  }
+
+  const sandbox = await ensureSandboxStarted(project.sandboxId);
+  const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
+    DEFAULT_SANDBOX_WORKDIR,
+    sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
+  );
+  const expectedWorktreePath = createThreadWorktreePath(
+    repositoryPath,
+    project.repoName,
+    thread.threadId,
+  );
+  if (thread.worktreePath !== expectedWorktreePath) {
+    throw new ConvexError({ code: "THREAD_WORKTREE_PATH_UNSAFE" });
+  }
+  const state = await readThreadWorktreeState(
+    sandbox,
+    repositoryPath,
+    thread.featureBranch ?? "",
+  );
+  const registered = state.entries.find((entry) => entry.path === thread.worktreePath);
+
+  if (!registered) {
+    await ctx.runMutation(internal.threads.markWorktreeCleanedInternal, {
+      authorId,
+      threadId: args.threadId,
+    });
+    return { removed: false, branchPreserved: true };
+  }
+
+  const status = sandboxCommandText(
+    await runSandboxShell(sandbox, `git -C ${shellQuote(thread.worktreePath)} status --porcelain`),
+  );
+  const cleanup = assessWorktreeCleanup(status);
+  if (!cleanup.canRemoveWorktree) {
+    throw new ConvexError({ code: "THREAD_WORKTREE_DIRTY", message: cleanup.reason });
+  }
+
+  await runSandboxShell(
+    sandbox,
+    `git -C ${shellQuote(repositoryPath)} worktree remove ${shellQuote(thread.worktreePath)}`,
+  );
+  // Deliberately retain the feature branch. A clean worktree can still contain
+  // local commits that have not reached an upstream remote.
+  await ctx.runMutation(internal.threads.markWorktreeCleanedInternal, {
+    authorId,
+    threadId: args.threadId,
+  });
+  return { removed: true, branchPreserved: true };
+}
+
+export const cleanupThreadWorktree = action({
+  args: { projectId: v.string(), threadId: v.string() },
+  returns: v.object({ removed: v.boolean(), branchPreserved: v.literal(true) }),
+  handler: async (ctx, args): Promise<{ removed: boolean; branchPreserved: true }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED" });
+    return await cleanupThreadWorktreeForAuthor(ctx, identity.subject, args);
+  },
+});
+
+export const removeThreadWithWorktree = action({
+  args: { projectId: v.string(), threadId: v.string() },
+  returns: v.object({ projectId: v.string(), threadId: v.string(), branchPreserved: v.literal(true) }),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED" });
+    const cleanup = await cleanupThreadWorktreeForAuthor(ctx, identity.subject, args);
+    await ctx.runMutation(internal.threads.removeInternal, {
+      authorId: identity.subject,
+      threadId: args.threadId,
+    });
+    return {
+      projectId: args.projectId,
+      threadId: args.threadId,
+      branchPreserved: cleanup.branchPreserved,
+    };
+  },
+});
+
 export const getSandboxRuntimeStatus = action({
   args: {
     projectId: v.string(),
@@ -711,6 +1115,11 @@ export const startSandbox = action({
         authorId: identity.subject,
         projectId: args.projectId,
         sandboxRuntimeStatus: status,
+      });
+      await ctx.runMutation(internal.threads.invalidateProjectGitStatusesInternal, {
+        authorId: identity.subject,
+        projectId: args.projectId,
+        reason: "sandbox_reconnect",
       });
       return { status };
     } catch (error) {
@@ -800,6 +1209,7 @@ export const getDesktopPreview = action({
 export const getPtyTerminal = action({
   args: {
     projectId: v.string(),
+    threadId: v.string(),
     cols: v.optional(v.number()),
     rows: v.optional(v.number()),
   },
@@ -815,14 +1225,17 @@ export const getPtyTerminal = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string; repoName: string; sandboxWorkDir?: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+    const workspace = await resolveThreadWorkspaceForAuthor(
+      ctx,
+      identity.subject,
+      args.projectId,
+      args.threadId,
+    );
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
-    const cwd = project.sandboxWorkDir ?? sandboxRepositoryPath(
-      DEFAULT_SANDBOX_WORKDIR,
-      sandboxRepositoryDirectoryName({ repoName: project.repoName }),
-    );
+    const cwd = workspace.worktreePath;
 
     try {
       const terminal = await createDaytonaPtyTerminal(project.sandboxId, cwd, args.cols ?? 100, args.rows ?? 30);
@@ -869,6 +1282,41 @@ export const resizePtyTerminal = action({
     } catch (error) {
       throw new ConvexError({
         code: "DAYTONA_PTY_RESIZE_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const killPtyTerminal = action({
+  args: {
+    projectId: v.string(),
+    sessionId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      await runWithStartedSandboxRetry(project.sandboxId, async (sandbox) => {
+        await sandbox.process.killPtySession(args.sessionId);
+      });
+      return null;
+    } catch (error) {
+      if (isSandboxNotFoundError(error)) {
+        return null;
+      }
+      throw new ConvexError({
+        code: "DAYTONA_PTY_KILL_FAILED",
         message: errorMessage(error),
       });
     }

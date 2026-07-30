@@ -1,6 +1,15 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import { threadGitStatusValidator } from "./lib/gitStatus";
+import {
+  gitWorkflowActionValidator,
+  gitWorkflowFailureValidator,
+  gitWorkflowPhaseResultValidator,
+  gitWorkflowPhaseValidator,
+  gitWorkflowPushResultValidator,
+} from "./lib/gitWorkflow";
+
 export default defineSchema({
   projects: defineTable({
     projectId: v.string(),
@@ -97,6 +106,8 @@ export default defineSchema({
     title: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    settledOverride: v.optional(v.union(v.literal("settled"), v.literal("active"))),
+    settledAt: v.optional(v.number()),
     currentRunId: v.optional(v.string()),
     isLive: v.optional(v.boolean()),
     triggerSessionCreatedAt: v.optional(v.number()),
@@ -123,21 +134,104 @@ export default defineSchema({
       occurredAt: v.number(),
     })),
     demoEnabled: v.optional(v.boolean()),
+    workspaceMode: v.optional(v.union(v.literal("checkout"), v.literal("worktree"))),
+    baseBranch: v.optional(v.string()),
+    featureBranch: v.optional(v.string()),
+    worktreePath: v.optional(v.string()),
+    headSha: v.optional(v.string()),
+    upstreamBranch: v.optional(v.string()),
+    worktreeStatus: v.optional(v.union(
+      v.literal("pending"),
+      v.literal("provisioning"),
+      v.literal("ready"),
+      v.literal("failed"),
+      v.literal("cleaned"),
+    )),
+    worktreeError: v.optional(v.string()),
+    worktreeUpdatedAt: v.optional(v.number()),
     pullRequestStatus: v.optional(v.union(v.literal("idle"), v.literal("creating"), v.literal("created"), v.literal("failed"))),
     pullRequestUrl: v.optional(v.string()),
     pullRequestNumber: v.optional(v.number()),
     pullRequestBranch: v.optional(v.string()),
     pullRequestError: v.optional(v.string()),
     pullRequestCreatedAt: v.optional(v.number()),
+    githubPullRequestTitle: v.optional(v.string()),
+    githubPullRequestAuthor: v.optional(v.string()),
+    githubPullRequestState: v.optional(v.union(v.literal("open"), v.literal("closed"), v.literal("merged"))),
+    githubPullRequestDraft: v.optional(v.boolean()),
+    githubPullRequestHeadRepositoryId: v.optional(v.number()),
+    githubPullRequestHeadRepository: v.optional(v.string()),
+    githubPullRequestHeadCloneUrl: v.optional(v.string()),
+    githubPullRequestHeadBranch: v.optional(v.string()),
+    githubPullRequestHeadSha: v.optional(v.string()),
+    githubPullRequestHeadCanPush: v.optional(v.boolean()),
+    githubPullRequestBaseRepositoryId: v.optional(v.number()),
+    githubPullRequestBaseRepository: v.optional(v.string()),
+    githubPullRequestBaseCloneUrl: v.optional(v.string()),
+    githubPullRequestBaseBranch: v.optional(v.string()),
+    githubPullRequestIsFork: v.optional(v.boolean()),
     commitStatus: v.optional(v.union(v.literal("committed"), v.literal("pushed"))),
     commitBranch: v.optional(v.string()),
     commitSha: v.optional(v.string()),
     commitMessage: v.optional(v.string()),
     committedAt: v.optional(v.number()),
+    gitMutationId: v.optional(v.string()),
+    gitMutationAction: v.optional(v.union(
+      v.literal("commit"),
+      v.literal("commit_push"),
+      v.literal("push_create_pr"),
+      v.literal("commit_push_create_pr"),
+      v.literal("push"),
+      v.literal("pull"),
+      v.literal("create_pr"),
+    )),
+    gitMutationStartedAt: v.optional(v.number()),
+    gitStatus: v.optional(threadGitStatusValidator),
+    gitStatusInvalidatedAt: v.optional(v.number()),
+    gitStatusInvalidationReason: v.optional(v.union(
+      v.literal("agent_changes"),
+      v.literal("worktree_created"),
+      v.literal("commit"),
+      v.literal("pull_rebase"),
+      v.literal("push"),
+      v.literal("pull_request"),
+      v.literal("sandbox_reconnect"),
+      v.literal("manual"),
+    )),
   })
     .index("by_thread_id", ["threadId"])
     .index("by_project", ["projectId"])
+    .index("by_author", ["authorId"])
     .index("by_author_project", ["authorId", "projectId"]),
+
+  gitOperations: defineTable({
+    operationId: v.string(),
+    threadId: v.string(),
+    projectId: v.string(),
+    authorId: v.string(),
+    requestedAction: gitWorkflowActionValidator,
+    status: v.union(v.literal("running"), v.literal("succeeded"), v.literal("failed")),
+    currentPhase: v.optional(gitWorkflowPhaseValidator),
+    phaseResults: v.array(gitWorkflowPhaseResultValidator),
+    commitMessage: v.optional(v.string()),
+    pullRequestTitle: v.optional(v.string()),
+    pullRequestBody: v.optional(v.string()),
+    pullRequestDraft: v.optional(v.boolean()),
+    commitSha: v.optional(v.string()),
+    branch: v.optional(v.string()),
+    baseBranch: v.optional(v.string()),
+    pushResult: v.optional(gitWorkflowPushResultValidator),
+    pullRequestNumber: v.optional(v.number()),
+    pullRequestUrl: v.optional(v.string()),
+    failure: v.optional(gitWorkflowFailureValidator),
+    attempt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_operation_id", ["operationId"])
+    .index("by_thread_created", ["threadId", "createdAt"])
+    .index("by_author", ["authorId"]),
 
   messages: defineTable({
     threadId: v.string(),

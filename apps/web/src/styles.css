@@ -48,13 +48,25 @@
   background: transparent;
 }
 
+.surface-tabs-scroll {
+  scrollbar-width: none;
+}
+
+.surface-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 :root {
   --ease-ui-snappy: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-ui-smooth: cubic-bezier(0.2, 0, 0, 1);
 }
 
 .autopr-terminal {
-  --autopr-terminal-bg: var(--framer-surface-1);
+  --autopr-terminal-bg: color-mix(in srgb, var(--framer-surface-1) 78%, var(--framer-surface-2));
+}
+
+.dark .autopr-terminal {
+  --autopr-terminal-bg: color-mix(in srgb, var(--framer-surface-1) 84%, var(--framer-surface-2));
 }
 
 .autopr-terminal,
@@ -69,11 +81,24 @@
 
 .autopr-terminal .xterm {
   height: 100% !important;
-  padding: 14px 16px !important;
+  padding: 14px 16px 12px !important;
 }
 
 .autopr-terminal .xterm-screen canvas {
   background-color: var(--autopr-terminal-bg) !important;
+}
+
+.autopr-terminal .xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: 6px !important;
+}
+
+.autopr-terminal .xterm .xterm-scrollable-element > .scrollbar > .slider {
+  border-radius: 999px;
+}
+
+.autopr-terminal .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  left: 0 !important;
+  width: 6px !important;
 }
 
 @keyframes project-route-enter {
@@ -148,11 +173,12 @@
   --project-muted: var(--framer-ink-muted);
   --project-selected: var(--framer-surface-2);
   --project-selected-strong: var(--framer-accent-blue);
-  --sidebar: var(--framer-surface-1);
+  /* Sidebar sits a step below the main surface so the two panes read apart. */
+  --sidebar: oklch(0.9560 0 0);
   --sidebar-foreground: var(--framer-ink);
-  --sidebar-accent: var(--framer-surface-2);
+  --sidebar-accent: oklch(0.9280 0 0);
   --sidebar-accent-foreground: var(--framer-ink);
-  --sidebar-border: var(--framer-hairline-soft);
+  --sidebar-border: oklch(0.9020 0 0);
 
   background: var(--project-bg);
   color: var(--foreground);
@@ -167,11 +193,11 @@
   --project-muted: var(--framer-ink-muted);
   --project-selected: var(--framer-surface-2);
   --project-selected-strong: var(--framer-accent-blue);
-  --sidebar: var(--framer-surface-1);
+  --sidebar: oklch(0.1560 0 0);
   --sidebar-foreground: var(--framer-ink);
-  --sidebar-accent: var(--framer-surface-2);
+  --sidebar-accent: oklch(0.2120 0 0);
   --sidebar-accent-foreground: var(--framer-ink);
-  --sidebar-border: var(--framer-hairline-soft);
+  --sidebar-border: oklch(0.2210 0 0);
 }
 
 .project-shell [data-slot="sidebar"],
@@ -244,6 +270,31 @@
 }
 [data-slot="sidebar-content"]::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--sidebar-foreground) 16%, transparent);
+}
+
+
+/* ─── Git operation panel ───────────────────────────────────── */
+
+@keyframes git-operation-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.git-operation-panel-in {
+  animation: git-operation-panel-in 180ms var(--ease-ui-snappy) both;
+  transform-origin: top right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .git-operation-panel-in {
+    animation: none;
+  }
 }
 
 
@@ -789,6 +840,12 @@
   --diffs-bg-context-override: color-mix(in srgb, var(--project-panel-soft, var(--muted)) 72%, var(--project-panel, var(--background)));
   --diffs-bg-context-gutter-override: color-mix(in srgb, var(--project-panel-soft, var(--muted)) 88%, var(--project-panel, var(--background)));
   --diffs-bg-separator-override: var(--project-line, var(--border));
+  --diffs-bg-addition-override: color-mix(in srgb, var(--framer-success) 12%, var(--project-panel, var(--background)));
+  --diffs-bg-addition-number-override: color-mix(in srgb, var(--framer-success) 19%, var(--project-panel, var(--background)));
+  --diffs-bg-deletion-override: color-mix(in srgb, var(--framer-gradient-coral) 12%, var(--project-panel, var(--background)));
+  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--framer-gradient-coral) 19%, var(--project-panel, var(--background)));
+  --diffs-bg-selection-override: color-mix(in srgb, var(--framer-accent-blue) 18%, var(--project-panel, var(--background)));
+  --diffs-fg-number-override: color-mix(in srgb, var(--framer-ink-muted) 78%, transparent);
 
   --diffs-added-light: color-mix(in srgb, var(--framer-success) 54%, black);
   --diffs-added-dark: var(--framer-success);
@@ -796,4 +853,8 @@
   --diffs-deleted-dark: var(--framer-gradient-coral);
   --diffs-modified-light: color-mix(in srgb, var(--framer-accent-blue) 64%, black);
   --diffs-modified-dark: var(--framer-accent-blue);
+}
+
+.thread-diff-code-view {
+  background: color-mix(in srgb, var(--project-panel-soft) 34%, var(--project-panel));
 }

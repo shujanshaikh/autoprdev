@@ -23,17 +23,20 @@ export type PierreLineDiffType = "word-alt" | "none";
 type PierreDiffPreferenceState = {
   diffStyle: PierreDiffStyle;
   lineDiffType: PierreLineDiffType;
+  wordWrap: boolean;
 };
 
 type PierreDiffPreferences = PierreDiffPreferenceState & {
   similarChanges: boolean;
   setDiffStyle: (style: PierreDiffStyle) => void;
   setSimilarChanges: (enabled: boolean) => void;
+  setWordWrap: (enabled: boolean) => void;
 };
 
 const DEFAULT_DIFF_PREFERENCES: PierreDiffPreferenceState = {
   diffStyle: "unified",
   lineDiffType: "none",
+  wordWrap: true,
 };
 
 const PierreDiffPreferencesContext = createContext<PierreDiffPreferences | undefined>(undefined);
@@ -53,6 +56,7 @@ function readStoredDiffPreferences(): PierreDiffPreferenceState {
     return {
       diffStyle: stored.diffStyle === "split" ? "split" : "unified",
       lineDiffType: stored.lineDiffType === "word-alt" ? "word-alt" : "none",
+      wordWrap: stored.wordWrap !== false,
     };
   } catch {
     return DEFAULT_DIFF_PREFERENCES;
@@ -105,14 +109,19 @@ export function PierreDiffWorkerPoolProvider({ children }: { children: ReactNode
     setPreferences((current) => ({ ...current, lineDiffType: enabled ? "word-alt" : "none" }));
   }, []);
 
+  const setWordWrap = useCallback((enabled: boolean) => {
+    setPreferences((current) => ({ ...current, wordWrap: enabled }));
+  }, []);
+
   const preferenceValue = useMemo<PierreDiffPreferences>(
     () => ({
       ...preferences,
       similarChanges: preferences.lineDiffType !== "none",
       setDiffStyle,
       setSimilarChanges,
+      setWordWrap,
     }),
-    [preferences, setDiffStyle, setSimilarChanges],
+    [preferences, setDiffStyle, setSimilarChanges, setWordWrap],
   );
 
   return (
@@ -131,6 +140,7 @@ export function usePierreDiffPreferences(): PierreDiffPreferences {
     similarChanges: false,
     setDiffStyle: () => undefined,
     setSimilarChanges: () => undefined,
+    setWordWrap: () => undefined,
   };
 }
 

@@ -1,5 +1,5 @@
 import {
-  generateText,
+  streamText,
   type LanguageModel,
   type LanguageModelMiddleware,
   type ModelMessage,
@@ -270,7 +270,9 @@ async function generateCheckpoint({
   model,
   abortSignal,
 }: SummaryInput) {
-  const result = await generateText({
+  // The ChatGPT-backed Codex responses endpoint rejects non-streaming requests,
+  // so checkpoints stream and collect their text instead of using `generateText`.
+  const result = streamText({
     model,
     system: SUMMARY_SYSTEM_PROMPT,
     prompt: [
@@ -290,7 +292,7 @@ async function generateCheckpoint({
     },
   });
 
-  return result.text;
+  return await result.text;
 }
 
 async function summarizeMessages(

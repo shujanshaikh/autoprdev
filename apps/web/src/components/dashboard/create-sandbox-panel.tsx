@@ -113,7 +113,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
           onConnect={onConnectGithub}
         />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_1fr]">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <RepoColumn
             isLoading={isLoadingRepos}
             isRefreshing={isRefreshingRepos}
@@ -294,7 +294,6 @@ function RepoColumn({
 }) {
   return (
     <RepoColumnPager
-      key={search}
       isLoading={isLoading}
       isRefreshing={isRefreshing}
       isDisabled={isDisabled}
@@ -339,7 +338,7 @@ function RepoColumnPager({
   }, [repositories, currentPage]);
 
   return (
-    <div className="flex h-[22rem] flex-col border-b border-border lg:border-b-0 lg:border-r">
+    <div className="flex h-[22rem] min-w-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
       <ColumnHeader
         label="Repository"
         hint={
@@ -356,7 +355,10 @@ function RepoColumnPager({
           <input
             aria-label="Search repositories"
             value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={(e) => {
+              setPage(1);
+              onSearchChange(e.target.value);
+            }}
             placeholder="search…"
             disabled={isDisabled}
             className="h-7 w-full bg-transparent font-mono text-xs outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
@@ -557,7 +559,7 @@ function BranchColumn({
   onSelect: (v: string) => void;
 }) {
   return (
-    <div className="flex h-[22rem] flex-col border-b border-border lg:border-b-0 lg:border-r">
+    <div className="flex h-[22rem] min-w-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
       <ColumnHeader
         label="Branch"
         hint={isLoading ? "loading" : branches.length ? `${branches.length}` : undefined}
@@ -651,7 +653,7 @@ function LaunchColumn({
   onCreate: () => void;
 }) {
   return (
-    <div className="flex h-[22rem] flex-col">
+    <div className="flex h-[22rem] min-w-0 flex-col">
       <ColumnHeader label="Launch" hint={launchReady ? "ready" : "—"} />
       <div className="flex flex-1 flex-col justify-between gap-3 p-3">
         <dl className="space-y-2 font-mono text-xs">
@@ -731,13 +733,13 @@ function SummaryRow({
   placeholder: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-2 border-b border-dashed border-border/60 pb-1.5">
+    <div className="flex min-w-0 items-baseline justify-between gap-2 border-b border-dashed border-border/60 pb-1.5">
       <dt className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </dt>
       <dd
         className={cn(
-          "truncate text-right",
+          "min-w-0 truncate text-right",
           value ? "text-foreground" : "text-muted-foreground/50",
         )}
         title={value ?? undefined}

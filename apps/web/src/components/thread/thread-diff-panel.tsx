@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, MoreHorizontal, Send, Terminal, TextSearch, X } from "lucide-react";
+import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, TextSearch, TextWrap, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
@@ -25,6 +25,7 @@ export type ThreadDiffPanelProps = {
   threadId: string;
   threadTitle?: string;
   baseBranch?: string;
+  featureBranch?: string;
   pullRequestStatus?: "idle" | "creating" | "created" | "failed";
   pullRequestUrl?: string;
   pullRequestNumber?: number;
@@ -87,8 +88,6 @@ const THREAD_DIFF_PANEL_TABS: Array<{
   { kind: "environment", label: "Environment", menuLabel: "Environment", icon: KeyRound },
 ];
 
-const HEADER_SURFACE_KINDS: ThreadDiffPanelTabKind[] = ["diff", "desktop", "terminal", "environment", "pull-request"];
-
 const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, string> = {
   diff: "diff",
   "pull-request": "pull-request",
@@ -99,7 +98,10 @@ const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, str
 const DEFAULT_VISIBLE_TABS: ThreadDiffPanelVisibleTab[] = [];
 
 function createTerminalTab(): ThreadDiffPanelVisibleTab {
-  return { id: `terminal:${Date.now()}:${Math.random().toString(36).slice(2)}`, kind: "terminal" };
+  return {
+    id: `terminal:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    kind: "terminal",
+  };
 }
 
 const SURFACE_PICKER_ITEMS: Array<{
@@ -134,21 +136,6 @@ function getMaxPanelWidth(panelElement?: HTMLElement | null) {
   );
 }
 
-function autoprBranchName(value: string) {
-  const withoutPrefix = value.trim().replace(/^autopr[/-]*/i, "");
-  const slug = withoutPrefix
-    .replace(/\\/g, "/")
-    .replace(/\s+/g, "-")
-    .replace(/[^A-Za-z0-9._/-]+/g, "-")
-    .replace(/\.{2,}/g, ".")
-    .replace(/\/+/g, "/")
-    .replace(/^[/.-]+|[/.-]+$/g, "")
-    .replace(/\.lock$/i, "-lock")
-    .slice(0, 96);
-
-  return slug ? `autopr/${slug}` : "";
-}
-
 export function ThreadDiffPanel({
   entries,
   open,
@@ -158,6 +145,7 @@ export function ThreadDiffPanel({
   threadId,
   threadTitle,
   baseBranch,
+  featureBranch,
   pullRequestStatus,
   pullRequestUrl,
   pullRequestNumber,
@@ -185,12 +173,11 @@ export function ThreadDiffPanel({
   const [desktopError, setDesktopError] = useState<string | undefined>();
   const [desktopFullscreen, setDesktopFullscreen] = useState(false);
   const [hasOpenedDesktop, setHasOpenedDesktop] = useState(false);
-  const [branchName, setBranchName] = useState("");
   const [body, setBody] = useState("");
   const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
   const [localError, setLocalError] = useState<string | undefined>();
   const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
-  const { diffStyle, similarChanges, setDiffStyle, setSimilarChanges } = usePierreDiffPreferences();
+  const { diffStyle, similarChanges, wordWrap, setDiffStyle, setSimilarChanges, setWordWrap } = usePierreDiffPreferences();
   const mobileDiffOnly = useSyncExternalStore(
     subscribeToMobileThreadView,
     getMobileThreadViewSnapshot,
@@ -200,8 +187,10 @@ export function ThreadDiffPanel({
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
+  const terminalSessionIdsRef = useRef(new Map<string, string>());
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
+  const killPtyTerminal = useAction(api.projectActions.killPtyTerminal);
 
   useEffect(() => {
     try {
@@ -357,7 +346,7 @@ export function ThreadDiffPanel({
   const effectiveBranch = createdPull?.branch ?? pullRequestBranch;
   const effectiveError = localError ?? pullRequestError;
   const creating = effectiveStatus === "creating";
-  const requestedBranch = autoprBranchName(branchName);
+  const requestedBranch = featureBranch ?? pullRequestBranch ?? "";
   const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0 && requestedBranch.length > 0;
   const panelMaximized = open && maximized;
 
@@ -416,6 +405,15 @@ export function ThreadDiffPanel({
 
   const removePanelTab = useCallback(
     (tabId: string) => {
+      const tab = visibleTabs.find((candidate) => candidate.id === tabId);
+      if (tab?.kind === "terminal") {
+        const sessionId = terminalSessionIdsRef.current.get(tabId);
+        terminalSessionIdsRef.current.delete(tabId);
+        if (sessionId) {
+          void killPtyTerminal({ projectId, sessionId }).catch(() => undefined);
+        }
+      }
+
       setVisibleTabs((current) => {
         const removedIndex = current.findIndex((tab) => tab.id === tabId);
         const next = current.filter((tab) => tab.id !== tabId);
@@ -425,7 +423,7 @@ export function ThreadDiffPanel({
         return next;
       });
     },
-    [activeTabId],
+    [activeTabId, killPtyTerminal, projectId, visibleTabs],
   );
 
   const loadDesktop = useCallback(async () => {
@@ -457,13 +455,24 @@ export function ThreadDiffPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title.trim() || undefined, body: body.trim() || undefined, branch: requestedBranch }),
+          body: JSON.stringify({
+            operationId: crypto.randomUUID(),
+            action: entries.length > 0 ? "commit_push_create_pr" : "create_pr",
+            title: title.trim() || undefined,
+            body: body.trim() || undefined,
+          }),
         },
       );
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Could not create pull request.");
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : typeof data.error?.message === "string"
+              ? data.error.message
+              : "Could not create pull request.",
+        );
       }
 
       setCreatedPull({ url: data.url, number: data.number, branch: data.branch });
@@ -472,7 +481,7 @@ export function ThreadDiffPanel({
       setLocalStatus("failed");
       setLocalError(error instanceof Error ? error.message : "Could not create pull request.");
     }
-  }, [body, canCreatePullRequest, projectId, requestedBranch, threadId, title]);
+  }, [body, canCreatePullRequest, entries.length, projectId, requestedBranch, threadId, title]);
 
   return (
     <aside
@@ -505,57 +514,73 @@ export function ThreadDiffPanel({
 
         <header className="relative hidden shrink-0 flex-col border-b border-border bg-background lg:flex">
           <div className="flex h-11 items-center gap-1 border-b border-border px-2.5">
-            <nav aria-label="Workspace surfaces" className="flex min-w-0 items-center gap-0.5 overflow-hidden">
-              {HEADER_SURFACE_KINDS.map((kind) => {
-                const tab = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === kind);
-                if (!tab) return null;
-                const selected = renderedActiveTab === kind;
+            <nav aria-label="Open workspace surfaces" className="surface-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+              {visibleTabs.length === 0 ? (
+                <span className="px-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/65">
+                  Workspace
+                </span>
+              ) : visibleTabs.map((visibleTab) => {
+                const tabDefinition = THREAD_DIFF_PANEL_TABS.find((candidate) => candidate.kind === visibleTab.kind);
+                if (!tabDefinition) return null;
+                const Icon = tabDefinition.icon;
+                const selected = activeTabId === visibleTab.id;
+                const label = tabDefinition.label;
+
                 return (
-                  <button
-                    key={kind}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => {
-                      const installed = kind === "terminal"
-                        ? visibleTabs.find((visibleTab) => visibleTab.id === activeTabId && visibleTab.kind === "terminal") ?? terminalTabs.at(-1)
-                        : visibleTabs.find((visibleTab) => visibleTab.kind === kind);
-                      if (installed) selectPanelTab(installed);
-                      else openPanelTab(kind);
-                    }}
+                  <div
+                    key={visibleTab.id}
                     className={cn(
-                      "relative inline-flex h-8 shrink-0 items-center rounded-[9px] px-3 text-[13px] font-medium transition-colors duration-150",
-                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+                      "group/tab flex h-8 min-w-[92px] max-w-[168px] shrink-0 items-center gap-1 rounded-[8px] px-1.5 transition-colors",
                       selected
                         ? "bg-[color:var(--project-panel-soft)] text-foreground"
-                        : "text-muted-foreground hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
-                      kind === "pull-request" && "hidden min-[570px]:inline-flex",
+                        : "text-muted-foreground hover:bg-[color:color-mix(in_srgb,var(--project-panel-soft)_70%,transparent)] hover:text-foreground",
                     )}
                   >
-                    {tab.label}
-                    {kind === "pull-request" && effectiveStatus === "created" ? (
-                      <span className="ml-1.5 size-1.5 rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
-                    ) : null}
-                  </button>
+                    <button
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => selectPanelTab(visibleTab)}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[5px] px-0.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]"
+                      title={label}
+                    >
+                      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{label}</span>
+                      {visibleTab.kind === "pull-request" && effectiveStatus === "created" ? (
+                        <span className="size-1.5 shrink-0 rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removePanelTab(visibleTab.id)}
+                      className={cn(
+                        "inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+                        selected ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-70 group-focus-within/tab:opacity-70",
+                      )}
+                      aria-label={`Close ${label}`}
+                      title={`Close ${label}`}
+                    >
+                      <X className="size-3" aria-hidden="true" />
+                    </button>
+                  </div>
                 );
               })}
             </nav>
 
             <div className="ml-auto flex shrink-0 items-center gap-1">
               <DropdownMenu>
-                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8 rounded-[8px] text-muted-foreground hover:text-foreground" aria-label="Surface options" />}>
-                  <MoreHorizontal className="size-4" aria-hidden="true" />
+                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8 rounded-[8px] text-muted-foreground hover:text-foreground" aria-label="Add workspace surface" />}>
+                  <Plus className="size-4" aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onClick={() => openPanelTab("terminal")}>
-                    <Terminal className="size-3.5" aria-hidden="true" />
-                    New terminal
-                  </DropdownMenuItem>
-                  {activeTabId ? (
-                    <DropdownMenuItem onClick={() => removePanelTab(activeTabId)}>
-                      <X className="size-3.5" aria-hidden="true" />
-                      Close current surface
-                    </DropdownMenuItem>
-                  ) : null}
+                <DropdownMenuContent align="end" className="w-48">
+                  {THREAD_DIFF_PANEL_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <DropdownMenuItem key={tab.kind} onClick={() => openPanelTab(tab.kind)}>
+                        <Icon className="size-3.5" aria-hidden="true" />
+                        {tab.menuLabel}
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -656,6 +681,31 @@ export function ThreadDiffPanel({
                     );
                   })}
                 </ButtonGroup>
+
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-pressed={wordWrap}
+                        aria-label={wordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
+                        onClick={() => setWordWrap(!wordWrap)}
+                        className={cn(
+                          "size-7 border border-border/60 text-muted-foreground",
+                          "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground",
+                          wordWrap && "bg-[color:var(--project-panel-soft)] text-foreground hover:bg-[color:var(--project-panel-soft)]",
+                        )}
+                      >
+                        <TextWrap className="size-3.5" aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    {wordWrap ? "Disable Line Wrapping" : "Enable Line Wrapping"}
+                  </TooltipContent>
+                </Tooltip>
 
                 <Tooltip>
                   <TooltipTrigger
@@ -818,8 +868,19 @@ export function ThreadDiffPanel({
           const isActiveTerminal = renderedActiveTab === "terminal" && activeTabId === terminalTab.id;
 
           return (
-            <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-[color:var(--cohere-primary)]", isActiveTerminal ? "flex" : "hidden")}>
-              <DaytonaTerminalView projectId={projectId} />
+            <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-background", isActiveTerminal ? "flex" : "hidden")}>
+              <DaytonaTerminalView
+                projectId={projectId}
+                threadId={threadId}
+                active={isActiveTerminal}
+                onSessionChange={(sessionId) => {
+                  if (sessionId) {
+                    terminalSessionIdsRef.current.set(terminalTab.id, sessionId);
+                  } else {
+                    terminalSessionIdsRef.current.delete(terminalTab.id);
+                  }
+                }}
+              />
             </div>
           );
         })}
@@ -938,23 +999,13 @@ export function ThreadDiffPanel({
                     ) : null}
 
                     <div className="space-y-3.5">
-                      <label className="block space-y-1.5">
-                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">branch</span>
-                        <div className="flex h-9 border border-border bg-background focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-[color:var(--cohere-form-focus)]">
-                          <span className="inline-flex items-center border-r border-border bg-muted/35 px-2.5 font-mono text-[12px] text-muted-foreground">
-                            autopr/
-                          </span>
-                          <input
-                            value={branchName}
-                            onChange={(event) => setBranchName(event.target.value)}
-                            placeholder="my-feature-branch"
-                            className="min-w-0 flex-1 bg-transparent px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/45"
-                          />
+                      <div className="block space-y-1.5">
+                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">thread branch</span>
+                        <div className="flex h-9 items-center gap-2 border border-border bg-muted/25 px-2.5 font-mono text-[12px] text-foreground/85">
+                          <GitBranch className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span className="truncate">{requestedBranch || "Preparing thread branch…"}</span>
                         </div>
-                        <span className="block truncate font-mono text-[10px] text-muted-foreground/75">
-                          {requestedBranch || "Branch will be created as autopr/<name>."}
-                        </span>
-                      </label>
+                      </div>
                       <label className="block space-y-1.5">
                         <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">title</span>
                         <input
@@ -1006,7 +1057,7 @@ export function ThreadDiffPanel({
                       ) : entries.length === 0 ? (
                         <span>no changes to push</span>
                       ) : requestedBranch.length === 0 ? (
-                        <span>add a branch to continue</span>
+                        <span>preparing thread branch</span>
                       ) : title.trim().length === 0 ? (
                         <span>add a title to continue</span>
                       ) : (

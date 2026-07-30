@@ -6,7 +6,6 @@ import { z } from "zod";
 import { convexMutation, convexQuery } from "#/lib/convex-server";
 import { createProjectSandbox } from "#/lib/daytona-project-sandbox";
 import {
-  authenticatedGithubCloneUrl,
   getGithubOAuthToken,
   GithubConnectionError,
   requireWorkOSAuth,
@@ -83,6 +82,7 @@ async function POST(req: Request) {
             branch: existingBranch,
             repoName: verifiedRepo.name,
             sandboxWorkDir: project.sandboxWorkDir,
+            githubToken: token,
           });
           await convexMutation(api.projects.markBranchSwitchReady, {
             projectId: project.projectId,
@@ -108,7 +108,8 @@ async function POST(req: Request) {
 
     try {
       const sandbox = await createProjectSandbox({
-        authenticatedCloneUrl: authenticatedGithubCloneUrl(token, verifiedRepo.owner, verifiedRepo.name),
+        cloneUrl: verifiedRepo.cloneUrl,
+        githubToken: token,
         branch,
         repoName: verifiedRepo.name,
       });

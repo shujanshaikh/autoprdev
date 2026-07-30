@@ -16,16 +16,42 @@ If your current `daytona-large` snapshot is backed by a different Daytona sandbo
 
 ## Terminal Profile
 
-The snapshot installs zsh and Starship, sets the `daytona` user's login shell to zsh, and writes:
+The snapshot installs zsh, Starship, tmux, autosuggestions, and syntax highlighting, sets the `daytona` user's login shell to zsh, and writes:
 
 ```text
 /home/daytona/.zshrc
+/home/daytona/.tmux.conf
 /home/daytona/.config/starship.toml
 ```
 
 Daytona's web terminal is exposed on port `22222`, and AutoPR's embedded terminal creates Daytona PTY sessions for the same sandbox user. Both paths pick up this shell profile when the sandbox is created from the `autopr` snapshot.
 
+Tmux is opt-in so browser PTYs and automated sessions continue to open as normal zsh shells. Run `work` to create or attach to the shared `autopr` tmux session.
+
 AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr` snapshot when the terminal profile needs to change.
+
+Starship is installed from its official release archive at the version pinned in the Dockerfile. The archive checksum is selected for the build architecture and verified before installation.
+
+## Developer and Diagnostic Tools
+
+The snapshot installs these tools from the Debian/Ubuntu repositories supplied by the base image:
+
+- ripgrep (`rg`)
+- fd-find (`fdfind`, plus a stable `fd` symlink)
+- fzf
+- bat (`batcat`, plus a stable `bat` symlink)
+- lsof
+- netcat-openbsd (`nc`)
+- dnsutils (`dig`)
+- procps (`ps`)
+- psmisc (`pstree`)
+- sqlite3
+
+GitHub CLI (`gh`) and git-delta (`delta`) use pinned official release archives because their distro availability and versions vary across supported base-image releases. Their amd64 and arm64 checksums are pinned and verified in the Dockerfile. The original `fdfind` and `batcat` executable names remain available alongside the convenience symlinks.
+
+The pinned `gh`, `delta`, and Starship archive installation supports amd64 and arm64. Builds on other architectures stop with an explicit error rather than installing an unverified binary. Google Chrome remains amd64-only, as described below.
+
+The snapshot also includes conservative system Git defaults for pruning stale remote-tracking refs, histogram diffs, and `main` as the initial branch. Git rerere is enabled so repeated agent retries can reuse recorded conflict resolutions, while `zdiff3` conflict markers include the common ancestor to make overlapping edits easier to resolve. User and repository Git configuration can override all of these defaults.
 
 ## Desktop Profile
 
@@ -41,7 +67,7 @@ The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, recording, and 
 - A clean wallpaper installed at `/usr/share/backgrounds/autopr/wallpaper.png`.
 - The stock Adwaita/XFCE cursor, kept at a normal 24px size.
 - A fixed `1920x1080` noVNC desktop, matching Daytona's computer-use `VNC_RESOLUTION` path, that AutoPR scales inside the desktop panel without resizing the sandbox display.
-- Dev/desktop utilities for a more complete workstation feel: fish, htop, jq, tmux, tree, xterm, git-lfs, zip/unzip, vim, and nano.
+- Dev/desktop utilities for a more complete workstation feel: fish, htop, jq, tmux, tree, xterm, git-lfs, zip/unzip, vim, nano, and the developer and diagnostic tools listed above.
 
 The desktop setup files live under `desktop/`. Update those files and rebuild the `autopr` snapshot when you want to change the visible desktop.
 
@@ -74,6 +100,24 @@ REPO_DIR=/home/<repository-name>
 echo "$SHELL"
 zsh --version
 starship --version
+tmux -V
+alias work
+test -f /home/daytona/.tmux.conf
+test -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+test -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3; do
+  command -v "$executable"
+done
+rg --version
+fd --version
+bat --version
+delta --version
+gh --version
+git config --system --get rerere.enabled
+git config --system --get fetch.prune
+git config --system --get merge.conflictStyle
+git config --system --get diff.algorithm
+git config --system --get init.defaultBranch
 command -v google-chrome
 google-chrome --version
 echo "$BROWSER"

@@ -41,6 +41,7 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { ComposerSheet } from "../components/ComposerSheet";
+import { GitMenu } from "../components/git/GitMenu";
 import { GlassSurface } from "../components/GlassSurface";
 import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
 import { OpenAIIcon } from "../components/OpenAIIcon";
@@ -187,6 +188,7 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [sendError, setSendError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
   const [toolsVisible, setToolsVisible] = useState(false);
+  const [gitMenuVisible, setGitMenuVisible] = useState(false);
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
@@ -429,7 +431,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           </Pressable>
           <Pressable
             accessibilityLabel="Git actions"
-            onPress={() => navigation.navigate("GitActions", { projectId, threadId, title: thread?.title })}
+            onPress={() => setGitMenuVisible(true)}
             style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
           >
             <GitCommitHorizontal color={theme.ink} size={18} />
@@ -1125,6 +1127,16 @@ export function ThreadScreen({ navigation, route }: Props) {
         onAddImage={() => void chooseImage()}
         onClose={() => setComposerOpen(false)}
         onSend={() => void send()}
+      />
+      <GitMenu
+        onClose={() => setGitMenuVisible(false)}
+        onOpenCommit={() => navigation.navigate("GitCommit", { projectId, threadId, title: thread.title })}
+        onOpenOverview={() => navigation.navigate("GitActions", { projectId, threadId, title: thread.title })}
+        onOpenReview={() => navigation.navigate("Changes", { projectId, threadId, title: thread.title })}
+        projectId={projectId}
+        threadId={threadId}
+        title={thread.featureBranch ?? thread.baseBranch}
+        visible={gitMenuVisible}
       />
       <ModelReasoningSheet
         visible={showControls}

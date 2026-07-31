@@ -36,6 +36,7 @@ export type RootStackParamList = {
   };
   Changes: { projectId: string; threadId: string; title?: string };
   GitActions: { projectId: string; threadId: string; title?: string };
+  GitCommit: { projectId: string; threadId: string; title?: string };
   Terminal: { projectId: string; threadId: string; title?: string };
   Environment: { projectId: string; title?: string };
   Branches: {

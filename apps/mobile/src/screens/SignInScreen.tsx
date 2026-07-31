@@ -1,4 +1,3 @@
-import { GitPullRequest } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -10,95 +9,51 @@ import { useAppTheme } from "../hooks/useAppTheme";
 export function SignInScreen() {
   const theme = useAppTheme();
   const { signIn, authError } = useAuth();
-  const [mode, setMode] = useState<"google" | "sign-in" | "sign-up" | null>(null);
+  const [isOpening, setIsOpening] = useState(false);
 
-  const authenticate = async (nextMode: "google" | "sign-in" | "sign-up") => {
-    setMode(nextMode);
+  const authenticate = async () => {
+    setIsOpening(true);
     try {
-      await signIn(nextMode === "google"
-        ? { provider: "google" }
-        : { provider: "authkit", screenHint: nextMode });
+      await signIn({ provider: "authkit", screenHint: "sign-in" });
     } finally {
-      setMode(null);
+      setIsOpening(false);
     }
   };
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.screen }]}>
       <View style={styles.content}>
-        <View style={styles.brand}>
-          <View style={[styles.mark, { backgroundColor: theme.accent }]}>
-            <GitPullRequest color={theme.accentInk} size={25} strokeWidth={2.4} />
-          </View>
+        <View style={styles.welcome}>
           <Text style={[styles.wordmark, { color: theme.ink }]}>AutoPR</Text>
+          <View style={styles.headline}>
+            <Text style={[styles.title, { color: theme.ink }]}>Welcome to AutoPR</Text>
+            <Text style={[styles.subtitle, { color: theme.muted }]}>
+              Build, review, and ship from anywhere.
+            </Text>
+          </View>
         </View>
-        <Text style={[styles.title, { color: theme.ink }]}>Sign in to AutoPR</Text>
-        <Text style={[styles.body, { color: theme.muted }]}>
-          Continue to your projects, conversations, and live agent work.
-        </Text>
 
         <View style={styles.actions}>
           {authError ? <ErrorNotice message={authError} /> : null}
           <Pressable
+            accessibilityLabel="Continue to sign in"
             accessibilityRole="button"
-            disabled={mode !== null}
-            onPress={() => void authenticate("google")}
+            accessibilityState={{ busy: isOpening, disabled: isOpening }}
+            disabled={isOpening}
+            onPress={() => void authenticate()}
             style={({ pressed }) => [
-              styles.googleButton,
+              styles.continueButton,
               {
                 backgroundColor: theme.ink,
-                opacity: mode !== null ? 0.5 : pressed ? 0.8 : 1,
+                opacity: isOpening ? 0.55 : pressed ? 0.82 : 1,
               },
             ]}
           >
-            {mode === "google" ? (
+            {isOpening ? (
               <ActivityIndicator color={theme.screen} size="small" />
             ) : (
-              <>
-                <View style={[styles.googleMark, { backgroundColor: theme.surfaceRaised }]}>
-                  <Text style={styles.googleLetter}>G</Text>
-                </View>
-                <Text style={[styles.googleText, { color: theme.screen }]}>Continue with Google</Text>
-              </>
+              <Text style={[styles.continueText, { color: theme.screen }]}>Continue</Text>
             )}
-          </Pressable>
-
-          <View style={styles.divider}>
-            <View style={[styles.dividerLine, { backgroundColor: theme.line }]} />
-            <Text style={[styles.dividerText, { color: theme.faint }]}>OR</Text>
-            <View style={[styles.dividerLine, { backgroundColor: theme.line }]} />
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            disabled={mode !== null}
-            onPress={() => void authenticate("sign-in")}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              {
-                backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
-                borderColor: theme.line,
-                opacity: mode !== null ? 0.5 : 1,
-              },
-            ]}
-          >
-            {mode === "sign-in"
-              ? <ActivityIndicator color={theme.ink} size="small" />
-              : <Text style={[styles.secondaryText, { color: theme.ink }]}>Continue another way</Text>}
-          </Pressable>
-        </View>
-
-        <View style={styles.signupRow}>
-          <Text style={[styles.signupCopy, { color: theme.muted }]}>New to AutoPR?</Text>
-          <Pressable
-            accessibilityRole="button"
-            disabled={mode !== null}
-            onPress={() => void authenticate("sign-up")}
-            hitSlop={8}
-          >
-            <Text style={[styles.signupLink, { color: theme.ink }]}>
-              {mode === "sign-up" ? "Opening…" : "Create account"}
-            </Text>
           </Pressable>
         </View>
       </View>
@@ -108,23 +63,19 @@ export function SignInScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 24 },
-  content: { flex: 1, width: "100%", maxWidth: 390, alignSelf: "center", justifyContent: "center", paddingBottom: 22 },
-  brand: { alignItems: "center", gap: 12, marginBottom: 40 },
-  mark: { width: 54, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  wordmark: { fontFamily: "DMSans_700Bold", fontSize: 19, letterSpacing: -0.5 },
-  title: { fontFamily: "DMSans_700Bold", fontSize: 27, lineHeight: 33, letterSpacing: -0.9, textAlign: "center" },
-  body: { fontFamily: "DMSans_400Regular", fontSize: 14, lineHeight: 21, marginTop: 10, textAlign: "center" },
-  actions: { gap: 10, marginTop: 30 },
-  googleButton: { minHeight: 52, borderRadius: 12, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 11 },
-  googleMark: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
-  googleLetter: { color: "#4285F4", fontFamily: "DMSans_700Bold", fontSize: 15 },
-  googleText: { fontFamily: "DMSans_500Medium", fontSize: 14 },
-  divider: { height: 30, flexDirection: "row", alignItems: "center", gap: 12 },
-  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  dividerText: { fontFamily: "DMSans_500Medium", fontSize: 9, letterSpacing: 1 },
-  secondaryButton: { minHeight: 50, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  secondaryText: { fontFamily: "DMSans_500Medium", fontSize: 14 },
-  signupRow: { marginTop: 25, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5 },
-  signupCopy: { fontFamily: "DMSans_400Regular", fontSize: 13 },
-  signupLink: { fontFamily: "DMSans_500Medium", fontSize: 13, textDecorationLine: "underline" },
+  content: { flex: 1, width: "100%", maxWidth: 440, alignSelf: "center" },
+  welcome: { flex: 1, justifyContent: "center", paddingBottom: 18 },
+  wordmark: { fontFamily: "DMSans_500Medium", fontSize: 18, lineHeight: 24, letterSpacing: -0.7 },
+  headline: { marginTop: 26, gap: 2 },
+  title: { fontFamily: "DMSans_400Regular", fontSize: 32, lineHeight: 40, letterSpacing: -1.25 },
+  subtitle: { fontFamily: "DMSans_400Regular", fontSize: 25, lineHeight: 33, letterSpacing: -0.85 },
+  actions: { gap: 12, paddingBottom: 18 },
+  continueButton: {
+    minHeight: 58,
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  continueText: { fontFamily: "DMSans_500Medium", fontSize: 16, letterSpacing: -0.25 },
 });

@@ -3,6 +3,7 @@ import * as WebBrowser from "expo-web-browser";
 import { Check, ChevronRight, GitFork, Search } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { webRequest } from "../api/web";
 import { ErrorNotice, LoadingState, PrimaryButton, SecondaryButton, SectionLabel } from "../components/ui";
@@ -84,93 +85,102 @@ export function AddProjectScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={[styles.content, { backgroundColor: theme.screen }]}
-    >
-      {repositories.error ? <ErrorNotice message={repositories.error.message} /> : null}
-      <SectionLabel>Repository</SectionLabel>
-      <View style={[styles.search, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-        <Search color={theme.faint} size={18} />
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="Search repositories"
-          placeholderTextColor={theme.faint}
-          value={search}
-          onChangeText={setSearch}
-          style={[styles.searchInput, { color: theme.ink }]}
+    <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {repositories.error ? <ErrorNotice message={repositories.error.message} /> : null}
+        <SectionLabel>Repository</SectionLabel>
+        <View style={[styles.search, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+          <Search color={theme.faint} size={18} />
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={setSearch}
+            placeholder="Search repositories"
+            placeholderTextColor={theme.faint}
+            style={[styles.searchInput, { color: theme.ink }]}
+            value={search}
+          />
+        </View>
+        <View style={[styles.list, { borderColor: theme.line, backgroundColor: theme.surface }]}>
+          {filtered.map((repo, index) => (
+            <Pressable
+              accessibilityLabel={repo.fullName}
+              accessibilityRole="button"
+              key={repo.id}
+              onPress={() => {
+                setRepository(repo);
+                setBranch(repo.defaultBranch);
+              }}
+              style={({ pressed }) => [
+                styles.row,
+                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.line },
+                { backgroundColor: pressed || repository?.id === repo.id ? theme.surfaceSoft : theme.surface },
+              ]}
+            >
+              <GitFork color={theme.muted} size={17} />
+              <View style={styles.rowCopy}>
+                <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.ink }]}>{repo.fullName}</Text>
+                <Text style={[styles.rowMeta, { color: theme.muted }]}>
+                  {repo.private ? "Private" : "Public"} · default {repo.defaultBranch}
+                </Text>
+              </View>
+              {repository?.id === repo.id
+                ? <Check color={theme.accentOn} size={18} />
+                : <ChevronRight color={theme.faint} size={17} />}
+            </Pressable>
+          ))}
+        </View>
+
+        {repository ? (
+          <View style={styles.branchSection}>
+            <SectionLabel>Branch</SectionLabel>
+            {branches.isLoading ? <LoadingState label="Loading branches…" /> : null}
+            {branches.error ? <ErrorNotice message={branches.error.message} /> : null}
+            <View style={styles.branchGrid}>
+              {(branches.data?.branches ?? []).map((entry) => (
+                <Pressable
+                  key={entry.name}
+                  onPress={() => setBranch(entry.name)}
+                  style={[
+                    styles.branchChip,
+                    {
+                      backgroundColor: branch === entry.name ? theme.accentSoft : theme.surface,
+                      borderColor: branch === entry.name ? theme.accentOn : theme.line,
+                    },
+                  ]}
+                >
+                  <Text style={[
+                    styles.branchText,
+                    { color: branch === entry.name ? theme.accentOn : theme.ink },
+                  ]}>{entry.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+      </ScrollView>
+
+      <View style={[styles.footer, { backgroundColor: theme.screen, borderTopColor: theme.line }]}>
+        {create.error ? <ErrorNotice message={create.error.message} /> : null}
+        <PrimaryButton
+          disabled={!repository || !branch}
+          label="Create workspace"
+          loading={create.isPending}
+          onPress={() => create.mutate()}
         />
       </View>
-      <View style={[styles.list, { borderColor: theme.line, backgroundColor: theme.surface }]}>
-        {filtered.map((repo, index) => (
-          <Pressable
-            key={repo.id}
-            onPress={() => {
-              setRepository(repo);
-              setBranch(repo.defaultBranch);
-            }}
-            style={({ pressed }) => [
-              styles.row,
-              index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.line },
-              { backgroundColor: pressed || repository?.id === repo.id ? theme.surfaceSoft : theme.surface },
-            ]}
-          >
-            <GitFork color={theme.muted} size={17} />
-            <View style={styles.rowCopy}>
-              <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.ink }]}>{repo.fullName}</Text>
-              <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                {repo.private ? "Private" : "Public"} · default {repo.defaultBranch}
-              </Text>
-            </View>
-            {repository?.id === repo.id
-              ? <Check color={theme.accentOn} size={18} />
-              : <ChevronRight color={theme.faint} size={17} />}
-          </Pressable>
-        ))}
-      </View>
-
-      {repository ? (
-        <View style={styles.branchSection}>
-          <SectionLabel>Branch</SectionLabel>
-          {branches.isLoading ? <LoadingState label="Loading branches…" /> : null}
-          {branches.error ? <ErrorNotice message={branches.error.message} /> : null}
-          <View style={styles.branchGrid}>
-            {(branches.data?.branches ?? []).map((entry) => (
-              <Pressable
-                key={entry.name}
-                onPress={() => setBranch(entry.name)}
-                style={[
-                  styles.branchChip,
-                  {
-                    backgroundColor: branch === entry.name ? theme.accentSoft : theme.surface,
-                    borderColor: branch === entry.name ? theme.accentOn : theme.line,
-                  },
-                ]}
-              >
-                <Text style={[
-                  styles.branchText,
-                  { color: branch === entry.name ? theme.accentOn : theme.ink },
-                ]}>{entry.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : null}
-
-      {create.error ? <ErrorNotice message={create.error.message} /> : null}
-      <PrimaryButton
-        label="Create workspace"
-        loading={create.isPending}
-        disabled={!repository || !branch}
-        onPress={() => create.mutate()}
-      />
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { flexGrow: 1, padding: 16, paddingBottom: 36 },
+  screen: { flex: 1 },
+  content: { padding: 16, paddingBottom: 24 },
   connectScreen: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 12 },
   githubMark: { width: 62, height: 62, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   connectTitle: { fontFamily: "DMSans_700Bold", fontSize: 22, marginTop: 5 },
@@ -193,7 +203,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   searchInput: { flex: 1, fontFamily: "DMSans_400Regular", fontSize: 14 },
-  list: { maxHeight: 390, borderWidth: 1, borderRadius: 10, overflow: "hidden" },
+  list: { borderWidth: 1, borderRadius: 10, overflow: "hidden" },
   row: { minHeight: 67, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   rowCopy: { flex: 1, minWidth: 0 },
   rowTitle: { fontFamily: "DMSans_500Medium", fontSize: 13 },
@@ -202,4 +212,5 @@ const styles = StyleSheet.create({
   branchGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   branchChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
   branchText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  footer: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, gap: 10 },
 });

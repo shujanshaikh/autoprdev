@@ -792,7 +792,7 @@ export function ThreadScreen({ navigation, route }: Props) {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      keyboardVerticalOffset={0}
       style={[styles.screen, { backgroundColor: theme.screen }]}
     >
       {(hydrationError || sendError || thread.agentRunIssue?.message || thread.workflowIssue?.message || git.error) ? (

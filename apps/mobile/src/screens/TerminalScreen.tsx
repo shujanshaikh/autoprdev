@@ -10,7 +10,6 @@ import {
   Keyboard as KeyboardIcon,
   RefreshCw,
   Send,
-  TerminalSquare,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,6 +31,7 @@ import {
 } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
+import { TerminalOutputSanitizer } from "../lib/terminalOutput";
 import type { AppTheme } from "../theme";
 import type { RootStackParamList } from "../types";
 
@@ -132,15 +132,6 @@ function accessoryKeyExtractor(item: TerminalAccessoryKey) {
   return item.key;
 }
 
-function stripAnsi(value: string) {
-  // Xterm interprets these sequences on web. The native client retains a
-  // readable scrollback buffer while preserving the same PTY byte stream.
-  return value
-    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
-    .replace(/\x1B(?:[@-_]|\[[0-?]*[ -/]*[@-~])/g, "")
-    .replace(/\r(?!\n)/g, "\n");
-}
-
 async function terminalText(data: unknown) {
   if (typeof data === "string") {
     try {
@@ -202,7 +193,6 @@ export function TerminalScreen({ route }: Props) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
   const [surfaceSize, setSurfaceSize] = useState<{ width: number; height: number } | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -218,6 +208,8 @@ export function TerminalScreen({ route }: Props) {
   const commandHistoryRef = useRef<string[]>([]);
   const historyDraftRef = useRef("");
   const historyIndexRef = useRef<number | null>(null);
+  const outputSanitizerRef = useRef<TerminalOutputSanitizer | null>(null);
+  outputSanitizerRef.current ??= new TerminalOutputSanitizer();
 
   useEffect(() => {
     let active = true;
@@ -256,7 +248,7 @@ export function TerminalScreen({ route }: Props) {
     const start = async () => {
       setStatus("connecting");
       setError(null);
-      setSessionId(null);
+      outputSanitizerRef.current?.reset();
       const terminal = await getTerminal({
         projectId,
         threadId,
@@ -268,7 +260,6 @@ export function TerminalScreen({ route }: Props) {
       }
       activeSessionId = terminal.sessionId;
       sessionRef.current = activeSessionId;
-      setSessionId(activeSessionId);
       socket = new WebSocket(terminal.websocketUrl, "X-Daytona-SDK-Version~");
       socketRef.current = socket;
       socket.binaryType = "arraybuffer";
@@ -288,7 +279,9 @@ export function TerminalScreen({ route }: Props) {
           receivedOutput = true;
           if (wakeTimer) clearTimeout(wakeTimer);
           setError(null);
-          setOutput((current) => `${current}${stripAnsi(text)}`.slice(-MAX_OUTPUT_LENGTH));
+          const plainText = outputSanitizerRef.current?.push(text) ?? "";
+          if (!plainText) return;
+          setOutput((current) => `${current}${plainText}`.slice(-MAX_OUTPUT_LENGTH));
           if (followOutputRef.current) {
             requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
           }
@@ -365,6 +358,7 @@ export function TerminalScreen({ route }: Props) {
   }, []);
 
   const clearTerminal = useCallback(() => {
+    outputSanitizerRef.current?.reset();
     setOutput("");
     setAwayFromLatest(false);
     followOutputRef.current = true;
@@ -496,16 +490,6 @@ export function TerminalScreen({ route }: Props) {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, []);
 
-  const statusColor = status === "connected"
-    ? theme.success
-    : status === "connecting"
-      ? theme.warning
-      : theme.danger;
-  const statusLabel = status === "connected"
-    ? "Ready"
-    : status === "connecting"
-      ? "Connecting"
-      : "Offline";
   const renderAccessoryKey = useCallback<ListRenderItem<TerminalAccessoryKey>>(
     ({ item }) => {
       const active = item.action === "ctrl" && pendingCtrl;
@@ -530,24 +514,14 @@ export function TerminalScreen({ route }: Props) {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
+      keyboardVerticalOffset={0}
       style={[styles.screen, { backgroundColor: theme.code }]}
     >
       <View style={[styles.sessionBar, { borderBottomColor: theme.codeLine }]}>
-        <View style={[styles.terminalMark, { backgroundColor: theme.successSoft }]}>
-          <TerminalSquare color={statusColor} size={16} strokeWidth={2} />
-        </View>
         <View style={styles.sessionCopy}>
           <Text numberOfLines={1} style={[styles.sessionTitle, { color: theme.codeInk }]}>
             {title || "Workspace shell"}
           </Text>
-          <View style={styles.sessionMeta}>
-            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.sessionSubtitle, { color: theme.codeMuted }]}>
-              {statusLabel}
-              {sessionId ? ` · ${sessionId.slice(0, 8)}` : " · Daytona PTY"}
-            </Text>
-          </View>
         </View>
         {status === "connecting" ? <ActivityIndicator color={theme.accentOn} size="small" /> : null}
         <Pressable
@@ -725,31 +699,15 @@ const mono = Platform.select({ ios: "Menlo", android: "monospace" });
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   sessionBar: {
-    minHeight: 58,
+    minHeight: 52,
     borderBottomWidth: 1,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
-  },
-  terminalMark: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
+    gap: 8,
   },
   sessionCopy: { minWidth: 0, flex: 1 },
-  sessionTitle: { fontFamily: "DMSans_500Medium", fontSize: 12 },
-  sessionMeta: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 },
-  statusDot: { width: 5, height: 5, borderRadius: 3 },
-  sessionSubtitle: {
-    flexShrink: 1,
-    fontFamily: mono,
-    fontSize: 9,
-    textTransform: "uppercase",
-    letterSpacing: 0.35,
-  },
+  sessionTitle: { fontFamily: "DMSans_500Medium", fontSize: 14 },
   headerButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   errorBar: {
     minHeight: 43,

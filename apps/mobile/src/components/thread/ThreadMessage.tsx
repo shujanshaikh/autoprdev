@@ -1,15 +1,12 @@
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
 import {
-  Check,
   ChevronDown,
   ChevronRight,
-  CircleAlert,
   Copy,
   ExternalLink,
   FileText,
   Play,
-  ToolCase,
   Video,
 } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
@@ -58,8 +55,12 @@ function timeLabel(timestamp?: number) {
   return messageTimeFormatter.format(timestamp);
 }
 
-function runSummary(metadata: unknown) {
-  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return "";
+type RunPresentation = { duration: string; metrics: string[] };
+
+function runPresentation(metadata: unknown): RunPresentation {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+    return { duration: "", metrics: [] };
+  }
   const value = metadata as Record<string, unknown>;
   const usage = typeof value.usage === "object" && value.usage !== null && !Array.isArray(value.usage)
     ? value.usage as Record<string, unknown>
@@ -73,28 +74,21 @@ function runSummary(metadata: unknown) {
   const totalTokens = typeof usage?.totalTokens === "number" ? usage.totalTokens : undefined;
   const duration = typeof run?.durationSeconds === "number" ? run.durationSeconds : undefined;
   const totalCost = typeof cost?.total === "number" ? cost.total : undefined;
-  const details: string[] = [];
-  if (duration !== undefined) {
-    details.push(duration < 60 ? `${Math.round(duration)}s` : `${Math.floor(duration / 60)}m ${Math.round(duration) % 60}s`);
-  }
+  const metrics: string[] = [];
   if (totalTokens !== undefined) {
-    details.push(totalTokens >= 1_000 ? `${(totalTokens / 1_000).toFixed(totalTokens >= 100_000 ? 0 : 1)}k tokens` : `${totalTokens} tokens`);
+    metrics.push(totalTokens >= 1_000 ? `${(totalTokens / 1_000).toFixed(totalTokens >= 100_000 ? 0 : 1)}k tokens` : `${totalTokens} tokens`);
   }
   if (totalCost !== undefined && totalCost > 0) {
-    details.push(totalCost < 0.0001 ? "<$0.0001" : `$${totalCost.toFixed(totalCost < 1 ? 4 : 2)}`);
+    metrics.push(totalCost < 0.0001 ? "<$0.0001" : `$${totalCost.toFixed(totalCost < 1 ? 4 : 2)}`);
   }
-  return details.join(" · ");
-}
-
-function workDuration(metadata: unknown) {
-  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return "";
-  const run = (metadata as Record<string, unknown>).run;
-  if (typeof run !== "object" || run === null || Array.isArray(run)) return "";
-  const duration = (run as Record<string, unknown>).durationSeconds;
-  if (typeof duration !== "number") return "";
-  return duration < 60
-    ? `${Math.max(1, Math.round(duration))}s`
-    : `${Math.floor(duration / 60)}m ${Math.round(duration) % 60}s`;
+  return {
+    duration: duration === undefined
+      ? ""
+      : duration < 60
+        ? `${Math.max(1, Math.round(duration))}s`
+        : `${Math.floor(duration / 60)}m ${Math.round(duration) % 60}s`,
+    metrics,
+  };
 }
 
 function inlineMarkdown(value: string, color: string, muted: string): ReactNode[] {
@@ -133,7 +127,15 @@ function inlineMarkdown(value: string, color: string, muted: string): ReactNode[
   });
 }
 
-function RichMessageText({ value, inverted = false }: { value: string; inverted?: boolean }) {
+function RichMessageText({
+  value,
+  inverted = false,
+  compact = false,
+}: {
+  value: string;
+  inverted?: boolean;
+  compact?: boolean;
+}) {
   const theme = useAppTheme();
   const blocks = useMemo(() => {
     const result: Array<
@@ -198,17 +200,19 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
       {keyed(blocks, (block) => `${block.kind}:${block.value}:${block.kind === "code" ? block.language : block.style}`).map(({ item: block, key }) => {
         if (block.kind === "code") {
           return (
-            <View key={key} style={[styles.codeBlock, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
+            <View key={key} style={[styles.codeBlock, compact && styles.detailCodeBlock, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
               {block.language ? (
                 <Text style={[styles.codeLanguage, { color: theme.codeMuted }]}>{block.language}</Text>
               ) : null}
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <Text selectable style={[styles.codeText, { color: theme.codeInk }]}>{block.value}</Text>
+                <Text selectable style={[styles.codeText, compact && styles.detailCodeText, { color: theme.codeInk }]}>{block.value}</Text>
               </ScrollView>
             </View>
           );
         }
-        if (!block.value && block.style === "body") return <View key={key} style={styles.paragraphSpace} />;
+        if (!block.value && block.style === "body") {
+          return <View key={key} style={compact ? styles.detailParagraphSpace : styles.paragraphSpace} />;
+        }
         return (
           <View
             key={key}
@@ -218,16 +222,16 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
             ]}
           >
             {block.style === "bullet" || block.style === "numbered" ? (
-              <Text style={[styles.bullet, { color: textColor }]}>
+              <Text style={[compact ? styles.detailBullet : styles.bullet, { color: textColor }]}>
                 {block.marker ?? "•"}
               </Text>
             ) : null}
             <Text
               selectable
               style={[
-                styles.body,
+                compact ? styles.detailBody : styles.body,
                 { color: textColor },
-                block.style === "heading" && styles.heading,
+                block.style === "heading" && (compact ? styles.detailHeading : styles.heading),
                 block.style === "quote" && { color: inverted ? theme.accentInk : theme.muted },
               ]}
             >
@@ -247,47 +251,52 @@ function WorkLogItem({
 }) {
   const theme = useAppTheme();
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const canExpand = part.kind === "tool" && Boolean(part.details);
+  if (part.kind === "reasoning") {
+    return (
+      <View style={styles.reasoningItem}>
+        <Text style={[styles.reasoningLabel, { color: theme.muted }]}>Reasoning</Text>
+        <View style={[styles.reasoningContent, { borderLeftColor: theme.line }]}>
+          <RichMessageText compact value={part.text} />
+        </View>
+      </View>
+    );
+  }
+
+  const canExpand = Boolean(part.details);
+  const statusLabel = part.failed
+    ? "Failed"
+    : part.state === "output-available" ? "Done" : "Running";
   return (
     <View style={styles.workItem}>
-      {part.kind === "tool"
-        ? part.failed
-          ? <CircleAlert color={theme.danger} size={13} />
-          : part.state === "output-available"
-            ? <Check color={theme.success} size={13} />
-            : <ToolCase color={theme.muted} size={13} />
-        : <View style={[styles.reasoningDot, { backgroundColor: theme.faint }]} />}
-      <View style={styles.workCopy}>
-        <Pressable
-          accessibilityRole={canExpand ? "button" : undefined}
-          accessibilityState={canExpand ? { expanded: detailsOpen } : undefined}
-          disabled={!canExpand}
-          onPress={() => setDetailsOpen((value) => !value)}
-          style={styles.workItemHeading}
-        >
-          <Text style={[styles.workName, { color: theme.ink }]}>
-            {part.kind === "tool" ? displayToolName(part.name) : "Reasoning"}
-          </Text>
-          {canExpand
-            ? detailsOpen
-              ? <ChevronDown color={theme.faint} size={13} />
-              : <ChevronRight color={theme.faint} size={13} />
-            : null}
-        </Pressable>
-        {part.kind === "reasoning" || part.summary ? (
-          <Text style={[
-            styles.workSummary,
-            { color: part.kind === "tool" && part.failed ? theme.danger : theme.muted },
-          ]}>
-            {part.kind === "reasoning" ? part.text : part.summary}
+      <Pressable
+        accessibilityRole={canExpand ? "button" : undefined}
+        accessibilityState={canExpand ? { expanded: detailsOpen } : undefined}
+        disabled={!canExpand}
+        onPress={() => setDetailsOpen((value) => !value)}
+        style={styles.workItemHeading}
+      >
+        {canExpand
+          ? detailsOpen
+            ? <ChevronDown color={theme.faint} size={13} />
+            : <ChevronRight color={theme.faint} size={13} />
+          : <View style={styles.workChevronSpace} />}
+        <Text numberOfLines={1} style={[styles.workName, { color: theme.ink }]}>
+          {displayToolName(part.name)}
+        </Text>
+        {part.summary ? (
+          <Text numberOfLines={1} style={[styles.workSummary, { color: part.failed ? theme.danger : theme.muted }]}>
+            {part.summary}
           </Text>
         ) : null}
-        {part.kind === "tool" && part.details && detailsOpen ? (
-          <View style={[styles.toolDetails, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
-            <RichMessageText value={part.details} />
-          </View>
-        ) : null}
-      </View>
+        <Text style={[styles.workStatus, { color: part.failed ? theme.danger : theme.faint }]}>
+          {statusLabel}
+        </Text>
+      </Pressable>
+      {part.details && detailsOpen ? (
+        <View style={[styles.toolDetails, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
+          <RichMessageText compact value={part.details} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -295,11 +304,11 @@ function WorkLogItem({
 function WorkLog({
   parts,
   live,
-  duration,
+  run,
 }: {
   parts: MessagePartView[];
   live: boolean;
-  duration: string;
+  run: RunPresentation;
 }) {
   const theme = useAppTheme();
   const activities = parts.filter((part) => part.kind === "reasoning" || part.kind === "tool");
@@ -312,15 +321,20 @@ function WorkLog({
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         onPress={() => setExpanded((value) => !value)}
-        style={[styles.workHeader, { borderBottomColor: theme.line }]}
+        style={styles.workHeader}
       >
-        <Text style={[styles.workTitle, { color: theme.muted }]}>
-          {live ? "Working" : duration ? `Worked for ${duration}` : "Work details"}
-        </Text>
-        {live ? <View style={[styles.liveDot, { backgroundColor: theme.accentOn }]} /> : null}
         {expanded
           ? <ChevronDown color={theme.faint} size={14} />
           : <ChevronRight color={theme.faint} size={14} />}
+        <Text style={[styles.workTitle, { color: theme.muted }]}>
+          {live ? "Working" : run.duration ? `Worked for ${run.duration}` : "Worked"}
+        </Text>
+        {run.metrics.map((metric) => (
+          <View key={metric} style={styles.workMetricGroup}>
+            <View style={[styles.workMetricDivider, { backgroundColor: theme.line }]} />
+            <Text style={[styles.workMetric, { color: theme.faint }]}>{metric}</Text>
+          </View>
+        ))}
       </Pressable>
       {expanded ? (
         <View style={[styles.workItems, { borderLeftColor: theme.line }]}>
@@ -438,8 +452,7 @@ export function ThreadMessage({
   const files = parts.filter((part) => part.kind === "file" && !part.mediaType.startsWith("image/"));
   const recordings = parts.filter((part) => part.kind === "recording");
   const timestamp = timeLabel(message.updatedAt ?? message.createdAt);
-  const assistantRunSummary = runSummary(message.metadata);
-  const assistantWorkDuration = workDuration(message.metadata);
+  const assistantRun = runPresentation(message.metadata);
   const copyText = textParts.map((part) => part.kind === "text" ? part.text : "").join("\n\n");
 
   if (isUser) {
@@ -486,7 +499,7 @@ export function ThreadMessage({
 
   return (
     <View style={styles.assistantMessage}>
-      <WorkLog duration={assistantWorkDuration} parts={parts} live={isLast && isLive} />
+      <WorkLog run={assistantRun} parts={parts} live={isLast && isLive} />
       {keyed(textParts, (part) => part.kind === "text" ? part.text : part.kind).map(({ item: part, key }) => part.kind === "text"
         ? <RichMessageText key={`${message.messageId}:text:${key}`} value={part.text} />
         : null)}
@@ -520,15 +533,12 @@ export function ThreadMessage({
           threadId={threadId}
         />
       ) : null)}
-      {(timestamp || copyText || assistantRunSummary) && !(isLast && isLive) ? (
+      {(timestamp || copyText) && !(isLast && isLive) ? (
         <View style={[styles.messageMeta, styles.assistantMeta]}>
           {copyText ? (
             <Pressable accessibilityLabel="Copy response" onPress={() => void Clipboard.setStringAsync(copyText)} style={styles.copyButton}>
               <Copy color={theme.faint} size={13} />
             </Pressable>
-          ) : null}
-          {assistantRunSummary ? (
-            <Text style={[styles.runSummary, { color: theme.faint }]}>{assistantRunSummary}</Text>
           ) : null}
           {timestamp ? <Text style={[styles.timestamp, { color: theme.faint }]}>{timestamp}</Text> : null}
         </View>
@@ -553,28 +563,38 @@ const styles = StyleSheet.create({
   codeBlock: { borderWidth: 1, borderRadius: 6, padding: 10, marginVertical: 7 },
   codeLanguage: { fontFamily: "DMSans_500Medium", fontSize: 9, textTransform: "uppercase", marginBottom: 7 },
   codeText: { fontFamily: "monospace", fontSize: 12, lineHeight: 18 },
+  detailBody: { flexShrink: 1, fontFamily: "DMSans_400Regular", fontSize: 12, lineHeight: 18 },
+  detailHeading: { fontFamily: "DMSans_500Medium", fontSize: 13, lineHeight: 19, marginTop: 4 },
+  detailBullet: { width: 15, fontFamily: "DMSans_500Medium", fontSize: 12, lineHeight: 18 },
+  detailParagraphSpace: { height: 5 },
+  detailCodeBlock: { padding: 8, marginVertical: 5 },
+  detailCodeText: { fontSize: 10, lineHeight: 15 },
   userMessage: { alignItems: "flex-end", marginBottom: 26 },
   userBubble: { maxWidth: "88%", borderRadius: 20, paddingHorizontal: 15, paddingVertical: 12, gap: 8 },
   userImage: { width: 220, aspectRatio: 1.35, borderRadius: 8 },
   assistantMessage: { marginBottom: 30, paddingHorizontal: 3, gap: 10 },
-  liveDot: { width: 6, height: 6, borderRadius: 999 },
   assistantImage: { width: "100%", aspectRatio: 1.4, borderRadius: 10 },
   messageMeta: { minHeight: 24, flexDirection: "row", alignItems: "center", gap: 2, paddingTop: 2 },
   assistantMeta: { justifyContent: "flex-start" },
   timestamp: { fontFamily: "DMSans_500Medium", fontSize: 11 },
-  runSummary: { fontFamily: "DMSans_500Medium", fontSize: 10, fontVariant: ["tabular-nums"] },
   copyButton: { width: 28, height: 26, alignItems: "center", justifyContent: "center" },
-  workLog: { marginBottom: 6 },
-  workHeader: { minHeight: 38, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 7 },
-  workTitle: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 14 },
-  workItems: { borderLeftWidth: 1, marginLeft: 6, paddingLeft: 13, gap: 10, paddingVertical: 5 },
-  workItem: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  reasoningDot: { width: 6, height: 6, borderRadius: 3, marginTop: 6, marginHorizontal: 3 },
-  workCopy: { flex: 1, minWidth: 0 },
-  workItemHeading: { minHeight: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  workName: { fontFamily: "DMSans_500Medium", fontSize: 11 },
-  workSummary: { fontFamily: "DMSans_400Regular", fontSize: 11, lineHeight: 16, marginTop: 3 },
-  toolDetails: { borderWidth: 1, borderRadius: 9, padding: 10, marginTop: 7 },
+  workLog: { marginBottom: 8 },
+  workHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", columnGap: 7, flexWrap: "wrap" },
+  workTitle: { fontFamily: "DMSans_500Medium", fontSize: 12, fontVariant: ["tabular-nums"] },
+  workMetricGroup: { flexDirection: "row", alignItems: "center", gap: 7 },
+  workMetricDivider: { width: StyleSheet.hairlineWidth, height: 12 },
+  workMetric: { fontFamily: "DMSans_500Medium", fontSize: 10, fontVariant: ["tabular-nums"] },
+  workItems: { borderLeftWidth: 1, marginLeft: 6, paddingLeft: 12, gap: 7, paddingTop: 8, paddingBottom: 2 },
+  workItem: { minWidth: 0 },
+  workItemHeading: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 6 },
+  workChevronSpace: { width: 13 },
+  workName: { flexShrink: 0, fontFamily: "DMSans_500Medium", fontSize: 11 },
+  workSummary: { flex: 1, fontFamily: "DMSans_400Regular", fontSize: 10 },
+  workStatus: { flexShrink: 0, fontFamily: "DMSans_500Medium", fontSize: 9 },
+  reasoningItem: { gap: 5 },
+  reasoningLabel: { fontFamily: "DMSans_500Medium", fontSize: 11 },
+  reasoningContent: { borderLeftWidth: 1, paddingLeft: 10 },
+  toolDetails: { borderWidth: 1, borderRadius: 8, padding: 9, marginTop: 5, marginLeft: 19 },
   fileCard: { minHeight: 48, borderRadius: 9, borderWidth: 1, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 9 },
   fileName: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
   recording: { minHeight: 66, borderRadius: 12, borderWidth: 1, padding: 11, flexDirection: "row", alignItems: "center", gap: 10 },

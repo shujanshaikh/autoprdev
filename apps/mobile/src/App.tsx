@@ -1,10 +1,9 @@
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_700Bold,
   useFonts,
-} from "@expo-google-fonts/inter";
+} from "@expo-google-fonts/dm-sans";
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   DarkTheme as NavigationDarkTheme,
@@ -117,7 +116,7 @@ function Navigator() {
           headerStyle: { backgroundColor: theme.surface },
           headerTintColor: theme.ink,
           headerTitleStyle: {
-            fontFamily: "Inter_700Bold",
+            fontFamily: "DMSans_700Bold",
             fontSize: 16,
           },
           contentStyle: { backgroundColor: theme.screen },
@@ -128,9 +127,9 @@ function Navigator() {
           name="NewTask"
           component={NewTaskScreen}
           options={{
-            title: "New task",
+            title: "Choose project",
             presentation: Platform.OS === "ios" ? "formSheet" : "card",
-            sheetAllowedDetents: [0.55, 0.92],
+            sheetAllowedDetents: [0.92],
             sheetGrabberVisible: true,
           }}
         />
@@ -274,10 +273,9 @@ function ConnectedApp() {
 
 function AppContent() {
   const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_700Bold,
   });
   const theme = useAppTheme();
   const setupError = configError();
@@ -322,6 +320,6 @@ const styles = StyleSheet.create({
   closeButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30 },
   configMark: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: 15 },
-  configTitle: { fontFamily: "Inter_700Bold", fontSize: 20, textAlign: "center" },
-  configBody: { maxWidth: 340, fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 9 },
+  configTitle: { fontFamily: "DMSans_700Bold", fontSize: 20, textAlign: "center" },
+  configBody: { maxWidth: 340, fontFamily: "DMSans_400Regular", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 9 },
 });

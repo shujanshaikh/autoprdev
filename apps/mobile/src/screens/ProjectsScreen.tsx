@@ -4,13 +4,10 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "convex/react";
 import {
   Archive,
-  ChevronRight,
-  FolderGit2,
-  GitBranch,
-  MessageSquare,
-  Plus,
+  Folder,
+  MoreHorizontal,
   Search,
-  Settings2,
+  SquarePen,
 } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState } from "react";
 import {
@@ -21,14 +18,15 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { EmptyState, LoadingState, PrimaryButton, StatusPill } from "../components/ui";
+import { OpenAIIcon } from "../components/OpenAIIcon";
+import { EmptyState, LoadingState, PrimaryButton } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Projects">;
-type ThreadFilter = "active" | "archived";
+type ThreadFilter = "all" | "archived";
 
 function relativeTime(timestamp: number) {
   const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
@@ -39,57 +37,15 @@ function relativeTime(timestamp: number) {
   return `${Math.floor(hours / 24)}d`;
 }
 
-const projectKey = (project: Doc<"projects">) => project.projectId;
 const threadKey = (thread: Doc<"threads">) => thread.threadId;
 
-const ProjectCard = memo(function ProjectCard({
+const ThreadRow = memo(function ThreadRow({
+  thread,
   project,
   onOpen,
 }: {
-  project: Doc<"projects">;
-  onOpen: (projectId: string, title: string) => void;
-}) {
-  const theme = useAppTheme();
-  const open = useCallback(
-    () => onOpen(project.projectId, project.repoName),
-    [onOpen, project.projectId, project.repoName],
-  );
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={open}
-      style={({ pressed }) => [
-        styles.projectCard,
-        {
-          backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
-          borderColor: theme.line,
-        },
-      ]}
-    >
-      <View style={[styles.projectIcon, { backgroundColor: theme.accentSoft }]}>
-        <FolderGit2 color={theme.accentOn} size={18} />
-      </View>
-      <Text numberOfLines={1} style={[styles.projectName, { color: theme.ink }]}>
-        {project.repoName}
-      </Text>
-      <Text numberOfLines={1} style={[styles.projectOwner, { color: theme.muted }]}>
-        {project.repoOwner}
-      </Text>
-      <View style={[
-        styles.projectStatus,
-        { backgroundColor: project.sandboxStatus === "ready" ? theme.success : theme.warning },
-      ]} />
-    </Pressable>
-  );
-});
-
-const ThreadActivityRow = memo(function ThreadActivityRow({
-  thread,
-  projectName,
-  onOpen,
-}: {
   thread: Doc<"threads">;
-  projectName: string;
+  project: Doc<"projects"> | undefined;
   onOpen: (projectId: string, threadId: string, title: string) => void;
 }) {
   const theme = useAppTheme();
@@ -98,60 +54,54 @@ const ThreadActivityRow = memo(function ThreadActivityRow({
     [onOpen, thread.projectId, thread.threadId, thread.title],
   );
   const archived = thread.settledOverride === "settled";
-  const activityColor = thread.isLive ? theme.success : archived ? theme.faint : theme.accent;
+  const branch = thread.featureBranch ?? thread.baseBranch ?? project?.defaultBranch ?? "branch";
+
   return (
     <Pressable
+      accessibilityHint="Opens this thread"
+      accessibilityLabel={thread.title}
       accessibilityRole="button"
       onPress={open}
       style={({ pressed }) => [
         styles.threadRow,
-        {
-          backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
-          borderColor: theme.line,
-        },
+        { backgroundColor: pressed ? theme.surfaceSoft : theme.screen },
       ]}
     >
-      <View style={styles.activityRail}>
-        <View style={[styles.activityDot, { backgroundColor: activityColor }]} />
-        <View style={[styles.activityLine, { backgroundColor: theme.line }]} />
-      </View>
-      <View style={styles.threadCopy}>
-        <View style={styles.threadTitleLine}>
-          <Text numberOfLines={1} style={[styles.threadTitle, { color: theme.ink }]}>
-            {thread.title}
-          </Text>
-          {archived ? <Archive color={theme.faint} size={13} /> : null}
-        </View>
-        <View style={styles.threadMetaLine}>
-          <Text numberOfLines={1} style={[styles.threadMeta, { color: theme.muted }]}>
-            {projectName}
-          </Text>
-          <Text style={[styles.metaDot, { color: theme.faint }]}>·</Text>
-          <GitBranch color={theme.faint} size={11} />
-          <Text numberOfLines={1} style={[styles.branch, { color: theme.muted }]}>
-            {thread.featureBranch ?? thread.baseBranch ?? "branch"}
-          </Text>
-        </View>
-        <Text style={[styles.updated, { color: theme.faint }]}>
-          Updated {relativeTime(thread.updatedAt)} ago
+      <View style={styles.projectLine}>
+        <Folder color={theme.faint} fill={theme.faint} size={14} strokeWidth={1.5} />
+        <Text numberOfLines={1} style={[styles.projectName, { color: theme.muted }]}>
+          {project?.repoFullName ?? project?.repoName ?? "Project"}
         </Text>
+        {thread.isLive ? (
+          <Text style={[styles.liveLabel, { color: theme.success }]}>Working</Text>
+        ) : (
+          <Text style={[styles.time, { color: theme.faint }]}>{relativeTime(thread.updatedAt)}</Text>
+        )}
       </View>
-      {thread.isLive ? (
-        <StatusPill label="Working" tone="success" />
-      ) : thread.pullRequestNumber ? (
-        <StatusPill label={`PR #${thread.pullRequestNumber}`} tone="accent" />
-      ) : null}
-      <ChevronRight color={theme.faint} size={17} />
+      <Text
+        numberOfLines={2}
+        style={[styles.threadTitle, { color: archived ? theme.muted : theme.ink }]}
+      >
+        {thread.title}
+      </Text>
+      <View style={styles.threadFooter}>
+        <Text numberOfLines={1} style={[styles.branch, { color: theme.muted }]}>
+          {branch}
+        </Text>
+        {archived ? <Archive color={theme.faint} size={14} /> : <OpenAIIcon size={15} />}
+      </View>
+      <View style={[styles.separator, { backgroundColor: theme.line }]} />
     </Pressable>
   );
 });
 
 export function ProjectsScreen({ navigation }: Props) {
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
   const projects = useQuery(api.projects.list, {});
   const threads = useQuery(api.threads.listForSidebar, {});
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<ThreadFilter>("active");
+  const [filter, setFilter] = useState<ThreadFilter>("all");
 
   const projectById = useMemo(
     () => new Map((projects ?? []).map((project) => [project.projectId, project])),
@@ -161,7 +111,7 @@ export function ProjectsScreen({ navigation }: Props) {
     const query = search.trim().toLowerCase();
     return (threads ?? []).filter((thread) => {
       const archived = thread.settledOverride === "settled";
-      if ((filter === "archived") !== archived) return false;
+      if (filter === "archived" && !archived) return false;
       if (!query) return true;
       const project = projectById.get(thread.projectId);
       return [
@@ -173,59 +123,54 @@ export function ProjectsScreen({ navigation }: Props) {
     });
   }, [filter, projectById, search, threads]);
 
-  const openProject = useCallback((projectId: string, title: string) => {
-    navigation.navigate("Project", { projectId, title });
-  }, [navigation]);
   const openThread = useCallback((projectId: string, threadId: string, title: string) => {
-    navigation.navigate("Thread", {
-      projectId,
-      threadId,
-      title,
-    });
+    navigation.navigate("Thread", { projectId, threadId, title });
   }, [navigation]);
-  const renderProject = useCallback(
-    ({ item }: { item: Doc<"projects"> }) => <ProjectCard project={item} onOpen={openProject} />,
-    [openProject],
-  );
   const renderThread = useCallback(
     ({ item }: { item: Doc<"threads"> }) => (
-      <ThreadActivityRow
-        thread={item}
-        projectName={projectById.get(item.projectId)?.repoFullName ?? "Project"}
+      <ThreadRow
         onOpen={openThread}
+        project={projectById.get(item.projectId)}
+        thread={item}
       />
     ),
     [openThread, projectById],
   );
 
   if (projects === undefined || threads === undefined) {
-    return <LoadingState label="Loading your work…" />;
+    return <LoadingState label="Loading threads…" />;
   }
 
   if (projects.length === 0) {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: theme.screen }]}>
-        <View style={styles.emptyHeader}>
-          <Text style={[styles.wordmark, { color: theme.ink }]}>AutoPR</Text>
+        <View style={styles.header}>
+          <Text style={[styles.title, { color: theme.ink }]}>Threads</Text>
           <Pressable
             accessibilityLabel="Open settings"
             onPress={() => navigation.navigate("Settings")}
-            style={styles.headerButton}
+            style={({ pressed }) => [
+              styles.roundButton,
+              {
+                backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
+                borderColor: theme.line,
+              },
+            ]}
           >
-            <Settings2 color={theme.ink} size={20} />
+            <MoreHorizontal color={theme.ink} size={22} />
           </Pressable>
         </View>
         <EmptyState
-          icon={FolderGit2}
+          icon={Folder}
           title="Connect your first project"
           body="Add a GitHub repository, then start a task from the mobile composer."
-          action={
+          action={(
             <PrimaryButton
-              icon={Plus}
+              icon={SquarePen}
               label="Add GitHub project"
               onPress={() => navigation.navigate("AddProject")}
             />
-          }
+          )}
         />
       </SafeAreaView>
     );
@@ -234,171 +179,162 @@ export function ProjectsScreen({ navigation }: Props) {
   return (
     <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
       <View style={styles.header}>
-        <View>
-          <Text style={[styles.kicker, { color: theme.accentOn }]}>AUTOPR</Text>
-          <Text style={[styles.title, { color: theme.ink }]}>Threads</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable
-            accessibilityLabel="New task"
-            onPress={() => navigation.navigate("NewTask")}
-            style={({ pressed }) => [
-              styles.newTaskButton,
-              { backgroundColor: theme.accent, opacity: pressed ? 0.75 : 1 },
-            ]}
-          >
-            <Plus color={theme.accentInk} size={18} strokeWidth={2.4} />
-            <Text style={[styles.newTaskText, { color: theme.accentInk }]}>New</Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Open settings"
-            onPress={() => navigation.navigate("Settings")}
-            style={({ pressed }) => [
-              styles.headerButton,
-              { backgroundColor: pressed ? theme.surfaceSoft : theme.surface, borderColor: theme.line },
-            ]}
-          >
-            <Settings2 color={theme.ink} size={19} />
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.searchWrap}>
-        <View style={[styles.search, { backgroundColor: theme.surfaceSoft, borderColor: theme.line }]}>
-          <Search color={theme.faint} size={16} />
-          <TextInput
-            autoCapitalize="none"
-            autoCorrect={false}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search threads, repositories, branches"
-            placeholderTextColor={theme.faint}
-            style={[styles.searchInput, { color: theme.ink }]}
-          />
-        </View>
-        <View style={[styles.filters, { backgroundColor: theme.surfaceSoft }]}>
-          {(["active", "archived"] as const).map((value) => {
-            const selected = filter === value;
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                key={value}
-                onPress={() => setFilter(value)}
-                style={[
-                  styles.filter,
-                  selected && { backgroundColor: theme.surfaceRaised, borderColor: theme.line },
-                ]}
-              >
-                <Text style={[styles.filterText, { color: selected ? theme.ink : theme.muted }]}>
-                  {value === "active" ? "Active" : "Archived"}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <Text style={[styles.title, { color: theme.ink }]}>Threads</Text>
+        <Pressable
+          accessibilityLabel="Open settings"
+          onPress={() => navigation.navigate("Settings")}
+          style={({ pressed }) => [
+            styles.roundButton,
+            {
+              backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
+              borderColor: theme.line,
+            },
+          ]}
+        >
+          <MoreHorizontal color={theme.ink} size={23} />
+        </Pressable>
       </View>
 
       <FlatList
+        contentContainerStyle={[
+          styles.list,
+          visibleThreads.length === 0 && styles.emptyList,
+          { paddingBottom: Math.max(insets.bottom, 14) + 92 },
+        ]}
         data={visibleThreads}
-        keyExtractor={threadKey}
         keyboardDismissMode="on-drag"
-        contentContainerStyle={visibleThreads.length === 0 ? styles.emptyList : styles.list}
-        ListHeaderComponent={(
-          <View style={styles.projectsSection}>
-            <View style={styles.sectionHeading}>
-              <Text style={[styles.sectionTitle, { color: theme.ink }]}>Projects</Text>
-              <Pressable
-                accessibilityLabel="Add project"
-                onPress={() => navigation.navigate("AddProject")}
-                hitSlop={8}
-              >
-                <Plus color={theme.muted} size={18} />
-              </Pressable>
-            </View>
-            <FlatList
-              horizontal
-              data={projects}
-              keyExtractor={projectKey}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.projectRail}
-              renderItem={renderProject}
-            />
-            <View style={styles.threadHeading}>
-              <Text style={[styles.sectionTitle, { color: theme.ink }]}>
-                {filter === "active" ? "Recent work" : "Archived"}
-              </Text>
-              <Text style={[styles.count, { color: theme.faint }]}>
-                {String(visibleThreads.length).padStart(2, "0")}
-              </Text>
-            </View>
-          </View>
-        )}
+        keyExtractor={threadKey}
         ListEmptyComponent={(
-          <View style={styles.threadEmpty}>
-            <MessageSquare color={theme.faint} size={23} />
+          <View style={styles.empty}>
             <Text style={[styles.emptyTitle, { color: theme.ink }]}>
-              {search ? "No matching threads" : filter === "active" ? "No active work yet" : "Nothing archived"}
+              {search ? "No matching threads" : "No archived threads"}
             </Text>
             <Text style={[styles.emptyBody, { color: theme.muted }]}>
-              {search ? "Try another title, repository, or branch." : filter === "active"
-                ? "Start a task and its live progress will appear here."
-                : "Archived threads stay available here."}
+              {search
+                ? "Try another title, project, or branch."
+                : "Threads you archive will appear here."}
             </Text>
-            {!search && filter === "active" ? (
-              <PrimaryButton icon={Plus} label="Start a task" onPress={() => navigation.navigate("NewTask")} />
-            ) : null}
           </View>
         )}
         renderItem={renderThread}
+        showsVerticalScrollIndicator={false}
       />
+
+      <View style={[styles.dock, { bottom: Math.max(insets.bottom, 12) }]}>
+        <Pressable
+          accessibilityLabel={filter === "all" ? "Show archived threads" : "Show all threads"}
+          accessibilityRole="button"
+          accessibilityState={{ selected: filter === "archived" }}
+          onPress={() => setFilter((value) => value === "all" ? "archived" : "all")}
+          style={({ pressed }) => [
+            styles.dockButton,
+            {
+              backgroundColor: filter === "archived"
+                ? theme.accentSoft
+                : pressed ? theme.surfaceSoft : theme.surfaceRaised,
+              borderColor: filter === "archived" ? theme.accentOn : theme.line,
+            },
+          ]}
+        >
+          <Archive color={filter === "archived" ? theme.accentOn : theme.ink} size={20} />
+        </Pressable>
+        <View style={[styles.search, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
+          <Search color={theme.muted} size={20} />
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={setSearch}
+            placeholder="Search"
+            placeholderTextColor={theme.faint}
+            returnKeyType="search"
+            style={[styles.searchInput, { color: theme.ink }]}
+            value={search}
+          />
+        </View>
+        <Pressable
+          accessibilityLabel="Start a new task"
+          onPress={() => navigation.navigate("NewTask")}
+          style={({ pressed }) => [
+            styles.dockButton,
+            {
+              backgroundColor: pressed ? theme.surfaceSoft : theme.surfaceRaised,
+              borderColor: theme.line,
+            },
+          ]}
+        >
+          <SquarePen color={theme.ink} size={21} />
+        </Pressable>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  emptyHeader: { paddingHorizontal: 18, paddingTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  wordmark: { fontFamily: "Inter_700Bold", fontSize: 20, letterSpacing: -0.6 },
-  header: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  kicker: { fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 1.3, marginBottom: 4 },
-  title: { fontFamily: "Inter_700Bold", fontSize: 27, letterSpacing: -0.9 },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  newTaskButton: { height: 42, borderRadius: 21, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 5 },
-  newTaskText: { fontFamily: "Inter_700Bold", fontSize: 12 },
-  headerButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  searchWrap: { paddingHorizontal: 16, gap: 9, paddingBottom: 4 },
-  search: { height: 44, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
-  searchInput: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 13 },
-  filters: { alignSelf: "flex-start", borderRadius: 10, padding: 3, flexDirection: "row", gap: 2 },
-  filter: { minHeight: 31, borderRadius: 8, borderWidth: 1, borderColor: "transparent", paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
-  filterText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
-  list: { paddingHorizontal: 16, paddingBottom: 32 },
-  emptyList: { flexGrow: 1, paddingHorizontal: 16, paddingBottom: 32 },
-  projectsSection: { paddingTop: 19 },
-  sectionHeading: { paddingHorizontal: 2, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 15, letterSpacing: -0.3 },
-  projectRail: { gap: 9, paddingTop: 10, paddingBottom: 3 },
-  projectCard: { width: 130, minHeight: 105, borderRadius: 13, borderWidth: 1, padding: 11 },
-  projectIcon: { width: 34, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  projectName: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  projectOwner: { fontFamily: "Inter_400Regular", fontSize: 10, marginTop: 3 },
-  projectStatus: { position: "absolute", top: 12, right: 12, width: 6, height: 6, borderRadius: 3 },
-  threadHeading: { marginTop: 24, marginBottom: 10, paddingHorizontal: 2, flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  count: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
-  threadRow: { minHeight: 92, borderRadius: 13, borderWidth: 1, padding: 13, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 9, overflow: "hidden" },
-  activityRail: { alignSelf: "stretch", width: 8, alignItems: "center" },
-  activityDot: { width: 8, height: 8, borderRadius: 4, marginTop: 7 },
-  activityLine: { width: StyleSheet.hairlineWidth, flex: 1, marginTop: 4 },
-  threadCopy: { flex: 1, minWidth: 0 },
-  threadTitleLine: { flexDirection: "row", alignItems: "center", gap: 6 },
-  threadTitle: { flexShrink: 1, fontFamily: "Inter_600SemiBold", fontSize: 14 },
-  threadMetaLine: { marginTop: 7, flexDirection: "row", alignItems: "center", gap: 4 },
-  threadMeta: { maxWidth: "48%", fontFamily: "Inter_400Regular", fontSize: 10 },
-  metaDot: { fontFamily: "Inter_700Bold", fontSize: 9 },
-  branch: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 10 },
-  updated: { fontFamily: "Inter_400Regular", fontSize: 9, marginTop: 5 },
-  threadEmpty: { flex: 1, minHeight: 270, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, gap: 9 },
-  emptyTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15, marginTop: 2 },
-  emptyBody: { maxWidth: 290, fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 18, textAlign: "center", marginBottom: 7 },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  title: { fontFamily: "DMSans_700Bold", fontSize: 30, letterSpacing: -1.05 },
+  roundButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  list: { paddingHorizontal: 20 },
+  emptyList: { flexGrow: 1 },
+  threadRow: { minHeight: 104, paddingTop: 11, paddingBottom: 12 },
+  projectLine: { flexDirection: "row", alignItems: "center", gap: 7 },
+  projectName: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 14 },
+  time: { fontFamily: "DMSans_400Regular", fontSize: 13, fontVariant: ["tabular-nums"] },
+  liveLabel: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  threadTitle: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 17,
+    lineHeight: 23,
+    letterSpacing: -0.2,
+    marginTop: 7,
+  },
+  threadFooter: { minHeight: 20, marginTop: 5, flexDirection: "row", alignItems: "center", gap: 8 },
+  branch: { flex: 1, fontFamily: "monospace", fontSize: 12 },
+  separator: { position: "absolute", height: StyleSheet.hairlineWidth, left: 0, right: 0, bottom: 0 },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },
+  emptyTitle: { fontFamily: "DMSans_700Bold", fontSize: 17 },
+  emptyBody: { marginTop: 7, fontFamily: "DMSans_400Regular", fontSize: 14, textAlign: "center" },
+  dock: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  dockButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
+  },
+  search: {
+    flex: 1,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
+  },
+  searchInput: { flex: 1, fontFamily: "DMSans_400Regular", fontSize: 17, paddingVertical: 0 },
 });

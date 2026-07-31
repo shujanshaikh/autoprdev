@@ -740,7 +740,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sessionCopy: { minWidth: 0, flex: 1 },
-  sessionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  sessionTitle: { fontFamily: "DMSans_500Medium", fontSize: 12 },
   sessionMeta: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 },
   statusDot: { width: 5, height: 5, borderRadius: 3 },
   sessionSubtitle: {
@@ -760,7 +760,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  errorText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 10, lineHeight: 14 },
+  errorText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 10, lineHeight: 14 },
   reconnectButton: {
     minHeight: 30,
     flexDirection: "row",
@@ -768,7 +768,7 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingHorizontal: 7,
   },
-  reconnectText: { fontFamily: "Inter_700Bold", fontSize: 10 },
+  reconnectText: { fontFamily: "DMSans_700Bold", fontSize: 10 },
   surface: { flex: 1 },
   output: { flexGrow: 1, paddingHorizontal: 13, paddingTop: 12, paddingBottom: 28 },
   outputText: { fontFamily: mono, fontWeight: "500" },
@@ -783,7 +783,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  latestText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  latestText: { fontFamily: "DMSans_500Medium", fontSize: 10 },
   accessory: { minHeight: 47, borderTopWidth: 1, justifyContent: "center" },
   accessoryContent: { paddingHorizontal: 8, paddingVertical: 6, gap: 6 },
   keyButton: {

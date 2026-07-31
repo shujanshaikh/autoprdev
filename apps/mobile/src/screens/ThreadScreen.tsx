@@ -1,5 +1,4 @@
 import { api } from "@autopr/backend/convex/_generated/api";
-import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { useUploadFile } from "@convex-dev/r2/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -9,30 +8,24 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import {
-  Archive,
   ArrowDown,
   ArrowUp,
   Bot,
   ChevronDown,
-  CircleAlert,
   CircleStop,
   FileDiff,
-  GitBranch,
   GitCommitHorizontal,
   ImagePlus,
-  MessageSquare,
   MoreHorizontal,
   Pencil,
   RefreshCw,
   Settings2,
-  SlidersHorizontal,
   TerminalSquare,
   Video,
   X,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   AppState,
   FlatList,
   InteractionManager,
@@ -84,8 +77,6 @@ type CodexStatus = {
   connected: boolean;
   models?: string[];
 };
-
-type GitStatusResponse = { status: ThreadGitStatus };
 
 type PendingImage = {
   id: string;
@@ -161,7 +152,7 @@ export function ThreadScreen({ navigation, route }: Props) {
     staleTime: 60_000,
     retry: false,
   });
-  const git = useWebQuery<GitStatusResponse>(
+  const git = useWebQuery(
     ["git-status", projectId, threadId],
     `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?gitStatus=1&refresh=1`,
     {
@@ -172,7 +163,6 @@ export function ThreadScreen({ navigation, route }: Props) {
     },
   );
   const refetchGit = git.refetch;
-  const setSettlement = useMutation(api.threads.setSettlement);
   const updateTitle = useMutation(api.threads.updateTitle);
   const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const userSettings = useQuery(api.userSettings.get, {});
@@ -202,11 +192,9 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [demoSaving, setDemoSaving] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
-  const [activeSeconds, setActiveSeconds] = useState(0);
   const listRef = useRef<FlatList>(null);
   const promptRef = useRef<TextInput>(null);
   const autoSubmitRef = useRef(false);
-  const activeRunStartedAtRef = useRef<number | undefined>(undefined);
   const streamAbortRef = useRef<AbortController | null>(null);
   const activeStreamRunIdRef = useRef<string | null>(null);
   const completedStreamRunIdRef = useRef<string | null>(null);
@@ -351,18 +339,6 @@ export function ThreadScreen({ navigation, route }: Props) {
   }, [reasoningEffort, reasoningOptions, selectedModel]);
 
   useEffect(() => {
-    if (!thread?.isLive) {
-      activeRunStartedAtRef.current = undefined;
-      return;
-    }
-    activeRunStartedAtRef.current ??= Date.now();
-    const update = () => setActiveSeconds(Math.max(0, Math.floor((Date.now() - (activeRunStartedAtRef.current ?? Date.now())) / 1000)));
-    update();
-    const timer = setInterval(update, 1_000);
-    return () => clearInterval(timer);
-  }, [thread?.isLive]);
-
-  useEffect(() => {
     let active = true;
     void Promise.all([
       AsyncStorage.getItem(composerDraftKey),
@@ -400,8 +376,18 @@ export function ThreadScreen({ navigation, route }: Props) {
   useLayoutEffect(() => {
     navigation.setOptions({
       title: thread?.title ?? route.params.title ?? "Conversation",
+      headerTitle: () => (
+        <View style={styles.headerTitle}>
+          <Text numberOfLines={1} style={[styles.headerTitleText, { color: theme.ink }]}>
+            {thread?.title ?? route.params.title ?? "Conversation"}
+          </Text>
+          <Text numberOfLines={1} style={[styles.headerSubtitle, { color: theme.muted }]}>
+            {[project?.repoName, thread?.featureBranch ?? thread?.baseBranch].filter(Boolean).join(" · ")}
+          </Text>
+        </View>
+      ),
       headerRight: () => (
-        <View style={styles.headerActions}>
+        <View style={[styles.headerActions, { backgroundColor: theme.surfaceSoft, borderColor: theme.line }]}>
           <Pressable
             accessibilityLabel="Review changes"
             onPress={() => navigation.navigate("Changes", { projectId, threadId, title: thread?.title })}
@@ -803,81 +789,12 @@ export function ThreadScreen({ navigation, route }: Props) {
   }
 
   const canChat = project.sandboxStatus === "ready" && codex.data?.connected;
-  const gitStatus = git.data?.status ?? thread.gitStatus;
-  const expectedBranch = thread.workspaceMode === "worktree" ? thread.featureBranch : undefined;
-  const checkedOutBranch = gitStatus?.detachedHead
-    ? `detached@${gitStatus.localHeadSha?.slice(0, 7) ?? "HEAD"}`
-    : gitStatus?.currentBranch;
-  const branchMismatch = Boolean(
-    expectedBranch
-    && checkedOutBranch
-    && checkedOutBranch !== expectedBranch,
-  );
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       style={[styles.screen, { backgroundColor: theme.screen }]}
     >
-      <View style={[styles.viewSwitcherWrap, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
-        <View style={[styles.viewSwitcher, { backgroundColor: theme.surfaceSoft }]}>
-          <View style={[styles.viewOption, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
-            <MessageSquare color={theme.ink} size={14} />
-            <Text style={[styles.viewOptionText, { color: theme.ink }]}>Chat</Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => navigation.navigate("Changes", { projectId, threadId, title: thread.title })}
-            style={({ pressed }) => [styles.viewOption, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <FileDiff color={theme.muted} size={14} />
-            <Text style={[styles.viewOptionText, { color: theme.muted }]}>Diff</Text>
-            {diffs.length > 0 ? (
-              <View style={[styles.viewBadge, { backgroundColor: theme.accentSoft }]}>
-                <Text style={[styles.viewBadgeText, { color: theme.ink }]}>{diffs.length}</Text>
-              </View>
-            ) : null}
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={[styles.threadContext, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-        {branchMismatch
-          ? <CircleAlert color={theme.warning} size={14} />
-          : <GitBranch color={theme.muted} size={14} />}
-        <Text numberOfLines={1} style={[styles.contextBranch, { color: theme.muted }]}>
-          {branchMismatch
-            ? `${checkedOutBranch} · expected ${expectedBranch}`
-            : checkedOutBranch ?? thread.featureBranch ?? thread.baseBranch ?? "Preparing branch"}
-        </Text>
-        {running ? (
-          <View style={styles.contextStatus}>
-            <View style={[styles.contextDot, { backgroundColor: theme.accentOn }]} />
-            <Text style={[styles.contextStatusText, { color: theme.muted }]}>
-              {streamStatus === "reconnecting"
-                ? "Reconnecting"
-                : streamStatus === "connecting"
-                  ? "Connecting"
-                  : sending ? "Starting" : "Agent working"} · {activeSeconds}s
-            </Text>
-          </View>
-        ) : null}
-        <Pressable
-          onPress={() => navigation.navigate("Changes", { projectId, threadId, title: thread.title })}
-          style={({ pressed }) => [
-            styles.changeSummary,
-            { backgroundColor: pressed ? theme.surfaceSoft : "transparent" },
-          ]}
-        >
-          <FileDiff color={theme.muted} size={14} />
-          <Text style={[styles.changeCount, { color: theme.ink }]}>
-            {diffs.length > 0 ? `${diffs.length} files` : "Changes"}
-          </Text>
-          <Text style={[styles.diffStats, { color: theme.add }]}>+{diffs.reduce((sum, entry) => sum + entry.additions, 0)}</Text>
-          <Text style={[styles.diffStats, { color: theme.delete }]}>−{diffs.reduce((sum, entry) => sum + entry.deletions, 0)}</Text>
-        </Pressable>
-      </View>
-
       {(hydrationError || sendError || thread.agentRunIssue?.message || thread.workflowIssue?.message || git.error) ? (
         <View style={styles.errorWrap}>
           <ErrorNotice message={
@@ -1005,7 +922,7 @@ export function ThreadScreen({ navigation, route }: Props) {
                   <ImagePlus color={theme.muted} size={18} />
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="Select model"
+                  accessibilityLabel="Select model and reasoning effort"
                   onPress={() => setShowControls(true)}
                   style={[styles.modelButton, { backgroundColor: theme.surface }]}
                 >
@@ -1013,17 +930,11 @@ export function ThreadScreen({ navigation, route }: Props) {
                   <Text numberOfLines={1} style={[styles.modelText, { color: theme.muted }]}>
                     {formatCodexModelLabel(selectedModel)}
                   </Text>
-                  <ChevronDown color={theme.faint} size={13} />
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Select reasoning effort"
-                  onPress={() => setShowControls(true)}
-                  style={[styles.reasoningButton, { backgroundColor: theme.surface }]}
-                >
-                  <SlidersHorizontal color={theme.muted} size={14} />
+                  <View style={[styles.modelDivider, { backgroundColor: theme.line }]} />
                   <Text numberOfLines={1} style={[styles.reasoningText, { color: theme.muted }]}>
                     {formatReasoningEffort(reasoningEffort)}
                   </Text>
+                  <ChevronDown color={theme.faint} size={13} />
                 </Pressable>
                 {userSettings?.demoRecordingExperimentEnabled ? (
                   <Pressable
@@ -1119,49 +1030,6 @@ export function ThreadScreen({ navigation, route }: Props) {
           </View>
         ) : null}
 
-        {gitStatus ? (
-          <View style={styles.gitBar}>
-            <View style={styles.gitSummary}>
-              <GitCommitHorizontal color={theme.muted} size={15} />
-              <Text numberOfLines={1} style={[styles.gitText, { color: theme.muted }]}>
-                {gitStatus.kind.replace(/_/g, " ")}
-                {gitStatus.aheadCount ? ` · ${gitStatus.aheadCount} ahead` : ""}
-              </Text>
-            </View>
-            <Pressable
-              accessibilityLabel="Open Git actions"
-              disabled={running}
-              onPress={() => navigation.navigate("GitActions", { projectId, threadId, title: thread.title })}
-              style={[styles.gitAction, { backgroundColor: theme.accentSoft, opacity: running ? 0.45 : 1 }]}
-            >
-              <Text style={[styles.gitActionText, { color: theme.ink }]}>
-                {gitStatus.hasWorkingTreeChanges
-                  ? "Commit"
-                  : gitStatus.pullRequest ? `PR #${gitStatus.pullRequest.number}` : "Git actions"}
-              </Text>
-              <ChevronDown color={theme.faint} size={12} />
-            </Pressable>
-            {!running ? (
-              <Pressable
-                accessibilityLabel={thread.settledOverride === "settled" ? "Restore conversation" : "Archive conversation"}
-                onPress={() => {
-                  const settled = thread.settledOverride !== "settled";
-                  Alert.alert(
-                    settled ? "Archive conversation?" : "Restore conversation?",
-                    settled ? "The thread stays available in this project." : "The thread will return to active work.",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      { text: settled ? "Archive" : "Restore", onPress: () => void setSettlement({ threadId, settled }) },
-                    ],
-                  );
-                }}
-                style={styles.smallAction}
-              >
-                <Archive color={theme.faint} size={16} />
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
       </View>
       <ModelReasoningSheet
         visible={showControls}
@@ -1356,7 +1224,10 @@ export function ThreadScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  headerTitle: { width: 136, minWidth: 0 },
+  headerTitleText: { fontFamily: "DMSans_700Bold", fontSize: 15, letterSpacing: -0.25 },
+  headerSubtitle: { fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 1 },
+  headerActions: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 2, flexDirection: "row", alignItems: "center", gap: 1 },
   headerButton: { width: 34, height: 36, alignItems: "center", justifyContent: "center" },
   headerBadge: {
     position: "absolute",
@@ -1369,38 +1240,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerBadgeText: { fontFamily: "Inter_700Bold", fontSize: 8 },
-  viewSwitcherWrap: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 7 },
-  viewSwitcher: { alignSelf: "center", minWidth: 210, borderRadius: 10, padding: 3, flexDirection: "row", gap: 3 },
-  viewOption: { flex: 1, minHeight: 32, borderRadius: 8, borderWidth: 1, borderColor: "transparent", paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  viewOptionText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  viewBadge: { minWidth: 19, height: 19, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
-  viewBadgeText: { fontFamily: "Inter_700Bold", fontSize: 9 },
-  threadContext: {
-    minHeight: 42,
-    borderBottomWidth: 1,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  contextBranch: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 10 },
-  contextStatus: { flexDirection: "row", alignItems: "center", gap: 5 },
-  contextDot: { width: 6, height: 6, borderRadius: 99 },
-  contextStatusText: { fontFamily: "Inter_500Medium", fontSize: 9 },
-  changeSummary: { minHeight: 30, borderRadius: 6, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", gap: 5 },
-  changeCount: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
-  diffStats: { fontFamily: "Inter_700Bold", fontSize: 9 },
+  headerBadgeText: { fontFamily: "DMSans_700Bold", fontSize: 8 },
   errorWrap: { paddingHorizontal: 12, paddingTop: 10 },
   threadEmpty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, paddingVertical: 20 },
   emptyBot: { width: 52, height: 52, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 15 },
-  emptyTitle: { fontFamily: "Inter_600SemiBold", fontSize: 20, letterSpacing: -0.45 },
-  emptyBody: { maxWidth: 330, fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 9 },
+  emptyTitle: { fontFamily: "DMSans_500Medium", fontSize: 20, letterSpacing: -0.45 },
+  emptyBody: { maxWidth: 330, fontFamily: "DMSans_400Regular", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 9 },
   starters: { width: "100%", maxWidth: 340, gap: 7, marginTop: 21 },
   starter: { minHeight: 44, borderRadius: 7, borderWidth: 1, paddingHorizontal: 13, justifyContent: "center" },
-  starterText: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  starterText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
   feed: { flex: 1 },
-  messages: { paddingHorizontal: 17, paddingTop: 20, paddingBottom: 28 },
+  messages: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 28 },
   latestButton: {
     position: "absolute",
     right: 16,
@@ -1412,7 +1262,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  composerWrap: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 7 },
+  composerWrap: { paddingHorizontal: 12, paddingTop: 7, paddingBottom: 8 },
   attachments: { gap: 8, paddingHorizontal: 4, paddingTop: 4, paddingBottom: 9 },
   attachment: { marginRight: 2 },
   attachmentImage: { width: 64, height: 64, borderRadius: 8 },
@@ -1429,49 +1279,44 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  composerExpanded: { borderRadius: 12, padding: 10 },
-  prompt: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 21 },
+  composerExpanded: { borderRadius: 20, padding: 9 },
+  prompt: { fontFamily: "DMSans_400Regular", fontSize: 16, lineHeight: 23 },
   promptCollapsed: { flex: 1, height: 38, paddingHorizontal: 0, paddingVertical: 8 },
   promptExpanded: { minHeight: 76, maxHeight: 142, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
   composerActions: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   composerActionsCollapsed: { marginTop: 0 },
   connectionRow: { minHeight: 22, paddingHorizontal: 7, paddingTop: 4, flexDirection: "row", alignItems: "center", gap: 6 },
   connectionDot: { width: 6, height: 6, borderRadius: 3 },
-  connectionText: { fontFamily: "Inter_500Medium", fontSize: 9 },
+  connectionText: { fontFamily: "DMSans_500Medium", fontSize: 9 },
   smallAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  modelButton: { flex: 1, minWidth: 0, minHeight: 34, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 6 },
-  modelText: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
-  reasoningButton: { minHeight: 34, maxWidth: 105, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
-  reasoningText: { flexShrink: 1, fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  modelButton: { flex: 1, minWidth: 0, minHeight: 36, borderRadius: 18, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
+  modelText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
+  modelDivider: { width: StyleSheet.hairlineWidth, height: 16 },
+  reasoningText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
   demoButton: { minHeight: 34, borderRadius: 8, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 },
-  demoText: { fontFamily: "Inter_600SemiBold", fontSize: 9 },
+  demoText: { fontFamily: "DMSans_500Medium", fontSize: 9 },
   sendButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  gitBar: { minHeight: 35, flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5, paddingHorizontal: 2 },
   gitOperation: { minHeight: 35, marginTop: 6, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   gitOperationDot: { width: 7, height: 7, borderRadius: 99 },
-  gitOperationText: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 10, textTransform: "capitalize" },
-  gitSummary: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 5 },
-  gitText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 10, textTransform: "capitalize" },
-  gitAction: { minHeight: 29, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
-  gitActionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
+  gitOperationText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 10, textTransform: "capitalize" },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.38)", padding: 14 },
   toolsCard: { borderWidth: 1, borderRadius: 18, padding: 12, gap: 8, marginBottom: 6 },
   toolsHeading: { paddingHorizontal: 4, paddingTop: 3, paddingBottom: 6 },
-  toolsTitle: { fontFamily: "Inter_700Bold", fontSize: 15 },
-  toolsBody: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 4 },
+  toolsTitle: { fontFamily: "DMSans_700Bold", fontSize: 15 },
+  toolsBody: { fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 4 },
   toolRow: { minHeight: 52, borderWidth: 1, borderRadius: 12, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 10 },
   toolIcon: { width: 32, height: 32, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  toolLabel: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  toolLabel: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 12 },
   toolsCancel: { minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 2 },
-  toolsCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  toolsCancelText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
   renameCard: { borderWidth: 1, borderRadius: 18, padding: 15, gap: 14, marginBottom: 6 },
   renameHeading: { flexDirection: "row", alignItems: "center", gap: 10 },
   renameIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   renameCopy: { flex: 1, minWidth: 0 },
-  renameTitle: { fontFamily: "Inter_700Bold", fontSize: 14 },
-  renameBody: { fontFamily: "Inter_400Regular", fontSize: 10, lineHeight: 15, marginTop: 3 },
-  renameInput: { height: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontFamily: "Inter_500Medium", fontSize: 13 },
+  renameTitle: { fontFamily: "DMSans_700Bold", fontSize: 14 },
+  renameBody: { fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, marginTop: 3 },
+  renameInput: { height: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontFamily: "DMSans_500Medium", fontSize: 13 },
   renameActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   renameButton: { minWidth: 82, height: 40, borderRadius: 11, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
-  renameButtonText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
+  renameButtonText: { fontFamily: "DMSans_500Medium", fontSize: 11 },
 });

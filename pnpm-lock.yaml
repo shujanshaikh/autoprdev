@@ -75,7 +75,7 @@ importers:
       '@convex-dev/r2':
         specifier: ^0.10.1
         version: 0.10.1(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.3))(hono@4.12.14)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@6.0.3)(zod@4.4.3)
-      '@expo-google-fonts/inter':
+      '@expo-google-fonts/dm-sans':
         specifier: ^0.4.2
         version: 0.4.2
       '@react-native-async-storage/async-storage':
@@ -1473,8 +1473,8 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@expo-google-fonts/inter@0.4.2':
-    resolution: {integrity: sha512-syfiImMaDmq7cFi0of+waE2M4uSCyd16zgyWxdPOY7fN2VBmSLKEzkfbZgeOjJq61kSqPBNNtXjggiQiSD6gMQ==}
+  '@expo-google-fonts/dm-sans@0.4.2':
+    resolution: {integrity: sha512-e/fLH5aCJzkEenz7axvEn8N7IJAKhUwNjIxS75h9j+Ip1M9S7d22M19gJN3A7QW4egVkBJRyQh1hQFhngQn9yA==}
 
   '@expo/cli@56.1.22':
     resolution: {integrity: sha512-G9IOhKU62TexMJGeZkDmyAYLsvbYT40RvIG7AR4y2ha8OEmhbbHNLNQ0mI0xK4QVf4MXiC0CPHLhMMh/ak8XQA==}
@@ -10091,7 +10091,7 @@ snapshots:
     optionalDependencies:
       '@noble/hashes': 1.8.0
 
-  '@expo-google-fonts/inter@0.4.2': {}
+  '@expo-google-fonts/dm-sans@0.4.2': {}
 
   '@expo/cli@56.1.22(@expo/dom-webview@56.0.6)(expo-constants@56.0.22(expo@56.0.18)(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3)))(expo-font@56.0.7(expo@56.0.18)(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(expo@56.0.18)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)':
     dependencies:

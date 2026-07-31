@@ -9,7 +9,6 @@ import {
   ExternalLink,
   FileText,
   Play,
-  Sparkles,
   ToolCase,
   Video,
 } from "lucide-react-native";
@@ -85,6 +84,17 @@ function runSummary(metadata: unknown) {
     details.push(totalCost < 0.0001 ? "<$0.0001" : `$${totalCost.toFixed(totalCost < 1 ? 4 : 2)}`);
   }
   return details.join(" · ");
+}
+
+function workDuration(metadata: unknown) {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return "";
+  const run = (metadata as Record<string, unknown>).run;
+  if (typeof run !== "object" || run === null || Array.isArray(run)) return "";
+  const duration = (run as Record<string, unknown>).durationSeconds;
+  if (typeof duration !== "number") return "";
+  return duration < 60
+    ? `${Math.max(1, Math.round(duration))}s`
+    : `${Math.floor(duration / 60)}m ${Math.round(duration) % 60}s`;
 }
 
 function inlineMarkdown(value: string, color: string, muted: string): ReactNode[] {
@@ -246,7 +256,7 @@ function WorkLogItem({
           : part.state === "output-available"
             ? <Check color={theme.success} size={13} />
             : <ToolCase color={theme.muted} size={13} />
-        : <Sparkles color={theme.accentOn} size={13} />}
+        : <View style={[styles.reasoningDot, { backgroundColor: theme.faint }]} />}
       <View style={styles.workCopy}>
         <Pressable
           accessibilityRole={canExpand ? "button" : undefined}
@@ -273,21 +283,24 @@ function WorkLogItem({
           </Text>
         ) : null}
         {part.kind === "tool" && part.details && detailsOpen ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <Text
-              selectable
-              style={[styles.toolDetails, { color: theme.codeMuted, backgroundColor: theme.code }]}
-            >
-              {part.details}
-            </Text>
-          </ScrollView>
+          <View style={[styles.toolDetails, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
+            <RichMessageText value={part.details} />
+          </View>
         ) : null}
       </View>
     </View>
   );
 }
 
-function WorkLog({ parts, live }: { parts: MessagePartView[]; live: boolean }) {
+function WorkLog({
+  parts,
+  live,
+  duration,
+}: {
+  parts: MessagePartView[];
+  live: boolean;
+  duration: string;
+}) {
   const theme = useAppTheme();
   const activities = parts.filter((part) => part.kind === "reasoning" || part.kind === "tool");
   const [expanded, setExpanded] = useState(live);
@@ -299,11 +312,10 @@ function WorkLog({ parts, live }: { parts: MessagePartView[]; live: boolean }) {
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         onPress={() => setExpanded((value) => !value)}
-        style={styles.workHeader}
+        style={[styles.workHeader, { borderBottomColor: theme.line }]}
       >
-        <Sparkles color={theme.muted} size={13} />
         <Text style={[styles.workTitle, { color: theme.muted }]}>
-          {live ? "Working" : `Explored ${activities.length} ${activities.length === 1 ? "step" : "steps"}`}
+          {live ? "Working" : duration ? `Worked for ${duration}` : "Work details"}
         </Text>
         {live ? <View style={[styles.liveDot, { backgroundColor: theme.accentOn }]} /> : null}
         {expanded
@@ -427,14 +439,15 @@ export function ThreadMessage({
   const recordings = parts.filter((part) => part.kind === "recording");
   const timestamp = timeLabel(message.updatedAt ?? message.createdAt);
   const assistantRunSummary = runSummary(message.metadata);
+  const assistantWorkDuration = workDuration(message.metadata);
   const copyText = textParts.map((part) => part.kind === "text" ? part.text : "").join("\n\n");
 
   if (isUser) {
     return (
       <View style={styles.userMessage}>
-        <View style={[styles.userBubble, { backgroundColor: theme.surfaceSoft, borderColor: theme.line }]}>
+        <View style={[styles.userBubble, { backgroundColor: theme.accent }]}>
           {keyed(textParts, (part) => part.kind === "text" ? part.text : part.kind).map(({ item: part, key }) => part.kind === "text"
-            ? <RichMessageText key={`${message.messageId}:text:${key}`} value={part.text} />
+            ? <RichMessageText inverted key={`${message.messageId}:text:${key}`} value={part.text} />
             : null)}
           {keyed(images, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
             <Image
@@ -473,16 +486,7 @@ export function ThreadMessage({
 
   return (
     <View style={styles.assistantMessage}>
-      <View style={styles.assistantLabelRow}>
-        <Text style={[styles.assistantLabel, { color: theme.muted }]}>AUTOPR</Text>
-        {isLast && isLive ? (
-          <>
-            <View style={[styles.liveDot, { backgroundColor: theme.accentOn }]} />
-            <Text style={[styles.workingLabel, { color: theme.muted }]}>Working</Text>
-          </>
-        ) : null}
-      </View>
-      <WorkLog parts={parts} live={isLast && isLive} />
+      <WorkLog duration={assistantWorkDuration} parts={parts} live={isLast && isLive} />
       {keyed(textParts, (part) => part.kind === "text" ? part.text : part.kind).map(({ item: part, key }) => part.kind === "text"
         ? <RichMessageText key={`${message.messageId}:text:${key}`} value={part.text} />
         : null)}
@@ -536,48 +540,46 @@ export function ThreadMessage({
 const styles = StyleSheet.create({
   richText: { gap: 2 },
   line: { minWidth: 0, flexDirection: "row" },
-  body: { flexShrink: 1, fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 22 },
-  bold: { fontFamily: "Inter_700Bold" },
+  body: { flexShrink: 1, fontFamily: "DMSans_400Regular", fontSize: 16, lineHeight: 25 },
+  bold: { fontFamily: "DMSans_700Bold" },
   italic: { fontStyle: "italic" },
   strikethrough: { textDecorationLine: "line-through" },
-  heading: { fontFamily: "Inter_600SemiBold", fontSize: 16, lineHeight: 23, marginTop: 5 },
-  bullet: { width: 16, fontFamily: "Inter_600SemiBold", fontSize: 14, lineHeight: 22 },
+  heading: { fontFamily: "DMSans_700Bold", fontSize: 18, lineHeight: 25, marginTop: 7 },
+  bullet: { width: 18, fontFamily: "DMSans_500Medium", fontSize: 16, lineHeight: 25 },
   quote: { borderLeftWidth: 2, paddingLeft: 10, marginVertical: 3 },
   link: { textDecorationLine: "underline" },
   inlineCode: { fontFamily: "monospace", fontSize: 13 },
   paragraphSpace: { height: 7 },
   codeBlock: { borderWidth: 1, borderRadius: 6, padding: 10, marginVertical: 7 },
-  codeLanguage: { fontFamily: "Inter_600SemiBold", fontSize: 9, textTransform: "uppercase", marginBottom: 7 },
+  codeLanguage: { fontFamily: "DMSans_500Medium", fontSize: 9, textTransform: "uppercase", marginBottom: 7 },
   codeText: { fontFamily: "monospace", fontSize: 12, lineHeight: 18 },
-  userMessage: { alignItems: "flex-end", marginBottom: 20 },
-  userBubble: { maxWidth: "88%", borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, gap: 8 },
+  userMessage: { alignItems: "flex-end", marginBottom: 26 },
+  userBubble: { maxWidth: "88%", borderRadius: 20, paddingHorizontal: 15, paddingVertical: 12, gap: 8 },
   userImage: { width: 220, aspectRatio: 1.35, borderRadius: 8 },
-  assistantMessage: { marginBottom: 24, paddingHorizontal: 3, gap: 8 },
-  assistantLabelRow: { minHeight: 18, flexDirection: "row", alignItems: "center", gap: 6 },
-  assistantLabel: { fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 1.2 },
-  workingLabel: { fontFamily: "Inter_500Medium", fontSize: 10 },
+  assistantMessage: { marginBottom: 30, paddingHorizontal: 3, gap: 10 },
   liveDot: { width: 6, height: 6, borderRadius: 999 },
   assistantImage: { width: "100%", aspectRatio: 1.4, borderRadius: 10 },
   messageMeta: { minHeight: 24, flexDirection: "row", alignItems: "center", gap: 2, paddingTop: 2 },
   assistantMeta: { justifyContent: "flex-start" },
-  timestamp: { fontFamily: "Inter_500Medium", fontSize: 10 },
-  runSummary: { fontFamily: "Inter_500Medium", fontSize: 9, fontVariant: ["tabular-nums"] },
+  timestamp: { fontFamily: "DMSans_500Medium", fontSize: 11 },
+  runSummary: { fontFamily: "DMSans_500Medium", fontSize: 10, fontVariant: ["tabular-nums"] },
   copyButton: { width: 28, height: 26, alignItems: "center", justifyContent: "center" },
-  workLog: { marginBottom: 2 },
-  workHeader: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6 },
-  workTitle: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  workLog: { marginBottom: 6 },
+  workHeader: { minHeight: 38, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 7 },
+  workTitle: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 14 },
   workItems: { borderLeftWidth: 1, marginLeft: 6, paddingLeft: 13, gap: 10, paddingVertical: 5 },
   workItem: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  reasoningDot: { width: 6, height: 6, borderRadius: 3, marginTop: 6, marginHorizontal: 3 },
   workCopy: { flex: 1, minWidth: 0 },
   workItemHeading: { minHeight: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  workName: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  workSummary: { fontFamily: "Inter_400Regular", fontSize: 11, lineHeight: 16, marginTop: 3 },
-  toolDetails: { minWidth: 280, maxWidth: 620, borderRadius: 7, padding: 9, fontFamily: "monospace", fontSize: 10, lineHeight: 15, marginTop: 7 },
+  workName: { fontFamily: "DMSans_500Medium", fontSize: 11 },
+  workSummary: { fontFamily: "DMSans_400Regular", fontSize: 11, lineHeight: 16, marginTop: 3 },
+  toolDetails: { borderWidth: 1, borderRadius: 9, padding: 10, marginTop: 7 },
   fileCard: { minHeight: 48, borderRadius: 9, borderWidth: 1, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 9 },
-  fileName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 11 },
+  fileName: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
   recording: { minHeight: 66, borderRadius: 12, borderWidth: 1, padding: 11, flexDirection: "row", alignItems: "center", gap: 10 },
   recordingIcon: { width: 40, height: 40, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   recordingCopy: { flex: 1, minWidth: 0 },
-  recordingTitle: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  recordingMeta: { fontFamily: "Inter_400Regular", fontSize: 10, lineHeight: 15, marginTop: 4 },
+  recordingTitle: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  recordingMeta: { fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, marginTop: 4 },
 });

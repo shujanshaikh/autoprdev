@@ -46,9 +46,18 @@ function readableToolDetails(input: unknown, output: unknown, errorText: unknown
       return String(value);
     }
   };
-  if (input !== undefined) sections.push(`Input\n${stringify(input)}`);
-  if (output !== undefined) sections.push(`Output\n${stringify(output)}`);
-  if (typeof errorText === "string" && errorText.trim()) sections.push(`Error\n${errorText.trim()}`);
+  if (input !== undefined) {
+    sections.push(`### Input\n\n\`\`\`json\n${stringify(input)}\n\`\`\``);
+  }
+  if (output !== undefined) {
+    const outputContent = contentFromOutput(output);
+    sections.push(outputContent
+      ? `### Output\n\n${outputContent}`
+      : `### Output\n\n\`\`\`json\n${stringify(output)}\n\`\`\``);
+  }
+  if (typeof errorText === "string" && errorText.trim()) {
+    sections.push(`### Error\n\n${errorText.trim()}`);
+  }
   const value = sections.join("\n\n");
   return value ? value.slice(0, 12_000) : undefined;
 }

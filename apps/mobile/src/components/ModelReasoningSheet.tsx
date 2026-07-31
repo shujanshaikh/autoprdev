@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react-native";
+import { Check, ChevronRight, X } from "lucide-react-native";
 import { memo, useCallback } from "react";
 import {
   FlatList,
@@ -29,15 +29,6 @@ type Props = {
   onClose: () => void;
 };
 
-const reasoningDescriptions: Record<CodexReasoningEffort, string> = {
-  low: "Fast",
-  medium: "Balanced",
-  high: "Thorough",
-  xhigh: "Deep",
-  max: "Maximum",
-  ultra: "Exhaustive",
-};
-
 const modelKey = (model: string) => model;
 
 const ModelRow = memo(function ModelRow({
@@ -51,6 +42,7 @@ const ModelRow = memo(function ModelRow({
 }) {
   const theme = useAppTheme();
   const select = useCallback(() => onSelect(model), [model, onSelect]);
+
   return (
     <Pressable
       accessibilityRole="radio"
@@ -58,24 +50,21 @@ const ModelRow = memo(function ModelRow({
       onPress={select}
       style={({ pressed }) => [
         styles.modelRow,
-        {
-          backgroundColor: selected ? theme.accentSoft : pressed ? theme.surfaceSoft : theme.surface,
-          borderColor: selected ? theme.accentOn : theme.line,
-        },
+        { backgroundColor: pressed ? theme.surfaceSoft : theme.surface },
       ]}
     >
-      <View style={[styles.providerMark, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
-        <OpenAIIcon size={19} />
+      <View style={[styles.providerMark, { backgroundColor: theme.surfaceSoft }]}>
+        <OpenAIIcon size={17} />
       </View>
       <View style={styles.modelCopy}>
-        <Text style={[styles.modelName, { color: theme.ink }]}>{formatCodexModelLabel(model)}</Text>
-        <Text style={[styles.providerName, { color: theme.muted }]}>OpenAI · Codex</Text>
+        <Text numberOfLines={1} style={[styles.modelName, { color: theme.ink }]}>
+          {formatCodexModelLabel(model)}
+        </Text>
+        <Text style={[styles.providerName, { color: theme.muted }]}>Codex</Text>
       </View>
-      {selected ? (
-        <View style={[styles.check, { backgroundColor: theme.accent }]}>
-          <Check color={theme.accentInk} size={13} strokeWidth={3} />
-        </View>
-      ) : null}
+      {selected
+        ? <Check color={theme.accentOn} size={19} strokeWidth={2.5} />
+        : <ChevronRight color={theme.faint} size={16} />}
     </Pressable>
   );
 });
@@ -101,48 +90,67 @@ export function ModelReasoningSheet({
   return (
     <Modal
       animationType="slide"
-      transparent
-      presentationStyle="overFullScreen"
-      visible={visible}
       onRequestClose={onClose}
+      presentationStyle="overFullScreen"
+      transparent
+      visible={visible}
     >
       <View style={styles.modal}>
-        <Pressable accessibilityLabel="Close model picker" onPress={onClose} style={styles.backdrop} />
-        <SafeAreaView edges={["bottom"]} style={[styles.sheet, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
+        <Pressable
+          accessibilityLabel="Close model picker"
+          onPress={onClose}
+          style={styles.backdrop}
+        />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[styles.sheet, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}
+        >
           <View style={styles.handleWrap}>
             <View style={[styles.handle, { backgroundColor: theme.strongLine }]} />
           </View>
           <View style={styles.header}>
-            <View>
-              <Text style={[styles.title, { color: theme.ink }]}>Model and reasoning</Text>
-              <Text style={[styles.subtitle, { color: theme.muted }]}>Choose how Codex handles this task.</Text>
+            <View style={styles.headerCopy}>
+              <Text style={[styles.title, { color: theme.ink }]}>Model</Text>
+              <Text style={[styles.subtitle, { color: theme.muted }]}>
+                Choose the model and how deeply it should reason.
+              </Text>
             </View>
-            <Pressable accessibilityLabel="Close" onPress={onClose} style={[styles.close, { backgroundColor: theme.surfaceSoft }]}>
-              <X color={theme.ink} size={18} />
+            <Pressable
+              accessibilityLabel="Close"
+              onPress={onClose}
+              style={[styles.close, { backgroundColor: theme.surfaceSoft }]}
+            >
+              <X color={theme.ink} size={17} />
             </Pressable>
           </View>
 
           <FlatList
+            contentContainerStyle={styles.content}
             data={models}
+            ItemSeparatorComponent={() => (
+              <View style={[styles.separator, { backgroundColor: theme.line }]} />
+            )}
             keyExtractor={modelKey}
-            renderItem={renderModel}
-            contentContainerStyle={styles.models}
-            ListHeaderComponent={<Text style={[styles.sectionLabel, { color: theme.faint }]}>MODEL</Text>}
             ListEmptyComponent={(
-              <View style={[styles.autoModel, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-                <View style={[styles.providerMark, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
-                  <OpenAIIcon size={19} />
+              <View style={styles.modelRow}>
+                <View style={[styles.providerMark, { backgroundColor: theme.surfaceSoft }]}>
+                  <OpenAIIcon size={17} />
                 </View>
                 <View style={styles.modelCopy}>
                   <Text style={[styles.modelName, { color: theme.ink }]}>Auto model</Text>
-                  <Text style={[styles.providerName, { color: theme.muted }]}>Codex will select the available model.</Text>
+                  <Text style={[styles.providerName, { color: theme.muted }]}>
+                    Codex will select an available model.
+                  </Text>
                 </View>
               </View>
             )}
             ListFooterComponent={(
               <View style={styles.reasoningSection}>
-                <Text style={[styles.sectionLabel, { color: theme.faint }]}>REASONING</Text>
-                <View style={styles.reasoningGrid}>
+                <Text style={[styles.sectionLabel, { color: theme.muted }]}>Reasoning effort</Text>
+                <View
+                  accessibilityRole="radiogroup"
+                  style={[styles.reasoningControl, { backgroundColor: theme.surfaceSoft }]}
+                >
                   {reasoningEfforts.map((effort) => {
                     const selected = effort === selectedReasoningEffort;
                     return (
@@ -153,28 +161,34 @@ export function ModelReasoningSheet({
                         onPress={() => onSelectReasoningEffort(effort)}
                         style={[
                           styles.reasoningOption,
-                          {
-                            backgroundColor: selected ? theme.accentSoft : theme.surface,
-                            borderColor: selected ? theme.accentOn : theme.line,
+                          selected && {
+                            backgroundColor: theme.surfaceRaised,
+                            borderColor: theme.line,
                           },
                         ]}
                       >
-                        <Text style={[styles.reasoningName, { color: theme.ink }]}>{formatReasoningEffort(effort)}</Text>
-                        <Text style={[styles.reasoningDescription, { color: theme.muted }]}>{reasoningDescriptions[effort]}</Text>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.reasoningName,
+                            { color: selected ? theme.ink : theme.muted },
+                          ]}
+                        >
+                          {formatReasoningEffort(effort)}
+                        </Text>
                       </Pressable>
                     );
                   })}
                 </View>
               </View>
             )}
+            ListHeaderComponent={(
+              <Text style={[styles.sectionLabel, { color: theme.muted }]}>Available models</Text>
+            )}
+            renderItem={renderModel}
+            showsVerticalScrollIndicator={false}
+            style={[styles.modelList, { backgroundColor: theme.surface, borderColor: theme.line }]}
           />
-          <Pressable
-            accessibilityRole="button"
-            onPress={onClose}
-            style={({ pressed }) => [styles.done, { backgroundColor: theme.accent, opacity: pressed ? 0.78 : 1 }]}
-          >
-            <Text style={[styles.doneText, { color: theme.accentInk }]}>Done</Text>
-          </Pressable>
         </SafeAreaView>
       </View>
     </Modal>
@@ -184,27 +198,65 @@ export function ModelReasoningSheet({
 const styles = StyleSheet.create({
   modal: { flex: 1, justifyContent: "flex-end" },
   backdrop: { position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.38)" },
-  sheet: { maxHeight: "82%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, overflow: "hidden" },
-  handleWrap: { height: 22, alignItems: "center", justifyContent: "center" },
+  sheet: {
+    maxHeight: "78%",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  handleWrap: { height: 23, alignItems: "center", justifyContent: "center" },
   handle: { width: 38, height: 4, borderRadius: 2 },
-  header: { paddingHorizontal: 18, paddingBottom: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { fontFamily: "Inter_700Bold", fontSize: 19, letterSpacing: -0.45 },
-  subtitle: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 4 },
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  headerCopy: { flex: 1 },
+  title: { fontFamily: "DMSans_700Bold", fontSize: 21, letterSpacing: -0.45 },
+  subtitle: { fontFamily: "DMSans_400Regular", fontSize: 13, lineHeight: 18, marginTop: 3 },
   close: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  models: { paddingHorizontal: 14, paddingBottom: 12, gap: 7 },
-  sectionLabel: { fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 1.2, marginBottom: 3, marginLeft: 4 },
-  modelRow: { minHeight: 68, borderRadius: 14, borderWidth: 1, padding: 10, flexDirection: "row", alignItems: "center", gap: 11 },
-  autoModel: { minHeight: 68, borderRadius: 14, borderWidth: 1, padding: 10, flexDirection: "row", alignItems: "center", gap: 11 },
-  providerMark: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  modelList: {
+    marginHorizontal: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  content: { paddingTop: 12, paddingBottom: 16 },
+  sectionLabel: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 12,
+    letterSpacing: 0.2,
+    marginHorizontal: 14,
+    marginBottom: 8,
+  },
+  modelRow: {
+    minHeight: 58,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 58 },
+  providerMark: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   modelCopy: { flex: 1, minWidth: 0 },
-  modelName: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
-  providerName: { fontFamily: "Inter_400Regular", fontSize: 10, marginTop: 4 },
-  check: { width: 23, height: 23, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  reasoningSection: { paddingTop: 18 },
-  reasoningGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 4 },
-  reasoningOption: { minWidth: "30%", flexGrow: 1, borderRadius: 12, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 10 },
-  reasoningName: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  reasoningDescription: { fontFamily: "Inter_400Regular", fontSize: 9, marginTop: 3 },
-  done: { minHeight: 48, borderRadius: 14, marginHorizontal: 14, marginTop: 4, marginBottom: 8, alignItems: "center", justifyContent: "center" },
-  doneText: { fontFamily: "Inter_700Bold", fontSize: 13 },
+  modelName: { fontFamily: "DMSans_500Medium", fontSize: 15 },
+  providerName: { fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 2 },
+  reasoningSection: { paddingTop: 22 },
+  reasoningControl: { marginHorizontal: 10, borderRadius: 12, padding: 3, flexDirection: "row" },
+  reasoningOption: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "transparent",
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reasoningName: { fontFamily: "DMSans_500Medium", fontSize: 11 },
 });

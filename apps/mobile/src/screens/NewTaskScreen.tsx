@@ -2,12 +2,12 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import type { Doc } from "@autopr/backend/convex/_generated/dataModel";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "convex/react";
-import { ChevronRight, FolderGit2, Plus } from "lucide-react-native";
-import { memo, useCallback } from "react";
+import { ChevronRight, Folder, Plus } from "lucide-react-native";
+import { memo, useCallback, useLayoutEffect } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { EmptyState, LoadingState, PrimaryButton, StatusPill } from "../components/ui";
+import { EmptyState, LoadingState, PrimaryButton } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import type { RootStackParamList } from "../types";
 
@@ -29,8 +29,11 @@ const ProjectChoiceRow = memo(function ProjectChoiceRow({
     () => onOpen(project.projectId, project.repoName),
     [onOpen, project.projectId, project.repoName],
   );
+
   return (
     <Pressable
+      accessibilityHint={ready ? "Opens a new task composer" : "This project is not ready"}
+      accessibilityLabel={project.repoName}
       accessibilityRole="button"
       disabled={!ready}
       onPress={open}
@@ -38,27 +41,22 @@ const ProjectChoiceRow = memo(function ProjectChoiceRow({
         styles.row,
         {
           backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
-          borderColor: theme.line,
           opacity: ready ? 1 : 0.58,
         },
       ]}
     >
-      <View style={[styles.icon, { backgroundColor: theme.accentSoft }]}>
-        <FolderGit2 color={theme.accentOn} size={20} />
+      <View style={styles.icon}>
+        <Folder color={theme.faint} fill={theme.faint} size={18} strokeWidth={1.5} />
       </View>
       <View style={styles.copy}>
         <Text numberOfLines={1} style={[styles.repo, { color: theme.ink }]}>
-          {project.repoFullName}
+          {project.repoName}
         </Text>
         <Text numberOfLines={1} style={[styles.branch, { color: theme.muted }]}>
-          {branch ?? "Default branch"}
+          {ready ? branch ?? "Default branch" : project.sandboxStatus}
         </Text>
       </View>
-      <StatusPill
-        label={ready ? "Ready" : project.sandboxStatus}
-        tone={ready ? "success" : project.sandboxStatus === "failed" ? "danger" : "warning"}
-      />
-      <ChevronRight color={theme.faint} size={17} />
+      <ChevronRight color={theme.faint} size={18} />
     </Pressable>
   );
 });
@@ -66,11 +64,35 @@ const ProjectChoiceRow = memo(function ProjectChoiceRow({
 export function NewTaskScreen({ navigation }: Props) {
   const theme = useAppTheme();
   const projects = useQuery(api.projects.list, {});
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: "Choose project",
+      headerRight: () => (
+        <Pressable
+          accessibilityLabel="Add project"
+          onPress={() => navigation.navigate("AddProject")}
+          style={({ pressed }) => [
+            styles.headerAdd,
+            {
+              backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
+              borderColor: theme.line,
+            },
+          ]}
+        >
+          <Plus color={theme.ink} size={25} strokeWidth={1.9} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, theme]);
+
   const openProject = useCallback((projectId: string, title: string) => {
     navigation.replace("Project", { projectId, title, focusComposer: true });
   }, [navigation]);
   const renderProject = useCallback(
-    ({ item }: { item: Doc<"projects"> }) => <ProjectChoiceRow project={item} onOpen={openProject} />,
+    ({ item }: { item: Doc<"projects"> }) => (
+      <ProjectChoiceRow onOpen={openProject} project={item} />
+    ),
     [openProject],
   );
 
@@ -78,50 +100,57 @@ export function NewTaskScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
-      <View style={styles.intro}>
-        <Text style={[styles.title, { color: theme.ink }]}>Choose a project</Text>
-        <Text style={[styles.body, { color: theme.muted }]}>
-          The task composer will open with this repository and its current branch selected.
-        </Text>
-      </View>
       {projects.length === 0 ? (
         <EmptyState
-          icon={FolderGit2}
+          icon={Folder}
           title="No projects yet"
           body="Connect a GitHub repository before starting a task."
-          action={<PrimaryButton icon={Plus} label="Add project" onPress={() => navigation.replace("AddProject")} />}
+          action={(
+            <PrimaryButton
+              icon={Plus}
+              label="Add project"
+              onPress={() => navigation.navigate("AddProject")}
+            />
+          )}
         />
       ) : (
-        <FlatList
-          data={projects}
-          keyExtractor={projectKey}
-          contentContainerStyle={styles.list}
-          renderItem={renderProject}
-        />
+        <View style={[styles.projectGroup, { backgroundColor: theme.surface, borderColor: theme.line }]}>
+          <FlatList
+            data={projects}
+            ItemSeparatorComponent={() => (
+              <View style={[styles.separator, { backgroundColor: theme.line }]} />
+            )}
+            keyExtractor={projectKey}
+            renderItem={renderProject}
+          />
+        </View>
       )}
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => navigation.replace("AddProject")}
-        style={styles.add}
-      >
-        <Plus color={theme.muted} size={16} />
-        <Text style={[styles.addText, { color: theme.muted }]}>Add another project</Text>
-      </Pressable>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  intro: { paddingHorizontal: 18, paddingTop: 5, paddingBottom: 15 },
-  title: { fontFamily: "Inter_700Bold", fontSize: 21, letterSpacing: -0.5 },
-  body: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19, marginTop: 7 },
-  list: { paddingHorizontal: 14, gap: 8, paddingBottom: 18 },
-  row: { minHeight: 76, borderRadius: 13, borderWidth: 1, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
-  icon: { width: 42, height: 42, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  screen: { flex: 1, paddingHorizontal: 20, paddingTop: 10 },
+  headerAdd: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  projectGroup: { overflow: "hidden", borderRadius: 22, borderWidth: 1 },
+  row: {
+    minHeight: 72,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 58 },
+  icon: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   copy: { flex: 1, minWidth: 0 },
-  repo: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
-  branch: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 5 },
-  add: { minHeight: 48, marginHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
-  addText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  repo: { fontFamily: "DMSans_700Bold", fontSize: 16 },
+  branch: { fontFamily: "DMSans_400Regular", fontSize: 12, marginTop: 3 },
 });

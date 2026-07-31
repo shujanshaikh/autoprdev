@@ -15,15 +15,12 @@ import {
   Layers,
   MessageSquare,
   MoreHorizontal,
-  Play,
-  Plus,
   Search,
-  Square,
   Trash2,
   Video,
   X,
 } from "lucide-react-native";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -43,14 +40,7 @@ import { ComposerSheet } from "../components/ComposerSheet";
 import { GlassSurface } from "../components/GlassSurface";
 import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
 import { OpenAIIcon } from "../components/OpenAIIcon";
-import {
-  EmptyState,
-  ErrorNotice,
-  LoadingState,
-  PrimaryButton,
-  SecondaryButton,
-  StatusPill,
-} from "../components/ui";
+import { EmptyState, ErrorNotice, LoadingState, SecondaryButton, StatusPill } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebQuery } from "../hooks/useWebQuery";
 import {
@@ -155,7 +145,6 @@ export function ProjectScreen({ navigation, route }: Props) {
     title: string;
     archived: boolean;
   } | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
 
   const selectedModel = useMemo(
     () => selectCodexModel(codex.data?.models, selectedModelChoice),
@@ -187,7 +176,6 @@ export function ProjectScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (!route.params.focusComposer || project === undefined) return;
     const timer = setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: 185, animated: true });
       setComposerOpen(true);
       navigation.setParams({ focusComposer: undefined });
     }, 280);
@@ -336,104 +324,20 @@ export function ProjectScreen({ navigation, route }: Props) {
     : running ? "Stop" : "Start";
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={[styles.repoCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
-          <View style={styles.repoTop}>
-            <View style={[styles.repoMark, { backgroundColor: theme.accentSoft }]}>
-              <GitBranch color={theme.accentOn} size={19} />
-            </View>
-            <View style={styles.repoCopy}>
-              <Text numberOfLines={1} style={[styles.repoName, { color: theme.ink }]}>{project.repoFullName}</Text>
-              <View style={styles.repoStatus}>
-                <View style={[styles.statusDot, { backgroundColor: runtime.tone }]} />
-                <Text numberOfLines={1} style={[styles.repoStatusText, { color: theme.muted }]}>
-                  {runtime.label}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.controls}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Switch branch. Current branch ${branch}`}
-              onPress={() => navigation.navigate("Branches", {
-                projectId,
-                owner: project.repoOwner,
-                repo: project.repoName,
-                currentBranch: branch,
-              })}
-              style={({ pressed }) => [
-                styles.branchChip,
-                {
-                  backgroundColor: pressed ? theme.surface : theme.surfaceSoft,
-                  borderColor: theme.line,
-                },
-              ]}
-            >
-              <GitBranch color={theme.muted} size={13} />
-              <Text numberOfLines={1} style={[styles.branchChipText, { color: theme.ink }]}>{branch}</Text>
-              <ChevronDown color={theme.faint} size={13} />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={running ? "Stop the sandbox" : "Start the sandbox"}
-              accessibilityState={{ disabled: !ready || runtimeBusy }}
-              disabled={!ready || runtimeBusy}
-              onPress={() => void toggleRuntime()}
-              style={({ pressed }) => [
-                styles.runtimeChip,
-                {
-                  backgroundColor: running || !ready
-                    ? pressed ? theme.surface : theme.surfaceSoft
-                    : pressed ? theme.surfaceSoft : theme.accentSoft,
-                  borderColor: running || !ready ? theme.line : theme.accentSoft,
-                  opacity: !ready || runtimeBusy ? 0.6 : 1,
-                },
-              ]}
-            >
-              {runtimeBusy ? (
-                <ActivityIndicator color={theme.muted} size="small" />
-              ) : running ? (
-                <Square color={theme.muted} size={13} strokeWidth={2.4} />
-              ) : (
-                <Play color={theme.accentOn} size={13} strokeWidth={2.4} />
-              )}
-              <Text
-                numberOfLines={1}
-                style={[styles.runtimeChipText, { color: running || !ready ? theme.muted : theme.accentOn }]}
-              >
-                {runtimeAction}
-              </Text>
-            </Pressable>
-          </View>
-
-          {project.sandboxError ? <ErrorNotice message={project.sandboxError} /> : null}
-
-          <PrimaryButton
-            compact
-            icon={Plus}
-            label="New task"
-            loading={creating}
-            disabled={!ready}
-            onPress={() => void newThread()}
-            style={styles.newTaskButton}
-          />
-        </View>
-
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {error ? <ErrorNotice message={error} /> : null}
+        {project.sandboxError ? <ErrorNotice message={project.sandboxError} /> : null}
 
         <View style={styles.promptSection}>
-          <Text style={[styles.promptEyebrow, { color: theme.faint }]}>NEW TASK</Text>
           <Text style={[styles.promptTitle, { color: theme.ink }]}>What do you want to work on?</Text>
           <View style={styles.promptMeta}>
             <GitBranch color={theme.faint} size={12} />
-            <Text numberOfLines={1} style={[styles.promptMetaText, { color: theme.muted }]}>{project.repoFullName}</Text>
-            <Text style={[styles.promptMetaDot, { color: theme.faint }]}>·</Text>
-            <Text numberOfLines={1} style={[styles.promptMetaText, { color: theme.muted }]}>{branch}</Text>
+            <Text numberOfLines={1} style={[styles.promptMetaText, { color: theme.muted }]}>
+              {project.repoFullName}
+            </Text>
           </View>
 
-          <GlassSurface interactive radius={18} style={styles.promptBox}>
+          <GlassSurface interactive radius={20} style={styles.promptBox}>
             {pendingImages.length > 0 ? (
               <FlatList
                 horizontal
@@ -491,20 +395,46 @@ export function ProjectScreen({ navigation, route }: Props) {
                   },
                 ]}
               >
-                <ArrowUp color={theme.accentInk} size={18} strokeWidth={2.6} />
+                {creating
+                  ? <ActivityIndicator color={theme.accentInk} size="small" />
+                  : <ArrowUp color={theme.accentInk} size={18} strokeWidth={2.6} />}
               </Pressable>
             </View>
           </GlassSurface>
 
           <View style={styles.taskOptions}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Switch branch. Current branch ${branch}`}
+              onPress={() => navigation.navigate("Branches", {
+                projectId,
+                owner: project.repoOwner,
+                repo: project.repoName,
+                currentBranch: branch,
+              })}
+              style={({ pressed }) => [styles.taskOption, { opacity: pressed ? 0.55 : 1 }]}
+            >
+              <GitBranch color={theme.faint} size={13} />
+              <Text numberOfLines={1} style={[styles.taskOptionText, { color: theme.muted }]}>{branch}</Text>
+              <ChevronDown color={theme.faint} size={12} />
+            </Pressable>
+            <Pressable
               accessibilityRole="switch"
               accessibilityState={{ checked: workspaceMode === "worktree" }}
               onPress={() => setWorkspaceMode((value) => value === "checkout" ? "worktree" : "checkout")}
-              style={[styles.taskOption, { backgroundColor: theme.surfaceSoft }]}
+              style={({ pressed }) => [styles.taskOption, { opacity: pressed ? 0.55 : 1 }]}
             >
-              <Layers color={theme.muted} size={14} />
-              <Text style={[styles.taskOptionText, { color: theme.muted }]}>
+              <Layers
+                color={workspaceMode === "worktree" ? theme.accentOn : theme.faint}
+                size={13}
+              />
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.taskOptionText,
+                  { color: workspaceMode === "worktree" ? theme.ink : theme.muted },
+                ]}
+              >
                 {workspaceMode === "checkout" ? "Current checkout" : "New worktree"}
               </Text>
             </Pressable>
@@ -513,13 +443,38 @@ export function ProjectScreen({ navigation, route }: Props) {
                 accessibilityRole="switch"
                 accessibilityState={{ checked: demoEnabled }}
                 onPress={() => setDemoEnabled((value) => !value)}
-                style={[styles.taskOption, { backgroundColor: demoEnabled ? theme.accentSoft : theme.surfaceSoft }]}
+                style={({ pressed }) => [styles.taskOption, { opacity: pressed ? 0.55 : 1 }]}
               >
-                <Video color={demoEnabled ? theme.accentOn : theme.muted} size={14} />
-                <Text style={[styles.taskOptionText, { color: demoEnabled ? theme.ink : theme.muted }]}>Demo</Text>
+                <Video color={demoEnabled ? theme.accentOn : theme.faint} size={13} />
+                <Text style={[styles.taskOptionText, { color: demoEnabled ? theme.ink : theme.muted }]}>
+                  Demo
+                </Text>
               </Pressable>
             ) : null}
           </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={running ? "Stop the sandbox" : "Start the sandbox"}
+            accessibilityState={{ disabled: !ready || runtimeBusy }}
+            disabled={!ready || runtimeBusy}
+            onPress={() => void toggleRuntime()}
+            style={({ pressed }) => [
+              styles.runtimeRow,
+              { borderColor: theme.line, opacity: pressed || runtimeBusy ? 0.6 : 1 },
+            ]}
+          >
+            {runtimeBusy
+              ? <ActivityIndicator color={theme.muted} size="small" />
+              : <View style={[styles.statusDot, { backgroundColor: runtime.tone }]} />}
+            <Text numberOfLines={1} style={[styles.runtimeLabel, { color: theme.muted }]}>{runtime.label}</Text>
+            {ready ? (
+              <>
+                <Text style={[styles.runtimeSeparator, { color: theme.faint }]}>·</Text>
+                <Text style={[styles.runtimeAction, { color: theme.ink }]}>{runtimeAction}</Text>
+              </>
+            ) : null}
+          </Pressable>
 
           <View style={styles.quickActions}>
             {QUICK_ACTIONS.map((action) => (
@@ -597,17 +552,8 @@ export function ProjectScreen({ navigation, route }: Props) {
           <View style={styles.emptyWrap}>
             <EmptyState
               icon={MessageSquare}
-              title="Start the first task"
-              body="Describe a change and AutoPR will prepare an isolated branch, run the agent, and collect the diff."
-              action={
-                <PrimaryButton
-                  icon={Plus}
-                  label="New task"
-                  loading={creating}
-                  disabled={!ready}
-                  onPress={() => void newThread()}
-                />
-              }
+              title="No conversations yet"
+              body="Describe a change in the box above and AutoPR will prepare a branch, run the agent, and collect the diff."
             />
           </View>
         ) : filteredThreads.length === 0 ? (
@@ -831,49 +777,36 @@ export function ProjectScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, paddingBottom: 36, gap: 14 },
-  repoCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 12 },
-  repoTop: { flexDirection: "row", alignItems: "center", gap: 11 },
-  repoMark: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  repoCopy: { flex: 1, minWidth: 0 },
-  repoName: { fontFamily: "DMSans_700Bold", fontSize: 15, letterSpacing: -0.2 },
-  repoStatus: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
-  repoStatusText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
-  controls: { flexDirection: "row", alignItems: "center", gap: 8 },
-  branchChip: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    paddingHorizontal: 12,
+  runtimeRow: {
+    alignSelf: "center",
+    minHeight: 34,
+    marginTop: 14,
+    borderRadius: 17,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
   },
-  branchChipText: { flex: 1, minWidth: 0, fontFamily: "DMSans_500Medium", fontSize: 12 },
-  runtimeChip: {
-    minWidth: 92,
-    minHeight: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    paddingHorizontal: 13,
+  runtimeLabel: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
+  runtimeSeparator: { fontFamily: "DMSans_500Medium", fontSize: 11 },
+  runtimeAction: { fontFamily: "DMSans_700Bold", fontSize: 11 },
+  sheetImageList: { flexGrow: 0 },
+  sheetImages: { gap: 10, paddingHorizontal: 16, paddingBottom: 10 },
+  promptSection: { alignItems: "center", paddingTop: 26, paddingBottom: 22 },
+  promptTitle: { fontFamily: "DMSans_700Bold", fontSize: 25, letterSpacing: -0.8, textAlign: "center" },
+  promptMeta: {
+    maxWidth: "100%",
+    marginTop: 10,
+    marginBottom: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
+    gap: 6,
   },
-  runtimeChipText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
-  newTaskButton: { borderRadius: 12, minHeight: 44 },
-  sheetImageList: { flexGrow: 0 },
-  sheetImages: { gap: 10, paddingHorizontal: 16, paddingBottom: 10 },
-  promptSection: { alignItems: "center", paddingVertical: 18 },
-  promptEyebrow: { fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 1.8 },
-  promptTitle: { marginTop: 8, fontFamily: "DMSans_700Bold", fontSize: 24, letterSpacing: -0.8, textAlign: "center" },
-  promptMeta: { maxWidth: "100%", marginTop: 9, marginBottom: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  promptMetaText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 10 },
-  promptMetaDot: { fontFamily: "DMSans_700Bold", fontSize: 10 },
-  promptBox: { width: "100%", minHeight: 128, padding: 10 },
+  promptMetaText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
+  promptBox: { width: "100%", minHeight: 136, padding: 11 },
   promptImages: { gap: 8, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
   promptImage: { width: 62, height: 62, borderRadius: 10 },
   removeImage: { position: "absolute", right: -5, top: -5, width: 21, height: 21, borderRadius: 999, alignItems: "center", justifyContent: "center" },
@@ -884,12 +817,34 @@ const styles = StyleSheet.create({
   promptSelector: { flex: 1, minWidth: 0, minHeight: 34, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", gap: 4 },
   promptSelectorText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 10 },
   promptSend: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  taskOptions: { width: "100%", marginTop: 9, flexDirection: "row", justifyContent: "flex-end", gap: 6 },
-  taskOption: { minHeight: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
-  taskOptionText: { fontFamily: "DMSans_500Medium", fontSize: 10 },
-  quickActions: { marginTop: 13, flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 7 },
-  quickAction: { minHeight: 31, borderRadius: 16, borderWidth: 1, paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
-  quickActionText: { fontFamily: "DMSans_500Medium", fontSize: 10 },
+  taskOptions: {
+    width: "100%",
+    marginTop: 10,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 4,
+  },
+  taskOption: {
+    maxWidth: "100%",
+    minHeight: 30,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  taskOptionText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
+  quickActions: { marginTop: 18, flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
+  quickAction: {
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickActionText: { fontFamily: "DMSans_500Medium", fontSize: 11 },
   pullRow: {
     minHeight: 54,
     borderRadius: 8,

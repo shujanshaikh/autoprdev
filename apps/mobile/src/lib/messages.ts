@@ -1,3 +1,5 @@
+import { toolHeader } from "./toolPresentation";
+
 export type MessagePartView =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
@@ -13,8 +15,19 @@ export type MessagePartView =
   | {
       kind: "tool";
       name: string;
+      /** Bare tool slug, e.g. "edit". */
+      slug: string;
+      /** Leading header label — an action verb for file edits. */
+      label: string;
       state?: string;
+      /** Header line derived from the tool input. */
       summary?: string;
+      /** File the tool acted on, when it names one. */
+      path?: string;
+      /** True until the tool reports a result. */
+      streaming: boolean;
+      /** Read-only tools collapse into one "Explored" group. */
+      explore: boolean;
       details?: string;
       failed: boolean;
     };
@@ -108,18 +121,34 @@ export function messageParts(parts: readonly unknown[]): MessagePartView[] {
       }];
     }
     if (value.type === "dynamic-tool" || value.type.startsWith("tool-")) {
-      const name = value.type === "dynamic-tool" && typeof value.toolName === "string"
-        ? value.toolName
+      const toolName = typeof value.toolName === "string" ? value.toolName : undefined;
+      const name = value.type === "dynamic-tool" && toolName
+        ? toolName
         : value.type.slice("tool-".length);
       const errorText = typeof value.errorText === "string" ? value.errorText : undefined;
+      const state = typeof value.state === "string" ? value.state : undefined;
+      const failed = Boolean(errorText) || state === "output-error";
+      const streaming = state === "input-streaming" || state === "input-available";
+      const header = toolHeader({
+        type: value.type,
+        toolName,
+        input: value.input,
+        streaming,
+        failed,
+      });
       return [
         {
           kind: "tool",
           name,
-          state: typeof value.state === "string" ? value.state : undefined,
-          summary: errorText ?? contentFromOutput(value.output),
+          slug: header.slug,
+          label: header.label,
+          state,
+          summary: errorText ?? header.summary,
+          path: header.path,
+          streaming,
+          explore: header.explore,
           details: readableToolDetails(value.input, value.output, errorText),
-          failed: Boolean(errorText) || value.state === "output-error",
+          failed,
         },
         ...recordingsFromValue(value.output),
       ];

@@ -1,14 +1,35 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import { Check, CheckCheck, ChevronDown, ChevronRight, Copy, FileDiff, MessageSquare, MessageSquarePlus, WrapText } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Check,
+  CheckCheck,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  FileDiff,
+  MessageSquare,
+  MessageSquarePlus,
+  WrapText,
+} from "lucide-react-native";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadData } from "../hooks/useThreadData";
-import { extractDiffEntries, parseUnifiedDiff, type DiffEntry, type DiffLine } from "../lib/diff";
+import {
+  extractDiffEntries,
+  hunkContext,
+  hunkRange,
+  parseUnifiedDiff,
+  visibleWhitespace,
+  wordDiffSegments,
+  type DiffEntry,
+  type DiffLine,
+} from "../lib/diff";
+import { pathBasename, shortDirectory } from "../lib/toolPresentation";
+import type { DiffSegment } from "../lib/wordDiff";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Changes">;
@@ -19,6 +40,9 @@ type Selection = {
 };
 
 const DIFF_LINE_PAGE_SIZE = 400;
+const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
+/** Deletion bars are dashed so the two sides read apart without relying on hue. */
+const DELETION_BAR_DASHES = 5;
 
 function fallbackPatch(entry: DiffEntry) {
   if (entry.patch) return entry.patch;
@@ -33,13 +57,52 @@ function fallbackPatch(entry: DiffEntry) {
   ].join("\n");
 }
 
-function DiffRow({
+function ChangeBar({ type }: { type: DiffLine["type"] }) {
+  const theme = useAppTheme();
+  if (type === "delete") {
+    return (
+      <View style={styles.changeBar}>
+        {Array.from({ length: DELETION_BAR_DASHES }, (_, index) => (
+          <View key={index} style={[styles.changeBarDash, { backgroundColor: theme.delete }]} />
+        ))}
+      </View>
+    );
+  }
+  return (
+    <View style={[
+      styles.changeBar,
+      { backgroundColor: type === "add" ? theme.add : "transparent" },
+    ]} />
+  );
+}
+
+const HunkRow = memo(function HunkRow({ line, wrapped }: { line: DiffLine; wrapped: boolean }) {
+  const theme = useAppTheme();
+  const context = hunkContext(line.content);
+
+  return (
+    <View style={[
+      styles.hunkRow,
+      wrapped && styles.hunkRowWrapped,
+      { backgroundColor: theme.surfaceSoft, borderTopColor: theme.codeLine, borderBottomColor: theme.codeLine },
+    ]}>
+      <Text style={[styles.hunkRange, { color: theme.codeMuted }]}>{hunkRange(line.content)}</Text>
+      {context ? (
+        <Text numberOfLines={1} style={[styles.hunkContext, { color: theme.faint }]}>{context}</Text>
+      ) : null}
+    </View>
+  );
+});
+
+const DiffRow = memo(function DiffRow({
   line,
+  segments,
   selected,
   wrapped,
   onPress,
 }: {
   line: DiffLine;
+  segments?: DiffSegment[];
   selected: boolean;
   wrapped: boolean;
   onPress: () => void;
@@ -47,40 +110,49 @@ function DiffRow({
   const theme = useAppTheme();
   const isAdd = line.type === "add";
   const isDelete = line.type === "delete";
-  const isHunk = line.type === "hunk";
   const backgroundColor = selected
     ? theme.accentSoft
-    : isAdd ? theme.addSoft : isDelete ? theme.deleteSoft : isHunk ? theme.surfaceSoft : theme.code;
-  const textColor = isAdd
-    ? theme.add
-    : isDelete
-      ? theme.delete
-      : isHunk
-        ? theme.accentOn
-        : theme.codeInk;
+    : isAdd ? theme.addSoft : isDelete ? theme.deleteSoft : theme.code;
+  const textColor = isAdd || isDelete ? theme.codeInk : theme.codeMuted;
+  const highlight = isAdd ? theme.add : theme.delete;
+  const content = line.content || " ";
+
   return (
     <Pressable
       onPress={onPress}
       style={[styles.diffRow, wrapped && styles.diffRowWrapped, { backgroundColor }]}
     >
-      <View style={[
-        styles.changeBar,
-        { backgroundColor: isAdd ? theme.add : isDelete ? theme.delete : "transparent" },
-      ]} />
-      <Text style={[styles.lineNumber, { color: theme.codeMuted }]}>
-        {line.oldLine ?? ""}
+      <ChangeBar type={line.type} />
+      <Text style={[styles.lineNumber, { color: theme.codeMuted }]}>{line.oldLine ?? ""}</Text>
+      <Text style={[styles.lineNumber, { color: theme.codeMuted }]}>{line.newLine ?? ""}</Text>
+      <Text style={[styles.marker, { color: isAdd ? theme.add : isDelete ? theme.delete : theme.codeMuted }]}>
+        {isAdd ? "+" : isDelete ? "−" : " "}
       </Text>
-      <Text style={[styles.lineNumber, { color: theme.codeMuted }]}>
-        {line.newLine ?? ""}
-      </Text>
-      <Text style={[styles.marker, { color: textColor }]}>
-        {isAdd ? "+" : isDelete ? "−" : isHunk ? "@" : " "}
-      </Text>
-      <Text numberOfLines={wrapped ? undefined : 1} style={[styles.code, { color: textColor }]}>
-        {line.content || " "}
+      <Text
+        numberOfLines={wrapped ? undefined : 1}
+        selectable
+        style={[styles.code, { color: textColor }]}
+      >
+        {segments
+          ? segments.map((segment, index) => (
+            <Text
+              // Segments are positional runs of one immutable line.
+              key={`${index}:${segment.text.length}`}
+              style={segment.highlight ? { backgroundColor: `${highlight}33` } : undefined}
+            >
+              {visibleWhitespace(segment.text, index === 0)}
+            </Text>
+          ))
+          : visibleWhitespace(content, true)}
       </Text>
     </Pressable>
   );
+});
+
+function statusTone(status: DiffEntry["status"], theme: ReturnType<typeof useAppTheme>) {
+  if (status === "added") return theme.add;
+  if (status === "deleted") return theme.delete;
+  return theme.warning;
 }
 
 function FileReview({
@@ -103,32 +175,55 @@ function FileReview({
   onSelect: (line: DiffLine) => void;
 }) {
   const theme = useAppTheme();
-  const parsed = useMemo(() => parseUnifiedDiff(fallbackPatch(entry)), [entry]);
-  const lines = useMemo(() => parsed.flatMap((file) => file.lines), [parsed]);
+  const lines = useMemo(
+    () => parseUnifiedDiff(fallbackPatch(entry)).flatMap((file) => file.lines),
+    [entry],
+  );
+  const segments = useMemo(() => wordDiffSegments(lines), [lines]);
   const [visibleLineCount, setVisibleLineCount] = useState(DIFF_LINE_PAGE_SIZE);
   const visibleLines = useMemo(
     () => lines.slice(0, visibleLineCount),
     [lines, visibleLineCount],
   );
   const hiddenLineCount = Math.max(0, lines.length - visibleLines.length);
+  const name = pathBasename(entry.file);
+  const directory = shortDirectory(entry.file);
+
   return (
-    <View style={[styles.file, { borderColor: theme.line, opacity: viewed ? 0.67 : 1 }]}>
-      <View style={[styles.fileHeader, { backgroundColor: theme.surface }]}>
-        <Pressable accessibilityLabel={collapsed ? "Expand diff" : "Collapse diff"} onPress={onCollapsed} style={styles.headerIcon}>
-          {collapsed
-            ? <ChevronRight color={theme.muted} size={17} />
-            : <ChevronDown color={theme.muted} size={17} />}
-        </Pressable>
+    <View style={[styles.file, { borderColor: theme.line, backgroundColor: theme.surface }]}>
+      <Pressable
+        accessibilityLabel={collapsed ? `Expand ${entry.file}` : `Collapse ${entry.file}`}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !collapsed }}
+        onPress={onCollapsed}
+        style={({ pressed }) => [
+          styles.fileHeader,
+          { backgroundColor: pressed ? theme.surfaceSoft : theme.surface, opacity: viewed ? 0.6 : 1 },
+        ]}
+      >
+        {collapsed
+          ? <ChevronRight color={theme.faint} size={16} />
+          : <ChevronDown color={theme.faint} size={16} />}
+        <View style={[styles.statusDot, { backgroundColor: statusTone(entry.status, theme) }]} />
         <View style={styles.fileCopy}>
-          <Text numberOfLines={1} style={[styles.filePath, { color: theme.ink }]}>{entry.file}</Text>
-          <Text style={[styles.fileMeta, { color: theme.muted }]}>
-            {entry.status} · {lines.length} diff rows
-          </Text>
+          <Text numberOfLines={1} style={[styles.fileName, { color: theme.ink }]}>{name}</Text>
+          {directory ? (
+            <Text numberOfLines={1} style={[styles.fileDirectory, { color: theme.faint }]}>
+              {directory}
+            </Text>
+          ) : null}
         </View>
-        <Text style={[styles.stat, { color: theme.add }]}>+{entry.additions}</Text>
-        <Text style={[styles.stat, { color: theme.delete }]}>−{entry.deletions}</Text>
+        {entry.additions > 0 ? (
+          <Text style={[styles.stat, { color: theme.add }]}>+{entry.additions}</Text>
+        ) : null}
+        {entry.deletions > 0 ? (
+          <Text style={[styles.stat, { color: theme.delete }]}>−{entry.deletions}</Text>
+        ) : null}
         <Pressable
-          accessibilityLabel={viewed ? "Mark unviewed" : "Mark viewed"}
+          accessibilityLabel={viewed ? `Mark ${name} unviewed` : `Mark ${name} viewed`}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: viewed }}
+          hitSlop={8}
           onPress={onViewed}
           style={[
             styles.viewedBox,
@@ -140,35 +235,42 @@ function FileReview({
         >
           {viewed ? <Check color={theme.accentInk} size={12} strokeWidth={3} /> : null}
         </Pressable>
-      </View>
+      </Pressable>
       {!collapsed ? (
         <ScrollView
           horizontal={!wrapped}
           nestedScrollEnabled
-          showsHorizontalScrollIndicator
-          style={{ backgroundColor: theme.code }}
+          showsHorizontalScrollIndicator={!wrapped}
+          style={[styles.diffScroll, { backgroundColor: theme.code, borderTopColor: theme.codeLine }]}
         >
           <View style={[styles.diffBody, wrapped && styles.diffBodyWrapped]}>
             {visibleLines.length > 0 ? visibleLines.map((line) => (
-              <DiffRow
-                key={line.id}
-                line={line}
-                selected={selection?.entry.id === entry.id && selection.line.id === line.id}
-                wrapped={wrapped}
-                onPress={() => onSelect(line)}
-              />
+              line.type === "hunk" ? (
+                <HunkRow key={line.id} line={line} wrapped={wrapped} />
+              ) : line.type === "meta" ? null : (
+                <DiffRow
+                  key={line.id}
+                  line={line}
+                  segments={segments.get(line.id)}
+                  selected={selection?.entry.id === entry.id && selection.line.id === line.id}
+                  wrapped={wrapped}
+                  onPress={() => onSelect(line)}
+                />
+              )
             )) : (
-              <Text style={[styles.unavailable, { color: theme.codeMuted }]}>Diff content is unavailable.</Text>
+              <Text style={[styles.unavailable, { color: theme.codeMuted }]}>
+                Diff content is unavailable.
+              </Text>
             )}
             {hiddenLineCount > 0 ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setVisibleLineCount((current) =>
                   Math.min(lines.length, current + DIFF_LINE_PAGE_SIZE))}
-                style={[styles.showMore, { backgroundColor: theme.surfaceSoft, borderColor: theme.codeLine }]}
+                style={[styles.showMore, { backgroundColor: theme.surfaceSoft, borderTopColor: theme.codeLine }]}
               >
                 <Text style={[styles.showMoreText, { color: theme.ink }]}>
-                  Show next {Math.min(DIFF_LINE_PAGE_SIZE, hiddenLineCount)} lines · {hiddenLineCount} remaining
+                  Show {Math.min(DIFF_LINE_PAGE_SIZE, hiddenLineCount)} more · {hiddenLineCount} left
                 </Text>
               </Pressable>
             ) : null}
@@ -252,6 +354,7 @@ export function ChangesScreen({ navigation, route }: Props) {
   const deletions = entries.reduce((sum, entry) => sum + entry.deletions, 0);
   const viewedCount = entries.filter((entry) => viewed.has(entry.id)).length;
   const progress = entries.length > 0 ? viewedCount / entries.length : 0;
+  const allViewed = entries.length > 0 && viewedCount >= entries.length;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.screen }]}>
@@ -276,61 +379,76 @@ export function ChangesScreen({ navigation, route }: Props) {
           </View>
         </View>
       </View>
-      <View style={[styles.reviewSummary, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
-        <View style={styles.summaryTop}>
-          <View>
-            <Text style={[styles.summaryTitle, { color: theme.ink }]}>Review progress</Text>
+
+      {entries.length > 0 ? (
+        <View style={[styles.reviewSummary, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
+          <View style={styles.summaryTop}>
             <Text style={[styles.summaryMeta, { color: theme.muted }]}>
               {viewedCount} of {entries.length} files viewed
             </Text>
+            <View style={styles.summaryStats}>
+              <Text style={[styles.summaryStat, { color: theme.add }]}>+{additions}</Text>
+              <Text style={[styles.summaryStat, { color: theme.delete }]}>−{deletions}</Text>
+            </View>
           </View>
-          <View style={styles.summaryStats}>
-            <Text style={[styles.summaryStat, { color: theme.add }]}>+{additions}</Text>
-            <Text style={[styles.summaryStat, { color: theme.delete }]}>−{deletions}</Text>
+          <View style={[styles.progressTrack, { backgroundColor: theme.surfaceSoft }]}>
+            <View style={[styles.progressFill, { backgroundColor: theme.accentOn, width: `${progress * 100}%` }]} />
+          </View>
+          <View style={styles.summaryActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                const next = allViewed ? new Set<string>() : new Set(entries.map((entry) => entry.id));
+                setViewed(next);
+                void AsyncStorage.setItem(viewedKey, JSON.stringify([...next]));
+              }}
+              style={[styles.summaryButton, { backgroundColor: theme.surfaceSoft }]}
+            >
+              <CheckCheck color={theme.muted} size={14} />
+              <Text style={[styles.summaryButtonText, { color: theme.muted }]}>
+                {allViewed ? "Unview all" : "View all"}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCollapsed((current) =>
+                current.size >= entries.length
+                  ? new Set()
+                  : new Set(entries.map((entry) => entry.id)))}
+              style={[styles.summaryButton, { backgroundColor: theme.surfaceSoft }]}
+            >
+              <ChevronDown color={theme.muted} size={14} />
+              <Text style={[styles.summaryButtonText, { color: theme.muted }]}>
+                {collapsed.size >= entries.length ? "Expand all" : "Collapse all"}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void Clipboard.setStringAsync(entries.map((entry) => entry.file).join("\n"))}
+              style={[styles.summaryButton, { backgroundColor: theme.surfaceSoft }]}
+            >
+              <Copy color={theme.muted} size={14} />
+              <Text style={[styles.summaryButtonText, { color: theme.muted }]}>Copy files</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: wrapped }}
+              onPress={() => {
+                const next = !wrapped;
+                setWrapped(next);
+                void AsyncStorage.setItem(wrapKey, next ? "1" : "0");
+              }}
+              style={[
+                styles.summaryButton,
+                { backgroundColor: wrapped ? theme.accentSoft : theme.surfaceSoft },
+              ]}
+            >
+              <WrapText color={wrapped ? theme.accentOn : theme.muted} size={14} />
+              <Text style={[styles.summaryButtonText, { color: wrapped ? theme.ink : theme.muted }]}>Wrap</Text>
+            </Pressable>
           </View>
         </View>
-        <View style={[styles.progressTrack, { backgroundColor: theme.surfaceSoft }]}>
-          <View style={[styles.progressFill, { backgroundColor: theme.accentOn, width: `${progress * 100}%` }]} />
-        </View>
-        <View style={styles.summaryActions}>
-          <Pressable
-            onPress={() => {
-              const allViewed = viewedCount >= entries.length;
-              const next = allViewed ? new Set<string>() : new Set(entries.map((entry) => entry.id));
-              setViewed(next);
-              void AsyncStorage.setItem(viewedKey, JSON.stringify([...next]));
-            }}
-            style={[styles.summaryButton, { backgroundColor: theme.surfaceSoft }]}
-          >
-            <CheckCheck color={theme.muted} size={15} />
-            <Text style={[styles.summaryButtonText, { color: theme.muted }]}>
-              {viewedCount >= entries.length ? "Mark all unviewed" : "Mark all viewed"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => void Clipboard.setStringAsync(entries.map((entry) => entry.file).join("\n"))}
-            style={[styles.summaryButton, { backgroundColor: theme.surfaceSoft }]}
-          >
-            <Copy color={theme.muted} size={15} />
-            <Text style={[styles.summaryButtonText, { color: theme.muted }]}>Copy file list</Text>
-          </Pressable>
-          <Pressable
-            accessibilityState={{ selected: wrapped }}
-            onPress={() => {
-              const next = !wrapped;
-              setWrapped(next);
-              void AsyncStorage.setItem(wrapKey, next ? "1" : "0");
-            }}
-            style={[
-              styles.summaryButton,
-              { backgroundColor: wrapped ? theme.accentSoft : theme.surfaceSoft },
-            ]}
-          >
-            <WrapText color={wrapped ? theme.accentOn : theme.muted} size={15} />
-            <Text style={[styles.summaryButtonText, { color: wrapped ? theme.ink : theme.muted }]}>Wrap</Text>
-          </Pressable>
-        </View>
-      </View>
+      ) : null}
 
       {hydrationError ? <View style={styles.error}><ErrorNotice message={hydrationError} /></View> : null}
 
@@ -348,17 +466,21 @@ export function ChangesScreen({ navigation, route }: Props) {
           keyExtractor={(entry) => entry.id}
           contentContainerStyle={styles.files}
           renderItem={renderFileReview}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
       {selection ? (
-        <View style={[styles.selectionBar, { backgroundColor: theme.surface, borderTopColor: theme.line }]}>
+        <View style={[styles.selectionBar, { backgroundColor: theme.surfaceRaised, borderTopColor: theme.line }]}>
           <View style={styles.selectionCopy}>
             <Text numberOfLines={1} style={[styles.selectionTitle, { color: theme.ink }]}>
-              {selection.entry.file}
+              {pathBasename(selection.entry.file)}
+              <Text style={{ color: theme.faint }}>
+                {`  ${selection.line.newLine ?? selection.line.oldLine}`}
+              </Text>
             </Text>
-            <Text style={[styles.selectionMeta, { color: theme.muted }]}>
-              Line {selection.line.newLine ?? selection.line.oldLine}
+            <Text numberOfLines={1} style={[styles.selectionMeta, { color: theme.muted }]}>
+              {selection.line.content.trim() || "Blank line"}
             </Text>
           </View>
           <PrimaryButton
@@ -381,40 +503,45 @@ const styles = StyleSheet.create({
   viewOptionText: { fontFamily: "DMSans_500Medium", fontSize: 11 },
   viewBadge: { minWidth: 19, height: 19, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
   viewBadgeText: { fontFamily: "DMSans_700Bold", fontSize: 9 },
-  reviewSummary: { borderBottomWidth: 1, padding: 14, gap: 10 },
+  reviewSummary: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingTop: 11, paddingBottom: 12, gap: 9 },
   summaryTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  summaryTitle: { fontFamily: "DMSans_700Bold", fontSize: 14 },
-  summaryMeta: { fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 4 },
+  summaryMeta: { fontFamily: "DMSans_500Medium", fontSize: 11 },
   summaryStats: { flexDirection: "row", gap: 9 },
-  summaryStat: { fontFamily: "DMSans_700Bold", fontSize: 12 },
-  progressTrack: { height: 4, borderRadius: 999, overflow: "hidden" },
-  progressFill: { height: 4, borderRadius: 999 },
-  summaryActions: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  summaryButton: { borderRadius: 9, paddingHorizontal: 9, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 6 },
+  summaryStat: { fontFamily: "DMSans_700Bold", fontSize: 12, fontVariant: ["tabular-nums"] },
+  progressTrack: { height: 3, borderRadius: 999, overflow: "hidden" },
+  progressFill: { height: 3, borderRadius: 999 },
+  summaryActions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  summaryButton: { minHeight: 30, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
   summaryButtonText: { fontFamily: "DMSans_500Medium", fontSize: 10 },
   error: { padding: 12 },
-  files: { padding: 10, paddingBottom: 100, gap: 10 },
-  file: { borderWidth: 1, borderRadius: 8, overflow: "hidden" },
-  fileHeader: { minHeight: 58, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 7 },
-  headerIcon: { width: 28, height: 36, alignItems: "center", justifyContent: "center" },
+  files: { padding: 10, paddingBottom: 110, gap: 10 },
+  file: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, overflow: "hidden" },
+  fileHeader: { minHeight: 52, paddingLeft: 8, paddingRight: 11, flexDirection: "row", alignItems: "center", gap: 8 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
   fileCopy: { flex: 1, minWidth: 0 },
-  filePath: { fontFamily: "DMSans_500Medium", fontSize: 12 },
-  fileMeta: { fontFamily: "DMSans_400Regular", fontSize: 9, marginTop: 4, textTransform: "capitalize" },
-  stat: { fontFamily: "DMSans_700Bold", fontSize: 10 },
-  viewedBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: "center", justifyContent: "center", marginLeft: 3 },
-  diffBody: { minWidth: 900, paddingVertical: 6 },
+  fileName: { fontFamily: "DMSans_500Medium", fontSize: 13, letterSpacing: -0.2 },
+  fileDirectory: { fontFamily: MONO_FONT, fontSize: 10, marginTop: 3 },
+  stat: { fontFamily: "DMSans_700Bold", fontSize: 10, fontVariant: ["tabular-nums"] },
+  viewedBox: { width: 21, height: 21, borderRadius: 6, borderWidth: 1, alignItems: "center", justifyContent: "center", marginLeft: 2 },
+  diffScroll: { borderTopWidth: StyleSheet.hairlineWidth },
+  diffBody: { minWidth: 900, paddingBottom: 4 },
   diffBodyWrapped: { minWidth: 0, width: "100%" },
-  diffRow: { height: 24, minWidth: 900, flexDirection: "row", alignItems: "center" },
-  diffRowWrapped: { height: "auto", minHeight: 24, minWidth: 0, alignItems: "flex-start", paddingVertical: 3 },
-  changeBar: { width: 3, height: "100%" },
-  lineNumber: { width: 42, paddingRight: 8, textAlign: "right", fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 10 },
-  marker: { width: 20, textAlign: "center", fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 11 },
-  code: { flex: 1, fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 11, paddingRight: 20 },
+  diffRow: { minHeight: 22, minWidth: 900, flexDirection: "row", alignItems: "center" },
+  diffRowWrapped: { minWidth: 0, alignItems: "flex-start", paddingVertical: 2 },
+  changeBar: { width: 3, alignSelf: "stretch", overflow: "hidden" },
+  changeBarDash: { flex: 1, width: 3, marginBottom: 2 },
+  lineNumber: { width: 38, paddingRight: 7, textAlign: "right", fontFamily: MONO_FONT, fontSize: 10, lineHeight: 18 },
+  marker: { width: 16, textAlign: "center", fontFamily: MONO_FONT, fontSize: 11, lineHeight: 18 },
+  code: { flex: 1, fontFamily: MONO_FONT, fontSize: 11, lineHeight: 18, paddingRight: 20 },
+  hunkRow: { minHeight: 26, minWidth: 900, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingLeft: 10, paddingRight: 14, flexDirection: "row", alignItems: "center", gap: 10 },
+  hunkRowWrapped: { minWidth: 0 },
+  hunkRange: { flexShrink: 0, fontFamily: MONO_FONT, fontSize: 10 },
+  hunkContext: { flexShrink: 1, fontFamily: MONO_FONT, fontSize: 10 },
   unavailable: { fontFamily: "DMSans_400Regular", fontSize: 12, padding: 16 },
-  showMore: { minHeight: 42, borderTopWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  showMore: { minHeight: 40, borderTopWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   showMoreText: { fontFamily: "DMSans_500Medium", fontSize: 10 },
-  selectionBar: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  selectionBar: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16, flexDirection: "row", alignItems: "center", gap: 10 },
   selectionCopy: { flex: 1, minWidth: 0 },
-  selectionTitle: { fontFamily: "DMSans_500Medium", fontSize: 11 },
-  selectionMeta: { fontFamily: "DMSans_400Regular", fontSize: 9, marginTop: 3 },
+  selectionTitle: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  selectionMeta: { fontFamily: MONO_FONT, fontSize: 10, marginTop: 4 },
 });

@@ -195,6 +195,7 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const listRef = useRef<FlatList>(null);
   const autoSubmitRef = useRef(false);
+  const sentAnyMessageRef = useRef(false);
   const appIsActiveRef = useRef(
     AppState.currentState !== "background" && AppState.currentState !== "inactive",
   );
@@ -367,9 +368,13 @@ export function ThreadScreen({ navigation, route }: Props) {
       AsyncStorage.getItem(diffDraftKey),
     ]).then(([draft, diffDraft]) => {
       if (!active) return;
-      const combined = [draft, diffDraft].filter(Boolean).join("\n\n");
-      if (combined) setPrompt(combined);
       if (diffDraft) void AsyncStorage.removeItem(diffDraftKey);
+      // A restored draft must never win over a prompt this screen is already
+      // carrying (a handoff prompt, or one the user has started typing) and
+      // must never reappear after a message has been sent.
+      if (sentAnyMessageRef.current) return;
+      const combined = [draft, diffDraft].filter(Boolean).join("\n\n");
+      if (combined) setPrompt((current) => current.trim() ? current : combined);
     }).catch(() => {
       if (active) setSendError("The saved message draft could not be restored.");
     });
@@ -726,13 +731,12 @@ export function ThreadScreen({ navigation, route }: Props) {
   const send = async (initial?: {
     text?: string;
     files?: PromptFilePart[];
-    isActive?: () => boolean;
   }) => {
-    const isActive = initial?.isActive ?? (() => true);
     const text = (initial?.text ?? prompt).trim();
+    const attachedImages = pendingImages;
     const initialFiles = initial?.files ?? (messages.length === 0 ? handoffFiles : []);
     if (
-      (!text && pendingImages.length === 0 && initialFiles.length === 0)
+      (!text && attachedImages.length === 0 && initialFiles.length === 0)
       || running
       || demoSaving
       || !thread
@@ -746,12 +750,20 @@ export function ThreadScreen({ navigation, route }: Props) {
       clearTimeout(streamRenderTimerRef.current);
       streamRenderTimerRef.current = null;
     }
+    // Empty the composer the moment the message is committed. Clearing after
+    // the request resolves left the prompt (and its saved draft) sitting in the
+    // box while the agent was already running with that exact text.
+    sentAnyMessageRef.current = true;
+    setPrompt("");
+    setPendingImages([]);
+    setHandoffFiles([]);
+    void AsyncStorage.removeItem(composerDraftKey);
     try {
       const parts: unknown[] = [
         ...(text ? [{ type: "text", text }] : []),
         ...initialFiles,
       ];
-      const uploadedImages = await Promise.all(pendingImages.map(async (image) => {
+      const uploadedImages = await Promise.all(attachedImages.map(async (image) => {
         const imageResponse = await fetch(image.uri);
         if (!imageResponse.ok) throw new Error(`The selected image ${image.fileName} could not be read.`);
         const blob = await imageResponse.blob();
@@ -770,7 +782,6 @@ export function ThreadScreen({ navigation, route }: Props) {
         };
       }));
       parts.push(...uploadedImages);
-      if (!isActive()) return;
 
       const messageId = id();
       const runStartedAt = Date.now();
@@ -799,19 +810,17 @@ export function ThreadScreen({ navigation, route }: Props) {
       if (!runId) throw new Error("The agent started without a live response ID.");
       const assistantMessageId = response.headers.get("x-assistant-message-id") ?? undefined;
       beginAgentStream(runId, runStartedAt, assistantMessageId);
-      if (!isActive()) return;
-      setPrompt("");
-      setPendingImages([]);
-      setHandoffFiles([]);
-      void AsyncStorage.removeItem(composerDraftKey);
     } catch (error) {
-      if (isActive()) {
-        pendingRunStartedAtRef.current = null;
-        timedRunIdRef.current = null;
-        setActiveRunStartedAt(undefined);
-        setOptimisticMessage(null);
-        setSendError(error instanceof Error ? error.message : "Could not send the message.");
-      }
+      pendingRunStartedAtRef.current = null;
+      timedRunIdRef.current = null;
+      setActiveRunStartedAt(undefined);
+      setOptimisticMessage(null);
+      setSendError(error instanceof Error ? error.message : "Could not send the message.");
+      // Hand the message back so a failed send is never silently lost, without
+      // overwriting anything typed while the request was in flight.
+      setPrompt((current) => current.trim() ? current : text);
+      setPendingImages((current) => current.length > 0 ? current : attachedImages);
+      setHandoffFiles((current) => current.length > 0 ? current : initialFiles);
     } finally {
       setSending(false);
     }
@@ -881,18 +890,15 @@ export function ThreadScreen({ navigation, route }: Props) {
       return;
     }
     autoSubmitRef.current = true;
-    let active = true;
-    const cancelHandoff = consumeInitialThreadSubmit(threadId, () => {
+    // The storage claim inside consumeInitialThreadSubmit is the double-submit
+    // guard. This effect re-runs whenever the thread document changes, so the
+    // send itself must not be tied to the lifetime of a single effect pass.
+    return consumeInitialThreadSubmit(threadId, () => {
       void send({
         text: route.params.initialPrompt,
         files: route.params.initialFiles,
-        isActive: () => active,
       });
     });
-    return () => {
-      active = false;
-      cancelHandoff();
-    };
   }, [codex.data?.connected, loading, messages.length, project, route.params.initialFiles, route.params.initialPrompt, thread, threadId]);
 
   if (loading) return <LoadingState label="Loading conversation…" />;

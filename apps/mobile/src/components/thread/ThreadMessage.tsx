@@ -24,6 +24,8 @@ import { webRequest } from "../../api/web";
 import { useAuth } from "../../auth/AuthProvider";
 import { useAppTheme } from "../../hooks/useAppTheme";
 import { messageParts, type MessagePartView } from "../../lib/messages";
+import { exploreGroupSummary, shortDirectory } from "../../lib/toolPresentation";
+import { PulsingDots, Shimmer } from "../Shimmer";
 
 export type ThreadMessageValue = {
   messageId: string;
@@ -44,10 +46,6 @@ function keyed<T>(items: readonly T[], baseKey: (item: T) => string) {
     seen.set(base, occurrence + 1);
     return { item, key: `${base}:${occurrence}` };
   });
-}
-
-function displayToolName(name: string) {
-  return name.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function timeLabel(timestamp?: number) {
@@ -114,12 +112,12 @@ export function AgentWorkingIndicator({ startedAt }: { startedAt?: number }) {
 
   return (
     <View accessibilityLiveRegion="polite" style={styles.workingPlaceholder}>
-      <ActivityIndicator color={theme.muted} size="small" />
-      <Text style={[styles.workTitle, { color: theme.muted }]}>
+      <PulsingDots color={theme.faint} size={5} />
+      <Shimmer style={[styles.workTitle, { color: theme.muted }]}>
         {elapsedSeconds === undefined
           ? "Working"
           : `Working for ${formatRunDuration(elapsedSeconds)}`}
-      </Text>
+      </Shimmer>
     </View>
   );
 }
@@ -277,57 +275,164 @@ function RichMessageText({
   );
 }
 
-function WorkLogItem({
-  part,
-}: {
-  part: Extract<MessagePartView, { kind: "reasoning" | "tool" }>;
-}) {
+type ToolPartView = Extract<MessagePartView, { kind: "tool" }>;
+type ReasoningPartView = Extract<MessagePartView, { kind: "reasoning" }>;
+
+type Activity =
+  | { kind: "reasoning"; part: ReasoningPartView }
+  | { kind: "tool"; part: ToolPartView }
+  | { kind: "explore"; parts: ToolPartView[] };
+
+/**
+ * Consecutive read-only tools collapse into a single "Explored" row, the way
+ * the web thread groups them, so a long search sweep stays one line.
+ */
+function toActivities(parts: MessagePartView[]): Activity[] {
+  const activities: Activity[] = [];
+  for (const part of parts) {
+    if (part.kind === "reasoning") {
+      activities.push({ kind: "reasoning", part });
+      continue;
+    }
+    if (part.kind !== "tool") continue;
+    if (!part.explore) {
+      activities.push({ kind: "tool", part });
+      continue;
+    }
+    const last = activities.at(-1);
+    if (last?.kind === "explore") last.parts.push(part);
+    else activities.push({ kind: "explore", parts: [part] });
+  }
+  return activities;
+}
+
+function activityKey(activity: Activity) {
+  if (activity.kind === "reasoning") return `reasoning:${activity.part.text}`;
+  if (activity.kind === "tool") {
+    const { part } = activity;
+    return `tool:${part.name}:${part.state ?? ""}:${part.summary ?? ""}`;
+  }
+  return `explore:${activity.parts.map((part) => `${part.name}:${part.summary ?? ""}`).join("|")}`;
+}
+
+function Disclosure({ open }: { open: boolean }) {
   const theme = useAppTheme();
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  if (part.kind === "reasoning") {
-    return (
-      <View style={styles.reasoningItem}>
-        <Text style={[styles.reasoningLabel, { color: theme.muted }]}>Reasoning</Text>
+  return open
+    ? <ChevronDown color={theme.faint} size={13} />
+    : <ChevronRight color={theme.faint} size={13} />;
+}
+
+function ReasoningRow({ part, live }: { part: ReasoningPartView; live: boolean }) {
+  const theme = useAppTheme();
+  const [open, setOpen] = useState(live);
+
+  return (
+    <View style={styles.workItem}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((value) => !value)}
+        style={styles.workItemHeading}
+      >
+        {live ? (
+          <Shimmer style={[styles.workName, { color: theme.muted }]}>Thinking</Shimmer>
+        ) : (
+          <Text style={[styles.workName, { color: theme.muted }]}>Thought</Text>
+        )}
+        <Disclosure open={open} />
+      </Pressable>
+      {open ? (
         <View style={[styles.reasoningContent, { borderLeftColor: theme.line }]}>
           <RichMessageText compact value={part.text} />
         </View>
-      </View>
-    );
-  }
+      ) : null}
+    </View>
+  );
+}
 
+function ToolRow({ part }: { part: ToolPartView }) {
+  const theme = useAppTheme();
+  const [open, setOpen] = useState(false);
   const canExpand = Boolean(part.details);
-  const statusLabel = part.failed
-    ? "Failed"
-    : part.state === "output-available" ? "Done" : "Running";
+  const directory = part.path ? shortDirectory(part.path) : "";
+  const status = part.failed
+    ? "failed"
+    : part.state === "approval-requested"
+      ? "awaiting approval"
+      : part.state === "output-denied" ? "denied" : "";
+
   return (
     <View style={styles.workItem}>
       <Pressable
         accessibilityRole={canExpand ? "button" : undefined}
-        accessibilityState={canExpand ? { expanded: detailsOpen } : undefined}
+        accessibilityState={canExpand ? { expanded: open } : undefined}
         disabled={!canExpand}
-        onPress={() => setDetailsOpen((value) => !value)}
+        onPress={() => setOpen((value) => !value)}
         style={styles.workItemHeading}
       >
-        {canExpand
-          ? detailsOpen
-            ? <ChevronDown color={theme.faint} size={13} />
-            : <ChevronRight color={theme.faint} size={13} />
-          : <View style={styles.workChevronSpace} />}
-        <Text numberOfLines={1} style={[styles.workName, { color: theme.ink }]}>
-          {displayToolName(part.name)}
-        </Text>
+        {canExpand ? <Disclosure open={open} /> : <View style={styles.workChevronSpace} />}
+        {part.streaming ? (
+          <Shimmer style={[styles.workName, { color: theme.ink }]}>{part.label}</Shimmer>
+        ) : (
+          <Text numberOfLines={1} style={[styles.workName, { color: theme.ink }]}>{part.label}</Text>
+        )}
         {part.summary ? (
-          <Text numberOfLines={1} style={[styles.workSummary, { color: part.failed ? theme.danger : theme.muted }]}>
+          <Text numberOfLines={1} style={[styles.workSummary, { color: theme.muted }]}>
             {part.summary}
           </Text>
         ) : null}
-        <Text style={[styles.workStatus, { color: part.failed ? theme.danger : theme.faint }]}>
-          {statusLabel}
-        </Text>
+        {directory ? (
+          <Text numberOfLines={1} style={[styles.workPath, { color: theme.faint }]}>{directory}</Text>
+        ) : null}
+        {status ? (
+          <Text style={[styles.workStatus, { color: part.failed ? theme.danger : theme.faint }]}>
+            {status}
+          </Text>
+        ) : null}
       </Pressable>
-      {part.details && detailsOpen ? (
+      {part.details && open ? (
         <View style={[styles.toolDetails, { backgroundColor: theme.code, borderColor: theme.codeLine }]}>
           <RichMessageText compact value={part.details} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function ExploreRow({ parts }: { parts: ToolPartView[] }) {
+  const theme = useAppTheme();
+  const [open, setOpen] = useState(false);
+  const streaming = parts.some((part) => part.streaming);
+  const summary = exploreGroupSummary(parts.map((part) => part.label));
+
+  return (
+    <View style={styles.workItem}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((value) => !value)}
+        style={styles.workItemHeading}
+      >
+        <Disclosure open={open} />
+        {streaming ? (
+          <Shimmer style={[styles.workName, { color: theme.muted }]}>Exploring</Shimmer>
+        ) : (
+          <Text style={[styles.workName, { color: theme.muted }]}>Explored</Text>
+        )}
+        <Text numberOfLines={1} style={[styles.workSummary, { color: theme.faint }]}>{summary}</Text>
+      </Pressable>
+      {open ? (
+        <View style={[styles.exploreItems, { borderLeftColor: theme.line }]}>
+          {keyed(parts, (part) => `${part.name}:${part.summary ?? ""}`).map(({ item: part, key }) => (
+            <View key={key} style={styles.exploreItem}>
+              <Text style={[styles.exploreName, { color: theme.muted }]}>{part.label}</Text>
+              {part.summary ? (
+                <Text numberOfLines={1} style={[styles.exploreSummary, { color: theme.faint }]}>
+                  {part.summary}
+                </Text>
+              ) : null}
+            </View>
+          ))}
         </View>
       ) : null}
     </View>
@@ -346,7 +451,7 @@ function WorkLog({
   startedAt?: number;
 }) {
   const theme = useAppTheme();
-  const activities = parts.filter((part) => part.kind === "reasoning" || part.kind === "tool");
+  const activities = useMemo(() => toActivities(parts), [parts]);
   const [expanded, setExpanded] = useState(live);
   const elapsedSeconds = useElapsedSeconds(live ? startedAt : undefined);
   const lastElapsedSecondsRef = useRef<number | undefined>(undefined);
@@ -366,18 +471,16 @@ function WorkLog({
     : `${live ? "Working" : "Worked"} for ${formatRunDuration(durationSeconds)}`;
   const headerContent = (
     <>
-      {activities.length > 0
-        ? expanded
-          ? <ChevronDown color={theme.faint} size={14} />
-          : <ChevronRight color={theme.faint} size={14} />
-        : null}
-      <Text style={[styles.workTitle, { color: theme.muted }]}>{title}</Text>
+      {live
+        ? <Shimmer style={[styles.workTitle, { color: theme.muted }]}>{title}</Shimmer>
+        : <Text style={[styles.workTitle, { color: theme.muted }]}>{title}</Text>}
       {run.metrics.map((metric) => (
         <View key={metric} style={styles.workMetricGroup}>
           <View style={[styles.workMetricDivider, { backgroundColor: theme.line }]} />
           <Text style={[styles.workMetric, { color: theme.faint }]}>{metric}</Text>
         </View>
       ))}
+      {activities.length > 0 ? <Disclosure open={expanded} /> : null}
     </>
   );
 
@@ -397,11 +500,21 @@ function WorkLog({
       )}
       {activities.length > 0 && expanded ? (
         <View style={[styles.workItems, { borderLeftColor: theme.line }]}>
-          {keyed(activities, (part) => part.kind === "reasoning"
-            ? `reasoning:${part.text}`
-            : `tool:${part.name}:${part.state ?? ""}:${part.summary ?? ""}`).map(({ item: part, key }) => (
-            <WorkLogItem key={key} part={part} />
-          ))}
+          {keyed(activities, activityKey).map(({ item: activity, key }) => {
+            if (activity.kind === "reasoning") {
+              return (
+                <ReasoningRow
+                  key={key}
+                  live={live && activity === activities.at(-1)}
+                  part={activity.part}
+                />
+              );
+            }
+            if (activity.kind === "explore") {
+              return <ExploreRow key={key} parts={activity.parts} />;
+            }
+            return <ToolRow key={key} part={activity.part} />;
+          })}
         </View>
       ) : null}
     </View>
@@ -645,22 +758,25 @@ const styles = StyleSheet.create({
   timestamp: { fontFamily: "DMSans_500Medium", fontSize: 11 },
   copyButton: { width: 28, height: 26, alignItems: "center", justifyContent: "center" },
   workLog: { marginBottom: 8 },
-  workingPlaceholder: { minHeight: 42, paddingHorizontal: 3, flexDirection: "row", alignItems: "center", gap: 7 },
+  workingPlaceholder: { minHeight: 42, paddingHorizontal: 3, flexDirection: "row", alignItems: "center", gap: 9 },
   workHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", columnGap: 7, flexWrap: "wrap" },
   workTitle: { fontFamily: "DMSans_500Medium", fontSize: 12, fontVariant: ["tabular-nums"] },
   workMetricGroup: { flexDirection: "row", alignItems: "center", gap: 7 },
   workMetricDivider: { width: StyleSheet.hairlineWidth, height: 12 },
   workMetric: { fontFamily: "DMSans_500Medium", fontSize: 10, fontVariant: ["tabular-nums"] },
-  workItems: { borderLeftWidth: 1, marginLeft: 6, paddingLeft: 12, gap: 7, paddingTop: 8, paddingBottom: 2 },
+  workItems: { borderLeftWidth: 1, marginLeft: 6, paddingLeft: 12, gap: 3, paddingTop: 8, paddingBottom: 2 },
   workItem: { minWidth: 0 },
-  workItemHeading: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 6 },
+  workItemHeading: { minHeight: 24, flexDirection: "row", alignItems: "center", gap: 6 },
   workChevronSpace: { width: 13 },
   workName: { flexShrink: 0, fontFamily: "DMSans_500Medium", fontSize: 11 },
-  workSummary: { flex: 1, fontFamily: "DMSans_400Regular", fontSize: 10 },
-  workStatus: { flexShrink: 0, fontFamily: "DMSans_500Medium", fontSize: 9 },
-  reasoningItem: { gap: 5 },
-  reasoningLabel: { fontFamily: "DMSans_500Medium", fontSize: 11 },
-  reasoningContent: { borderLeftWidth: 1, paddingLeft: 10 },
+  workSummary: { flexShrink: 1, fontFamily: "DMSans_400Regular", fontSize: 10 },
+  workPath: { flexShrink: 1, fontFamily: "DMSans_400Regular", fontSize: 9 },
+  workStatus: { flexShrink: 0, marginLeft: "auto", fontFamily: "DMSans_500Medium", fontSize: 9 },
+  reasoningContent: { borderLeftWidth: 1, paddingLeft: 10, marginLeft: 3, marginTop: 3, marginBottom: 4 },
+  exploreItems: { borderLeftWidth: 1, marginLeft: 6, paddingLeft: 10, marginTop: 3, marginBottom: 4, gap: 2 },
+  exploreItem: { minHeight: 19, flexDirection: "row", alignItems: "center", gap: 6 },
+  exploreName: { flexShrink: 0, fontFamily: "DMSans_500Medium", fontSize: 10 },
+  exploreSummary: { flexShrink: 1, fontFamily: "DMSans_400Regular", fontSize: 9 },
   toolDetails: { borderWidth: 1, borderRadius: 8, padding: 9, marginTop: 5, marginLeft: 19 },
   fileCard: { minHeight: 48, borderRadius: 9, borderWidth: 1, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 9 },
   fileName: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },

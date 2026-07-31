@@ -25,6 +25,7 @@ import {
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   InteractionManager,
@@ -38,10 +39,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ComposerSheet } from "../components/ComposerSheet";
 import { GlassSurface } from "../components/GlassSurface";
 import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
 import { OpenAIIcon } from "../components/OpenAIIcon";
-import { EmptyState, ErrorNotice, LoadingState, PrimaryButton, SecondaryButton, StatusPill } from "../components/ui";
+import {
+  EmptyState,
+  ErrorNotice,
+  LoadingState,
+  PrimaryButton,
+  SecondaryButton,
+  StatusPill,
+} from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebQuery } from "../hooks/useWebQuery";
 import {
@@ -140,13 +149,13 @@ export function ProjectScreen({ navigation, route }: Props) {
   const [workspaceMode, setWorkspaceMode] = useState<"checkout" | "worktree">("checkout");
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [showPromptControls, setShowPromptControls] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [threadMenuTarget, setThreadMenuTarget] = useState<{
     threadId: string;
     title: string;
     archived: boolean;
   } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
-  const promptRef = useRef<TextInput>(null);
 
   const selectedModel = useMemo(
     () => selectCodexModel(codex.data?.models, selectedModelChoice),
@@ -179,7 +188,7 @@ export function ProjectScreen({ navigation, route }: Props) {
     if (!route.params.focusComposer || project === undefined) return;
     const timer = setTimeout(() => {
       scrollRef.current?.scrollTo({ y: 185, animated: true });
-      promptRef.current?.focus();
+      setComposerOpen(true);
       navigation.setParams({ focusComposer: undefined });
     }, 280);
     return () => clearTimeout(timer);
@@ -305,20 +314,46 @@ export function ProjectScreen({ navigation, route }: Props) {
 
   const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch ?? "Unknown branch";
   const ready = project.sandboxStatus === "ready";
+  const running = ready && project.sandboxRuntimeStatus === "started";
   const promptReady = ready && codex.data?.connected === true;
   const promptPlaceholder = !ready
     ? "Workspace is still being prepared…"
     : codex.data?.connected === false
       ? "Connect Codex in Settings"
       : `Ask ${project.repoName || "the agent"} anything…`;
+  const runtime = !ready
+    ? {
+        label: project.sandboxStatus === "failed" ? "Sandbox failed" : "Preparing sandbox…",
+        tone: project.sandboxStatus === "failed" ? theme.danger : theme.warning,
+      }
+    : running
+      ? { label: "Sandbox running", tone: theme.success }
+      : project.sandboxRuntimeStatus === "archived"
+        ? { label: "Sandbox archived", tone: theme.warning }
+        : { label: "Sandbox stopped", tone: theme.faint };
+  const runtimeAction = runtimeBusy
+    ? running ? "Stopping…" : "Starting…"
+    : running ? "Stop" : "Start";
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={[styles.repoCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
           <View style={styles.repoTop}>
             <View style={[styles.repoMark, { backgroundColor: theme.accentSoft }]}>
-              <GitBranch color={theme.accentOn} size={22} />
+              <GitBranch color={theme.accentOn} size={19} />
             </View>
+            <View style={styles.repoCopy}>
+              <Text numberOfLines={1} style={[styles.repoName, { color: theme.ink }]}>{project.repoFullName}</Text>
+              <View style={styles.repoStatus}>
+                <View style={[styles.statusDot, { backgroundColor: runtime.tone }]} />
+                <Text numberOfLines={1} style={[styles.repoStatusText, { color: theme.muted }]}>
+                  {runtime.label}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.controls}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Switch branch. Current branch ${branch}`}
@@ -328,38 +363,62 @@ export function ProjectScreen({ navigation, route }: Props) {
                 repo: project.repoName,
                 currentBranch: branch,
               })}
-              style={({ pressed }) => [styles.repoCopy, { opacity: pressed ? 0.6 : 1 }]}
+              style={({ pressed }) => [
+                styles.branchChip,
+                {
+                  backgroundColor: pressed ? theme.surface : theme.surfaceSoft,
+                  borderColor: theme.line,
+                },
+              ]}
             >
-              <Text numberOfLines={1} style={[styles.repoName, { color: theme.ink }]}>{project.repoFullName}</Text>
-              <View style={styles.branchLine}>
-                <Text numberOfLines={1} style={[styles.branch, { color: theme.muted }]}>{branch}</Text>
-                <ChevronRight color={theme.faint} size={14} />
-              </View>
+              <GitBranch color={theme.muted} size={13} />
+              <Text numberOfLines={1} style={[styles.branchChipText, { color: theme.ink }]}>{branch}</Text>
+              <ChevronDown color={theme.faint} size={13} />
             </Pressable>
-            <StatusPill
-              label={project.sandboxRuntimeStatus ?? project.sandboxStatus}
-              tone={ready ? "success" : project.sandboxStatus === "failed" ? "danger" : "warning"}
-            />
-          </View>
-          {project.sandboxError ? <ErrorNotice message={project.sandboxError} /> : null}
-          <View style={styles.actions}>
-            <PrimaryButton
-              compact
-              icon={Plus}
-              label="New task"
-              loading={creating}
-              disabled={!ready}
-              onPress={() => void newThread()}
-              style={styles.flexButton}
-            />
-            <SecondaryButton
-              compact
-              icon={project.sandboxRuntimeStatus === "started" ? Square : Play}
-              label={project.sandboxRuntimeStatus === "started" ? "Stop" : "Start"}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={running ? "Stop the sandbox" : "Start the sandbox"}
+              accessibilityState={{ disabled: !ready || runtimeBusy }}
               disabled={!ready || runtimeBusy}
               onPress={() => void toggleRuntime()}
-            />
+              style={({ pressed }) => [
+                styles.runtimeChip,
+                {
+                  backgroundColor: running || !ready
+                    ? pressed ? theme.surface : theme.surfaceSoft
+                    : pressed ? theme.surfaceSoft : theme.accentSoft,
+                  borderColor: running || !ready ? theme.line : theme.accentSoft,
+                  opacity: !ready || runtimeBusy ? 0.6 : 1,
+                },
+              ]}
+            >
+              {runtimeBusy ? (
+                <ActivityIndicator color={theme.muted} size="small" />
+              ) : running ? (
+                <Square color={theme.muted} size={13} strokeWidth={2.4} />
+              ) : (
+                <Play color={theme.accentOn} size={13} strokeWidth={2.4} />
+              )}
+              <Text
+                numberOfLines={1}
+                style={[styles.runtimeChipText, { color: running || !ready ? theme.muted : theme.accentOn }]}
+              >
+                {runtimeAction}
+              </Text>
+            </Pressable>
           </View>
+
+          {project.sandboxError ? <ErrorNotice message={project.sandboxError} /> : null}
+
+          <PrimaryButton
+            compact
+            icon={Plus}
+            label="New task"
+            loading={creating}
+            disabled={!ready}
+            onPress={() => void newThread()}
+            style={styles.newTaskButton}
+          />
         </View>
 
         {error ? <ErrorNotice message={error} /> : null}
@@ -385,17 +444,21 @@ export function ProjectScreen({ navigation, route }: Props) {
                 renderItem={renderPromptImage}
               />
             ) : null}
-            <TextInput
-              ref={promptRef}
+            <Pressable
+              accessibilityRole="button"
               accessibilityLabel="Task prompt"
-              editable={!creating && promptReady}
-              multiline
-              value={prompt}
-              onChangeText={setPrompt}
-              placeholder={promptPlaceholder}
-              placeholderTextColor={theme.faint}
-              style={[styles.taskInput, { color: theme.ink }]}
-            />
+              accessibilityHint="Opens a full-screen editor"
+              disabled={creating || !promptReady}
+              onPress={() => setComposerOpen(true)}
+              style={({ pressed }) => [styles.taskInput, { opacity: pressed ? 0.65 : 1 }]}
+            >
+              <Text
+                numberOfLines={3}
+                style={[styles.taskInputText, { color: prompt.trim() ? theme.ink : theme.faint }]}
+              >
+                {prompt.trim() ? prompt : promptPlaceholder}
+              </Text>
+            </Pressable>
             <View style={styles.promptToolbar}>
               <Pressable
                 accessibilityLabel="Add photos"
@@ -718,6 +781,32 @@ export function ProjectScreen({ navigation, route }: Props) {
           </View>
         </View>
       </Modal>
+      <ComposerSheet
+        visible={composerOpen}
+        title="New task"
+        subtitle={`${project.repoFullName} · ${branch}`}
+        placeholder={promptPlaceholder}
+        value={prompt}
+        editable={promptReady && !creating}
+        canSend={promptReady && !creating && (Boolean(prompt.trim()) || pendingImages.length > 0)}
+        sending={creating}
+        meta={`${formatCodexModelLabel(selectedModel)} · ${formatReasoningEffort(reasoningEffort)}`}
+        attachments={pendingImages.length > 0 ? (
+          <FlatList
+            horizontal
+            data={pendingImages}
+            keyExtractor={(image) => image.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sheetImages}
+            renderItem={renderPromptImage}
+            style={styles.sheetImageList}
+          />
+        ) : null}
+        onChangeText={setPrompt}
+        onAddImage={() => void chooseImages()}
+        onClose={() => setComposerOpen(false)}
+        onSend={() => void newThread()}
+      />
       <ModelReasoningSheet
         visible={showPromptControls}
         models={modelOptions}
@@ -735,15 +824,42 @@ export function ProjectScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, paddingBottom: 36, gap: 14 },
-  repoCard: { borderRadius: 10, borderWidth: 1, padding: 15, gap: 14 },
+  repoCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 12 },
   repoTop: { flexDirection: "row", alignItems: "center", gap: 11 },
-  repoMark: { width: 44, height: 44, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  repoMark: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   repoCopy: { flex: 1, minWidth: 0 },
-  repoName: { fontFamily: "DMSans_700Bold", fontSize: 15 },
-  branchLine: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: 5 },
-  branch: { flexShrink: 1, fontFamily: "DMSans_400Regular", fontSize: 12 },
-  actions: { flexDirection: "row", gap: 9 },
-  flexButton: { flex: 1 },
+  repoName: { fontFamily: "DMSans_700Bold", fontSize: 15, letterSpacing: -0.2 },
+  repoStatus: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  repoStatusText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
+  controls: { flexDirection: "row", alignItems: "center", gap: 8 },
+  branchChip: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  branchChipText: { flex: 1, minWidth: 0, fontFamily: "DMSans_500Medium", fontSize: 12 },
+  runtimeChip: {
+    minWidth: 92,
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  runtimeChipText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  newTaskButton: { borderRadius: 12, minHeight: 44 },
+  sheetImageList: { flexGrow: 0 },
+  sheetImages: { gap: 10, paddingHorizontal: 16, paddingBottom: 10 },
   promptSection: { alignItems: "center", paddingVertical: 18 },
   promptEyebrow: { fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 1.8 },
   promptTitle: { marginTop: 8, fontFamily: "DMSans_700Bold", fontSize: 24, letterSpacing: -0.8, textAlign: "center" },
@@ -754,7 +870,8 @@ const styles = StyleSheet.create({
   promptImages: { gap: 8, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
   promptImage: { width: 62, height: 62, borderRadius: 10 },
   removeImage: { position: "absolute", right: -5, top: -5, width: 21, height: 21, borderRadius: 999, alignItems: "center", justifyContent: "center" },
-  taskInput: { minHeight: 72, maxHeight: 154, paddingHorizontal: 6, paddingTop: 6, paddingBottom: 8, fontFamily: "DMSans_400Regular", fontSize: 15, lineHeight: 22 },
+  taskInput: { minHeight: 72, justifyContent: "flex-start", paddingHorizontal: 6, paddingTop: 8, paddingBottom: 8 },
+  taskInputText: { fontFamily: "DMSans_400Regular", fontSize: 15, lineHeight: 22 },
   promptToolbar: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 5 },
   promptToolButton: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   promptSelector: { flex: 1, minWidth: 0, minHeight: 34, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", gap: 4 },

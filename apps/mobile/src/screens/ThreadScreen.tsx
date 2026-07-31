@@ -15,7 +15,6 @@ import {
   CircleStop,
   FileDiff,
   GitCommitHorizontal,
-  ImagePlus,
   MoreHorizontal,
   Pencil,
   RefreshCw,
@@ -41,6 +40,7 @@ import {
 
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
+import { ComposerSheet } from "../components/ComposerSheet";
 import { GlassSurface } from "../components/GlassSurface";
 import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
 import { OpenAIIcon } from "../components/OpenAIIcon";
@@ -190,10 +190,9 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [renameTitle, setRenameTitle] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
   const [demoSaving, setDemoSaving] = useState(false);
-  const [composerFocused, setComposerFocused] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const listRef = useRef<FlatList>(null);
-  const promptRef = useRef<TextInput>(null);
   const autoSubmitRef = useRef(false);
   const streamAbortRef = useRef<AbortController | null>(null);
   const activeStreamRunIdRef = useRef<string | null>(null);
@@ -788,7 +787,13 @@ export function ThreadScreen({ navigation, route }: Props) {
     return <ErrorNotice message="This conversation was not found." />;
   }
 
-  const canChat = project.sandboxStatus === "ready" && codex.data?.connected;
+  const canChat = Boolean(project.sandboxStatus === "ready" && codex.data?.connected);
+  const composerPlaceholder = canChat
+    ? messages.length > 0 ? "Add a follow-up…" : "Describe a task…"
+    : codex.data?.connected === false ? "Connect Codex in Settings" : "Workspace unavailable";
+  const hasComposerContent = Boolean(prompt.trim())
+    || pendingImages.length > 0
+    || handoffFiles.length > 0;
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -821,10 +826,8 @@ export function ThreadScreen({ navigation, route }: Props) {
             {["Explain this codebase", "Fix failing checks", "Review the current branch"].map((starter) => (
               <Pressable
                 key={starter}
-                onPress={() => {
-                  setPrompt(starter);
-                  setTimeout(() => promptRef.current?.focus(), 50);
-                }}
+                disabled={!canChat || running}
+                onPress={() => void send({ text: starter })}
                 style={({ pressed }) => [
                   styles.starter,
                   {
@@ -889,76 +892,37 @@ export function ThreadScreen({ navigation, route }: Props) {
         ) : null}
         <GlassSurface
           interactive
-          radius={composerFocused ? 16 : 28}
-          style={[
-            styles.composer,
-            composerFocused ? styles.composerExpanded : styles.composerCollapsed,
-            { borderColor: composerFocused ? theme.strongLine : theme.line },
-          ]}
+          radius={28}
+          style={[styles.composer, { borderColor: theme.line }]}
         >
-          <TextInput
-            ref={promptRef}
-            multiline
-            value={prompt}
-            onChangeText={setPrompt}
-            onFocus={() => setComposerFocused(true)}
-            onBlur={() => setComposerFocused(false)}
-            editable={!running && canChat}
-            placeholder={canChat
-              ? messages.length > 0 ? "Add a follow-up…" : "Describe a task…"
-              : codex.data?.connected === false ? "Connect Codex in Settings" : "Workspace unavailable"}
-            placeholderTextColor={theme.faint}
-            scrollEnabled={composerFocused}
-            style={[
-              styles.prompt,
-              composerFocused ? styles.promptExpanded : styles.promptCollapsed,
-              { color: theme.ink },
+          <Pressable
+            accessibilityLabel="Select model and reasoning effort"
+            accessibilityRole="button"
+            onPress={() => setShowControls(true)}
+            style={({ pressed }) => [
+              styles.modelButton,
+              { backgroundColor: theme.surfaceSoft, opacity: pressed ? 0.6 : 1 },
             ]}
-          />
-          <View style={[styles.composerActions, !composerFocused && styles.composerActionsCollapsed]}>
-            {composerFocused ? (
-              <>
-                <Pressable accessibilityLabel="Add image" disabled={running} onPress={() => void chooseImage()} style={styles.smallAction}>
-                  <ImagePlus color={theme.muted} size={18} />
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Select model and reasoning effort"
-                  onPress={() => setShowControls(true)}
-                  style={[styles.modelButton, { backgroundColor: theme.surface }]}
-                >
-                  <OpenAIIcon size={15} />
-                  <Text numberOfLines={1} style={[styles.modelText, { color: theme.muted }]}>
-                    {formatCodexModelLabel(selectedModel)}
-                  </Text>
-                  <View style={[styles.modelDivider, { backgroundColor: theme.line }]} />
-                  <Text numberOfLines={1} style={[styles.reasoningText, { color: theme.muted }]}>
-                    {formatReasoningEffort(reasoningEffort)}
-                  </Text>
-                  <ChevronDown color={theme.faint} size={13} />
-                </Pressable>
-                {userSettings?.demoRecordingExperimentEnabled ? (
-                  <Pressable
-                    accessibilityLabel={thread.demoEnabled ? "Disable demo recording" : "Enable demo recording"}
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: Boolean(thread.demoEnabled), disabled: demoSaving || running }}
-                    disabled={demoSaving || running}
-                    onPress={() => void toggleDemo()}
-                    style={[
-                      styles.demoButton,
-                      {
-                        backgroundColor: thread.demoEnabled ? theme.accentSoft : theme.surface,
-                        opacity: demoSaving ? 0.5 : 1,
-                      },
-                    ]}
-                  >
-                    <Video color={thread.demoEnabled ? theme.accentOn : theme.faint} size={14} />
-                    <Text style={[styles.demoText, { color: thread.demoEnabled ? theme.ink : theme.muted }]}>
-                      Demo
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </>
-            ) : null}
+          >
+            <OpenAIIcon size={15} />
+            <ChevronDown color={theme.faint} size={12} />
+          </Pressable>
+          <Pressable
+            accessibilityHint="Opens a full-screen editor"
+            accessibilityLabel="Message"
+            accessibilityRole="button"
+            disabled={!canChat}
+            onPress={() => setComposerOpen(true)}
+            style={({ pressed }) => [styles.promptPreview, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.prompt, { color: prompt.trim() ? theme.ink : theme.faint }]}
+            >
+              {prompt.trim() || composerPlaceholder}
+            </Text>
+          </Pressable>
+          <View style={styles.composerActions}>
             {running ? (
               <Pressable
                 accessibilityLabel="Stop agent"
@@ -971,21 +935,13 @@ export function ThreadScreen({ navigation, route }: Props) {
             ) : (
               <Pressable
                 accessibilityLabel="Send message"
-                disabled={
-                  (!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0)
-                  || !canChat
-                  || demoSaving
-                }
+                disabled={!hasComposerContent || !canChat || demoSaving}
                 onPress={() => void send()}
                 style={[
                   styles.sendButton,
                   {
                     backgroundColor: theme.accent,
-                    opacity: (
-                      (!prompt.trim() && pendingImages.length === 0 && handoffFiles.length === 0)
-                      || !canChat
-                      || demoSaving
-                    ) ? 0.35 : 1,
+                    opacity: !hasComposerContent || !canChat || demoSaving ? 0.35 : 1,
                   },
                 ]}
               >
@@ -1031,6 +987,32 @@ export function ThreadScreen({ navigation, route }: Props) {
         ) : null}
 
       </View>
+      <ComposerSheet
+        visible={composerOpen}
+        title={messages.length > 0 ? "Follow-up" : "New task"}
+        subtitle={[project.repoName, thread.featureBranch ?? thread.baseBranch].filter(Boolean).join(" · ")}
+        placeholder={composerPlaceholder}
+        value={prompt}
+        editable={canChat}
+        canSend={hasComposerContent && canChat && !running && !demoSaving}
+        sending={sending}
+        meta={`${formatCodexModelLabel(selectedModel)} · ${formatReasoningEffort(reasoningEffort)}`}
+        attachments={composerAttachments.length > 0 ? (
+          <FlatList
+            horizontal
+            data={composerAttachments}
+            keyExtractor={attachmentKey}
+            renderItem={renderComposerAttachment}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sheetAttachments}
+            style={styles.sheetAttachmentList}
+          />
+        ) : null}
+        onChangeText={setPrompt}
+        onAddImage={() => void chooseImage()}
+        onClose={() => setComposerOpen(false)}
+        onSend={() => void send()}
+      />
       <ModelReasoningSheet
         visible={showControls}
         models={modelOptions}
@@ -1268,34 +1250,33 @@ const styles = StyleSheet.create({
   attachmentImage: { width: 64, height: 64, borderRadius: 8 },
   removeAttachment: { position: "absolute", right: -5, top: -5, width: 22, height: 22, borderRadius: 999, alignItems: "center", justifyContent: "center" },
   composer: {
+    minHeight: 54,
     borderWidth: 1,
-  },
-  composerCollapsed: {
-    minHeight: 50,
-    borderRadius: 25,
-    paddingLeft: 16,
-    paddingRight: 6,
-    paddingVertical: 5,
+    borderRadius: 27,
+    paddingLeft: 7,
+    paddingRight: 7,
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
+    gap: 8,
   },
-  composerExpanded: { borderRadius: 20, padding: 9 },
-  prompt: { fontFamily: "DMSans_400Regular", fontSize: 16, lineHeight: 23 },
-  promptCollapsed: { flex: 1, height: 38, paddingHorizontal: 0, paddingVertical: 8 },
-  promptExpanded: { minHeight: 76, maxHeight: 142, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
-  composerActions: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
-  composerActionsCollapsed: { marginTop: 0 },
+  promptPreview: { flex: 1, minWidth: 0, justifyContent: "center", minHeight: 40 },
+  prompt: { fontFamily: "DMSans_400Regular", fontSize: 15, lineHeight: 21 },
+  composerActions: { flexDirection: "row", alignItems: "center", gap: 6 },
+  sheetAttachmentList: { flexGrow: 0 },
+  sheetAttachments: { gap: 10, paddingHorizontal: 18, paddingBottom: 10 },
   connectionRow: { minHeight: 22, paddingHorizontal: 7, paddingTop: 4, flexDirection: "row", alignItems: "center", gap: 6 },
   connectionDot: { width: 6, height: 6, borderRadius: 3 },
   connectionText: { fontFamily: "DMSans_500Medium", fontSize: 9 },
-  smallAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  modelButton: { flex: 1, minWidth: 0, minHeight: 36, borderRadius: 18, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
-  modelText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
-  modelDivider: { width: StyleSheet.hairlineWidth, height: 16 },
-  reasoningText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
-  demoButton: { minHeight: 34, borderRadius: 8, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 },
-  demoText: { fontFamily: "DMSans_500Medium", fontSize: 9 },
-  sendButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  modelButton: {
+    minHeight: 38,
+    borderRadius: 19,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  sendButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   gitOperation: { minHeight: 35, marginTop: 6, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   gitOperationDot: { width: 7, height: 7, borderRadius: 99 },
   gitOperationText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 10, textTransform: "capitalize" },

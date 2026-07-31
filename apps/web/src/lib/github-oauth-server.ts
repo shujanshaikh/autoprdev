@@ -5,6 +5,8 @@ import { WorkOS } from "@workos-inc/node";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+import { getWorkOSAccessTokenVerificationOptions } from "#/lib/workos-access-token";
+
 export class GithubConnectionError extends Error {
   constructor(message = "Connect GitHub to continue.") {
     super(message);
@@ -46,9 +48,11 @@ async function getBearerAuth(accessToken: string): Promise<AuthenticatedWorkOSAu
   const jwks = createRemoteJWKSet(
     new URL(`https://api.workos.com/sso/jwks/${encodeURIComponent(clientId)}`),
   );
-  const { payload } = await jwtVerify(accessToken, jwks, {
-    issuer: ["https://api.workos.com", "https://api.workos.com/"],
-  });
+  const { payload } = await jwtVerify(
+    accessToken,
+    jwks,
+    getWorkOSAccessTokenVerificationOptions(clientId),
+  );
 
   if (
     typeof payload.sub !== "string" ||

@@ -1,8 +1,12 @@
+import { requireOptionalNativeModule } from "expo";
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { PropsWithChildren } from "react";
 import { Platform, View, type ViewProps, type ViewStyle } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
+
+const hasNativeGlassModule =
+  Platform.OS === "ios" && requireOptionalNativeModule("ExpoGlassEffect") !== null;
 
 type Props = PropsWithChildren<ViewProps & {
   radius?: number;
@@ -11,7 +15,7 @@ type Props = PropsWithChildren<ViewProps & {
 
 export function GlassSurface({ children, radius = 24, interactive = false, style, ...props }: Props) {
   const theme = useAppTheme();
-  const supportsNativeGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable();
+  const supportsNativeGlass = hasNativeGlassModule && isGlassEffectAPIAvailable();
   const chrome: ViewStyle = {
     borderRadius: radius,
     overflow: "hidden",

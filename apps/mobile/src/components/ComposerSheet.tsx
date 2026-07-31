@@ -63,7 +63,11 @@ export function ComposerSheet({
   const inputRef = useRef<TextInput>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const pickerAnimation = useRef(new Animated.Value(0)).current;
+  const pickerAnimationRef = useRef<Animated.Value | null>(null);
+  if (pickerAnimationRef.current === null) {
+    pickerAnimationRef.current = new Animated.Value(0);
+  }
+  const pickerAnimation = pickerAnimationRef.current;
 
   useEffect(() => {
     if (!pickerOpen) {
@@ -232,16 +236,27 @@ export function ComposerSheet({
               />
             </Animated.View>
             <Animated.View
-              style={{
-                paddingBottom: insets.bottom,
-                backgroundColor: theme.surfaceRaised,
-                transform: [{
-                  translateY: pickerAnimation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [340, 0],
-                  }),
-                }],
-              }}
+              style={[
+                styles.pickerCard,
+                {
+                  marginBottom: Math.max(insets.bottom, 10) + 58,
+                  opacity: pickerAnimation,
+                  transform: [
+                    {
+                      translateY: pickerAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [12, 0],
+                      }),
+                    },
+                    {
+                      scale: pickerAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.98, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
             >
               <ModelPickerPanel {...picker} onClose={closePicker} />
             </Animated.View>
@@ -308,7 +323,14 @@ const styles = StyleSheet.create({
   },
   modelChipText: { flex: 1, minWidth: 0, fontFamily: "DMSans_500Medium", fontSize: 11 },
   send: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
-  pickerOverlay: { position: "absolute", inset: 0, justifyContent: "flex-end" },
-  pickerBackdrop: { position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.45)" },
+  pickerOverlay: {
+    position: "absolute",
+    inset: 0,
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  pickerBackdrop: { position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.22)" },
   pickerBackdropFill: { flex: 1 },
+  pickerCard: { width: "100%", maxWidth: 390 },
 });

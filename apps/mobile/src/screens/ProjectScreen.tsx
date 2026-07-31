@@ -790,7 +790,14 @@ export function ProjectScreen({ navigation, route }: Props) {
         editable={promptReady && !creating}
         canSend={promptReady && !creating && (Boolean(prompt.trim()) || pendingImages.length > 0)}
         sending={creating}
-        meta={`${formatCodexModelLabel(selectedModel)} · ${formatReasoningEffort(reasoningEffort)}`}
+        picker={{
+          models: modelOptions,
+          selectedModel,
+          reasoningEfforts: reasoningOptions,
+          selectedReasoningEffort: reasoningEffort,
+          onSelectModel: setSelectedModelChoice,
+          onSelectReasoningEffort: setReasoningEffort,
+        }}
         attachments={pendingImages.length > 0 ? (
           <FlatList
             horizontal

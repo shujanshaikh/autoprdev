@@ -8,18 +8,33 @@ export type CodexReasoningEffort = (typeof ULTRA_REASONING_EFFORTS)[number];
 type ModelDefinition = {
   id: string;
   label: string;
+  contextLimit: number;
   reasoningEfforts: readonly CodexReasoningEffort[];
 };
 
 const MODELS: readonly ModelDefinition[] = [
-  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", reasoningEfforts: ULTRA_REASONING_EFFORTS },
-  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", reasoningEfforts: ULTRA_REASONING_EFFORTS },
-  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", reasoningEfforts: MAX_REASONING_EFFORTS },
-  { id: "gpt-5.5", label: "GPT-5.5", reasoningEfforts: STANDARD_REASONING_EFFORTS },
-  { id: "gpt-5.4", label: "GPT-5.4", reasoningEfforts: STANDARD_REASONING_EFFORTS },
-  { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", reasoningEfforts: STANDARD_REASONING_EFFORTS },
-  { id: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark", reasoningEfforts: STANDARD_REASONING_EFFORTS },
+  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 372_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 372_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 372_000, reasoningEfforts: MAX_REASONING_EFFORTS },
+  { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
+  { id: "gpt-5.4", label: "GPT-5.4", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
+  { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
+  {
+    id: "gpt-5.3-codex-spark",
+    label: "GPT-5.3-Codex-Spark",
+    contextLimit: 128_000,
+    reasoningEfforts: STANDARD_REASONING_EFFORTS,
+  },
 ];
+
+const REASONING_EFFORT_DESCRIPTIONS: Record<CodexReasoningEffort, string> = {
+  low: "Fastest replies. Best for small, well-scoped edits.",
+  medium: "Balanced speed and depth for everyday tasks.",
+  high: "Thinks longer before acting on tricky changes.",
+  xhigh: "Extended reasoning for complex, multi-file work.",
+  max: "Deliberates as long as the model allows.",
+  ultra: "The longest thinking budget. Slowest, most thorough.",
+};
 
 export const PREFERRED_CODEX_MODEL = "gpt-5.6-sol";
 export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = "low";
@@ -65,4 +80,15 @@ export function formatCodexModelLabel(modelId: string | undefined) {
 
 export function formatReasoningEffort(value: CodexReasoningEffort) {
   return value === "xhigh" ? "Extra high" : value[0]?.toUpperCase() + value.slice(1);
+}
+
+export function describeReasoningEffort(value: CodexReasoningEffort) {
+  return REASONING_EFFORT_DESCRIPTIONS[value];
+}
+
+/** Short context-window label for the model picker, for example "372K context". */
+export function formatCodexContextLimit(modelId: string | undefined) {
+  const contextLimit = MODELS.find((model) => model.id === modelId)?.contextLimit;
+  if (!contextLimit) return undefined;
+  return `${Math.round(contextLimit / 1000)}K context`;
 }

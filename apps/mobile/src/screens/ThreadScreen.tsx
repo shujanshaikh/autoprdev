@@ -61,8 +61,6 @@ import {
 } from "../lib/threadTitle";
 import {
   DEFAULT_CODEX_REASONING_EFFORT,
-  formatCodexModelLabel,
-  formatReasoningEffort,
   getCodexModelOptions,
   getCodexReasoningEfforts,
   isCodexReasoningEffortForModel,
@@ -996,7 +994,14 @@ export function ThreadScreen({ navigation, route }: Props) {
         editable={canChat}
         canSend={hasComposerContent && canChat && !running && !demoSaving}
         sending={sending}
-        meta={`${formatCodexModelLabel(selectedModel)} · ${formatReasoningEffort(reasoningEffort)}`}
+        picker={{
+          models: modelOptions,
+          selectedModel,
+          reasoningEfforts: reasoningOptions,
+          selectedReasoningEffort: reasoningEffort,
+          onSelectModel: setSelectedModelChoice,
+          onSelectReasoningEffort: setReasoningEffort,
+        }}
         attachments={composerAttachments.length > 0 ? (
           <FlatList
             horizontal

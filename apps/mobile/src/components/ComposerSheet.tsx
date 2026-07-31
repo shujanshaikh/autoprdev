@@ -1,7 +1,8 @@
-import { ArrowUp, ImagePlus } from "lucide-react-native";
+import { ArrowUp, ChevronDown, ImagePlus } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -15,6 +16,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAppTheme } from "../hooks/useAppTheme";
+import { formatCodexModelLabel, formatReasoningEffort } from "../lib/codexModels";
+import { ModelPickerPanel, type ModelPickerProps } from "./ModelPickerPanel";
+import { OpenAIIcon } from "./OpenAIIcon";
 
 type Props = {
   visible: boolean;
@@ -25,7 +29,7 @@ type Props = {
   editable?: boolean;
   canSend: boolean;
   sending?: boolean;
-  meta?: string;
+  picker: ModelPickerProps;
   attachments?: ReactNode;
   onChangeText: (value: string) => void;
   onAddImage?: () => void;
@@ -47,7 +51,7 @@ export function ComposerSheet({
   editable = true,
   canSend,
   sending = false,
-  meta,
+  picker,
   attachments,
   onChangeText,
   onAddImage,
@@ -58,6 +62,22 @@ export function ComposerSheet({
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerAnimation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!pickerOpen) {
+      pickerAnimation.setValue(0);
+      return;
+    }
+    const animation = Animated.timing(pickerAnimation, {
+      toValue: 1,
+      duration: 190,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [pickerAnimation, pickerOpen]);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -76,14 +96,26 @@ export function ComposerSheet({
 
   const close = useCallback(() => {
     Keyboard.dismiss();
+    setPickerOpen(false);
     onClose();
   }, [onClose]);
 
   const send = useCallback(() => {
     Keyboard.dismiss();
+    setPickerOpen(false);
     onClose();
     onSend();
   }, [onClose, onSend]);
+
+  const openPicker = useCallback(() => {
+    Keyboard.dismiss();
+    setPickerOpen(true);
+  }, []);
+
+  const closePicker = useCallback(() => {
+    setPickerOpen(false);
+    focusInput();
+  }, [focusInput]);
 
   return (
     <Modal
@@ -93,8 +125,8 @@ export function ComposerSheet({
       presentationStyle="fullScreen"
       visible={visible}
     >
-      <View style={[styles.screen, { backgroundColor: theme.screen, paddingTop: insets.top }]}>
-        <View style={[styles.header, { borderBottomColor: theme.line }]}>
+      <View style={[styles.screen, { backgroundColor: theme.screen }]}>
+        <View style={[styles.header, { borderBottomColor: theme.line, paddingTop: insets.top }]}>
           <View style={styles.headerCopy}>
             <Text numberOfLines={1} style={[styles.title, { color: theme.ink }]}>{title}</Text>
             {subtitle ? (
@@ -157,11 +189,23 @@ export function ComposerSheet({
                 <ImagePlus color={theme.muted} size={18} />
               </Pressable>
             ) : null}
-            {meta ? (
-              <Text numberOfLines={1} style={[styles.meta, { color: theme.faint }]}>{meta}</Text>
-            ) : (
-              <View style={styles.metaSpacer} />
-            )}
+            <Pressable
+              accessibilityLabel="Select model and reasoning effort"
+              accessibilityRole="button"
+              onPress={openPicker}
+              style={({ pressed }) => [
+                styles.modelChip,
+                { backgroundColor: pressed ? theme.surface : theme.surfaceSoft, borderColor: theme.line },
+              ]}
+            >
+              <OpenAIIcon size={14} />
+              <Text numberOfLines={1} style={[styles.modelChipText, { color: theme.muted }]}>
+                {formatCodexModelLabel(picker.selectedModel)}
+                {" · "}
+                {formatReasoningEffort(picker.selectedReasoningEffort)}
+              </Text>
+              <ChevronDown color={theme.faint} size={13} />
+            </Pressable>
             <Pressable
               accessibilityLabel="Send prompt"
               disabled={!canSend || sending}
@@ -177,6 +221,32 @@ export function ComposerSheet({
             </Pressable>
           </View>
         </KeyboardAvoidingView>
+
+        {pickerOpen ? (
+          <View style={styles.pickerOverlay}>
+            <Animated.View style={[styles.pickerBackdrop, { opacity: pickerAnimation }]}>
+              <Pressable
+                accessibilityLabel="Close model picker"
+                onPress={closePicker}
+                style={styles.pickerBackdropFill}
+              />
+            </Animated.View>
+            <Animated.View
+              style={{
+                paddingBottom: insets.bottom,
+                backgroundColor: theme.surfaceRaised,
+                transform: [{
+                  translateY: pickerAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [340, 0],
+                  }),
+                }],
+              }}
+            >
+              <ModelPickerPanel {...picker} onClose={closePicker} />
+            </Animated.View>
+          </View>
+        ) : null}
       </View>
     </Modal>
   );
@@ -225,7 +295,20 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   toolButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  meta: { flex: 1, minWidth: 0, fontFamily: "DMSans_500Medium", fontSize: 11 },
-  metaSpacer: { flex: 1 },
+  modelChip: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  modelChipText: { flex: 1, minWidth: 0, fontFamily: "DMSans_500Medium", fontSize: 11 },
   send: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  pickerOverlay: { position: "absolute", inset: 0, justifyContent: "flex-end" },
+  pickerBackdrop: { position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.45)" },
+  pickerBackdropFill: { flex: 1 },
 });

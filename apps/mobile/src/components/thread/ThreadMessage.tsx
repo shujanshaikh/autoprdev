@@ -179,7 +179,9 @@ function RichMessageText({ value, inverted = false }: { value: string; inverted?
     return result;
   }, [value]);
   const textColor = inverted ? theme.accentInk : theme.ink;
-  const linkColor = inverted ? theme.accentInk : theme.secondaryInk;
+  const linkColor = inverted
+    ? theme.accentInk
+    : theme.mode === "light" ? theme.secondary : theme.secondaryInk;
 
   return (
     <View style={styles.richText}>
@@ -244,7 +246,7 @@ function WorkLogItem({
           : part.state === "output-available"
             ? <Check color={theme.success} size={13} />
             : <ToolCase color={theme.muted} size={13} />
-        : <Sparkles color={theme.accent} size={13} />}
+        : <Sparkles color={theme.accentOn} size={13} />}
       <View style={styles.workCopy}>
         <Pressable
           accessibilityRole={canExpand ? "button" : undefined}
@@ -303,7 +305,7 @@ function WorkLog({ parts, live }: { parts: MessagePartView[]; live: boolean }) {
         <Text style={[styles.workTitle, { color: theme.muted }]}>
           {live ? "Working" : `Explored ${activities.length} ${activities.length === 1 ? "step" : "steps"}`}
         </Text>
-        {live ? <View style={[styles.liveDot, { backgroundColor: theme.accent }]} /> : null}
+        {live ? <View style={[styles.liveDot, { backgroundColor: theme.accentOn }]} /> : null}
         {expanded
           ? <ChevronDown color={theme.faint} size={14} />
           : <ChevronRight color={theme.faint} size={14} />}
@@ -387,8 +389,8 @@ function RecordingCard({
     >
       <View style={[styles.recordingIcon, { backgroundColor: theme.accentSoft }]}>
         {opening
-          ? <ActivityIndicator color={theme.accent} size="small" />
-          : <Video color={theme.accent} size={19} />}
+          ? <ActivityIndicator color={theme.accentOn} size="small" />
+          : <Video color={theme.accentOn} size={19} />}
       </View>
       <View style={styles.recordingCopy}>
         <Text numberOfLines={1} style={[styles.recordingTitle, { color: theme.ink }]}>
@@ -475,7 +477,7 @@ export function ThreadMessage({
         <Text style={[styles.assistantLabel, { color: theme.muted }]}>AUTOPR</Text>
         {isLast && isLive ? (
           <>
-            <View style={[styles.liveDot, { backgroundColor: theme.accent }]} />
+            <View style={[styles.liveDot, { backgroundColor: theme.accentOn }]} />
             <Text style={[styles.workingLabel, { color: theme.muted }]}>Working</Text>
           </>
         ) : null}

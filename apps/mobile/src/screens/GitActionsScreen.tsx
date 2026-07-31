@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Rocket,
 } from "lucide-react-native";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Linking,
@@ -28,7 +28,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { webRequest } from "../api/web";
-import { ErrorNotice, LoadingState, PrimaryButton } from "../components/ui";
+import { ErrorNotice, LoadingState, PrimaryButton, SecondaryButton } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebMutation, useWebQuery } from "../hooks/useWebQuery";
 import type { RootStackParamList } from "../types";
@@ -46,6 +46,10 @@ type GitAction =
 
 type ChangedFile = ThreadGitStatus["changedFiles"][number];
 type GitStatusResponse = { status: ThreadGitStatus };
+type GitOperationResponse = {
+  operationId: string;
+  status: "running" | "failed" | "succeeded" | "updated";
+};
 
 type ActionOption = {
   action: GitAction;
@@ -64,6 +68,17 @@ const actionLabels: Record<GitAction, string> = {
 };
 
 const fileKey = (file: ChangedFile) => file.path;
+
+function createOperationId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
 
 const ChangedFileRow = memo(function ChangedFileRow({ file }: { file: ChangedFile }) {
   const theme = useAppTheme();
@@ -136,20 +151,58 @@ export function GitActionsScreen({ navigation, route }: Props) {
   );
   const [selectedAction, setSelectedAction] = useState<GitAction | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
+  const [pullRequestTitle, setPullRequestTitle] = useState("");
+  const [pullRequestBody, setPullRequestBody] = useState("");
+  const [pullRequestDraft, setPullRequestDraft] = useState(false);
+  const activeOperationIdRef = useRef<string | null>(null);
 
   const mutation = useWebMutation(
-    async ({ action, message }: { action: GitAction; message?: string }, token) => await webRequest(
-      `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`,
-      token,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          action,
-          ...(message ? { commitMessage: message } : {}),
-        }),
+    async ({
+      action,
+      operationId,
+      message,
+      title,
+      body,
+      draft,
+    }: {
+      action: GitAction;
+      operationId: string;
+      message?: string;
+      title?: string;
+      body?: string;
+      draft?: boolean;
+    }, token) => {
+      const createsPullRequest = action.includes("create_pr");
+      return await webRequest<GitOperationResponse>(
+        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}${createsPullRequest ? "/pull-request" : ""}`,
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            action,
+            operationId,
+            ...(createsPullRequest
+              ? {
+                  ...(title ? { title } : {}),
+                  ...(body ? { body } : {}),
+                  draft: Boolean(draft),
+                }
+              : message ? { commitMessage: message } : {}),
+          }),
+        },
+      );
+    },
+    {
+      invalidateQueryKeys: [["git-status", projectId, threadId]],
+      onError: () => {
+        activeOperationIdRef.current = null;
       },
-    ),
-    { onSuccess: () => void git.refetch() },
+      onSuccess: (result) => {
+        if (result.status !== "running") {
+          activeOperationIdRef.current = null;
+        }
+      },
+    },
   );
 
   const status = git.data?.status;
@@ -158,7 +211,8 @@ export function GitActionsScreen({ navigation, route }: Props) {
     ? selectedAction
     : options[0]?.action ?? null;
   const selectedOption = options.find((option) => option.action === effectiveAction);
-  const needsCommitMessage = effectiveAction?.includes("commit") ?? false;
+  const createsPullRequest = effectiveAction?.includes("create_pr") ?? false;
+  const needsCommitMessage = (effectiveAction?.includes("commit") ?? false) && !createsPullRequest;
   const operationBusy = mutation.isPending || latestOperation?.status === "running";
   const busy = operationBusy || Boolean(thread?.isLive);
   const unsafeReason = thread?.isLive
@@ -180,6 +234,16 @@ export function GitActionsScreen({ navigation, route }: Props) {
       : null;
   const renderFile = useCallback(({ item }: { item: ChangedFile }) => <ChangedFileRow file={item} />, []);
 
+  useEffect(() => {
+    if (
+      latestOperation
+      && latestOperation.operationId === activeOperationIdRef.current
+      && latestOperation.status !== "running"
+    ) {
+      activeOperationIdRef.current = null;
+    }
+  }, [latestOperation?.operationId, latestOperation?.status]);
+
   if (git.isLoading) return <LoadingState label="Checking Git status…" />;
   if (!status) return <ErrorNotice message={git.error?.message ?? "Git status is unavailable."} />;
 
@@ -187,10 +251,34 @@ export function GitActionsScreen({ navigation, route }: Props) {
   const deletions = status.changedFiles.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
 
   const runAction = () => {
-    if (!effectiveAction || busy) return;
+    if (!effectiveAction || busy || activeOperationIdRef.current) return;
+    const operationId = createOperationId();
+    activeOperationIdRef.current = operationId;
     mutation.mutate({
       action: effectiveAction,
+      operationId,
       message: needsCommitMessage ? commitMessage.trim() || undefined : undefined,
+      title: createsPullRequest ? pullRequestTitle.trim() || undefined : undefined,
+      body: createsPullRequest ? pullRequestBody.trim() || undefined : undefined,
+      draft: createsPullRequest ? pullRequestDraft : undefined,
+    });
+  };
+
+  const retryFailedOperation = () => {
+    if (
+      !latestOperation
+      || latestOperation.status !== "failed"
+      || busy
+      || activeOperationIdRef.current
+    ) return;
+    activeOperationIdRef.current = latestOperation.operationId;
+    mutation.mutate({
+      action: latestOperation.requestedAction,
+      operationId: latestOperation.operationId,
+      message: latestOperation.commitMessage,
+      title: latestOperation.pullRequestTitle,
+      body: latestOperation.pullRequestBody,
+      draft: latestOperation.pullRequestDraft,
     });
   };
 
@@ -205,7 +293,7 @@ export function GitActionsScreen({ navigation, route }: Props) {
           <View style={styles.headerContent}>
             <View style={[styles.branchCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
               <View style={[styles.branchIcon, { backgroundColor: theme.accentSoft }]}>
-                <GitBranch color={theme.accent} size={20} />
+                <GitBranch color={theme.accentOn} size={20} />
               </View>
               <View style={styles.branchCopy}>
                 <Text numberOfLines={1} style={[styles.branchName, { color: theme.ink }]}>
@@ -225,12 +313,23 @@ export function GitActionsScreen({ navigation, route }: Props) {
             {unsafeReason ? <ErrorNotice message={unsafeReason} /> : null}
             {mutation.error ? <ErrorNotice message={mutation.error.message} /> : null}
             {latestOperation?.status === "failed" ? (
-              <ErrorNotice message={latestOperation.failure?.message ?? "Git operation failed."} />
+              <View style={styles.failedOperation}>
+                <ErrorNotice message={latestOperation.failure?.message ?? "Git operation failed."} />
+                {latestOperation.failure?.retryable !== false ? (
+                  <SecondaryButton
+                    compact
+                    icon={RefreshCw}
+                    label="Retry failed operation"
+                    disabled={busy}
+                    onPress={retryFailedOperation}
+                  />
+                ) : null}
+              </View>
             ) : null}
 
             {latestOperation?.status === "running" ? (
               <View style={[styles.operation, { backgroundColor: theme.accentSoft }]}>
-                <View style={[styles.operationDot, { backgroundColor: theme.accent }]} />
+                <View style={[styles.operationDot, { backgroundColor: theme.accentOn }]} />
                 <View style={styles.operationCopy}>
                   <Text style={[styles.operationTitle, { color: theme.ink }]}>Shipping changes</Text>
                   <Text style={[styles.operationText, { color: theme.muted }]}>
@@ -272,12 +371,15 @@ export function GitActionsScreen({ navigation, route }: Props) {
                       accessibilityRole="radio"
                       accessibilityState={{ checked: selected }}
                       key={option.action}
-                      onPress={() => setSelectedAction(option.action)}
+                      onPress={() => {
+                        activeOperationIdRef.current = null;
+                        setSelectedAction(option.action);
+                      }}
                       style={[
                         styles.actionOption,
                         {
                           backgroundColor: selected ? theme.accentSoft : theme.surface,
-                          borderColor: selected ? theme.accent : theme.line,
+                          borderColor: selected ? theme.accentOn : theme.line,
                         },
                       ]}
                     >
@@ -288,7 +390,7 @@ export function GitActionsScreen({ navigation, route }: Props) {
                         <Text style={[styles.actionLabel, { color: theme.ink }]}>{option.label}</Text>
                         <Text style={[styles.actionDescription, { color: theme.muted }]}>{option.description}</Text>
                       </View>
-                      <ChevronRight color={selected ? theme.accent : theme.faint} size={17} />
+                      <ChevronRight color={selected ? theme.accentOn : theme.faint} size={17} />
                     </Pressable>
                   );
                 })}
@@ -297,16 +399,16 @@ export function GitActionsScreen({ navigation, route }: Props) {
               <Pressable
                 accessibilityRole="link"
                 onPress={() => void Linking.openURL(status.pullRequest?.url ?? "")}
-                style={[styles.prCard, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}
+                style={[styles.prCard, { backgroundColor: theme.accentSoft, borderColor: theme.accentOn }]}
               >
-                <GitPullRequest color={theme.accent} size={19} />
+                <GitPullRequest color={theme.accentOn} size={19} />
                 <View style={styles.actionCopy}>
                   <Text style={[styles.actionLabel, { color: theme.ink }]}>PR #{status.pullRequest.number}</Text>
                   <Text numberOfLines={1} style={[styles.actionDescription, { color: theme.muted }]}>
                     {status.pullRequest.title ?? "Open pull request on GitHub"}
                   </Text>
                 </View>
-                <ChevronRight color={theme.accent} size={17} />
+                <ChevronRight color={theme.accentOn} size={17} />
               </Pressable>
             ) : (
               <View style={[styles.cleanCard, { backgroundColor: theme.successSoft }]}>
@@ -332,6 +434,61 @@ export function GitActionsScreen({ navigation, route }: Props) {
                   style={[styles.commitInput, { color: theme.ink, backgroundColor: theme.surface, borderColor: theme.line }]}
                 />
                 <Text style={[styles.inputHint, { color: theme.faint }]}>{commitMessage.length}/500</Text>
+              </View>
+            ) : null}
+
+            {createsPullRequest ? (
+              <View style={styles.pullRequestFields}>
+                <View>
+                  <Text style={[styles.inputLabel, { color: theme.faint }]}>PULL REQUEST TITLE</Text>
+                  <TextInput
+                    accessibilityLabel="Pull request title"
+                    maxLength={180}
+                    value={pullRequestTitle}
+                    onChangeText={setPullRequestTitle}
+                    placeholder="Leave blank to generate a title…"
+                    placeholderTextColor={theme.faint}
+                    style={[styles.singleInput, { color: theme.ink, backgroundColor: theme.surface, borderColor: theme.line }]}
+                  />
+                </View>
+                <View>
+                  <Text style={[styles.inputLabel, { color: theme.faint }]}>DESCRIPTION</Text>
+                  <TextInput
+                    accessibilityLabel="Pull request description"
+                    multiline
+                    maxLength={5_000}
+                    value={pullRequestBody}
+                    onChangeText={setPullRequestBody}
+                    placeholder="Optional pull request description…"
+                    placeholderTextColor={theme.faint}
+                    style={[styles.prBodyInput, { color: theme.ink, backgroundColor: theme.surface, borderColor: theme.line }]}
+                  />
+                </View>
+                <Pressable
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: pullRequestDraft }}
+                  onPress={() => setPullRequestDraft((current) => !current)}
+                  style={[styles.draftRow, { backgroundColor: theme.surface, borderColor: theme.line }]}
+                >
+                  <View style={[
+                    styles.draftCheck,
+                    {
+                      backgroundColor: pullRequestDraft ? theme.accent : "transparent",
+                      borderColor: pullRequestDraft ? theme.accent : theme.strongLine,
+                    },
+                  ]}>
+                    {pullRequestDraft ? <Check color={theme.accentInk} size={12} strokeWidth={3} /> : null}
+                  </View>
+                  <View style={styles.actionCopy}>
+                    <Text style={[styles.actionLabel, { color: theme.ink }]}>Create as draft</Text>
+                    <Text style={[styles.actionDescription, { color: theme.muted }]}>
+                      Open the pull request without marking it ready for review.
+                    </Text>
+                  </View>
+                </Pressable>
+                <Text style={[styles.inputHint, { color: theme.faint }]}>
+                  The commit message for pull-request actions is generated automatically.
+                </Text>
               </View>
             ) : null}
 
@@ -389,6 +546,7 @@ const styles = StyleSheet.create({
   operationCopy: { flex: 1, minWidth: 0 },
   operationTitle: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
   operationText: { fontFamily: "Inter_400Regular", fontSize: 10, marginTop: 4, textTransform: "capitalize" },
+  failedOperation: { gap: 8 },
   summaryLine: { marginTop: 3, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 15, letterSpacing: -0.3 },
   stats: { flexDirection: "row", gap: 8 },
@@ -403,6 +561,11 @@ const styles = StyleSheet.create({
   cleanCard: { minHeight: 64, borderRadius: 13, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   inputLabel: { fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 1.1, marginBottom: 7, marginLeft: 2 },
   commitInput: { minHeight: 92, maxHeight: 150, borderRadius: 13, borderWidth: 1, padding: 12, fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19, textAlignVertical: "top" },
+  pullRequestFields: { gap: 12 },
+  singleInput: { height: 46, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, fontFamily: "Inter_400Regular", fontSize: 13 },
+  prBodyInput: { minHeight: 104, maxHeight: 190, borderRadius: 12, borderWidth: 1, padding: 12, fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19, textAlignVertical: "top" },
+  draftRow: { minHeight: 62, borderRadius: 12, borderWidth: 1, padding: 11, flexDirection: "row", alignItems: "center", gap: 10 },
+  draftCheck: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   inputHint: { alignSelf: "flex-end", fontFamily: "Inter_400Regular", fontSize: 9, marginTop: 4, marginRight: 3 },
   reviewLink: { minHeight: 48, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 9 },
   reviewText: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 11 },

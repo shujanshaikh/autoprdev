@@ -30,7 +30,10 @@ export function BranchesScreen({ navigation, route }: Props) {
         body: JSON.stringify({ branch }),
       },
     ),
-    { onSuccess: () => navigation.goBack() },
+    {
+      invalidateQueryKeys: [["git-status", projectId]],
+      onSuccess: () => navigation.goBack(),
+    },
   );
 
   const filtered = useMemo(() => {
@@ -97,7 +100,7 @@ export function BranchesScreen({ navigation, route }: Props) {
               >
                 <View style={[styles.branchMark, { backgroundColor: selected ? theme.surface : theme.surfaceSoft }]}>
                   {selected
-                    ? <Check color={theme.accent} size={17} strokeWidth={2.5} />
+                    ? <Check color={theme.accentOn} size={17} strokeWidth={2.5} />
                     : <GitBranch color={theme.muted} size={17} />}
                 </View>
                 <View style={styles.copy}>
@@ -107,7 +110,7 @@ export function BranchesScreen({ navigation, route }: Props) {
                   </Text>
                 </View>
                 {branch.protected ? <LockKeyhole color={theme.faint} size={15} /> : null}
-                {selected ? <Text style={[styles.current, { color: theme.accent }]}>CURRENT</Text> : null}
+                {selected ? <Text style={[styles.current, { color: theme.ink }]}>CURRENT</Text> : null}
               </Pressable>
             );
           })}

@@ -23,7 +23,10 @@ import {
   MessageSquare,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
+  Settings2,
   SlidersHorizontal,
+  TerminalSquare,
   Video,
   X,
 } from "lucide-react-native";
@@ -32,6 +35,7 @@ import {
   Alert,
   AppState,
   FlatList,
+  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -42,7 +46,6 @@ import {
   View,
 } from "react-native";
 
-import { webRequest } from "../api/web";
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { GlassSurface } from "../components/GlassSurface";
@@ -56,6 +59,13 @@ import { useWebQuery } from "../hooks/useWebQuery";
 import { extractDiffEntries } from "../lib/diff";
 import { consumeAgentRunStream } from "../lib/agentStream";
 import { consumeInitialThreadSubmit } from "../lib/initialThreadSubmit";
+import {
+  DEFAULT_THREAD_TITLE,
+  firstUserMessageText,
+  MAX_THREAD_TITLE_ATTEMPTS,
+  shouldRetryThreadTitleError,
+  threadTitleRetryDelayMs,
+} from "../lib/threadTitle";
 import {
   DEFAULT_CODEX_REASONING_EFFORT,
   formatCodexModelLabel,
@@ -185,6 +195,7 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [stopping, setStopping] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
+  const [toolsVisible, setToolsVisible] = useState(false);
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
@@ -199,6 +210,9 @@ export function ThreadScreen({ navigation, route }: Props) {
   const streamAbortRef = useRef<AbortController | null>(null);
   const activeStreamRunIdRef = useRef<string | null>(null);
   const completedStreamRunIdRef = useRef<string | null>(null);
+  const stoppedRunIdsRef = useRef<Set<string> | null>(null);
+  stoppedRunIdsRef.current ??= new Set<string>();
+  const messagesRef = useRef(messages);
   const pendingStreamMessageRef = useRef<StreamingAssistantMessage | null>(null);
   const streamRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedModel = useMemo(
@@ -210,26 +224,40 @@ export function ThreadScreen({ navigation, route }: Props) {
     [codex.data?.models, selectedModel],
   );
   const reasoningOptions = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
+  const effectiveStreamingAssistant = useMemo(() => {
+    if (!streamingAssistant || thread?.isLive) return streamingAssistant;
+    const persisted = messages.find(
+      (message) =>
+        message.messageId === streamingAssistant.messageId
+        && message.role === "assistant",
+    );
+    return persisted ? null : streamingAssistant;
+  }, [messages, streamingAssistant, thread?.isLive]);
   const displayMessages = useMemo(() => {
     let next = [...messages];
     if (optimisticMessage && !next.some((message) => message.messageId === optimisticMessage.messageId)) {
       next.push(optimisticMessage);
     }
-    if (streamingAssistant) {
+    if (effectiveStreamingAssistant) {
       const persistedIndex = next.findIndex(
-        (message) => message.messageId === streamingAssistant.messageId,
+        (message) => message.messageId === effectiveStreamingAssistant.messageId,
       );
       if (persistedIndex >= 0) {
         next[persistedIndex] = {
           ...next[persistedIndex],
-          ...streamingAssistant,
+          ...effectiveStreamingAssistant,
         };
       } else {
-        next.push(streamingAssistant);
+        next.push(effectiveStreamingAssistant);
       }
     }
     return next;
-  }, [messages, optimisticMessage, streamingAssistant]);
+  }, [effectiveStreamingAssistant, messages, optimisticMessage]);
+  const firstTitleMessage = useMemo(() => firstUserMessageText(messages), [messages]);
+  const [titleGeneration, setTitleGeneration] = useState({ threadId, attempt: 0 });
+  const titleGenerationAttempt = titleGeneration.threadId === threadId
+    ? titleGeneration.attempt
+    : 0;
   const diffs = useMemo(() => extractDiffEntries(displayMessages), [displayMessages]);
   const running = Boolean(thread?.isLive || sending || streamStatus !== "idle");
   const diffDraftKey = `autopr.mobile.diff-draft:${threadId}`;
@@ -304,6 +332,17 @@ export function ThreadScreen({ navigation, route }: Props) {
       - nativeEvent.contentOffset.y;
     setAwayFromLatest(distance > 120);
   }, []);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    const currentRunId = thread?.currentRunId;
+    for (const runId of stoppedRunIdsRef.current ?? []) {
+      if (runId !== currentRunId) stoppedRunIdsRef.current?.delete(runId);
+    }
+  }, [thread?.currentRunId]);
 
   useEffect(() => {
     if (!isCodexReasoningEffortForModel(selectedModel, reasoningEffort)) {
@@ -384,29 +423,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           </Pressable>
           <Pressable
             accessibilityLabel="More conversation actions"
-            onPress={() => Alert.alert("Conversation tools", undefined, [
-              {
-                text: "Rename conversation",
-                onPress: () => {
-                  setRenameTitle(thread?.title ?? "");
-                  setRenameVisible(true);
-                },
-              },
-              ...(userSettings?.demoRecordingExperimentEnabled ? [{
-                text: thread?.demoEnabled ? "Disable demo recording" : "Enable demo recording",
-                onPress: () => void toggleDemo(),
-              }] : []),
-              {
-                text: "Environment variables",
-                onPress: () => navigation.navigate("Environment", { projectId, title: project?.repoName }),
-              },
-              {
-                text: "Terminal",
-                onPress: () => navigation.navigate("Terminal", { projectId, threadId, title: thread?.title }),
-              },
-              { text: "Refresh Git status", onPress: () => void refetchGit() },
-              { text: "Cancel", style: "cancel" },
-            ])}
+            onPress={() => setToolsVisible(true)}
             style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
           >
             <MoreHorizontal color={theme.ink} size={19} />
@@ -456,6 +473,7 @@ export function ThreadScreen({ navigation, route }: Props) {
     if (
       activeStreamRunIdRef.current === runId
       || completedStreamRunIdRef.current === runId
+      || stoppedRunIdsRef.current?.has(runId)
     ) {
       return;
     }
@@ -466,7 +484,7 @@ export function ThreadScreen({ navigation, route }: Props) {
     activeStreamRunIdRef.current = runId;
     setStreamStatus("connecting");
 
-    const lastMessage = messages.at(-1);
+    const lastMessage = messagesRef.current.at(-1);
     const lastAssistant = lastMessage?.role === "assistant" && lastMessage.parts.length === 0
       ? lastMessage
       : undefined;
@@ -509,7 +527,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           setStreamStatus("idle");
         }
       });
-  }, [authenticatedWebFetch, messages, projectId, publishStreamingMessage, threadId]);
+  }, [authenticatedWebFetch, projectId, publishStreamingMessage, threadId]);
 
   useEffect(() => {
     if (thread?.isLive && thread.currentRunId) {
@@ -521,7 +539,74 @@ export function ThreadScreen({ navigation, route }: Props) {
       activeStreamRunIdRef.current = null;
       setStreamStatus("idle");
     }
-  }, [beginAgentStream, thread?.currentRunId, thread?.isLive]);
+  }, [
+    beginAgentStream,
+    thread?.currentRunId,
+    thread?.isLive,
+  ]);
+
+  useEffect(() => {
+    if (
+      thread?.title !== DEFAULT_THREAD_TITLE
+      || !firstTitleMessage
+      || titleGenerationAttempt >= MAX_THREAD_TITLE_ATTEMPTS
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void authenticatedWebFetch(
+        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "generate_title", message: firstTitleMessage }),
+          signal: controller.signal,
+        },
+      ).then(async (response) => {
+        if (controller.signal.aborted) return;
+        const body = await response.json().catch(() => null) as {
+          error?: string;
+          title?: string;
+        } | null;
+        if (response.ok) {
+          if (!body?.title) throw new Error("Thread title generation returned no title.");
+          return;
+        }
+        const retryable =
+          response.status === 408
+          || response.status === 425
+          || response.status === 429
+          || response.status >= 500;
+        throw Object.assign(
+          new Error(body?.error ?? `Could not generate the title (${response.status}).`),
+          { retryable },
+        );
+      }).catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        const retryable = shouldRetryThreadTitleError(cause);
+        setTitleGeneration({
+          threadId,
+          attempt: retryable
+            ? titleGenerationAttempt + 1
+            : MAX_THREAD_TITLE_ATTEMPTS,
+        });
+      });
+    }, threadTitleRetryDelayMs(titleGenerationAttempt));
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    authenticatedWebFetch,
+    firstTitleMessage,
+    projectId,
+    thread?.title,
+    threadId,
+    titleGenerationAttempt,
+  ]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
@@ -633,14 +718,6 @@ export function ThreadScreen({ navigation, route }: Props) {
       setPendingImages([]);
       setHandoffFiles([]);
       void AsyncStorage.removeItem(composerDraftKey);
-      if (thread.title === "New thread" && text) {
-        const token = await getAccessToken();
-        void webRequest(
-          `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}`,
-          token,
-          { method: "POST", body: JSON.stringify({ action: "generate_title", message: text }) },
-        ).catch(() => undefined);
-      }
     } catch (error) {
       if (isActive()) {
         setOptimisticMessage(null);
@@ -656,7 +733,14 @@ export function ThreadScreen({ navigation, route }: Props) {
     if (!runId || stopping) return;
     setStopping(true);
     setSendError(null);
+    stoppedRunIdsRef.current?.add(runId);
     streamAbortRef.current?.abort();
+    if (streamRenderTimerRef.current) {
+      clearTimeout(streamRenderTimerRef.current);
+      streamRenderTimerRef.current = null;
+    }
+    const finalAssistant = pendingStreamMessageRef.current ?? streamingAssistant;
+    if (finalAssistant) setStreamingAssistant(finalAssistant);
     try {
       const response = await authenticatedWebFetch(
         `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent/${encodeURIComponent(runId)}`,
@@ -664,10 +748,10 @@ export function ThreadScreen({ navigation, route }: Props) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            ...(streamingAssistant ? {
+            ...(finalAssistant ? {
               assistantMessage: {
-                id: streamingAssistant.messageId,
-                parts: streamingAssistant.parts,
+                id: finalAssistant.messageId,
+                parts: finalAssistant.parts,
               },
             } : {}),
           }),
@@ -675,6 +759,10 @@ export function ThreadScreen({ navigation, route }: Props) {
       );
       if (!response.ok) throw new Error("The active run could not be stopped.");
     } catch (error) {
+      stoppedRunIdsRef.current?.delete(runId);
+      if (thread?.isLive) {
+        beginAgentStream(runId);
+      }
       setSendError(error instanceof Error ? error.message : "The active run could not be stopped.");
     } finally {
       setStopping(false);
@@ -764,7 +852,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         </Text>
         {running ? (
           <View style={styles.contextStatus}>
-            <View style={[styles.contextDot, { backgroundColor: theme.accent }]} />
+            <View style={[styles.contextDot, { backgroundColor: theme.accentOn }]} />
             <Text style={[styles.contextStatusText, { color: theme.muted }]}>
               {streamStatus === "reconnecting"
                 ? "Reconnecting"
@@ -806,7 +894,7 @@ export function ThreadScreen({ navigation, route }: Props) {
       {displayMessages.length === 0 ? (
         <View style={styles.threadEmpty}>
           <View style={[styles.emptyBot, { backgroundColor: theme.accentSoft }]}>
-            <Bot color={theme.accent} size={28} />
+            <Bot color={theme.accentOn} size={28} />
           </View>
           <Text style={[styles.emptyTitle, { color: theme.ink }]}>Give AutoPR a task</Text>
           <Text style={[styles.emptyBody, { color: theme.muted }]}>
@@ -952,7 +1040,7 @@ export function ThreadScreen({ navigation, route }: Props) {
                       },
                     ]}
                   >
-                    <Video color={thread.demoEnabled ? theme.accent : theme.faint} size={14} />
+                    <Video color={thread.demoEnabled ? theme.accentOn : theme.faint} size={14} />
                     <Text style={[styles.demoText, { color: thread.demoEnabled ? theme.ink : theme.muted }]}>
                       Demo
                     </Text>
@@ -1086,6 +1174,106 @@ export function ThreadScreen({ navigation, route }: Props) {
         onClose={() => setShowControls(false)}
       />
       <Modal
+        animationType="slide"
+        onRequestClose={() => setToolsVisible(false)}
+        transparent
+        visible={toolsVisible}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityLabel="Close conversation tools"
+            onPress={() => setToolsVisible(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[styles.toolsCard, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
+            <View style={styles.toolsHeading}>
+              <Text style={[styles.toolsTitle, { color: theme.ink }]}>Conversation tools</Text>
+              <Text style={[styles.toolsBody, { color: theme.muted }]}>
+                Manage this thread and its workspace.
+              </Text>
+            </View>
+            {[
+              {
+                key: "rename",
+                label: "Rename conversation",
+                icon: Pencil,
+                onPress: () => {
+                  setToolsVisible(false);
+                  InteractionManager.runAfterInteractions(() => {
+                    setRenameTitle(thread?.title ?? "");
+                    setRenameVisible(true);
+                  });
+                },
+              },
+              ...(userSettings?.demoRecordingExperimentEnabled ? [{
+                key: "demo",
+                label: thread?.demoEnabled ? "Disable demo recording" : "Enable demo recording",
+                icon: Video,
+                onPress: () => {
+                  setToolsVisible(false);
+                  void toggleDemo();
+                },
+              }] : []),
+              {
+                key: "environment",
+                label: "Environment variables",
+                icon: Settings2,
+                onPress: () => {
+                  setToolsVisible(false);
+                  navigation.navigate("Environment", { projectId, title: project?.repoName });
+                },
+              },
+              {
+                key: "terminal",
+                label: "Open terminal",
+                icon: TerminalSquare,
+                onPress: () => {
+                  setToolsVisible(false);
+                  navigation.navigate("Terminal", { projectId, threadId, title: thread?.title });
+                },
+              },
+              {
+                key: "refresh",
+                label: "Refresh Git status",
+                icon: RefreshCw,
+                onPress: () => {
+                  setToolsVisible(false);
+                  void refetchGit();
+                },
+              },
+            ].map((action) => {
+              const Icon = action.icon;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  key={action.key}
+                  onPress={action.onPress}
+                  style={({ pressed }) => [
+                    styles.toolRow,
+                    {
+                      backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
+                      borderColor: theme.line,
+                    },
+                  ]}
+                >
+                  <View style={[styles.toolIcon, { backgroundColor: theme.accentSoft }]}>
+                    <Icon color={theme.accentOn} size={17} />
+                  </View>
+                  <Text style={[styles.toolLabel, { color: theme.ink }]}>{action.label}</Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setToolsVisible(false)}
+              style={[styles.toolsCancel, { backgroundColor: theme.surfaceSoft }]}
+            >
+              <Text style={[styles.toolsCancelText, { color: theme.muted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
         animationType="fade"
         onRequestClose={() => setRenameVisible(false)}
         transparent
@@ -1103,7 +1291,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           <View style={[styles.renameCard, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
             <View style={styles.renameHeading}>
               <View style={[styles.renameIcon, { backgroundColor: theme.accentSoft }]}>
-                <Pencil color={theme.accent} size={17} />
+                <Pencil color={theme.accentOn} size={17} />
               </View>
               <View style={styles.renameCopy}>
                 <Text style={[styles.renameTitle, { color: theme.ink }]}>Rename conversation</Text>
@@ -1267,6 +1455,15 @@ const styles = StyleSheet.create({
   gitAction: { minHeight: 29, borderRadius: 6, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
   gitActionText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.38)", padding: 14 },
+  toolsCard: { borderWidth: 1, borderRadius: 18, padding: 12, gap: 8, marginBottom: 6 },
+  toolsHeading: { paddingHorizontal: 4, paddingTop: 3, paddingBottom: 6 },
+  toolsTitle: { fontFamily: "Inter_700Bold", fontSize: 15 },
+  toolsBody: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 4 },
+  toolRow: { minHeight: 52, borderWidth: 1, borderRadius: 12, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  toolIcon: { width: 32, height: 32, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  toolLabel: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  toolsCancel: { minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  toolsCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
   renameCard: { borderWidth: 1, borderRadius: 18, padding: 15, gap: 14, marginBottom: 6 },
   renameHeading: { flexDirection: "row", alignItems: "center", gap: 10 },
   renameIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },

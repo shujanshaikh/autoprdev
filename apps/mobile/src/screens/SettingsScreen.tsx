@@ -60,7 +60,7 @@ export function SettingsScreen({ navigation }: Props) {
       token,
       { method: "POST" },
     ),
-    { onSuccess: () => void codex.refetch() },
+    { invalidateQueryKeys: [["codex", "status"]] },
   );
 
   const openWebFlow = async (returnTo: string) => {
@@ -79,7 +79,7 @@ export function SettingsScreen({ navigation }: Props) {
     <ScrollView contentContainerStyle={[styles.content, { backgroundColor: theme.screen }]}>
       <View style={[styles.profile, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <View style={[styles.avatar, { backgroundColor: theme.accentSoft }]}>
-          <UserRound color={theme.accent} size={23} />
+          <UserRound color={theme.accentOn} size={23} />
         </View>
         <View style={styles.profileCopy}>
           <Text style={[styles.profileName, { color: theme.ink }]}>{fullName || "AutoPR user"}</Text>

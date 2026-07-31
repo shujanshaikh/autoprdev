@@ -59,7 +59,7 @@ function LoadingScreen() {
   const theme = useAppTheme();
   return (
     <View style={[styles.center, { backgroundColor: theme.screen }]}>
-      <ActivityIndicator color={theme.accent} />
+      <ActivityIndicator color={theme.accentOn} />
     </View>
   );
 }

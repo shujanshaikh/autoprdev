@@ -183,12 +183,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setAuthError(null);
     await saveSession(null);
-    if (accessToken) {
-      await webRequest("/api/mobile/auth", accessToken, {
+    if (!accessToken) return;
+
+    let revokeError: string | null = null;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    try {
+      await webRequest<{ success: boolean }>("/api/mobile/auth", accessToken, {
         method: "POST",
         body: JSON.stringify({ action: "logout" }),
-      }).catch(() => undefined);
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      revokeError = cause instanceof Error
+        ? `Signed out on this device, but the server session could not be revoked: ${cause.message}`
+        : "Signed out on this device, but the server session could not be revoked.";
+    } finally {
+      clearTimeout(timeout);
     }
+    setAuthError(revokeError);
   }, []);
 
   const value = useMemo<AuthContextValue>(() => ({

@@ -124,7 +124,7 @@ export function AddProjectScreen({ navigation }: Props) {
               </Text>
             </View>
             {repository?.id === repo.id
-              ? <Check color={theme.accent} size={18} />
+              ? <Check color={theme.accentOn} size={18} />
               : <ChevronRight color={theme.faint} size={17} />}
           </Pressable>
         ))}
@@ -144,13 +144,13 @@ export function AddProjectScreen({ navigation }: Props) {
                   styles.branchChip,
                   {
                     backgroundColor: branch === entry.name ? theme.accentSoft : theme.surface,
-                    borderColor: branch === entry.name ? theme.accent : theme.line,
+                    borderColor: branch === entry.name ? theme.accentOn : theme.line,
                   },
                 ]}
               >
                 <Text style={[
                   styles.branchText,
-                  { color: branch === entry.name ? theme.accent : theme.ink },
+                  { color: branch === entry.name ? theme.accentOn : theme.ink },
                 ]}>{entry.name}</Text>
               </Pressable>
             ))}

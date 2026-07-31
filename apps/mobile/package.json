@@ -9,7 +9,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@autopr/backend": "workspace:*",
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.0",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^4.1.6"
   }
 }

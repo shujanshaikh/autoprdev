@@ -18,6 +18,8 @@ type Selection = {
   line: DiffLine;
 };
 
+const DIFF_LINE_PAGE_SIZE = 400;
+
 function fallbackPatch(entry: DiffEntry) {
   if (entry.patch) return entry.patch;
   const oldLines = (entry.oldContent ?? "").split("\n");
@@ -49,7 +51,13 @@ function DiffRow({
   const backgroundColor = selected
     ? theme.accentSoft
     : isAdd ? theme.addSoft : isDelete ? theme.deleteSoft : isHunk ? theme.surfaceSoft : theme.code;
-  const textColor = isAdd ? theme.add : isDelete ? theme.delete : isHunk ? theme.accent : theme.codeInk;
+  const textColor = isAdd
+    ? theme.add
+    : isDelete
+      ? theme.delete
+      : isHunk
+        ? theme.accentOn
+        : theme.codeInk;
   return (
     <Pressable
       onPress={onPress}
@@ -96,7 +104,13 @@ function FileReview({
 }) {
   const theme = useAppTheme();
   const parsed = useMemo(() => parseUnifiedDiff(fallbackPatch(entry)), [entry]);
-  const lines = parsed.flatMap((file) => file.lines);
+  const lines = useMemo(() => parsed.flatMap((file) => file.lines), [parsed]);
+  const [visibleLineCount, setVisibleLineCount] = useState(DIFF_LINE_PAGE_SIZE);
+  const visibleLines = useMemo(
+    () => lines.slice(0, visibleLineCount),
+    [lines, visibleLineCount],
+  );
+  const hiddenLineCount = Math.max(0, lines.length - visibleLines.length);
   return (
     <View style={[styles.file, { borderColor: theme.line, opacity: viewed ? 0.67 : 1 }]}>
       <View style={[styles.fileHeader, { backgroundColor: theme.surface }]}>
@@ -108,7 +122,7 @@ function FileReview({
         <View style={styles.fileCopy}>
           <Text numberOfLines={1} style={[styles.filePath, { color: theme.ink }]}>{entry.file}</Text>
           <Text style={[styles.fileMeta, { color: theme.muted }]}>
-            {entry.status} · turn change
+            {entry.status} · {lines.length} diff rows
           </Text>
         </View>
         <Text style={[styles.stat, { color: theme.add }]}>+{entry.additions}</Text>
@@ -135,7 +149,7 @@ function FileReview({
           style={{ backgroundColor: theme.code }}
         >
           <View style={[styles.diffBody, wrapped && styles.diffBodyWrapped]}>
-            {lines.length > 0 ? lines.map((line) => (
+            {visibleLines.length > 0 ? visibleLines.map((line) => (
               <DiffRow
                 key={line.id}
                 line={line}
@@ -146,6 +160,18 @@ function FileReview({
             )) : (
               <Text style={[styles.unavailable, { color: theme.codeMuted }]}>Diff content is unavailable.</Text>
             )}
+            {hiddenLineCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setVisibleLineCount((current) =>
+                  Math.min(lines.length, current + DIFF_LINE_PAGE_SIZE))}
+                style={[styles.showMore, { backgroundColor: theme.surfaceSoft, borderColor: theme.codeLine }]}
+              >
+                <Text style={[styles.showMoreText, { color: theme.ink }]}>
+                  Show next {Math.min(DIFF_LINE_PAGE_SIZE, hiddenLineCount)} lines · {hiddenLineCount} remaining
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         </ScrollView>
       ) : null}
@@ -264,7 +290,7 @@ export function ChangesScreen({ navigation, route }: Props) {
           </View>
         </View>
         <View style={[styles.progressTrack, { backgroundColor: theme.surfaceSoft }]}>
-          <View style={[styles.progressFill, { backgroundColor: theme.accent, width: `${progress * 100}%` }]} />
+          <View style={[styles.progressFill, { backgroundColor: theme.accentOn, width: `${progress * 100}%` }]} />
         </View>
         <View style={styles.summaryActions}>
           <Pressable
@@ -300,7 +326,7 @@ export function ChangesScreen({ navigation, route }: Props) {
               { backgroundColor: wrapped ? theme.accentSoft : theme.surfaceSoft },
             ]}
           >
-            <WrapText color={wrapped ? theme.accent : theme.muted} size={15} />
+            <WrapText color={wrapped ? theme.accentOn : theme.muted} size={15} />
             <Text style={[styles.summaryButtonText, { color: wrapped ? theme.ink : theme.muted }]}>Wrap</Text>
           </Pressable>
         </View>
@@ -385,6 +411,8 @@ const styles = StyleSheet.create({
   marker: { width: 20, textAlign: "center", fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 11 },
   code: { flex: 1, fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }), fontSize: 11, paddingRight: 20 },
   unavailable: { fontFamily: "Inter_400Regular", fontSize: 12, padding: 16 },
+  showMore: { minHeight: 42, borderTopWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  showMoreText: { fontFamily: "Inter_600SemiBold", fontSize: 10 },
   selectionBar: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
   selectionCopy: { flex: 1, minWidth: 0 },
   selectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 11 },

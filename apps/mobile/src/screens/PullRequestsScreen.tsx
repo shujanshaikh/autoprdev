@@ -77,6 +77,7 @@ export function PullRequestsScreen({ navigation, route }: Props) {
       },
     ),
     {
+      invalidateQueryKeys: [["pulls", projectId]],
       onSuccess: (result, pull) => navigation.navigate("Thread", {
         projectId,
         threadId: result.threadId,
@@ -119,6 +120,7 @@ export function PullRequestsScreen({ navigation, route }: Props) {
       );
     },
     {
+      invalidateQueryKeys: [["pulls", projectId]],
       onSuccess: (result) => navigation.navigate("Thread", {
         projectId,
         threadId: result.threadId,
@@ -162,7 +164,7 @@ export function PullRequestsScreen({ navigation, route }: Props) {
       <View style={[styles.openCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <View style={styles.openHeading}>
           <View style={[styles.openIcon, { backgroundColor: theme.accentSoft }]}>
-            <GitPullRequest color={theme.accent} size={18} />
+            <GitPullRequest color={theme.accentOn} size={18} />
           </View>
           <View style={styles.openCopy}>
             <Text style={[styles.openTitle, { color: theme.ink }]}>Open any GitHub PR</Text>
@@ -228,7 +230,7 @@ export function PullRequestsScreen({ navigation, route }: Props) {
                           styles.modeButton,
                           {
                             backgroundColor: selected ? theme.accentSoft : theme.surface,
-                            borderColor: selected ? theme.accent : theme.line,
+                            borderColor: selected ? theme.accentOn : theme.line,
                             opacity: value === "attach" && compatibleThreads.length === 0 ? 0.4 : 1,
                           },
                         ]}
@@ -250,12 +252,12 @@ export function PullRequestsScreen({ navigation, route }: Props) {
                           styles.threadChoice,
                           {
                             backgroundColor: selectedThreadId === thread.threadId ? theme.accentSoft : theme.surface,
-                            borderColor: selectedThreadId === thread.threadId ? theme.accent : theme.line,
+                            borderColor: selectedThreadId === thread.threadId ? theme.accentOn : theme.line,
                           },
                         ]}
                       >
                         <Text numberOfLines={1} style={[styles.threadChoiceText, { color: theme.ink }]}>{thread.title}</Text>
-                        {selectedThreadId === thread.threadId ? <Check color={theme.accent} size={15} /> : null}
+                        {selectedThreadId === thread.threadId ? <Check color={theme.accentOn} size={15} /> : null}
                       </Pressable>
                     ))}
                   </View>

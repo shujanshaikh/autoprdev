@@ -103,15 +103,15 @@ const AccessoryKeyButton = memo(function AccessoryKeyButton({
       styles.keyButton,
       {
         backgroundColor: active ? theme.accentSoft : theme.surfaceSoft,
-        borderColor: active ? theme.accent : theme.codeLine,
+        borderColor: active ? theme.accentOn : theme.codeLine,
         opacity: disabled ? 0.3 : pressed ? 0.62 : 1,
       },
     ],
-    [active, disabled, theme.accent, theme.accentSoft, theme.codeLine, theme.surfaceSoft],
+    [active, disabled, theme.accentOn, theme.accentSoft, theme.codeLine, theme.surfaceSoft],
   );
   const textStyle = useMemo(
-    () => [styles.keyText, { color: active ? theme.accent : theme.codeInk }],
-    [active, theme.accent, theme.codeInk],
+    () => [styles.keyText, { color: active ? theme.accentOn : theme.codeInk }],
+    [active, theme.accentOn, theme.codeInk],
   );
 
   return (
@@ -549,7 +549,7 @@ export function TerminalScreen({ route }: Props) {
             </Text>
           </View>
         </View>
-        {status === "connecting" ? <ActivityIndicator color={theme.accent} size="small" /> : null}
+        {status === "connecting" ? <ActivityIndicator color={theme.accentOn} size="small" /> : null}
         <Pressable
           accessibilityLabel={copied ? "Terminal output copied" : "Copy terminal output"}
           disabled={!output}
@@ -672,11 +672,11 @@ export function TerminalScreen({ route }: Props) {
             styles.commandField,
             {
               backgroundColor: theme.surfaceSoft,
-              borderColor: pendingCtrl ? theme.accent : theme.codeLine,
+              borderColor: pendingCtrl ? theme.accentOn : theme.codeLine,
             },
           ]}
         >
-          <Text style={[styles.promptMark, { color: pendingCtrl ? theme.accent : theme.success }]}>
+          <Text style={[styles.promptMark, { color: pendingCtrl ? theme.accentOn : theme.success }]}>
             {pendingCtrl ? "^" : "$"}
           </Text>
           <TextInput

@@ -44,7 +44,7 @@ const ProjectChoiceRow = memo(function ProjectChoiceRow({
       ]}
     >
       <View style={[styles.icon, { backgroundColor: theme.accentSoft }]}>
-        <FolderGit2 color={theme.accent} size={20} />
+        <FolderGit2 color={theme.accentOn} size={20} />
       </View>
       <View style={styles.copy}>
         <Text numberOfLines={1} style={[styles.repo, { color: theme.ink }]}>

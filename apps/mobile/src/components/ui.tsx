@@ -113,7 +113,7 @@ export function LoadingState({ label = "Loading…" }: { label?: string }) {
   const theme = useAppTheme();
   return (
     <View style={styles.loading}>
-      <ActivityIndicator color={theme.accent} />
+      <ActivityIndicator color={theme.accentOn} />
       <Text style={[styles.loadingText, { color: theme.muted }]}>{label}</Text>
     </View>
   );
@@ -146,7 +146,7 @@ export function StatusPill({
     success: [theme.successSoft, theme.success],
     warning: [theme.warningSoft, theme.warning],
     danger: [theme.dangerSoft, theme.danger],
-    accent: [theme.accentSoft, theme.accent],
+    accent: [theme.accentSoft, theme.ink],
   } as const;
   const [backgroundColor, color] = tones[tone];
   return (

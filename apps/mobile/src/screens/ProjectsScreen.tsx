@@ -67,7 +67,7 @@ const ProjectCard = memo(function ProjectCard({
       ]}
     >
       <View style={[styles.projectIcon, { backgroundColor: theme.accentSoft }]}>
-        <FolderGit2 color={theme.accent} size={18} />
+        <FolderGit2 color={theme.accentOn} size={18} />
       </View>
       <Text numberOfLines={1} style={[styles.projectName, { color: theme.ink }]}>
         {project.repoName}
@@ -235,7 +235,7 @@ export function ProjectsScreen({ navigation }: Props) {
     <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
       <View style={styles.header}>
         <View>
-          <Text style={[styles.kicker, { color: theme.accent }]}>AUTOPR</Text>
+          <Text style={[styles.kicker, { color: theme.accentOn }]}>AUTOPR</Text>
           <Text style={[styles.title, { color: theme.ink }]}>Threads</Text>
         </View>
         <View style={styles.headerActions}>

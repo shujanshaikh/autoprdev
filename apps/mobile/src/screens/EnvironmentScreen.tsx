@@ -80,7 +80,7 @@ export function EnvironmentScreen({ route }: Props) {
   return (
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { backgroundColor: theme.screen }]}>
       <View style={[styles.notice, { backgroundColor: theme.accentSoft }]}>
-        <KeyRound color={theme.accent} size={18} />
+        <KeyRound color={theme.accentOn} size={18} />
         <Text style={[styles.noticeText, { color: theme.muted }]}>
           Values are stored in the Daytona sandbox environment, not the AutoPR database.
         </Text>

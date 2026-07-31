@@ -60,7 +60,7 @@ const ModelRow = memo(function ModelRow({
         styles.modelRow,
         {
           backgroundColor: selected ? theme.accentSoft : pressed ? theme.surfaceSoft : theme.surface,
-          borderColor: selected ? theme.accent : theme.line,
+          borderColor: selected ? theme.accentOn : theme.line,
         },
       ]}
     >
@@ -155,7 +155,7 @@ export function ModelReasoningSheet({
                           styles.reasoningOption,
                           {
                             backgroundColor: selected ? theme.accentSoft : theme.surface,
-                            borderColor: selected ? theme.accent : theme.line,
+                            borderColor: selected ? theme.accentOn : theme.line,
                           },
                         ]}
                       >

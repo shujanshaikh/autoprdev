@@ -24,7 +24,18 @@ import {
   X,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Alert,
+  FlatList,
+  InteractionManager,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GlassSurface } from "../components/GlassSurface";
@@ -129,6 +140,11 @@ export function ProjectScreen({ navigation, route }: Props) {
   const [workspaceMode, setWorkspaceMode] = useState<"checkout" | "worktree">("checkout");
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [showPromptControls, setShowPromptControls] = useState(false);
+  const [threadMenuTarget, setThreadMenuTarget] = useState<{
+    threadId: string;
+    title: string;
+    archived: boolean;
+  } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const promptRef = useRef<TextInput>(null);
 
@@ -301,7 +317,7 @@ export function ProjectScreen({ navigation, route }: Props) {
         <View style={[styles.repoCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
           <View style={styles.repoTop}>
             <View style={[styles.repoMark, { backgroundColor: theme.accentSoft }]}>
-              <GitBranch color={theme.accent} size={22} />
+              <GitBranch color={theme.accentOn} size={22} />
             </View>
             <Pressable
               accessibilityRole="button"
@@ -436,7 +452,7 @@ export function ProjectScreen({ navigation, route }: Props) {
                 onPress={() => setDemoEnabled((value) => !value)}
                 style={[styles.taskOption, { backgroundColor: demoEnabled ? theme.accentSoft : theme.surfaceSoft }]}
               >
-                <Video color={demoEnabled ? theme.accent : theme.muted} size={14} />
+                <Video color={demoEnabled ? theme.accentOn : theme.muted} size={14} />
                 <Text style={[styles.taskOptionText, { color: demoEnabled ? theme.ink : theme.muted }]}>Demo</Text>
               </Pressable>
             ) : null}
@@ -466,7 +482,7 @@ export function ProjectScreen({ navigation, route }: Props) {
             { backgroundColor: pressed ? theme.surfaceSoft : theme.surface, borderColor: theme.line },
           ]}
         >
-          <GitPullRequest color={theme.accent} size={19} />
+          <GitPullRequest color={theme.accentOn} size={19} />
           <Text style={[styles.pullText, { color: theme.ink }]}>GitHub pull requests</Text>
           <ChevronRight color={theme.faint} size={18} />
         </Pressable>
@@ -574,30 +590,11 @@ export function ProjectScreen({ navigation, route }: Props) {
                   accessibilityLabel={`Conversation actions for ${thread.title}`}
                   onPress={(event) => {
                     event.stopPropagation();
-                    const archived = thread.settledOverride === "settled";
-                    Alert.alert(thread.title, undefined, [
-                      {
-                        text: "Open",
-                        onPress: () => navigation.navigate("Thread", {
-                          projectId,
-                          threadId: thread.threadId,
-                          title: thread.title,
-                        }),
-                      },
-                      {
-                        text: archived ? "Restore" : "Archive",
-                        onPress: () => void setSettlement({
-                          threadId: thread.threadId,
-                          settled: !archived,
-                        }),
-                      },
-                      {
-                        text: "Delete",
-                        style: "destructive",
-                        onPress: () => confirmRemoveThread(thread.threadId, thread.title),
-                      },
-                      { text: "Cancel", style: "cancel" },
-                    ]);
+                    setThreadMenuTarget({
+                      threadId: thread.threadId,
+                      title: thread.title,
+                      archived: thread.settledOverride === "settled",
+                    });
                   }}
                   style={styles.threadMenu}
                 >
@@ -629,6 +626,98 @@ export function ProjectScreen({ navigation, route }: Props) {
           )}
         />
       </ScrollView>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setThreadMenuTarget(null)}
+        transparent
+        visible={Boolean(threadMenuTarget)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityLabel="Close conversation actions"
+            onPress={() => setThreadMenuTarget(null)}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[styles.threadMenuCard, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
+            <View style={styles.threadMenuHeading}>
+              <Text numberOfLines={1} style={[styles.threadMenuTitle, { color: theme.ink }]}>
+                {threadMenuTarget?.title}
+              </Text>
+              <Text style={[styles.threadMenuBody, { color: theme.muted }]}>
+                Manage this conversation.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                if (!threadMenuTarget) return;
+                const target = threadMenuTarget;
+                setThreadMenuTarget(null);
+                navigation.navigate("Thread", {
+                  projectId,
+                  threadId: target.threadId,
+                  title: target.title,
+                });
+              }}
+              style={({ pressed }) => [
+                styles.threadMenuAction,
+                { backgroundColor: pressed ? theme.surfaceSoft : theme.surface, borderColor: theme.line },
+              ]}
+            >
+              <MessageSquare color={theme.ink} size={18} />
+              <Text style={[styles.threadMenuActionText, { color: theme.ink }]}>Open conversation</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                if (!threadMenuTarget) return;
+                const target = threadMenuTarget;
+                setThreadMenuTarget(null);
+                void setSettlement({
+                  threadId: target.threadId,
+                  settled: !target.archived,
+                }).catch((cause) => {
+                  setError(cause instanceof Error ? cause.message : "Could not update the conversation.");
+                });
+              }}
+              style={({ pressed }) => [
+                styles.threadMenuAction,
+                { backgroundColor: pressed ? theme.surfaceSoft : theme.surface, borderColor: theme.line },
+              ]}
+            >
+              <Archive color={theme.ink} size={18} />
+              <Text style={[styles.threadMenuActionText, { color: theme.ink }]}>
+                {threadMenuTarget?.archived ? "Restore conversation" : "Archive conversation"}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                if (!threadMenuTarget) return;
+                const target = threadMenuTarget;
+                setThreadMenuTarget(null);
+                InteractionManager.runAfterInteractions(() => {
+                  confirmRemoveThread(target.threadId, target.title);
+                });
+              }}
+              style={({ pressed }) => [
+                styles.threadMenuAction,
+                { backgroundColor: pressed ? theme.dangerSoft : theme.surface, borderColor: theme.line },
+              ]}
+            >
+              <Trash2 color={theme.danger} size={18} />
+              <Text style={[styles.threadMenuActionText, { color: theme.danger }]}>Delete conversation</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setThreadMenuTarget(null)}
+              style={[styles.threadMenuCancel, { backgroundColor: theme.surfaceSoft }]}
+            >
+              <Text style={[styles.threadMenuCancelText, { color: theme.muted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       <ModelReasoningSheet
         visible={showPromptControls}
         models={modelOptions}
@@ -713,4 +802,13 @@ const styles = StyleSheet.create({
   threadMeta: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 7 },
   threadMenu: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   liveDot: { width: 7, height: 7, borderRadius: 999 },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.38)", padding: 14 },
+  threadMenuCard: { borderWidth: 1, borderRadius: 18, padding: 12, gap: 8, marginBottom: 6 },
+  threadMenuHeading: { paddingHorizontal: 4, paddingTop: 3, paddingBottom: 6 },
+  threadMenuTitle: { fontFamily: "Inter_700Bold", fontSize: 15 },
+  threadMenuBody: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 4 },
+  threadMenuAction: { minHeight: 52, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 11 },
+  threadMenuActionText: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  threadMenuCancel: { minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  threadMenuCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
 });

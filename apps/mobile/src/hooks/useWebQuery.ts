@@ -35,11 +35,13 @@ export function useWebQuery<T>(
 
 export function useWebMutation<TData, TVariables>(
   mutation: (variables: TVariables, token: string) => Promise<TData>,
-  options: UseMutationOptions<TData, Error, TVariables> = {},
+  options: UseMutationOptions<TData, Error, TVariables> & {
+    invalidateQueryKeys?: ReadonlyArray<readonly unknown[]>;
+  } = {},
 ) {
   const { getAccessToken } = useAuth();
   const queryClient = useQueryClient();
-  const { onSuccess, ...mutationOptions } = options;
+  const { invalidateQueryKeys = [], onSuccess, ...mutationOptions } = options;
   return useMutation<TData, Error, TVariables>({
     mutationFn: async (variables) => {
       const token = await getAccessToken();
@@ -55,7 +57,9 @@ export function useWebMutation<TData, TVariables>(
     },
     ...mutationOptions,
     onSuccess: async (...args) => {
-      await queryClient.invalidateQueries();
+      await Promise.all(invalidateQueryKeys.map(async (queryKey) => {
+        await queryClient.invalidateQueries({ queryKey });
+      }));
       await onSuccess?.(...args);
     },
   });

@@ -24,9 +24,9 @@ export function SignInScreen() {
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.screen }]}>
       <View style={styles.content}>
         <View style={styles.welcome}>
-          <Text style={[styles.wordmark, { color: theme.ink }]}>AutoPR</Text>
+          <Text style={[styles.wordmark, { color: theme.ink }]}>Autopr</Text>
           <View style={styles.headline}>
-            <Text style={[styles.title, { color: theme.ink }]}>Welcome to AutoPR</Text>
+            <Text style={[styles.title, { color: theme.ink }]}>Welcome to Autopr</Text>
             <Text style={[styles.subtitle, { color: theme.muted }]}>
               Build, review, and ship from anywhere.
             </Text>

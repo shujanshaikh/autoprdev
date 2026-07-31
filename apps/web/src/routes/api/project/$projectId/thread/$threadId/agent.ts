@@ -67,11 +67,12 @@ function stripAutoprProviderMetadata(part: UIMessage["parts"][number]) {
   };
 }
 
-function acceptedAgentRunResponse(runId: string) {
+function acceptedAgentRunResponse(runId: string, assistantMessageId?: string) {
   return new Response(null, {
     status: 202,
     headers: {
       "x-trigger-run-id": runId,
+      ...(assistantMessageId ? { "x-assistant-message-id": assistantMessageId } : {}),
     },
   });
 }
@@ -149,7 +150,11 @@ async function POST(
 
       if (currentRunLookup.status === "found" && !currentRunLookup.run.isCompleted) {
         if (currentRunLookup.run.metadata?.userMessageId === parsed.data.message.id) {
-          return acceptedAgentRunResponse(thread.currentRunId);
+          const assistantMessageId = currentRunLookup.run.metadata?.assistantMessageId;
+          return acceptedAgentRunResponse(
+            thread.currentRunId,
+            typeof assistantMessageId === "string" ? assistantMessageId : undefined,
+          );
         }
 
         return Response.json(
@@ -255,7 +260,7 @@ async function POST(
       runId: run.id,
     });
 
-    return acceptedAgentRunResponse(run.id);
+    return acceptedAgentRunResponse(run.id, assistantMessageId);
   });
 }
 

@@ -44,13 +44,14 @@ import { ComposerSheet } from "../components/ComposerSheet";
 import { GlassSurface } from "../components/GlassSurface";
 import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
 import { OpenAIIcon } from "../components/OpenAIIcon";
-import { ThreadMessage } from "../components/thread/ThreadMessage";
+import { AgentWorkingIndicator, ThreadMessage } from "../components/thread/ThreadMessage";
 import { mobileConfig } from "../config";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadData } from "../hooks/useThreadData";
 import { useWebQuery } from "../hooks/useWebQuery";
 import { extractDiffEntries } from "../lib/diff";
 import { consumeAgentRunStream } from "../lib/agentStream";
+import { reconcileThreadMessages } from "../lib/threadStreamState";
 import { consumeInitialThreadSubmit } from "../lib/initialThreadSubmit";
 import {
   DEFAULT_THREAD_TITLE,
@@ -179,6 +180,8 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [optimisticMessage, setOptimisticMessage] = useState<OptimisticMessage | null>(null);
   const [streamingAssistant, setStreamingAssistant] = useState<StreamingAssistantMessage | null>(null);
   const [streamStatus, setStreamStatus] = useState<AgentStreamStatus>("idle");
+  const [activeRunStartedAt, setActiveRunStartedAt] = useState<number | undefined>();
+  const [streamReconnectTick, setStreamReconnectTick] = useState(0);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -192,14 +195,26 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const listRef = useRef<FlatList>(null);
   const autoSubmitRef = useRef(false);
+  const appIsActiveRef = useRef(
+    AppState.currentState !== "background" && AppState.currentState !== "inactive",
+  );
   const streamAbortRef = useRef<AbortController | null>(null);
   const activeStreamRunIdRef = useRef<string | null>(null);
   const completedStreamRunIdRef = useRef<string | null>(null);
+  const timedRunIdRef = useRef<string | null>(null);
+  const pendingRunStartedAtRef = useRef<number | null>(null);
+  const assistantMessageIdsByRunRef = useRef<Map<string, string> | null>(null);
+  assistantMessageIdsByRunRef.current ??= new Map<string, string>();
   const stoppedRunIdsRef = useRef<Set<string> | null>(null);
   stoppedRunIdsRef.current ??= new Set<string>();
   const messagesRef = useRef(messages);
   const pendingStreamMessageRef = useRef<StreamingAssistantMessage | null>(null);
   const streamRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const threadRunStateRef = useRef({
+    currentRunId: thread?.currentRunId,
+    isLive: Boolean(thread?.isLive),
+  });
   const selectedModel = useMemo(
     () => selectCodexModel(codex.data?.models, selectedModelChoice),
     [codex.data?.models, selectedModelChoice],
@@ -209,42 +224,41 @@ export function ThreadScreen({ navigation, route }: Props) {
     [codex.data?.models, selectedModel],
   );
   const reasoningOptions = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
-  const effectiveStreamingAssistant = useMemo(() => {
-    if (!streamingAssistant || thread?.isLive) return streamingAssistant;
-    const persisted = messages.find(
-      (message) =>
-        message.messageId === streamingAssistant.messageId
-        && message.role === "assistant",
-    );
-    return persisted ? null : streamingAssistant;
-  }, [messages, streamingAssistant, thread?.isLive]);
   const displayMessages = useMemo(() => {
-    let next = [...messages];
-    if (optimisticMessage && !next.some((message) => message.messageId === optimisticMessage.messageId)) {
-      next.push(optimisticMessage);
-    }
-    if (effectiveStreamingAssistant) {
-      const persistedIndex = next.findIndex(
-        (message) => message.messageId === effectiveStreamingAssistant.messageId,
-      );
-      if (persistedIndex >= 0) {
-        next[persistedIndex] = {
-          ...next[persistedIndex],
-          ...effectiveStreamingAssistant,
-        };
-      } else {
-        next.push(effectiveStreamingAssistant);
-      }
-    }
-    return next;
-  }, [effectiveStreamingAssistant, messages, optimisticMessage]);
+    return reconcileThreadMessages({
+      persistedMessages: messages,
+      optimisticUserMessage: optimisticMessage,
+      streamingAssistantMessage: streamingAssistant,
+      allowPersistedPartRemoval: !thread?.isLive,
+    });
+  }, [messages, optimisticMessage, streamingAssistant, thread?.isLive]);
   const firstTitleMessage = useMemo(() => firstUserMessageText(messages), [messages]);
   const [titleGeneration, setTitleGeneration] = useState({ threadId, attempt: 0 });
   const titleGenerationAttempt = titleGeneration.threadId === threadId
     ? titleGeneration.attempt
     : 0;
   const diffs = useMemo(() => extractDiffEntries(displayMessages), [displayMessages]);
-  const running = Boolean(thread?.isLive || sending || streamStatus !== "idle");
+  const currentRunCompletedLocally = Boolean(
+    thread?.currentRunId
+    && completedStreamRunIdRef.current === thread.currentRunId,
+  );
+  const currentRunStoppedLocally = Boolean(
+    thread?.currentRunId
+    && stoppedRunIdsRef.current?.has(thread.currentRunId),
+  );
+  const agentWorking = Boolean(
+    !stopping
+    && (
+      (sending && pendingRunStartedAtRef.current !== null)
+      || streamStatus !== "idle"
+      || (thread?.isLive && !currentRunCompletedLocally && !currentRunStoppedLocally)
+    ),
+  );
+  const running = Boolean(thread?.isLive || sending || stopping || streamStatus !== "idle");
+  const activeRunId = thread?.currentRunId ?? activeStreamRunIdRef.current;
+  const canStop = Boolean(activeRunId && agentWorking);
+  const lastDisplayMessage = displayMessages.at(-1);
+  const awaitingAssistant = agentWorking && lastDisplayMessage?.role !== "assistant";
   const diffDraftKey = `autopr.mobile.diff-draft:${threadId}`;
   const composerDraftKey = `autopr.mobile.composer-draft:${threadId}`;
   const composerAttachments = useMemo<ComposerAttachment[]>(() => [
@@ -301,11 +315,12 @@ export function ThreadScreen({ navigation, route }: Props) {
     <ThreadMessage
       message={item}
       isLast={index === displayMessages.length - 1}
-      isLive={Boolean(thread?.isLive)}
+      isLive={agentWorking}
+      runStartedAt={activeRunStartedAt}
       projectId={projectId}
       threadId={threadId}
     />
-  ), [displayMessages.length, projectId, thread?.isLive, threadId]);
+  ), [activeRunStartedAt, agentWorking, displayMessages.length, projectId, threadId]);
 
   const updateLatestPosition = useCallback((nativeEvent: {
     contentSize: { height: number };
@@ -322,10 +337,20 @@ export function ThreadScreen({ navigation, route }: Props) {
     messagesRef.current = messages;
   }, [messages]);
 
+  useLayoutEffect(() => {
+    threadRunStateRef.current = {
+      currentRunId: thread?.currentRunId,
+      isLive: Boolean(thread?.isLive),
+    };
+  }, [thread?.currentRunId, thread?.isLive]);
+
   useEffect(() => {
     const currentRunId = thread?.currentRunId;
     for (const runId of stoppedRunIdsRef.current ?? []) {
       if (runId !== currentRunId) stoppedRunIdsRef.current?.delete(runId);
+    }
+    for (const runId of assistantMessageIdsByRunRef.current?.keys() ?? []) {
+      if (runId !== currentRunId) assistantMessageIdsByRunRef.current?.delete(runId);
     }
   }, [thread?.currentRunId]);
 
@@ -452,7 +477,11 @@ export function ThreadScreen({ navigation, route }: Props) {
     }, 48);
   }, []);
 
-  const beginAgentStream = useCallback((runId: string) => {
+  const beginAgentStream = useCallback((
+    runId: string,
+    startedAt?: number,
+    assistantMessageId?: string,
+  ) => {
     if (
       activeStreamRunIdRef.current === runId
       || completedStreamRunIdRef.current === runId
@@ -462,20 +491,37 @@ export function ThreadScreen({ navigation, route }: Props) {
     }
 
     streamAbortRef.current?.abort();
+    if (streamReconnectTimerRef.current) {
+      clearTimeout(streamReconnectTimerRef.current);
+      streamReconnectTimerRef.current = null;
+    }
     const controller = new AbortController();
     streamAbortRef.current = controller;
     activeStreamRunIdRef.current = runId;
+    if (timedRunIdRef.current !== runId) {
+      timedRunIdRef.current = runId;
+      setActiveRunStartedAt(pendingRunStartedAtRef.current ?? startedAt ?? Date.now());
+      pendingRunStartedAtRef.current = null;
+    }
+    if (assistantMessageId) {
+      assistantMessageIdsByRunRef.current?.set(runId, assistantMessageId);
+    }
     setStreamStatus("connecting");
 
     const lastMessage = messagesRef.current.at(-1);
-    const lastAssistant = lastMessage?.role === "assistant" && lastMessage.parts.length === 0
+    const lastAssistant = lastMessage?.role === "assistant"
       ? lastMessage
       : undefined;
-    const initialMessage = lastAssistant
+    const resolvedAssistantMessageId = assistantMessageId
+      ?? assistantMessageIdsByRunRef.current?.get(runId)
+      ?? lastAssistant?.messageId;
+    const initialMessage = resolvedAssistantMessageId
       ? {
-          id: lastAssistant.messageId,
+          id: resolvedAssistantMessageId,
           role: "assistant" as const,
-          parts: lastAssistant.parts as UIMessage["parts"],
+          // Indexed reconnects replay from chunk zero. Seed only the stable ID
+          // so persisted partial parts are not duplicated by replayed deltas.
+          parts: [] as UIMessage["parts"],
         }
       : undefined;
 
@@ -485,11 +531,16 @@ export function ThreadScreen({ navigation, route }: Props) {
       fetchAuthenticated: authenticatedWebFetch,
       signal: controller.signal,
       initialMessage,
-      onStatus: setStreamStatus,
+      onStatus: (status) => {
+        if (streamAbortRef.current === controller && !controller.signal.aborted) {
+          setStreamStatus(status);
+        }
+      },
       onMessage: (message) => {
-        if (controller.signal.aborted) return;
+        if (streamAbortRef.current !== controller || controller.signal.aborted) return;
+        setSendError(null);
         publishStreamingMessage({
-          messageId: message.id || lastAssistant?.messageId || `stream:${runId}`,
+          messageId: message.id || resolvedAssistantMessageId || `stream:${runId}`,
           role: "assistant",
           parts: message.parts,
           createdAt: Date.now(),
@@ -497,35 +548,73 @@ export function ThreadScreen({ navigation, route }: Props) {
       },
     })
       .then(() => {
-        if (!controller.signal.aborted) completedStreamRunIdRef.current = runId;
+        if (streamAbortRef.current !== controller || controller.signal.aborted) return;
+        if (streamRenderTimerRef.current) {
+          clearTimeout(streamRenderTimerRef.current);
+          streamRenderTimerRef.current = null;
+        }
+        const latest = pendingStreamMessageRef.current;
+        if (latest) setStreamingAssistant(latest);
+        completedStreamRunIdRef.current = runId;
       })
       .catch((error) => {
-        if (!controller.signal.aborted) {
+        if (streamAbortRef.current === controller && !controller.signal.aborted) {
           setSendError(error instanceof Error ? error.message : "The live response disconnected.");
         }
       })
       .finally(() => {
-        if (activeStreamRunIdRef.current === runId) {
+        if (streamAbortRef.current === controller && activeStreamRunIdRef.current === runId) {
+          const shouldReconnect = (
+            !controller.signal.aborted
+            && completedStreamRunIdRef.current !== runId
+            && !stoppedRunIdsRef.current?.has(runId)
+            && appIsActiveRef.current
+            && threadRunStateRef.current.isLive
+            && threadRunStateRef.current.currentRunId === runId
+          );
+          streamAbortRef.current = null;
           activeStreamRunIdRef.current = null;
           setStreamStatus("idle");
+          if (shouldReconnect) {
+            streamReconnectTimerRef.current = setTimeout(() => {
+              streamReconnectTimerRef.current = null;
+              setStreamReconnectTick((value) => value + 1);
+            }, 1_000);
+          }
         }
       });
   }, [authenticatedWebFetch, projectId, publishStreamingMessage, threadId]);
 
   useEffect(() => {
     if (thread?.isLive && thread.currentRunId) {
-      beginAgentStream(thread.currentRunId);
+      if (!appIsActiveRef.current) return;
+      if (streamReconnectTimerRef.current) return;
+      beginAgentStream(thread.currentRunId, thread.updatedAt);
       return;
     }
     if (!thread?.isLive) {
+      // The POST response can arrive just before the Convex subscription marks
+      // the run live. Keep that locally-started stream attached during the gap.
+      if (activeStreamRunIdRef.current) return;
       streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
       activeStreamRunIdRef.current = null;
       setStreamStatus("idle");
+      if (!sending && !stopping) {
+        timedRunIdRef.current = null;
+        pendingRunStartedAtRef.current = null;
+        setActiveRunStartedAt(undefined);
+      }
     }
   }, [
     beginAgentStream,
+    sending,
+    stopping,
+    streamReconnectTick,
+    streamStatus,
     thread?.currentRunId,
     thread?.isLive,
+    thread?.updatedAt,
   ]);
 
   useEffect(() => {
@@ -593,16 +682,26 @@ export function ThreadScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active" && thread?.isLive && thread.currentRunId) {
-        beginAgentStream(thread.currentRunId);
+      const isActive = state === "active";
+      appIsActiveRef.current = isActive;
+      if (isActive && thread?.isLive && thread.currentRunId) {
+        setStreamReconnectTick((value) => value + 1);
+        return;
+      }
+      if (!isActive && activeStreamRunIdRef.current) {
+        streamAbortRef.current?.abort();
+        streamAbortRef.current = null;
+        activeStreamRunIdRef.current = null;
+        setStreamStatus("idle");
       }
     });
     return () => subscription.remove();
-  }, [beginAgentStream, thread?.currentRunId, thread?.isLive]);
+  }, [thread?.currentRunId, thread?.isLive]);
 
   useEffect(() => () => {
     streamAbortRef.current?.abort();
     if (streamRenderTimerRef.current) clearTimeout(streamRenderTimerRef.current);
+    if (streamReconnectTimerRef.current) clearTimeout(streamReconnectTimerRef.current);
   }, []);
 
   const chooseImage = async () => {
@@ -674,6 +773,9 @@ export function ThreadScreen({ navigation, route }: Props) {
       if (!isActive()) return;
 
       const messageId = id();
+      const runStartedAt = Date.now();
+      pendingRunStartedAtRef.current = runStartedAt;
+      setActiveRunStartedAt(runStartedAt);
       setOptimisticMessage({ messageId, role: "user", parts, createdAt: Date.now() });
       const response = await authenticatedWebFetch(
         `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/agent`,
@@ -695,7 +797,8 @@ export function ThreadScreen({ navigation, route }: Props) {
       }
       const runId = response.headers.get("x-trigger-run-id");
       if (!runId) throw new Error("The agent started without a live response ID.");
-      beginAgentStream(runId);
+      const assistantMessageId = response.headers.get("x-assistant-message-id") ?? undefined;
+      beginAgentStream(runId, runStartedAt, assistantMessageId);
       if (!isActive()) return;
       setPrompt("");
       setPendingImages([]);
@@ -703,6 +806,9 @@ export function ThreadScreen({ navigation, route }: Props) {
       void AsyncStorage.removeItem(composerDraftKey);
     } catch (error) {
       if (isActive()) {
+        pendingRunStartedAtRef.current = null;
+        timedRunIdRef.current = null;
+        setActiveRunStartedAt(undefined);
         setOptimisticMessage(null);
         setSendError(error instanceof Error ? error.message : "Could not send the message.");
       }
@@ -718,6 +824,15 @@ export function ThreadScreen({ navigation, route }: Props) {
     setSendError(null);
     stoppedRunIdsRef.current?.add(runId);
     streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    if (activeStreamRunIdRef.current === runId) {
+      activeStreamRunIdRef.current = null;
+      setStreamStatus("idle");
+    }
+    if (streamReconnectTimerRef.current) {
+      clearTimeout(streamReconnectTimerRef.current);
+      streamReconnectTimerRef.current = null;
+    }
     if (streamRenderTimerRef.current) {
       clearTimeout(streamRenderTimerRef.current);
       streamRenderTimerRef.current = null;
@@ -744,7 +859,7 @@ export function ThreadScreen({ navigation, route }: Props) {
     } catch (error) {
       stoppedRunIdsRef.current?.delete(runId);
       if (thread?.isLive) {
-        beginAgentStream(runId);
+        beginAgentStream(runId, activeRunStartedAt);
       }
       setSendError(error instanceof Error ? error.message : "The active run could not be stopped.");
     } finally {
@@ -854,6 +969,9 @@ export function ThreadScreen({ navigation, route }: Props) {
             onMomentumScrollEnd={({ nativeEvent }) => updateLatestPosition(nativeEvent)}
             onScrollEndDrag={({ nativeEvent }) => updateLatestPosition(nativeEvent)}
             renderItem={renderMessage}
+            ListFooterComponent={awaitingAssistant
+              ? <AgentWorkingIndicator startedAt={activeRunStartedAt} />
+              : null}
           />
           {awayFromLatest ? (
             <Pressable
@@ -921,7 +1039,7 @@ export function ThreadScreen({ navigation, route }: Props) {
             </Text>
           </Pressable>
           <View style={styles.composerActions}>
-            {running ? (
+            {canStop || stopping ? (
               <Pressable
                 accessibilityLabel="Stop agent"
                 disabled={stopping}
@@ -933,13 +1051,13 @@ export function ThreadScreen({ navigation, route }: Props) {
             ) : (
               <Pressable
                 accessibilityLabel="Send message"
-                disabled={!hasComposerContent || !canChat || demoSaving}
+                disabled={!hasComposerContent || !canChat || demoSaving || running}
                 onPress={() => void send()}
                 style={[
                   styles.sendButton,
                   {
                     backgroundColor: theme.accent,
-                    opacity: !hasComposerContent || !canChat || demoSaving ? 0.35 : 1,
+                    opacity: !hasComposerContent || !canChat || demoSaving || running ? 0.35 : 1,
                   },
                 ]}
               >
@@ -948,22 +1066,6 @@ export function ThreadScreen({ navigation, route }: Props) {
             )}
           </View>
         </GlassSurface>
-        {running ? (
-          <View style={styles.connectionRow}>
-            <View style={[
-              styles.connectionDot,
-              { backgroundColor: streamStatus === "reconnecting" ? theme.warning : theme.success },
-            ]} />
-            <Text style={[styles.connectionText, { color: theme.faint }]}>
-              {streamStatus === "reconnecting"
-                ? "Reconnecting to live response…"
-                : streamStatus === "connecting"
-                  ? "Connecting to live response…"
-                  : sending ? "Starting agent…" : "Live response connected"}
-            </Text>
-          </View>
-        ) : null}
-
         {latestGitOperation?.status === "running" || latestGitOperation?.status === "failed" ? (
           <View style={[
             styles.gitOperation,
@@ -1270,9 +1372,6 @@ const styles = StyleSheet.create({
   composerActions: { flexDirection: "row", alignItems: "center", gap: 6 },
   sheetAttachmentList: { flexGrow: 0 },
   sheetAttachments: { gap: 10, paddingHorizontal: 18, paddingBottom: 10 },
-  connectionRow: { minHeight: 22, paddingHorizontal: 7, paddingTop: 4, flexDirection: "row", alignItems: "center", gap: 6 },
-  connectionDot: { width: 6, height: 6, borderRadius: 3 },
-  connectionText: { fontFamily: "DMSans_500Medium", fontSize: 9 },
   modelButton: {
     minHeight: 38,
     borderRadius: 19,

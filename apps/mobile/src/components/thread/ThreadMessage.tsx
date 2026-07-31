@@ -9,7 +9,7 @@ import {
   Play,
   Video,
 } from "lucide-react-native";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -55,11 +55,11 @@ function timeLabel(timestamp?: number) {
   return messageTimeFormatter.format(timestamp);
 }
 
-type RunPresentation = { duration: string; metrics: string[] };
+type RunPresentation = { durationSeconds?: number; metrics: string[] };
 
 function runPresentation(metadata: unknown): RunPresentation {
   if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
-    return { duration: "", metrics: [] };
+    return { metrics: [] };
   }
   const value = metadata as Record<string, unknown>;
   const usage = typeof value.usage === "object" && value.usage !== null && !Array.isArray(value.usage)
@@ -82,13 +82,46 @@ function runPresentation(metadata: unknown): RunPresentation {
     metrics.push(totalCost < 0.0001 ? "<$0.0001" : `$${totalCost.toFixed(totalCost < 1 ? 4 : 2)}`);
   }
   return {
-    duration: duration === undefined
-      ? ""
-      : duration < 60
-        ? `${Math.max(1, Math.round(duration))}s`
-        : `${Math.floor(duration / 60)}m ${Math.round(duration) % 60}s`,
+    durationSeconds: duration,
     metrics,
   };
+}
+
+function formatRunDuration(durationSeconds: number) {
+  const rounded = Math.max(0, Math.round(durationSeconds));
+  return rounded < 60
+    ? `${rounded}s`
+    : `${Math.floor(rounded / 60)}m ${rounded % 60}s`;
+}
+
+function useElapsedSeconds(startedAt: number | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (startedAt === undefined) return;
+    const interval = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+
+  return startedAt === undefined
+    ? undefined
+    : Math.max(0, Math.floor((now - startedAt) / 1_000));
+}
+
+export function AgentWorkingIndicator({ startedAt }: { startedAt?: number }) {
+  const theme = useAppTheme();
+  const elapsedSeconds = useElapsedSeconds(startedAt);
+
+  return (
+    <View accessibilityLiveRegion="polite" style={styles.workingPlaceholder}>
+      <ActivityIndicator color={theme.muted} size="small" />
+      <Text style={[styles.workTitle, { color: theme.muted }]}>
+        {elapsedSeconds === undefined
+          ? "Working"
+          : `Working for ${formatRunDuration(elapsedSeconds)}`}
+      </Text>
+    </View>
+  );
 }
 
 function inlineMarkdown(value: string, color: string, muted: string): ReactNode[] {
@@ -305,38 +338,64 @@ function WorkLog({
   parts,
   live,
   run,
+  startedAt,
 }: {
   parts: MessagePartView[];
   live: boolean;
   run: RunPresentation;
+  startedAt?: number;
 }) {
   const theme = useAppTheme();
   const activities = parts.filter((part) => part.kind === "reasoning" || part.kind === "tool");
   const [expanded, setExpanded] = useState(live);
-  if (activities.length === 0) return null;
+  const elapsedSeconds = useElapsedSeconds(live ? startedAt : undefined);
+  const lastElapsedSecondsRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (elapsedSeconds !== undefined) {
+      lastElapsedSecondsRef.current = elapsedSeconds;
+    }
+  }, [elapsedSeconds]);
+  const durationSeconds = live
+    ? elapsedSeconds
+    : run.durationSeconds ?? lastElapsedSecondsRef.current;
+
+  if (activities.length === 0 && durationSeconds === undefined && !live) return null;
+
+  const title = durationSeconds === undefined
+    ? live ? "Working" : "Worked"
+    : `${live ? "Working" : "Worked"} for ${formatRunDuration(durationSeconds)}`;
+  const headerContent = (
+    <>
+      {activities.length > 0
+        ? expanded
+          ? <ChevronDown color={theme.faint} size={14} />
+          : <ChevronRight color={theme.faint} size={14} />
+        : null}
+      <Text style={[styles.workTitle, { color: theme.muted }]}>{title}</Text>
+      {run.metrics.map((metric) => (
+        <View key={metric} style={styles.workMetricGroup}>
+          <View style={[styles.workMetricDivider, { backgroundColor: theme.line }]} />
+          <Text style={[styles.workMetric, { color: theme.faint }]}>{metric}</Text>
+        </View>
+      ))}
+    </>
+  );
 
   return (
     <View style={styles.workLog}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        onPress={() => setExpanded((value) => !value)}
-        style={styles.workHeader}
-      >
-        {expanded
-          ? <ChevronDown color={theme.faint} size={14} />
-          : <ChevronRight color={theme.faint} size={14} />}
-        <Text style={[styles.workTitle, { color: theme.muted }]}>
-          {live ? "Working" : run.duration ? `Worked for ${run.duration}` : "Worked"}
-        </Text>
-        {run.metrics.map((metric) => (
-          <View key={metric} style={styles.workMetricGroup}>
-            <View style={[styles.workMetricDivider, { backgroundColor: theme.line }]} />
-            <Text style={[styles.workMetric, { color: theme.faint }]}>{metric}</Text>
-          </View>
-        ))}
-      </Pressable>
-      {expanded ? (
+      {activities.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          onPress={() => setExpanded((value) => !value)}
+          style={styles.workHeader}
+        >
+          {headerContent}
+        </Pressable>
+      ) : (
+        <View style={styles.workHeader}>{headerContent}</View>
+      )}
+      {activities.length > 0 && expanded ? (
         <View style={[styles.workItems, { borderLeftColor: theme.line }]}>
           {keyed(activities, (part) => part.kind === "reasoning"
             ? `reasoning:${part.text}`
@@ -435,12 +494,14 @@ export function ThreadMessage({
   message,
   isLast,
   isLive,
+  runStartedAt,
   projectId,
   threadId,
 }: {
   message: ThreadMessageValue;
   isLast: boolean;
   isLive: boolean;
+  runStartedAt?: number;
   projectId: string;
   threadId: string;
 }) {
@@ -499,7 +560,12 @@ export function ThreadMessage({
 
   return (
     <View style={styles.assistantMessage}>
-      <WorkLog run={assistantRun} parts={parts} live={isLast && isLive} />
+      <WorkLog
+        run={assistantRun}
+        parts={parts}
+        live={isLast && isLive}
+        startedAt={isLast && isLive ? runStartedAt : undefined}
+      />
       {keyed(textParts, (part) => part.kind === "text" ? part.text : part.kind).map(({ item: part, key }) => part.kind === "text"
         ? <RichMessageText key={`${message.messageId}:text:${key}`} value={part.text} />
         : null)}
@@ -579,6 +645,7 @@ const styles = StyleSheet.create({
   timestamp: { fontFamily: "DMSans_500Medium", fontSize: 11 },
   copyButton: { width: 28, height: 26, alignItems: "center", justifyContent: "center" },
   workLog: { marginBottom: 8 },
+  workingPlaceholder: { minHeight: 42, paddingHorizontal: 3, flexDirection: "row", alignItems: "center", gap: 7 },
   workHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", columnGap: 7, flexWrap: "wrap" },
   workTitle: { fontFamily: "DMSans_500Medium", fontSize: 12, fontVariant: ["tabular-nums"] },
   workMetricGroup: { flexDirection: "row", alignItems: "center", gap: 7 },

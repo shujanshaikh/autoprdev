@@ -45,32 +45,27 @@ async function wait(delay: number, signal: AbortSignal) {
   });
 }
 
-function validatedChunkStream(
-  responseBody: ReadableStream<Uint8Array>,
-  onChunk: (chunk: UIMessageChunk) => void,
-) {
-  const parsed = parseJsonEventStream({
-    stream: responseBody,
-    schema: uiMessageChunkSchema,
-  });
-  const reader = parsed.getReader();
+function iterableToReadableStream<T>(iterable: AsyncIterable<T>, signal: AbortSignal) {
+  const iterator = iterable[Symbol.asyncIterator]();
 
-  return new ReadableStream<UIMessageChunk>({
+  return new ReadableStream<T>({
     async pull(controller) {
-      const result = await reader.read();
-      if (result.done) {
+      if (signal.aborted) {
+        await iterator.return?.();
         controller.close();
         return;
       }
-      if (!result.value.success) {
-        controller.error(result.value.error);
-        return;
+
+      try {
+        const result = await iterator.next();
+        if (result.done) controller.close();
+        else controller.enqueue(result.value);
+      } catch (error) {
+        controller.error(error);
       }
-      onChunk(result.value.value);
-      controller.enqueue(result.value.value);
     },
     async cancel() {
-      await reader.cancel();
+      await iterator.return?.();
     },
   });
 }
@@ -93,55 +88,84 @@ export async function consumeAgentRunStream({
   let finished = false;
   let consecutiveErrors = 0;
 
-  while (!finished && !signal.aborted) {
-    onStatus(chunkIndex === 0 && consecutiveErrors === 0 ? "connecting" : "reconnecting");
-    try {
-      const separator = streamPath.includes("?") ? "&" : "?";
-      const response = await fetchAuthenticated(
-        `${streamPath}${separator}startIndex=${chunkIndex}`,
-        { method: "GET", headers: { Accept: "text/event-stream" }, signal },
-      );
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        throw new AgentStreamResponseError(
-          response.status,
-          `Could not read the agent response (${response.status})${body ? `: ${body}` : ""}`,
+  async function* chunks(): AsyncGenerator<UIMessageChunk> {
+    while (!finished && !signal.aborted) {
+      onStatus(chunkIndex === 0 && consecutiveErrors === 0 ? "connecting" : "reconnecting");
+      try {
+        const separator = streamPath.includes("?") ? "&" : "?";
+        const response = await fetchAuthenticated(
+          `${streamPath}${separator}startIndex=${chunkIndex}`,
+          { method: "GET", headers: { Accept: "text/event-stream" }, signal },
         );
-      }
-      if (!response.body) throw new Error("The agent response stream was empty.");
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new AgentStreamResponseError(
+            response.status,
+            `Could not read the agent response (${response.status})${body ? `: ${body}` : ""}`,
+          );
+        }
+        if (!response.body) throw new Error("The agent response stream was empty.");
 
-      let receivedChunk = false;
-      const chunks = validatedChunkStream(response.body, (chunk) => {
-        receivedChunk = true;
-        chunkIndex += 1;
-        if (chunk.type === "finish") finished = true;
-      });
-      onStatus("streaming");
-      for await (const message of readUIMessageStream({
-        message: latestMessage,
-        stream: chunks,
-        terminateOnError: true,
-      })) {
-        latestMessage = message;
-        onMessage(message);
+        let receivedChunk = false;
+        const parsed = parseJsonEventStream({
+          stream: response.body,
+          schema: uiMessageChunkSchema,
+        });
+        const reader = parsed.getReader();
+        onStatus("streaming");
+        try {
+          while (true) {
+            const result = await reader.read();
+            if (result.done) break;
+            if (!result.value.success) throw result.value.error;
+
+            receivedChunk = true;
+            // A disconnect after useful output is a new interruption, not
+            // another strike against a run that is still making progress.
+            consecutiveErrors = 0;
+            chunkIndex += 1;
+            if (result.value.value.type === "finish") finished = true;
+            yield result.value.value;
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        consecutiveErrors = 0;
+        if (!receivedChunk && !finished) await wait(250, signal);
+      } catch (error) {
+        if (signal.aborted) return;
+        if (error instanceof AgentStreamResponseError && !isRetryableStatus(error.status)) {
+          throw error;
+        }
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 5) {
+          throw new Error(
+            error instanceof Error
+              ? `The live response disconnected: ${error.message}`
+              : "The live response disconnected.",
+          );
+        }
+        await wait(Math.min(250 * 2 ** (consecutiveErrors - 1), 2_000), signal);
       }
-      consecutiveErrors = 0;
-      if (!receivedChunk && !finished) await wait(250, signal);
-    } catch (error) {
-      if (signal.aborted) return;
-      if (error instanceof AgentStreamResponseError && !isRetryableStatus(error.status)) {
-        throw error;
-      }
-      consecutiveErrors += 1;
-      if (consecutiveErrors >= 5) {
-        throw new Error(
-          error instanceof Error
-            ? `The live response disconnected: ${error.message}`
-            : "The live response disconnected.",
-        );
-      }
-      await wait(Math.min(250 * 2 ** (consecutiveErrors - 1), 2_000), signal);
     }
+  }
+
+  const messageStream = readUIMessageStream({
+    message: latestMessage,
+    stream: iterableToReadableStream(chunks(), signal),
+    terminateOnError: true,
+  });
+  const reader = messageStream.getReader();
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      latestMessage = result.value;
+      onMessage(result.value);
+    }
+  } finally {
+    reader.releaseLock();
   }
 
   return latestMessage;

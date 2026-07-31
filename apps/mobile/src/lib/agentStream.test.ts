@@ -1,4 +1,4 @@
-import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
+import { createUIMessageStreamResponse, type UIMessage, type UIMessageChunk } from "ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { consumeAgentRunStream } from "./agentStream";
@@ -9,6 +9,22 @@ function chunkResponse(...chunks: UIMessageChunk[]) {
       start(controller) {
         for (const chunk of chunks) controller.enqueue(chunk);
         controller.close();
+      },
+    }),
+  });
+}
+
+function chunkResponseThenError(chunk: UIMessageChunk) {
+  let emitted = false;
+  return createUIMessageStreamResponse({
+    stream: new ReadableStream<UIMessageChunk>({
+      pull(controller) {
+        if (!emitted) {
+          emitted = true;
+          controller.enqueue(chunk);
+          return;
+        }
+        controller.error(new Error("connection changed"));
       },
     }),
   });
@@ -50,5 +66,62 @@ describe("consumeAgentRunStream", () => {
       onStatus: () => undefined,
     })).rejects.toThrow("Could not read the agent response (401)");
     expect(fetchAuthenticated).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues a stream that omits start by using the canonical assistant message", async () => {
+    const fetchAuthenticated = vi.fn()
+      .mockResolvedValueOnce(chunkResponse(
+        { type: "text-start", id: "text-1" },
+        { type: "text-delta", id: "text-1", delta: "Smooth" },
+      ))
+      .mockResolvedValueOnce(chunkResponse(
+        { type: "text-end", id: "text-1" },
+        { type: "finish" },
+      ));
+    const messages: UIMessage[] = [];
+
+    const result = await consumeAgentRunStream({
+      runId: "run-without-start",
+      streamPath: "/agent/run-without-start/stream",
+      fetchAuthenticated,
+      signal: new AbortController().signal,
+      initialMessage: { id: "assistant-canonical", role: "assistant", parts: [] },
+      onMessage: (message) => messages.push(message),
+      onStatus: () => undefined,
+    });
+
+    expect(result?.id).toBe("assistant-canonical");
+    expect(messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "Smooth", state: "done", providerMetadata: undefined },
+    ]);
+  });
+
+  it("does not exhaust retries when each connection makes progress", async () => {
+    const fetchAuthenticated = vi.fn();
+    const progressingChunks: UIMessageChunk[] = [
+      { type: "start", messageId: "assistant-progress" },
+      { type: "text-start", id: "text-1" },
+      { type: "text-delta", id: "text-1", delta: "Still " },
+      { type: "text-delta", id: "text-1", delta: "making " },
+      { type: "text-delta", id: "text-1", delta: "steady " },
+      { type: "text-delta", id: "text-1", delta: "progress" },
+    ];
+    for (const chunk of progressingChunks) {
+      fetchAuthenticated.mockResolvedValueOnce(chunkResponseThenError(chunk));
+    }
+    fetchAuthenticated.mockResolvedValueOnce(chunkResponse(
+      { type: "text-end", id: "text-1" },
+      { type: "finish" },
+    ));
+
+    await expect(consumeAgentRunStream({
+      runId: "run-progress",
+      streamPath: "/agent/run-progress/stream",
+      fetchAuthenticated,
+      signal: new AbortController().signal,
+      onMessage: () => undefined,
+      onStatus: () => undefined,
+    })).resolves.toBeDefined();
+    expect(fetchAuthenticated).toHaveBeenCalledTimes(7);
   });
 });

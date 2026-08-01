@@ -9,6 +9,7 @@ import {
   ComposerToolbarScroller,
 } from "./ComposerToolbar";
 import { GlassSurface } from "./GlassSurface";
+import type { MenuAnchor } from "./MenuSheet";
 import { OpenAIIcon } from "./OpenAIIcon";
 
 const COLLAPSED_RADIUS = 26;
@@ -25,8 +26,9 @@ type Props = {
   hasAttachments?: boolean;
   modelLabel: string;
   reasoningLabel: string;
-  onPressModel: () => void;
-  onPressReasoning: () => void;
+  /** Receives where the pill sits, so its menu can open anchored to it. */
+  onPressModel: (anchor: MenuAnchor) => void;
+  onPressReasoning: (anchor: MenuAnchor) => void;
   onAddImage?: () => void;
   canSend: boolean;
   sending?: boolean;
@@ -71,6 +73,8 @@ export function Composer({
 }: Props) {
   const theme = useAppTheme();
   const inputRef = useRef<TextInput>(null);
+  const modelPillRef = useRef<View>(null);
+  const reasoningPillRef = useRef<View>(null);
   const [focused, setFocused] = useState(false);
   const expanded = alwaysExpanded || focused || value.length > 0 || hasAttachments;
 
@@ -82,6 +86,13 @@ export function Composer({
     onSend();
     inputRef.current?.blur();
   }, [onSend]);
+
+  const openAnchoredMenu = useCallback((
+    pill: View | null,
+    open: (anchor: MenuAnchor) => void,
+  ) => {
+    pill?.measureInWindow((x, y, width, height) => open({ x, y, width, height }));
+  }, []);
 
   const sendControl = showStop ? (
     <ComposerToolbarButton
@@ -155,20 +166,24 @@ export function Composer({
                 onPress={onAddImage}
               />
             ) : null}
-            <ComposerToolbarButton
-              accessibilityLabel="Select model"
-              chevron
-              iconNode={<OpenAIIcon size={16} />}
-              label={modelLabel}
-              onPress={onPressModel}
-            />
-            <ComposerToolbarButton
-              accessibilityLabel="Select reasoning effort"
-              chevron
-              icon={SlidersHorizontal}
-              label={reasoningLabel}
-              onPress={onPressReasoning}
-            />
+            <View collapsable={false} ref={modelPillRef}>
+              <ComposerToolbarButton
+                accessibilityLabel="Select model"
+                chevron
+                iconNode={<OpenAIIcon size={16} />}
+                label={modelLabel}
+                onPress={() => openAnchoredMenu(modelPillRef.current, onPressModel)}
+              />
+            </View>
+            <View collapsable={false} ref={reasoningPillRef}>
+              <ComposerToolbarButton
+                accessibilityLabel="Select reasoning effort"
+                chevron
+                icon={SlidersHorizontal}
+                label={reasoningLabel}
+                onPress={() => openAnchoredMenu(reasoningPillRef.current, onPressReasoning)}
+              />
+            </View>
           </ComposerToolbarScroller>
           {sendControl}
         </ComposerToolbarRow>

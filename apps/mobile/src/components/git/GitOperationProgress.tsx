@@ -5,7 +5,7 @@ import { AlertTriangle, Check, Circle, RotateCcw } from "lucide-react-native";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useAppTheme } from "../../hooks/useAppTheme";
-import { GitActionButton } from "./GitSheet";
+import { SheetActionButton } from "../SheetList";
 
 type GitOperation = Doc<"gitOperations">;
 
@@ -89,7 +89,7 @@ export function GitOperationProgress({
           ) : null}
           {operation.failure.retryable && onRetry ? (
             <View style={styles.retryRow}>
-              <GitActionButton
+              <SheetActionButton
                 icon={RotateCcw}
                 label={`Retry from ${operation.failure.phase.replace("_", " ")}`}
                 loading={retrying}

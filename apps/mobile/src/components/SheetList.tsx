@@ -3,15 +3,15 @@ import { ChevronRight } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { useAppTheme } from "../../hooks/useAppTheme";
+import { useAppTheme } from "../hooks/useAppTheme";
 
 /**
- * Sheet primitives for the Git surfaces, following the T3 Code mobile layout:
- * one rounded card holding icon rows, meta cards for read-only facts, and a
- * pair of wide uppercase action buttons at the foot of a form.
+ * Grouped-list primitives for the app's sheets, following the T3 Code mobile
+ * layout: one rounded card holding icon rows, meta cards for read-only facts,
+ * and wide uppercase action buttons at the foot of a form.
  */
 
-export function GitCard({ children }: { children: ReactNode }) {
+export function SheetCard({ children }: { children: ReactNode }) {
   const theme = useAppTheme();
   return (
     <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.line }]}>
@@ -20,7 +20,7 @@ export function GitCard({ children }: { children: ReactNode }) {
   );
 }
 
-export function GitRow({
+export function SheetRow({
   icon: Icon,
   title,
   subtitle,
@@ -66,7 +66,7 @@ export function GitRow({
   );
 }
 
-export function GitMetaCard({
+export function SheetMetaCard({
   label,
   value,
   tone = "default",
@@ -91,7 +91,7 @@ export function GitMetaCard({
 }
 
 /** A label/value pair on one line, for facts that read better inline. */
-export function GitInlineMeta({ label, value }: { label: string; value: string }) {
+export function SheetInlineMeta({ label, value }: { label: string; value: string }) {
   const theme = useAppTheme();
   return (
     <View style={[styles.inlineMeta, { backgroundColor: theme.surface, borderColor: theme.line }]}>
@@ -101,15 +101,18 @@ export function GitInlineMeta({ label, value }: { label: string; value: string }
   );
 }
 
-export function GitActionButton({
+export function SheetActionButton({
   icon: Icon,
+  iconNode,
   label,
   tone = "secondary",
   disabled = false,
   loading = false,
   onPress,
 }: {
-  icon: LucideIcon;
+  icon?: LucideIcon;
+  /** For marks that are not Lucide glyphs, such as the GitHub logo. */
+  iconNode?: ReactNode;
   label: string;
   tone?: "primary" | "secondary";
   disabled?: boolean;
@@ -136,15 +139,19 @@ export function GitActionButton({
         },
       ]}
     >
-      {loading
-        ? <ActivityIndicator color={color} size="small" />
-        : <Icon color={color} size={15} strokeWidth={2.2} />}
+      {loading ? (
+        <ActivityIndicator color={color} size="small" />
+      ) : iconNode ? (
+        <View style={styles.actionButtonIcon}>{iconNode}</View>
+      ) : Icon ? (
+        <Icon color={color} size={15} strokeWidth={2.2} />
+      ) : null}
       <Text style={[styles.actionButtonText, { color }]}>{label}</Text>
     </Pressable>
   );
 }
 
-export function GitSectionTitle({ children }: { children: string }) {
+export function SheetSectionTitle({ children }: { children: string }) {
   const theme = useAppTheme();
   return <Text style={[styles.sectionTitle, { color: theme.muted }]}>{children}</Text>;
 }
@@ -184,6 +191,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
+  actionButtonIcon: { width: 15, height: 15, alignItems: "center", justifyContent: "center" },
   actionButtonText: {
     flexShrink: 1,
     fontFamily: "DMSans_700Bold",

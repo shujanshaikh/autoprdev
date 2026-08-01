@@ -23,7 +23,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GitOperationProgress } from "../components/git/GitOperationProgress";
-import { GitCard, GitMetaCard, GitRow, GitSectionTitle } from "../components/git/GitSheet";
+import { SheetCard, SheetMetaCard, SheetRow, SheetSectionTitle } from "../components/SheetList";
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadGit } from "../hooks/useThreadGit";
@@ -159,14 +159,14 @@ export function GitActionsScreen({ navigation, route }: Props) {
         {git.error ? <ErrorNotice message={git.error.message} /> : null}
         {actionError ? <ErrorNotice message={actionError} /> : null}
 
-        <GitCard>
+        <SheetCard>
           {rows.map((row, index) => {
             const action = rowAction(row, resolution);
             const availability = resolution.actions[action];
             const pending = pendingRow === row;
             const rowBlocked = Boolean(blockedReason) && action !== "view_pr";
             return (
-              <GitRow
+              <SheetRow
                 disabled={rowBlocked || !availability.enabled || Boolean(pendingRow)}
                 first={index === 0}
                 icon={rowIcons[row]}
@@ -181,7 +181,7 @@ export function GitActionsScreen({ navigation, route }: Props) {
               />
             );
           })}
-          <GitRow
+          <SheetRow
             icon={MessageSquareText}
             onPress={() => navigation.replace("Changes", {
               projectId,
@@ -191,7 +191,7 @@ export function GitActionsScreen({ navigation, route }: Props) {
             subtitle="Inspect the diff this thread produced before shipping it"
             title="Review changes"
           />
-          <GitRow
+          <SheetRow
             disabled={!status?.isRepo || !project}
             icon={GitBranch}
             onPress={() => {
@@ -206,13 +206,13 @@ export function GitActionsScreen({ navigation, route }: Props) {
             subtitle="Switch the branch this workspace is checked out on"
             title="Branches"
           />
-        </GitCard>
+        </SheetCard>
 
         {showProgress && latestOperation ? (
           <View style={styles.progressSection}>
-            <GitSectionTitle>
+            <SheetSectionTitle>
               {latestOperation.status === "failed" ? "Failed operation" : "In progress"}
-            </GitSectionTitle>
+            </SheetSectionTitle>
             <View style={[styles.progressCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
               <GitOperationProgress
                 operation={latestOperation}
@@ -225,20 +225,20 @@ export function GitActionsScreen({ navigation, route }: Props) {
 
         {status ? (
           <View style={styles.metaSection}>
-            <GitMetaCard label="Base branch" value={status.baseBranch} />
+            <SheetMetaCard label="Base branch" value={status.baseBranch} />
             {status.pullRequest ? (
               <Pressable
                 accessibilityRole="link"
                 onPress={() => void Linking.openURL(status.pullRequest?.url ?? "")}
               >
-                <GitMetaCard
+                <SheetMetaCard
                   label={`Pull request · ${status.pullRequest.state}`}
                   value={`#${status.pullRequest.number} ${status.pullRequest.title}`}
                 />
               </Pressable>
             ) : null}
             {status.remoteError ? (
-              <GitMetaCard label="Remote" tone="warning" value={status.remoteError.message} />
+              <SheetMetaCard label="Remote" tone="warning" value={status.remoteError.message} />
             ) : null}
           </View>
         ) : null}

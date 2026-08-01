@@ -1,11 +1,12 @@
 import type { GitChangedFile } from "@autopr/backend/convex/lib/gitStatus";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { CircleArrowOutUpRight, CircleCheckBig } from "lucide-react-native";
+import { CircleCheckBig } from "lucide-react-native";
 import { useCallback, useLayoutEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { GitActionButton, GitInlineMeta } from "../components/git/GitSheet";
+import { GitHubIcon } from "../components/GitHubIcon";
+import { SheetActionButton, SheetInlineMeta } from "../components/SheetList";
 import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
@@ -92,7 +93,7 @@ export function GitCommitScreen({ navigation, route }: Props) {
           {actionError ? <ErrorNotice message={actionError} /> : null}
           {disabledReason ? <ErrorNotice message={disabledReason} /> : null}
 
-          <GitInlineMeta label="Branch" value={status?.currentBranch ?? "Detached HEAD"} />
+          <SheetInlineMeta label="Branch" value={status?.currentBranch ?? "Detached HEAD"} />
 
           <View style={[styles.filesCard, { backgroundColor: theme.surface, borderColor: theme.line }]}>
             <View style={styles.filesHeading}>
@@ -163,16 +164,16 @@ export function GitCommitScreen({ navigation, route }: Props) {
           </View>
 
           <View style={styles.actions}>
-            <GitActionButton
+            <SheetActionButton
               disabled={Boolean(blockedReason) || !commitAvailability.enabled || pendingAction !== null}
               icon={CircleCheckBig}
               label={threadGitActionLabels.commit}
               loading={pendingAction === "commit"}
               onPress={() => void runCommit("commit")}
             />
-            <GitActionButton
+            <SheetActionButton
               disabled={Boolean(blockedReason) || !shipAvailability.enabled || pendingAction !== null}
-              icon={CircleArrowOutUpRight}
+              iconNode={<GitHubIcon color={theme.accentInk} size={15} />}
               label={threadGitActionLabels[shipAction]}
               loading={pendingAction === shipAction}
               onPress={() => void runCommit(shipAction)}

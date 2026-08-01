@@ -11,7 +11,6 @@ import {
   ArrowDown,
   Bot,
   FileDiff,
-  GitCommitHorizontal,
   MoreHorizontal,
   Pencil,
   RefreshCw,
@@ -39,7 +38,9 @@ import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { Composer } from "../components/Composer";
 import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
+import { GitHubIcon } from "../components/GitHubIcon";
 import { GitMenu } from "../components/git/GitMenu";
+import { SheetCard, SheetRow } from "../components/SheetList";
 import { ModelMenu, ReasoningMenu } from "../components/ModelMenu";
 import { AgentWorkingIndicator, ThreadMessage } from "../components/thread/ThreadMessage";
 import { mobileConfig } from "../config";
@@ -432,7 +433,7 @@ export function ThreadScreen({ navigation, route }: Props) {
             onPress={() => setGitMenuVisible(true)}
             style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
           >
-            <GitCommitHorizontal color={theme.ink} size={18} />
+            <GitHubIcon size={17} />
           </Pressable>
           <Pressable
             accessibilityLabel="More conversation actions"
@@ -1091,77 +1092,74 @@ export function ThreadScreen({ navigation, route }: Props) {
                 Manage this thread and its workspace.
               </Text>
             </View>
-            {[
-              {
-                key: "rename",
-                label: "Rename conversation",
-                icon: Pencil,
-                onPress: () => {
-                  setToolsVisible(false);
-                  InteractionManager.runAfterInteractions(() => {
-                    setRenameTitle(thread?.title ?? "");
-                    setRenameVisible(true);
-                  });
+            <SheetCard>
+              {[
+                {
+                  key: "rename",
+                  title: "Rename conversation",
+                  subtitle: "Give this thread a title that describes the outcome",
+                  icon: Pencil,
+                  onPress: () => {
+                    setToolsVisible(false);
+                    InteractionManager.runAfterInteractions(() => {
+                      setRenameTitle(thread?.title ?? "");
+                      setRenameVisible(true);
+                    });
+                  },
                 },
-              },
-              ...(userSettings?.demoRecordingExperimentEnabled ? [{
-                key: "demo",
-                label: thread?.demoEnabled ? "Disable demo recording" : "Enable demo recording",
-                icon: Video,
-                onPress: () => {
-                  setToolsVisible(false);
-                  void toggleDemo();
+                ...(userSettings?.demoRecordingExperimentEnabled ? [{
+                  key: "demo",
+                  title: thread?.demoEnabled ? "Disable demo recording" : "Enable demo recording",
+                  subtitle: thread?.demoEnabled
+                    ? "Stop capturing a screen walkthrough of this run"
+                    : "Capture a screen walkthrough while the agent works",
+                  icon: Video,
+                  onPress: () => {
+                    setToolsVisible(false);
+                    void toggleDemo();
+                  },
+                }] : []),
+                {
+                  key: "environment",
+                  title: "Environment variables",
+                  subtitle: "Review and rotate the values mounted in this sandbox",
+                  icon: Settings2,
+                  onPress: () => {
+                    setToolsVisible(false);
+                    navigation.navigate("Environment", { projectId, title: project?.repoName });
+                  },
                 },
-              }] : []),
-              {
-                key: "environment",
-                label: "Environment variables",
-                icon: Settings2,
-                onPress: () => {
-                  setToolsVisible(false);
-                  navigation.navigate("Environment", { projectId, title: project?.repoName });
+                {
+                  key: "terminal",
+                  title: "Open terminal",
+                  subtitle: "Run commands directly against the workspace",
+                  icon: TerminalSquare,
+                  onPress: () => {
+                    setToolsVisible(false);
+                    navigation.navigate("Terminal", { projectId, threadId, title: thread?.title });
+                  },
                 },
-              },
-              {
-                key: "terminal",
-                label: "Open terminal",
-                icon: TerminalSquare,
-                onPress: () => {
-                  setToolsVisible(false);
-                  navigation.navigate("Terminal", { projectId, threadId, title: thread?.title });
+                {
+                  key: "refresh",
+                  title: "Refresh Git status",
+                  subtitle: "Re-read the branch, remote, and working tree",
+                  icon: RefreshCw,
+                  onPress: () => {
+                    setToolsVisible(false);
+                    void refetchGit();
+                  },
                 },
-              },
-              {
-                key: "refresh",
-                label: "Refresh Git status",
-                icon: RefreshCw,
-                onPress: () => {
-                  setToolsVisible(false);
-                  void refetchGit();
-                },
-              },
-            ].map((action) => {
-              const Icon = action.icon;
-              return (
-                <Pressable
-                  accessibilityRole="button"
+              ].map((action, index) => (
+                <SheetRow
+                  first={index === 0}
+                  icon={action.icon}
                   key={action.key}
                   onPress={action.onPress}
-                  style={({ pressed }) => [
-                    styles.toolRow,
-                    {
-                      backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
-                      borderColor: theme.line,
-                    },
-                  ]}
-                >
-                  <View style={[styles.toolIcon, { backgroundColor: theme.accentSoft }]}>
-                    <Icon color={theme.accentOn} size={17} />
-                  </View>
-                  <Text style={[styles.toolLabel, { color: theme.ink }]}>{action.label}</Text>
-                </Pressable>
-              );
-            })}
+                  subtitle={action.subtitle}
+                  title={action.title}
+                />
+              ))}
+            </SheetCard>
             <Pressable
               accessibilityRole="button"
               onPress={() => setToolsVisible(false)}
@@ -1303,15 +1301,12 @@ const styles = StyleSheet.create({
   gitOperationDot: { width: 7, height: 7, borderRadius: 99 },
   gitOperationText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 10, textTransform: "capitalize" },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.38)", padding: 14 },
-  toolsCard: { borderWidth: 1, borderRadius: 18, padding: 12, gap: 8, marginBottom: 6 },
-  toolsHeading: { paddingHorizontal: 4, paddingTop: 3, paddingBottom: 6 },
-  toolsTitle: { fontFamily: "DMSans_700Bold", fontSize: 15 },
-  toolsBody: { fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 4 },
-  toolRow: { minHeight: 52, borderWidth: 1, borderRadius: 12, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 10 },
-  toolIcon: { width: 32, height: 32, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  toolLabel: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 12 },
-  toolsCancel: { minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 2 },
-  toolsCancelText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  toolsCard: { borderWidth: 1, borderRadius: 22, padding: 12, gap: 10, marginBottom: 6 },
+  toolsHeading: { paddingHorizontal: 6, paddingTop: 4, paddingBottom: 2 },
+  toolsTitle: { fontFamily: "DMSans_700Bold", fontSize: 18, letterSpacing: -0.4 },
+  toolsBody: { fontFamily: "DMSans_400Regular", fontSize: 13, marginTop: 4 },
+  toolsCancel: { minHeight: 48, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  toolsCancelText: { fontFamily: "DMSans_500Medium", fontSize: 14 },
   renameCard: { borderWidth: 1, borderRadius: 18, padding: 15, gap: 14, marginBottom: 6 },
   renameHeading: { flexDirection: "row", alignItems: "center", gap: 10 },
   renameIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },

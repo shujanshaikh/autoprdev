@@ -17,12 +17,21 @@ describe("TerminalOutputSanitizer", () => {
     const sanitizer = new TerminalOutputSanitizer();
 
     expect(sanitizer.push("before \x1b[38;2;")).toBe("before ");
-    expect(sanitizer.push("255;0;0mred\x1b[0m after")).toBe("red after");
+    expect(sanitizer.push("255;0;0mred\x1b[0m after")).toBe("before red after");
   });
 
-  it("applies backspaces and ignores bare carriage returns", () => {
+  it("applies backspaces and carriage-return line redraws", () => {
     const sanitizer = new TerminalOutputSanitizer();
 
-    expect(sanitizer.push("abc\bD\rready\r\n")).toBe("abDready\n");
+    expect(sanitizer.push("abc\bD\rready\r\n")).toBe("ready\n");
+  });
+
+  it("replaces a repainted shell prompt instead of duplicating it", () => {
+    const sanitizer = new TerminalOutputSanitizer();
+
+    expect(sanitizer.push("➜  /home/repo git:main")).toBe("➜  /home/repo git:main");
+    expect(sanitizer.push("\r\x1b[2K➜  /home/repo git:main")).toBe(
+      "➜  /home/repo git:main",
+    );
   });
 });

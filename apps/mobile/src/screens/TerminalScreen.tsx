@@ -4,19 +4,18 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAction } from "convex/react";
 import * as Clipboard from "expo-clipboard";
 import {
+  ArrowUp,
   Check,
   Copy,
   Eraser,
   Keyboard as KeyboardIcon,
   RefreshCw,
-  Send,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -30,6 +29,8 @@ import {
   View,
 } from "react-native";
 
+import { ComposerToolbarButton } from "../components/ComposerToolbar";
+import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { TerminalOutputSanitizer } from "../lib/terminalOutput";
 import type { AppTheme } from "../theme";
@@ -209,7 +210,7 @@ export function TerminalScreen({ route }: Props) {
   const historyDraftRef = useRef("");
   const historyIndexRef = useRef<number | null>(null);
   const outputSanitizerRef = useRef<TerminalOutputSanitizer | null>(null);
-  outputSanitizerRef.current ??= new TerminalOutputSanitizer();
+  outputSanitizerRef.current ??= new TerminalOutputSanitizer(MAX_OUTPUT_LENGTH);
 
   useEffect(() => {
     let active = true;
@@ -279,9 +280,8 @@ export function TerminalScreen({ route }: Props) {
           receivedOutput = true;
           if (wakeTimer) clearTimeout(wakeTimer);
           setError(null);
-          const plainText = outputSanitizerRef.current?.push(text) ?? "";
-          if (!plainText) return;
-          setOutput((current) => `${current}${plainText}`.slice(-MAX_OUTPUT_LENGTH));
+          const snapshot = outputSanitizerRef.current?.push(text) ?? "";
+          setOutput(snapshot);
           if (followOutputRef.current) {
             requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
           }
@@ -512,9 +512,7 @@ export function TerminalScreen({ route }: Props) {
   );
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
+    <KeyboardAvoidingScreen
       style={[styles.screen, { backgroundColor: theme.code }]}
     >
       <View style={[styles.sessionBar, { borderBottomColor: theme.codeLine }]}>
@@ -630,17 +628,20 @@ export function TerminalScreen({ route }: Props) {
         </View>
       ) : null}
 
-      <View style={[styles.commandDock, { borderTopColor: theme.codeLine }]}>
-        <Pressable
+      <View
+        style={[
+          styles.commandDock,
+          { backgroundColor: theme.code, borderTopColor: theme.codeLine },
+        ]}
+      >
+        <ComposerToolbarButton
           accessibilityLabel={keyboardVisible ? "Dismiss keyboard" : "Show keyboard"}
+          icon={KeyboardIcon}
           onPress={() => {
             if (keyboardVisible) Keyboard.dismiss();
             else inputRef.current?.focus();
           }}
-          style={({ pressed }) => [styles.keyboardButton, { opacity: pressed ? 0.55 : 1 }]}
-        >
-          <KeyboardIcon color={theme.codeMuted} size={18} />
-        </Pressable>
+        />
         <View
           style={[
             styles.commandField,
@@ -657,6 +658,7 @@ export function TerminalScreen({ route }: Props) {
             ref={inputRef}
             autoCapitalize="none"
             autoCorrect={false}
+            blurOnSubmit={false}
             editable={status === "connected"}
             keyboardAppearance={theme.mode}
             onChangeText={(value) => {
@@ -669,28 +671,20 @@ export function TerminalScreen({ route }: Props) {
             returnKeyType="send"
             selectionColor={theme.accent}
             spellCheck={false}
+            textAlignVertical="center"
             value={command}
             style={[styles.input, { color: theme.codeInk }]}
           />
         </View>
-        <Pressable
+        <ComposerToolbarButton
           accessibilityLabel="Run command"
-          accessibilityRole="button"
-          accessibilityState={{ disabled: status !== "connected" }}
           disabled={status !== "connected"}
+          icon={ArrowUp}
           onPress={runCommand}
-          style={({ pressed }) => [
-            styles.send,
-            {
-              backgroundColor: theme.accent,
-              opacity: status !== "connected" ? 0.3 : pressed ? 0.72 : 1,
-            },
-          ]}
-        >
-          <Send color={theme.accentInk} size={16} />
-        </Pressable>
+          variant="primary"
+        />
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingScreen>
   );
 }
 
@@ -760,27 +754,34 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   commandDock: {
-    minHeight: 62,
+    minHeight: 68,
     borderTopWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  keyboardButton: { width: 32, height: 40, alignItems: "center", justifyContent: "center" },
   commandField: {
     minWidth: 0,
     flex: 1,
-    height: 42,
+    height: 46,
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
+    borderRadius: 23,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 9,
   },
-  promptMark: { fontFamily: mono, fontSize: 13, fontWeight: "700" },
-  input: { minWidth: 0, flex: 1, paddingVertical: 0, fontFamily: mono, fontSize: 12 },
-  send: { width: 40, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  promptMark: { fontFamily: mono, fontSize: 14, lineHeight: 20, fontWeight: "700" },
+  input: {
+    minWidth: 0,
+    flex: 1,
+    height: 20,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    fontFamily: mono,
+    fontSize: 13,
+    lineHeight: 20,
+  },
 });

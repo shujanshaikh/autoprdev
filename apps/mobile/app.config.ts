@@ -5,6 +5,7 @@ const config: ExpoConfig = {
   slug: "autopr",
   scheme: "autopr",
   version: "0.1.0",
+  icon: "./assets/icon.png",
   orientation: "portrait",
   platforms: ["ios", "android"],
   userInterfaceStyle: "automatic",

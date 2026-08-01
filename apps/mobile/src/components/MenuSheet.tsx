@@ -18,6 +18,7 @@ export type MenuOption = {
 type Frame = { x: number; y: number; width: number; height: number };
 
 const MENU_WIDTH = 250;
+const MENU_RADIUS = 14;
 const SCREEN_MARGIN = 12;
 const ANCHOR_GAP = 6;
 const MAX_MENU_HEIGHT = 480;
@@ -173,7 +174,7 @@ export function MenuSheet({
             },
           ]}
         >
-          <GlassSurface accessibilityRole="radiogroup" radius={14} style={styles.surface} translucent>
+          <GlassSurface accessibilityRole="radiogroup" radius={MENU_RADIUS} style={styles.surface}>
             <Pressable
               accessibilityHint="Closes this menu"
               accessibilityRole="button"
@@ -187,6 +188,7 @@ export function MenuSheet({
             <ScrollView
               bounces={false}
               contentContainerStyle={styles.list}
+              keyboardShouldPersistTaps="always"
               showsVerticalScrollIndicator={false}
             >
               {options.map((option) => (
@@ -206,6 +208,7 @@ const styles = StyleSheet.create({
   card: {
     position: "absolute",
     width: MENU_WIDTH,
+    borderRadius: MENU_RADIUS,
     boxShadow: "0 14px 32px rgba(0,0,0,0.3)",
   },
   // Shrinkable so the list scrolls against the card's maxHeight instead of

@@ -227,7 +227,7 @@ function Navigator() {
           options={{
             title: "Settings",
             presentation: Platform.OS === "ios" ? "formSheet" : "card",
-            sheetAllowedDetents: [0.7, 0.92],
+            sheetAllowedDetents: [0.92],
             sheetGrabberVisible: true,
           }}
         />

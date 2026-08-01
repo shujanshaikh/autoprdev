@@ -3,11 +3,9 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as WebBrowser from "expo-web-browser";
 import { useMutation, useQuery } from "convex/react";
 import {
-  Bot,
   ChevronRight,
   FlaskConical,
   FolderGit2,
-  GitFork,
   LogOut,
   MoonStar,
   ReceiptText,
@@ -17,10 +15,14 @@ import {
   UserRound,
 } from "lucide-react-native";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { webRequest } from "../api/web";
 import { useAuth } from "../auth/AuthProvider";
-import { ErrorNotice, SectionLabel, StatusPill } from "../components/ui";
+import { GitHubIcon } from "../components/GitHubIcon";
+import { OpenAIIcon } from "../components/OpenAIIcon";
+import { SheetSectionTitle } from "../components/SheetList";
+import { ErrorNotice, StatusPill } from "../components/ui";
 import { mobileConfig } from "../config";
 import { useAppTheme, useAppThemePreference } from "../hooks/useAppTheme";
 import { useWebMutation, useWebQuery } from "../hooks/useWebQuery";
@@ -36,6 +38,9 @@ type CodexStatus = {
 
 type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
+/** Keeps the page short enough that sign out stays within easy reach. */
+const BILLING_ROW_LIMIT = 5;
+
 function costFor(row: {
   finalTotalPrice?: number;
   latestTotalPrice?: number;
@@ -45,6 +50,7 @@ function costFor(row: {
 
 export function SettingsScreen({ navigation }: Props) {
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { preference, setPreference } = useAppThemePreference();
   const { session, signOut } = useAuth();
   const userSettings = useQuery(api.userSettings.get, {});
@@ -76,7 +82,13 @@ export function SettingsScreen({ navigation }: Props) {
   const runningProjects = (projects ?? []).filter((project) => project.sandboxRuntimeStatus === "started").length;
 
   return (
-    <ScrollView contentContainerStyle={[styles.content, { backgroundColor: theme.screen }]}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.content,
+        { backgroundColor: theme.screen, paddingBottom: Math.max(insets.bottom, 12) + 28 },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={[styles.profile, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <View style={[styles.avatar, { backgroundColor: theme.accentSoft }]}>
           <UserRound color={theme.accentOn} size={23} />
@@ -87,7 +99,7 @@ export function SettingsScreen({ navigation }: Props) {
         </View>
       </View>
 
-      <SectionLabel>Connections</SectionLabel>
+      <SheetSectionTitle>Connections</SheetSectionTitle>
       <View style={[styles.group, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <Pressable
           onPress={() => {
@@ -111,7 +123,7 @@ export function SettingsScreen({ navigation }: Props) {
           style={({ pressed }) => [styles.row, { backgroundColor: pressed ? theme.surfaceSoft : theme.surface }]}
         >
           <View style={[styles.rowIcon, { backgroundColor: theme.surfaceSoft }]}>
-            <Bot color={theme.ink} size={18} />
+            <OpenAIIcon size={19} />
           </View>
           <View style={styles.rowCopy}>
             <Text style={[styles.rowTitle, { color: theme.ink }]}>Codex</Text>
@@ -133,7 +145,7 @@ export function SettingsScreen({ navigation }: Props) {
           ]}
         >
           <View style={[styles.rowIcon, { backgroundColor: theme.surfaceSoft }]}>
-            <GitFork color={theme.ink} size={18} />
+            <GitHubIcon size={19} />
           </View>
           <View style={styles.rowCopy}>
             <Text style={[styles.rowTitle, { color: theme.ink }]}>GitHub</Text>
@@ -145,7 +157,7 @@ export function SettingsScreen({ navigation }: Props) {
       {codex.error ? <ErrorNotice message={codex.error.message} /> : null}
       {disconnectCodex.error ? <ErrorNotice message={disconnectCodex.error.message} /> : null}
 
-      <SectionLabel>Overview</SectionLabel>
+      <SheetSectionTitle>Overview</SheetSectionTitle>
       <View style={styles.stats}>
         {[
           ["Projects", projects?.length ?? "—"],
@@ -195,7 +207,7 @@ export function SettingsScreen({ navigation }: Props) {
         ))}
       </View>
 
-      <SectionLabel>Billing</SectionLabel>
+      <SheetSectionTitle>Billing</SheetSectionTitle>
       <View style={[styles.group, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         {costs === undefined ? (
           <View style={styles.row}>
@@ -211,28 +223,40 @@ export function SettingsScreen({ navigation }: Props) {
               <Text style={[styles.rowBody, { color: theme.muted }]}>Costs appear after a sandbox becomes ready.</Text>
             </View>
           </View>
-        ) : costs.map((row, index) => (
-          <View
-            key={row._id}
-            style={[
-              styles.billingRow,
-              index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.line },
-            ]}
-          >
-            <View style={styles.rowCopy}>
-              <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.ink }]}>
-                {row.repoFullName ?? row.sandboxName ?? "Sandbox"}
-              </Text>
-              <Text style={[styles.rowBody, { color: theme.muted }]}>
-                {row.status.replace(/_/g, " ")}
-              </Text>
-            </View>
-            <Text style={[styles.billingValue, { color: theme.ink }]}>${costFor(row).toFixed(4)}</Text>
-          </View>
-        ))}
+        ) : (
+          <>
+            {costs.slice(0, BILLING_ROW_LIMIT).map((row, index) => (
+              <View
+                key={row._id}
+                style={[
+                  styles.billingRow,
+                  index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.line },
+                ]}
+              >
+                <View style={styles.rowCopy}>
+                  <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.ink }]}>
+                    {row.repoFullName ?? row.sandboxName ?? "Sandbox"}
+                  </Text>
+                  <Text style={[styles.rowBody, { color: theme.muted }]}>
+                    {row.status.replace(/_/g, " ")}
+                  </Text>
+                </View>
+                <Text style={[styles.billingValue, { color: theme.ink }]}>${costFor(row).toFixed(4)}</Text>
+              </View>
+            ))}
+            {costs.length > BILLING_ROW_LIMIT ? (
+              <View style={[styles.billingRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.line }]}>
+                <Text style={[styles.rowBody, { color: theme.muted, marginTop: 0 }]}>
+                  +{costs.length - BILLING_ROW_LIMIT} earlier sandbox
+                  {costs.length - BILLING_ROW_LIMIT === 1 ? "" : "es"} · ${totalSpend.toFixed(2)} total
+                </Text>
+              </View>
+            ) : null}
+          </>
+        )}
       </View>
 
-      <SectionLabel>Appearance</SectionLabel>
+      <SheetSectionTitle>Appearance</SheetSectionTitle>
       <View style={[styles.appearanceGroup, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <View style={styles.appearanceHeading}>
           <View style={[styles.rowIcon, { backgroundColor: theme.surfaceSoft }]}>
@@ -281,7 +305,7 @@ export function SettingsScreen({ navigation }: Props) {
         </View>
       </View>
 
-      <SectionLabel>Experiments</SectionLabel>
+      <SheetSectionTitle>Experiments</SheetSectionTitle>
       <View style={[styles.group, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <View style={styles.row}>
           <View style={[styles.rowIcon, { backgroundColor: theme.surfaceSoft }]}>
@@ -314,31 +338,31 @@ export function SettingsScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  content: { flexGrow: 1, padding: 16, paddingBottom: 36, gap: 12 },
-  profile: { borderWidth: 1, borderRadius: 10, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
-  avatar: { width: 48, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 14, gap: 10 },
+  profile: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 },
+  avatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   profileCopy: { flex: 1, minWidth: 0 },
-  profileName: { fontFamily: "DMSans_700Bold", fontSize: 15 },
-  profileEmail: { fontFamily: "DMSans_400Regular", fontSize: 12, marginTop: 5 },
-  group: { borderWidth: 1, borderRadius: 10, overflow: "hidden", marginBottom: 10 },
+  profileName: { fontFamily: "DMSans_700Bold", fontSize: 17, letterSpacing: -0.3 },
+  profileEmail: { fontFamily: "DMSans_400Regular", fontSize: 13, marginTop: 3 },
+  group: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, overflow: "hidden", marginBottom: 6 },
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  stat: { width: "48%", flexGrow: 1, minHeight: 72, borderWidth: 1, borderRadius: 10, padding: 11, justifyContent: "space-between" },
-  statLabel: { fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase" },
+  stat: { width: "48%", flexGrow: 1, minHeight: 74, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 13, justifyContent: "space-between" },
+  statLabel: { fontFamily: "DMSans_700Bold", fontSize: 10, letterSpacing: 0.9, textTransform: "uppercase" },
   statValue: { fontFamily: "DMSans_700Bold", fontSize: 20 },
-  row: { minHeight: 68, padding: 12, flexDirection: "row", alignItems: "center", gap: 11 },
-  rowIcon: { width: 38, height: 38, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  row: { minHeight: 62, paddingHorizontal: 14, paddingVertical: 11, flexDirection: "row", alignItems: "center", gap: 12 },
+  rowIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   rowCopy: { flex: 1, minWidth: 0 },
-  rowTitle: { fontFamily: "DMSans_500Medium", fontSize: 13 },
-  rowBody: { fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 5 },
-  billingRow: { minHeight: 58, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
-  billingValue: { fontFamily: "DMSans_500Medium", fontSize: 12, fontVariant: ["tabular-nums"] },
-  appearanceGroup: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 12, marginBottom: 10 },
-  appearanceHeading: { flexDirection: "row", alignItems: "center", gap: 11 },
-  themePicker: { borderRadius: 8, padding: 3, flexDirection: "row", gap: 3 },
+  rowTitle: { fontFamily: "DMSans_700Bold", fontSize: 16, letterSpacing: -0.3 },
+  rowBody: { fontFamily: "DMSans_400Regular", fontSize: 13, marginTop: 2 },
+  billingRow: { minHeight: 54, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  billingValue: { fontFamily: "DMSans_500Medium", fontSize: 13, fontVariant: ["tabular-nums"] },
+  appearanceGroup: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, padding: 14, gap: 13, marginBottom: 6 },
+  appearanceHeading: { flexDirection: "row", alignItems: "center", gap: 12 },
+  themePicker: { borderRadius: 16, padding: 3, flexDirection: "row", gap: 3 },
   themeOption: {
     flex: 1,
     minHeight: 36,
-    borderRadius: 6,
+    borderRadius: 13,
     borderWidth: 1,
     borderColor: "transparent",
     flexDirection: "row",
@@ -346,7 +370,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
   },
-  themeOptionText: { fontFamily: "DMSans_500Medium", fontSize: 11 },
-  signOut: { borderRadius: 10, borderWidth: 1, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 6 },
-  signOutText: { fontFamily: "DMSans_500Medium", fontSize: 14 },
+  themeOptionText: { fontFamily: "DMSans_500Medium", fontSize: 13 },
+  signOut: { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 8 },
+  signOutText: { fontFamily: "DMSans_700Bold", fontSize: 15 },
 });

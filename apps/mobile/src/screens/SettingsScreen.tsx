@@ -1,5 +1,6 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { Image } from "expo-image";
 import * as WebBrowser from "expo-web-browser";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -14,6 +15,7 @@ import {
   Unplug,
   UserRound,
 } from "lucide-react-native";
+import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -53,6 +55,7 @@ export function SettingsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { preference, setPreference } = useAppThemePreference();
   const { session, signOut } = useAuth();
+  const [failedProfilePictureUrl, setFailedProfilePictureUrl] = useState<string | null>(null);
   const userSettings = useQuery(api.userSettings.get, {});
   const projects = useQuery(api.projects.list, {});
   const costs = useQuery(api.sandboxCosts.listForCurrentUser, {});
@@ -77,6 +80,10 @@ export function SettingsScreen({ navigation }: Props) {
   };
 
   const fullName = [session?.user.firstName, session?.user.lastName].filter(Boolean).join(" ");
+  const profilePictureUrl = session?.user.profilePictureUrl;
+  const showProfilePicture = Boolean(
+    profilePictureUrl && failedProfilePictureUrl !== profilePictureUrl,
+  );
   const totalSpend = (costs ?? []).reduce((sum, row) => sum + costFor(row), 0);
   const readyProjects = (projects ?? []).filter((project) => project.sandboxStatus === "ready").length;
   const runningProjects = (projects ?? []).filter((project) => project.sandboxRuntimeStatus === "started").length;
@@ -91,7 +98,18 @@ export function SettingsScreen({ navigation }: Props) {
     >
       <View style={[styles.profile, { backgroundColor: theme.surface, borderColor: theme.line }]}>
         <View style={[styles.avatar, { backgroundColor: theme.accentSoft }]}>
-          <UserRound color={theme.accentOn} size={23} />
+          {profilePictureUrl && showProfilePicture ? (
+            <Image
+              accessibilityLabel={fullName || session?.user.email || "User profile"}
+              contentFit="cover"
+              onError={() => setFailedProfilePictureUrl(profilePictureUrl)}
+              source={{ uri: profilePictureUrl }}
+              style={styles.avatarImage}
+              transition={150}
+            />
+          ) : (
+            <UserRound color={theme.accentOn} size={23} />
+          )}
         </View>
         <View style={styles.profileCopy}>
           <Text style={[styles.profileName, { color: theme.ink }]}>{fullName || "AutoPR user"}</Text>
@@ -340,7 +358,8 @@ export function SettingsScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 14, gap: 10 },
   profile: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 },
-  avatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  avatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  avatarImage: { width: "100%", height: "100%" },
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { fontFamily: "DMSans_700Bold", fontSize: 17, letterSpacing: -0.3 },
   profileEmail: { fontFamily: "DMSans_400Regular", fontSize: 13, marginTop: 3 },

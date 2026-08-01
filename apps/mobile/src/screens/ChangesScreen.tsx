@@ -8,11 +8,10 @@ import {
   ChevronRight,
   Copy,
   FileDiff,
-  MessageSquare,
   MessageSquarePlus,
   WrapText,
 } from "lucide-react-native";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton } from "../components/ui";
@@ -294,6 +293,28 @@ export function ChangesScreen({ navigation, route }: Props) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [wrapped, setWrapped] = useState(false);
 
+  useLayoutEffect(() => {
+    const additions = entries.reduce((sum, entry) => sum + entry.additions, 0);
+    const deletions = entries.reduce((sum, entry) => sum + entry.deletions, 0);
+    navigation.setOptions({
+      title: "Changes",
+      headerTitle: () => (
+        <View style={styles.headerTitle}>
+          <Text style={[styles.headerTitleText, { color: theme.ink }]}>Changes</Text>
+          {entries.length > 0 ? (
+            <Text numberOfLines={1} style={[styles.headerSubtitle, { color: theme.muted }]}>
+              {entries.length} file{entries.length === 1 ? "" : "s"}
+              {"  "}
+              <Text style={{ color: theme.add }}>+{additions}</Text>
+              {"  "}
+              <Text style={{ color: theme.delete }}>−{deletions}</Text>
+            </Text>
+          ) : null}
+        </View>
+      ),
+    });
+  }, [entries, navigation, theme]);
+
   useEffect(() => {
     void AsyncStorage.getItem(viewedKey).then((stored) => {
       if (!stored) return;
@@ -350,49 +371,21 @@ export function ChangesScreen({ navigation, route }: Props) {
   if (loading) return <LoadingState label="Preparing review…" />;
   if (!project || !thread) return <ErrorNotice message="This conversation was not found." />;
 
-  const additions = entries.reduce((sum, entry) => sum + entry.additions, 0);
-  const deletions = entries.reduce((sum, entry) => sum + entry.deletions, 0);
   const viewedCount = entries.filter((entry) => viewed.has(entry.id)).length;
   const progress = entries.length > 0 ? viewedCount / entries.length : 0;
   const allViewed = entries.length > 0 && viewedCount >= entries.length;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.screen }]}>
-      <View style={[styles.viewSwitcherWrap, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
-        <View style={[styles.viewSwitcher, { backgroundColor: theme.surfaceSoft }]}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => navigation.goBack()}
-            style={({ pressed }) => [styles.viewOption, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <MessageSquare color={theme.muted} size={14} />
-            <Text style={[styles.viewOptionText, { color: theme.muted }]}>Chat</Text>
-          </Pressable>
-          <View style={[styles.viewOption, { backgroundColor: theme.surfaceRaised, borderColor: theme.line }]}>
-            <FileDiff color={theme.ink} size={14} />
-            <Text style={[styles.viewOptionText, { color: theme.ink }]}>Diff</Text>
-            {entries.length > 0 ? (
-              <View style={[styles.viewBadge, { backgroundColor: theme.accentSoft }]}>
-                <Text style={[styles.viewBadgeText, { color: theme.ink }]}>{entries.length}</Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      </View>
-
       {entries.length > 0 ? (
         <View style={[styles.reviewSummary, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
           <View style={styles.summaryTop}>
-            <Text style={[styles.summaryMeta, { color: theme.muted }]}>
-              {viewedCount} of {entries.length} files viewed
-            </Text>
-            <View style={styles.summaryStats}>
-              <Text style={[styles.summaryStat, { color: theme.add }]}>+{additions}</Text>
-              <Text style={[styles.summaryStat, { color: theme.delete }]}>−{deletions}</Text>
+            <View style={[styles.progressTrack, { backgroundColor: theme.surfaceSoft }]}>
+              <View style={[styles.progressFill, { backgroundColor: theme.accentOn, width: `${progress * 100}%` }]} />
             </View>
-          </View>
-          <View style={[styles.progressTrack, { backgroundColor: theme.surfaceSoft }]}>
-            <View style={[styles.progressFill, { backgroundColor: theme.accentOn, width: `${progress * 100}%` }]} />
+            <Text style={[styles.summaryMeta, { color: theme.muted }]}>
+              {viewedCount}/{entries.length} viewed
+            </Text>
           </View>
           <View style={styles.summaryActions}>
             <Pressable
@@ -497,18 +490,13 @@ export function ChangesScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  viewSwitcherWrap: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 7 },
-  viewSwitcher: { alignSelf: "center", minWidth: 210, borderRadius: 10, padding: 3, flexDirection: "row", gap: 3 },
-  viewOption: { flex: 1, minHeight: 32, borderRadius: 8, borderWidth: 1, borderColor: "transparent", paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  viewOptionText: { fontFamily: "DMSans_500Medium", fontSize: 11 },
-  viewBadge: { minWidth: 19, height: 19, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
-  viewBadgeText: { fontFamily: "DMSans_700Bold", fontSize: 9 },
-  reviewSummary: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingTop: 11, paddingBottom: 12, gap: 9 },
-  summaryTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  summaryMeta: { fontFamily: "DMSans_500Medium", fontSize: 11 },
-  summaryStats: { flexDirection: "row", gap: 9 },
-  summaryStat: { fontFamily: "DMSans_700Bold", fontSize: 12, fontVariant: ["tabular-nums"] },
-  progressTrack: { height: 3, borderRadius: 999, overflow: "hidden" },
+  headerTitle: { alignItems: "center" },
+  headerTitleText: { fontFamily: "DMSans_700Bold", fontSize: 16, letterSpacing: -0.3 },
+  headerSubtitle: { fontFamily: "DMSans_500Medium", fontSize: 11, marginTop: 1, fontVariant: ["tabular-nums"] },
+  reviewSummary: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingTop: 9, paddingBottom: 10, gap: 9 },
+  summaryTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  summaryMeta: { flexShrink: 0, fontFamily: "DMSans_500Medium", fontSize: 11, fontVariant: ["tabular-nums"] },
+  progressTrack: { flex: 1, height: 3, borderRadius: 999, overflow: "hidden" },
   progressFill: { height: 3, borderRadius: 999 },
   summaryActions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   summaryButton: { minHeight: 30, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },

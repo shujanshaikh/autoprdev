@@ -147,19 +147,7 @@ function Navigator() {
         <Stack.Screen
           name="Changes"
           component={ChangesScreen}
-          options={({ navigation }) => ({
-            title: "Changes",
-            presentation: "fullScreenModal",
-            headerLeft: () => (
-              <Pressable
-                accessibilityLabel="Close changes"
-                onPress={() => navigation.goBack()}
-                style={({ pressed }) => [styles.closeButton, { opacity: pressed ? 0.55 : 1 }]}
-              >
-                <X color={theme.ink} size={20} />
-              </Pressable>
-            ),
-          })}
+          options={{ title: "Changes" }}
         />
         <Stack.Screen
           name="GitActions"

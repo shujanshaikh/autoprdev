@@ -1,6 +1,6 @@
 import { ArrowUp, CircleStop, Plus, SlidersHorizontal } from "lucide-react-native";
 import { useCallback, useRef, useState, type ReactNode } from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
 import {
@@ -13,6 +13,7 @@ import { OpenAIIcon } from "./OpenAIIcon";
 
 const COLLAPSED_RADIUS = 26;
 const EXPANDED_RADIUS = 28;
+const LINE_HEIGHT = 22;
 
 type Props = {
   value: string;
@@ -42,8 +43,10 @@ type Props = {
  * The thread composer: a text card that grows into a full editing surface with
  * its own control toolbar underneath, following the T3 Code mobile layout.
  *
- * Typing happens in place — an earlier version opened a full-screen sheet,
- * which put a modal between the user and a one-line follow-up.
+ * Collapsed and expanded render one tree with different styles rather than two
+ * different trees. Branching on the shape would put the text field at a
+ * different position on each side, so React would unmount it the instant focus
+ * expanded the composer — costing the tap that opened the keyboard.
  */
 export function Composer({
   value,
@@ -71,6 +74,10 @@ export function Composer({
   const [focused, setFocused] = useState(false);
   const expanded = alwaysExpanded || focused || value.length > 0 || hasAttachments;
 
+  const focusInput = useCallback(() => {
+    if (editable) inputRef.current?.focus();
+  }, [editable]);
+
   const send = useCallback(() => {
     onSend();
     inputRef.current?.blur();
@@ -95,98 +102,91 @@ export function Composer({
     />
   );
 
-  const input = (
-    <TextInput
-      accessibilityLabel={placeholder}
-      autoFocus={autoFocus}
-      editable={editable}
-      multiline
-      onBlur={() => setFocused(false)}
-      onChangeText={onChangeText}
-      onFocus={() => setFocused(true)}
-      placeholder={placeholder}
-      placeholderTextColor={theme.faint}
-      ref={inputRef}
-      scrollEnabled={expanded}
-      style={[
-        styles.input,
-        expanded ? styles.inputExpanded : styles.inputCollapsed,
-        { color: theme.ink },
-      ]}
-      textAlignVertical={expanded ? "top" : "center"}
-      value={value}
-    />
-  );
-
-  if (!expanded) {
-    return (
-      <GlassSurface
-        interactive
-        radius={COLLAPSED_RADIUS}
-        style={[styles.collapsedSurface, { borderColor: theme.line }]}
-      >
-        <View style={styles.collapsedInput}>{input}</View>
-        {sendControl}
-      </GlassSurface>
-    );
-  }
-
   return (
     <View>
       <GlassSurface
         interactive
-        radius={EXPANDED_RADIUS}
-        style={[styles.expandedSurface, { borderColor: theme.line }]}
+        radius={expanded ? EXPANDED_RADIUS : COLLAPSED_RADIUS}
+        style={[
+          styles.surface,
+          expanded ? styles.surfaceExpanded : styles.surfaceCollapsed,
+          { borderColor: theme.line },
+        ]}
       >
         {attachments}
-        {input}
+        {/* Tapping the padding around the field should also start typing. */}
+        <Pressable
+          accessible={false}
+          onPress={focusInput}
+          style={expanded ? styles.inputAreaExpanded : styles.inputAreaCollapsed}
+        >
+          <TextInput
+            accessibilityLabel={placeholder}
+            autoFocus={autoFocus}
+            editable={editable}
+            multiline
+            onBlur={() => setFocused(false)}
+            onChangeText={onChangeText}
+            onFocus={() => setFocused(true)}
+            placeholder={placeholder}
+            placeholderTextColor={theme.faint}
+            ref={inputRef}
+            scrollEnabled={expanded}
+            style={[
+              styles.input,
+              expanded ? styles.inputExpanded : styles.inputCollapsed,
+              { color: theme.ink },
+            ]}
+            textAlignVertical={expanded ? "top" : "center"}
+            value={value}
+          />
+          {expanded ? null : sendControl}
+        </Pressable>
       </GlassSurface>
 
-      <ComposerToolbarRow>
-        <ComposerToolbarScroller fadeColor={theme.screen}>
-          {onAddImage ? (
+      {expanded ? (
+        <ComposerToolbarRow>
+          <ComposerToolbarScroller fadeColor={theme.screen}>
+            {onAddImage ? (
+              <ComposerToolbarButton
+                accessibilityLabel="Add photos"
+                disabled={!editable}
+                icon={Plus}
+                onPress={onAddImage}
+              />
+            ) : null}
             <ComposerToolbarButton
-              accessibilityLabel="Add photos"
-              disabled={!editable}
-              icon={Plus}
-              onPress={onAddImage}
+              accessibilityLabel="Select model"
+              chevron
+              iconNode={<OpenAIIcon size={16} />}
+              label={modelLabel}
+              onPress={onPressModel}
             />
-          ) : null}
-          <ComposerToolbarButton
-            accessibilityLabel="Select model"
-            chevron
-            iconNode={<OpenAIIcon size={16} />}
-            label={modelLabel}
-            onPress={onPressModel}
-          />
-          <ComposerToolbarButton
-            accessibilityLabel="Select reasoning effort"
-            chevron
-            icon={SlidersHorizontal}
-            label={reasoningLabel}
-            onPress={onPressReasoning}
-          />
-        </ComposerToolbarScroller>
-        {sendControl}
-      </ComposerToolbarRow>
+            <ComposerToolbarButton
+              accessibilityLabel="Select reasoning effort"
+              chevron
+              icon={SlidersHorizontal}
+              label={reasoningLabel}
+              onPress={onPressReasoning}
+            />
+          </ComposerToolbarScroller>
+          {sendControl}
+        </ComposerToolbarRow>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  collapsedSurface: {
-    minHeight: 52,
-    borderWidth: 1,
-    paddingLeft: 18,
-    paddingRight: 5,
-    paddingVertical: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  collapsedInput: { flex: 1, minWidth: 0 },
-  expandedSurface: { borderWidth: 1, paddingHorizontal: 18, paddingVertical: 14 },
-  input: { fontFamily: "DMSans_400Regular", fontSize: 16, lineHeight: 22 },
-  inputCollapsed: { height: 38, paddingVertical: 0 },
-  inputExpanded: { minHeight: 84, maxHeight: 168, paddingVertical: 0 },
+  surface: { borderWidth: 1 },
+  surfaceCollapsed: { minHeight: 54, paddingLeft: 18, paddingRight: 5, paddingVertical: 5 },
+  surfaceExpanded: { paddingHorizontal: 18, paddingVertical: 14 },
+  inputAreaCollapsed: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8 },
+  inputAreaExpanded: { minWidth: 0 },
+  input: { minWidth: 0, fontFamily: "DMSans_400Regular", fontSize: 16, lineHeight: LINE_HEIGHT },
+  // A multiline field lays its text out from the top on iOS, where
+  // textAlignVertical does nothing. Sizing the collapsed field to exactly one
+  // line lets the surrounding row do the centring instead.
+  inputCollapsed: { flex: 1, height: LINE_HEIGHT, paddingTop: 0, paddingBottom: 0 },
+  inputExpanded: { minHeight: 84, maxHeight: 168, paddingTop: 0, paddingBottom: 0 },
 });

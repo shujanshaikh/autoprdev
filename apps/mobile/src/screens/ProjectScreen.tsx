@@ -35,7 +35,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Composer } from "../components/Composer";
-import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
+import { ModelMenu, ReasoningMenu } from "../components/ModelMenu";
 import { EmptyState, ErrorNotice, LoadingState, SecondaryButton, StatusPill } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebQuery } from "../hooks/useWebQuery";
@@ -134,7 +134,8 @@ export function ProjectScreen({ navigation, route }: Props) {
   const [reasoningEffort, setReasoningEffort] = useState<CodexReasoningEffort>(DEFAULT_CODEX_REASONING_EFFORT);
   const [workspaceMode, setWorkspaceMode] = useState<"checkout" | "worktree">("checkout");
   const [demoEnabled, setDemoEnabled] = useState(false);
-  const [showPromptControls, setShowPromptControls] = useState(false);
+  const [modelMenuVisible, setModelMenuVisible] = useState(false);
+  const [reasoningMenuVisible, setReasoningMenuVisible] = useState(false);
   const [threadMenuTarget, setThreadMenuTarget] = useState<{
     threadId: string;
     title: string;
@@ -349,8 +350,8 @@ export function ProjectScreen({ navigation, route }: Props) {
               modelLabel={formatCodexModelLabel(selectedModel)}
               onAddImage={() => void chooseImages()}
               onChangeText={setPrompt}
-              onPressModel={() => setShowPromptControls(true)}
-              onPressReasoning={() => setShowPromptControls(true)}
+              onPressModel={() => setModelMenuVisible(true)}
+              onPressReasoning={() => setReasoningMenuVisible(true)}
               onSend={() => void newThread()}
               placeholder={promptPlaceholder}
               reasoningLabel={formatReasoningEffort(reasoningEffort)}
@@ -684,15 +685,19 @@ export function ProjectScreen({ navigation, route }: Props) {
           </View>
         </View>
       </Modal>
-      <ModelReasoningSheet
-        visible={showPromptControls}
+      <ModelMenu
         models={modelOptions}
-        selectedModel={selectedModel}
-        reasoningEfforts={reasoningOptions}
-        selectedReasoningEffort={reasoningEffort}
+        onClose={() => setModelMenuVisible(false)}
         onSelectModel={setSelectedModelChoice}
-        onSelectReasoningEffort={setReasoningEffort}
-        onClose={() => setShowPromptControls(false)}
+        selectedModel={selectedModel}
+        visible={modelMenuVisible}
+      />
+      <ReasoningMenu
+        efforts={reasoningOptions}
+        onClose={() => setReasoningMenuVisible(false)}
+        onSelectEffort={setReasoningEffort}
+        selectedEffort={reasoningEffort}
+        visible={reasoningMenuVisible}
       />
     </SafeAreaView>
   );

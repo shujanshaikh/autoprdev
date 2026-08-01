@@ -40,7 +40,7 @@ import { ErrorNotice, LoadingState } from "../components/ui";
 import { Composer } from "../components/Composer";
 import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
 import { GitMenu } from "../components/git/GitMenu";
-import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
+import { ModelMenu, ReasoningMenu } from "../components/ModelMenu";
 import { AgentWorkingIndicator, ThreadMessage } from "../components/thread/ThreadMessage";
 import { mobileConfig } from "../config";
 import { useAppTheme } from "../hooks/useAppTheme";
@@ -184,7 +184,8 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [showControls, setShowControls] = useState(false);
+  const [modelMenuVisible, setModelMenuVisible] = useState(false);
+  const [reasoningMenuVisible, setReasoningMenuVisible] = useState(false);
   const [toolsVisible, setToolsVisible] = useState(false);
   const [gitMenuVisible, setGitMenuVisible] = useState(false);
   const [renameVisible, setRenameVisible] = useState(false);
@@ -1015,8 +1016,8 @@ export function ThreadScreen({ navigation, route }: Props) {
           modelLabel={formatCodexModelLabel(selectedModel)}
           onAddImage={() => void chooseImage()}
           onChangeText={setPrompt}
-          onPressModel={() => setShowControls(true)}
-          onPressReasoning={() => setShowControls(true)}
+          onPressModel={() => setModelMenuVisible(true)}
+          onPressReasoning={() => setReasoningMenuVisible(true)}
           onSend={() => void send()}
           onStop={() => void stop()}
           placeholder={composerPlaceholder}
@@ -1057,15 +1058,19 @@ export function ThreadScreen({ navigation, route }: Props) {
         title={thread.featureBranch ?? thread.baseBranch}
         visible={gitMenuVisible}
       />
-      <ModelReasoningSheet
-        visible={showControls}
+      <ModelMenu
         models={modelOptions}
-        selectedModel={selectedModel}
-        reasoningEfforts={reasoningOptions}
-        selectedReasoningEffort={reasoningEffort}
+        onClose={() => setModelMenuVisible(false)}
         onSelectModel={setSelectedModelChoice}
-        onSelectReasoningEffort={setReasoningEffort}
-        onClose={() => setShowControls(false)}
+        selectedModel={selectedModel}
+        visible={modelMenuVisible}
+      />
+      <ReasoningMenu
+        efforts={reasoningOptions}
+        onClose={() => setReasoningMenuVisible(false)}
+        onSelectEffort={setReasoningEffort}
+        selectedEffort={reasoningEffort}
+        visible={reasoningMenuVisible}
       />
       <Modal
         animationType="slide"

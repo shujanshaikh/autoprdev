@@ -40,6 +40,7 @@ import { Composer } from "../components/Composer";
 import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
 import { GitHubIcon } from "../components/GitHubIcon";
 import { GitMenu } from "../components/git/GitMenu";
+import { GlassSurface } from "../components/GlassSurface";
 import { SheetCard, SheetRow } from "../components/SheetList";
 import type { MenuAnchor } from "../components/MenuSheet";
 import { ModelMenu, ReasoningMenu } from "../components/ModelMenu";
@@ -416,7 +417,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         </View>
       ),
       headerRight: () => (
-        <View style={[styles.headerActions, { backgroundColor: theme.surfaceSoft, borderColor: theme.line }]}>
+        <GlassSurface radius={20} style={styles.headerActions} translucent>
           <Pressable
             accessibilityLabel="Review changes"
             onPress={() => navigation.navigate("Changes", { projectId, threadId, title: thread?.title })}
@@ -443,7 +444,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           >
             <MoreHorizontal color={theme.ink} size={19} />
           </Pressable>
-        </View>
+        </GlassSurface>
       ),
     });
   }, [
@@ -1259,7 +1260,7 @@ const styles = StyleSheet.create({
   headerTitle: { width: 136, minWidth: 0 },
   headerTitleText: { fontFamily: "DMSans_700Bold", fontSize: 15, letterSpacing: -0.25 },
   headerSubtitle: { fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 1 },
-  headerActions: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 2, flexDirection: "row", alignItems: "center", gap: 1 },
+  headerActions: { paddingHorizontal: 2, flexDirection: "row", alignItems: "center", gap: 1 },
   headerButton: { width: 34, height: 36, alignItems: "center", justifyContent: "center" },
   headerBadge: {
     position: "absolute",

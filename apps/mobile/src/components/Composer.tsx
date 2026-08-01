@@ -157,7 +157,7 @@ export function Composer({
 
       {expanded ? (
         <ComposerToolbarRow>
-          <ComposerToolbarScroller fadeColor={theme.screen}>
+          <ComposerToolbarScroller>
             {onAddImage ? (
               <ComposerToolbarButton
                 accessibilityLabel="Add photos"

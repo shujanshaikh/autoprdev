@@ -1,23 +1,10 @@
 import { ChevronDown, type LucideIcon } from "lucide-react-native";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  type LayoutChangeEvent,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-} from "react-native";
+import type { ReactNode } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
 
 export const TOOLBAR_CONTROL_HEIGHT = 44;
-
-const FADE_WIDTH = 20;
-const SCROLL_EPSILON = 4;
 
 /**
  * The composer toolbar: a scrolling run of pill controls with a control pinned
@@ -28,82 +15,24 @@ export function ComposerToolbarRow({ children }: { children: ReactNode }) {
 }
 
 /**
- * Scrolls the pills when they overflow, fading whichever edge has more to show
- * so a clipped pill never reads as a rendering glitch.
+ * Scrolls the pills when they overflow.
+ *
+ * An earlier version faded the overflowing edges with
+ * `experimental_backgroundImage`. RN 0.85 rendered those gradients as a dark
+ * smear regardless of the colour passed, so the fades are gone rather than
+ * shipping a grey block over the reasoning pill.
  */
-export function ComposerToolbarScroller({
-  children,
-  fadeColor,
-}: {
-  children: ReactNode;
-  fadeColor: string;
-}) {
-  const [metrics, setMetrics] = useState({ contentWidth: 0, offsetX: 0, viewportWidth: 0 });
-
-  const edges = useMemo(() => {
-    const maxOffset = Math.max(0, metrics.contentWidth - metrics.viewportWidth);
-    return {
-      left: metrics.offsetX > SCROLL_EPSILON,
-      right: metrics.offsetX < maxOffset - SCROLL_EPSILON,
-    };
-  }, [metrics]);
-
-  const onLayout = useCallback((event: LayoutChangeEvent) => {
-    const viewportWidth = event.nativeEvent.layout.width;
-    setMetrics((current) => current.viewportWidth === viewportWidth
-      ? current
-      : { ...current, viewportWidth });
-  }, []);
-
-  const onContentSizeChange = useCallback((contentWidth: number) => {
-    setMetrics((current) => current.contentWidth === contentWidth
-      ? current
-      : { ...current, contentWidth });
-  }, []);
-
-  const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    setMetrics((current) => Math.abs(current.offsetX - offsetX) < 1
-      ? current
-      : { ...current, offsetX });
-  }, []);
-
-  const transparent = "rgba(0,0,0,0)";
+export function ComposerToolbarScroller({ children }: { children: ReactNode }) {
   return (
-    <View style={styles.scrollerWrap}>
-      <ScrollView
-        contentContainerStyle={styles.scrollerContent}
-        horizontal
-        keyboardShouldPersistTaps="always"
-        onContentSizeChange={onContentSizeChange}
-        onLayout={onLayout}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        showsHorizontalScrollIndicator={false}
-      >
-        {children}
-      </ScrollView>
-      {edges.left ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.fade,
-            styles.fadeLeft,
-            { experimental_backgroundImage: `linear-gradient(to right, ${fadeColor}, ${transparent})` },
-          ]}
-        />
-      ) : null}
-      {edges.right ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.fade,
-            styles.fadeRight,
-            { experimental_backgroundImage: `linear-gradient(to right, ${transparent}, ${fadeColor})` },
-          ]}
-        />
-      ) : null}
-    </View>
+    <ScrollView
+      contentContainerStyle={styles.scrollerContent}
+      horizontal
+      keyboardShouldPersistTaps="always"
+      showsHorizontalScrollIndicator={false}
+      style={styles.scroller}
+    >
+      {children}
+    </ScrollView>
   );
 }
 
@@ -173,11 +102,8 @@ export function ComposerToolbarButton({
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 7, paddingTop: 8 },
-  scrollerWrap: { flex: 1, minWidth: 0, position: "relative" },
+  scroller: { flex: 1, minWidth: 0 },
   scrollerContent: { alignItems: "center", gap: 7, paddingRight: 2 },
-  fade: { position: "absolute", top: 0, bottom: 0, width: FADE_WIDTH },
-  fadeLeft: { left: 0 },
-  fadeRight: { right: 0 },
   button: {
     height: TOOLBAR_CONTROL_HEIGHT,
     maxWidth: 190,

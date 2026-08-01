@@ -52,6 +52,7 @@ interface ThreadCommitButtonProps {
   projectId: string;
   threadId: string;
   disabled?: boolean;
+  gitStatusEnabled?: boolean;
 }
 
 type GitActionVariables = {
@@ -114,6 +115,7 @@ export function ThreadCommitButton({
   projectId,
   threadId,
   disabled = false,
+  gitStatusEnabled = true,
   thread,
 }: ThreadCommitButtonProps & { thread?: ThreadCommitState | null }) {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -126,6 +128,7 @@ export function ThreadCommitButton({
     projectId,
     threadId,
     persistedStatus: thread?.gitStatus,
+    enabled: gitStatusEnabled,
     refetchInterval: false,
   });
   const status = gitStatusQuery.data ?? thread?.gitStatus;

@@ -211,6 +211,9 @@ function ProjectThreadPageContent() {
         ? "unavailable"
         : undefined;
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
+  const gitStatusEnabled = project?.sandboxRuntimeStatus === "started"
+    && !shouldAutoSubmitInitialPrompt
+    && !thread?.isLive;
 
   useEffect(() => {
     if (!isAuthenticated || dbMessages === undefined) {
@@ -299,7 +302,7 @@ function ProjectThreadPageContent() {
               threadId={threadId}
               persistedStatus={thread.gitStatus}
               invalidatedAt={thread.gitStatusInvalidatedAt}
-              isLive={Boolean(thread.isLive)}
+              enabled={gitStatusEnabled}
             />
           ) : null}
         </div>
@@ -309,6 +312,7 @@ function ProjectThreadPageContent() {
           projectId={projectId}
           threadId={threadId}
           disabled={projectDisabled || loading || notFound}
+          gitStatusEnabled={gitStatusEnabled}
           thread={thread}
         />
 
@@ -444,6 +448,7 @@ function ProjectThreadPageContent() {
               onDiffCountChange={handleDiffCountChange}
               project={project}
               thread={thread}
+              gitStatusEnabled={gitStatusEnabled}
             />
           )}
         </PierreDiffWorkerPoolProvider>

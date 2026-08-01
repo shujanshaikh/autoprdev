@@ -38,7 +38,12 @@ const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const SANDBOX_START_POLL_MS = 1_000;
 const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
 const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
+const DAYTONA_RATE_LIMIT_RETRY_BASE_MS = 1_000;
+const DAYTONA_RATE_LIMIT_RETRY_MAX_MS = 10_000;
+const SANDBOX_STARTED_CACHE_MS = 5_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
+const WORKTREE_PROVISION_WAIT_MS = 120_000;
+const WORKTREE_PROVISION_POLL_MS = 500;
 const MAX_ENV_VALUE_LENGTH = 64 * 1024;
 const MAX_BULK_ENV_COUNT = 50;
 const MAX_BULK_ENV_VALUE_LENGTH = 512 * 1024;
@@ -108,6 +113,9 @@ type ComputerUseLifecycle = {
   getProcessLogs?(processName: string): Promise<unknown>;
   getProcessErrors?(processName: string): Promise<unknown>;
 };
+
+const sandboxStartPromises = new Map<string, Promise<DaytonaSandbox>>();
+const recentlyStartedSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
 
 type ComputerUseDiagnostics = {
   processName: ComputerUseProcessName;
@@ -212,6 +220,26 @@ function isSandboxNetworkNotReadyError(error: unknown) {
 
 function isSandboxStateChangeInProgressError(error: unknown) {
   return errorMessage(error).toLowerCase().includes("state change in progress");
+}
+
+function isDaytonaRateLimitError(error: unknown) {
+  if (error instanceof Error && error.name === "DaytonaRateLimitError") return true;
+  const message = errorMessage(error).toLowerCase();
+  if (message.includes("too many requests") || message.includes("throttlerexception")) return true;
+  if (!isRecord(error)) return false;
+  return error.status === 429
+    || error.status === "429"
+    || error.statusCode === 429
+    || error.statusCode === "429"
+    || error.code === 429
+    || error.code === "429";
+}
+
+function daytonaRateLimitRetryDelay(attempt: number) {
+  return Math.min(
+    DAYTONA_RATE_LIMIT_RETRY_BASE_MS * 2 ** Math.max(0, attempt),
+    DAYTONA_RATE_LIMIT_RETRY_MAX_MS,
+  );
 }
 
 function createDaytonaClient() {
@@ -482,32 +510,64 @@ async function ensureDesktopReady(computerUse: ComputerUseLifecycle) {
   }
 }
 
-async function ensureSandboxStarted(sandboxId: string) {
+async function ensureSandboxStartedUncoalesced(sandboxId: string) {
   const daytona = createDaytonaClient();
   const deadline = Date.now() + SANDBOX_START_TIMEOUT_SECONDS * 1000;
   let lastError: unknown;
+  let rateLimitAttempt = 0;
 
   while (Date.now() <= deadline) {
-    const sandbox = await daytona.get(sandboxId);
-
-    if (!sandbox.state || normalizeSandboxRuntimeStatus(sandbox.state) === "started") {
-      return sandbox;
-    }
-
     try {
+      const sandbox = await daytona.get(sandboxId);
+
+      if (!sandbox.state || normalizeSandboxRuntimeStatus(sandbox.state) === "started") {
+        return sandbox;
+      }
+
       const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
       await sandbox.start(timeoutSeconds);
       return sandbox;
     } catch (error) {
-      if (!isSandboxStateChangeInProgressError(error)) {
-        throw error;
-      }
       lastError = error;
-      await sleep(SANDBOX_START_POLL_MS);
+      if (isSandboxStateChangeInProgressError(error)) {
+        await sleep(SANDBOX_START_POLL_MS);
+        continue;
+      }
+      if (isDaytonaRateLimitError(error) && Date.now() < deadline) {
+        await sleep(daytonaRateLimitRetryDelay(rateLimitAttempt));
+        rateLimitAttempt += 1;
+        continue;
+      }
+      throw error;
     }
   }
 
   throw lastError instanceof Error ? lastError : new Error("Sandbox did not become ready before the timeout.");
+}
+
+async function ensureSandboxStarted(sandboxId: string): Promise<DaytonaSandbox> {
+  const cached = recentlyStartedSandboxes.get(sandboxId);
+  if (cached && cached.expiresAt > Date.now()) return cached.sandbox;
+  if (cached) recentlyStartedSandboxes.delete(sandboxId);
+
+  const existing = sandboxStartPromises.get(sandboxId);
+  if (existing) return await existing;
+
+  const pending = ensureSandboxStartedUncoalesced(sandboxId);
+  sandboxStartPromises.set(sandboxId, pending);
+
+  try {
+    const sandbox = await pending;
+    recentlyStartedSandboxes.set(sandboxId, {
+      sandbox,
+      expiresAt: Date.now() + SANDBOX_STARTED_CACHE_MS,
+    });
+    return sandbox;
+  } finally {
+    if (sandboxStartPromises.get(sandboxId) === pending) {
+      sandboxStartPromises.delete(sandboxId);
+    }
+  }
 }
 
 async function startDaytonaSandbox(sandboxId: string) {
@@ -721,6 +781,22 @@ async function provisionThreadWorktree(
     throw new ConvexError({ code: "PROJECT_NOT_READY" });
   }
 
+  if (
+    thread.worktreeStatus === "ready"
+    && thread.baseBranch
+    && thread.featureBranch
+    && thread.worktreePath
+    && thread.headSha
+  ) {
+    return {
+      baseBranch: thread.baseBranch,
+      featureBranch: thread.featureBranch,
+      worktreePath: thread.worktreePath,
+      headSha: thread.headSha,
+      upstreamBranch: thread.upstreamBranch,
+    };
+  }
+
   const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
     DEFAULT_SANDBOX_WORKDIR,
     sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
@@ -740,13 +816,50 @@ async function provisionThreadWorktree(
     throw new ConvexError({ code: "THREAD_WORKTREE_PATH_UNSAFE" });
   }
 
-  await ctx.runMutation(internal.threads.reserveWorktreeInternal, {
+  const reservation = await ctx.runMutation(internal.threads.reserveWorktreeInternal, {
     authorId,
     threadId,
     baseBranch,
     featureBranch,
     worktreePath,
   });
+
+  if (!reservation.acquired) {
+    const waitDeadline = Date.now() + WORKTREE_PROVISION_WAIT_MS;
+    while (Date.now() < waitDeadline) {
+      await sleep(WORKTREE_PROVISION_POLL_MS);
+      const current = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
+        authorId,
+        projectId,
+        threadId,
+      });
+      if (
+        current.thread.worktreeStatus === "ready"
+        && current.thread.baseBranch
+        && current.thread.featureBranch
+        && current.thread.worktreePath
+        && current.thread.headSha
+      ) {
+        return {
+          baseBranch: current.thread.baseBranch,
+          featureBranch: current.thread.featureBranch,
+          worktreePath: current.thread.worktreePath,
+          headSha: current.thread.headSha,
+          upstreamBranch: current.thread.upstreamBranch,
+        };
+      }
+      if (current.thread.worktreeStatus === "failed") {
+        throw new ConvexError({
+          code: "THREAD_WORKTREE_PROVISION_FAILED",
+          message: current.thread.worktreeError ?? "The concurrent worktree preparation failed.",
+        });
+      }
+    }
+    throw new ConvexError({
+      code: "THREAD_WORKTREE_PROVISION_TIMEOUT",
+      message: "Timed out waiting for the concurrent worktree preparation.",
+    });
+  }
 
   try {
     const sandbox = await ensureSandboxStarted(project.sandboxId);

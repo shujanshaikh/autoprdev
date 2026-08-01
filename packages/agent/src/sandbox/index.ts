@@ -166,8 +166,42 @@ const DEFAULT_DAYTONA_SNAPSHOT = "autopr";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
+const DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000] as const;
+const SANDBOX_LOOKUP_CACHE_MS = 5_000;
 
 const sandboxContextPromises = new Map<string, Promise<SandboxContext>>();
+const sandboxLookupPromises = new Map<string, Promise<DaytonaSandbox>>();
+const recentSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isDaytonaRateLimitError(error: unknown) {
+  if (error instanceof Error && error.name === "DaytonaRateLimitError") return true;
+  const message = errorMessage(error).toLowerCase();
+  if (message.includes("too many requests") || message.includes("throttlerexception")) return true;
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  return record.status === 429
+    || record.status === "429"
+    || record.statusCode === 429
+    || record.statusCode === "429"
+    || record.code === 429
+    || record.code === "429";
+}
+
+async function retryDaytonaRateLimit<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      const delay = DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+      if (!isDaytonaRateLimitError(error) || delay === undefined) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
 
 interface ResolvedSandboxSessionOptions {
   cacheKey: string;
@@ -262,9 +296,30 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
   const daytona = await createDaytonaClient();
 
   if (resolved.sandboxId) {
-    return ensureSandboxStarted(
-      await ensureSandboxAutoArchiveInterval(await daytona.get(resolved.sandboxId)),
-    );
+    const sandboxId = resolved.sandboxId;
+    const cached = recentSandboxes.get(sandboxId);
+    if (cached && cached.expiresAt > Date.now()) return cached.sandbox;
+    if (cached) recentSandboxes.delete(sandboxId);
+
+    const existing = sandboxLookupPromises.get(sandboxId);
+    if (existing) return await existing;
+
+    const pending = retryDaytonaRateLimit(async () => ensureSandboxStarted(
+      await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId)),
+    ));
+    sandboxLookupPromises.set(sandboxId, pending);
+    try {
+      const sandbox = await pending;
+      recentSandboxes.set(sandboxId, {
+        sandbox,
+        expiresAt: Date.now() + SANDBOX_LOOKUP_CACHE_MS,
+      });
+      return sandbox;
+    } finally {
+      if (sandboxLookupPromises.get(sandboxId) === pending) {
+        sandboxLookupPromises.delete(sandboxId);
+      }
+    }
   }
 
   return ensureSandboxStarted(
@@ -274,6 +329,12 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
       autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
     }),
   );
+}
+
+/** Fetches an existing sandbox without changing its runtime state. */
+export async function getSandboxWithoutStarting(sandboxId: string): Promise<DaytonaSandbox> {
+  const daytona = createDaytonaClient();
+  return await daytona.get(sandboxId);
 }
 
 export async function deleteSandbox(sandboxId: string): Promise<void> {
@@ -289,14 +350,7 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
   const existingContext = sandboxContextPromises.get(resolved.cacheKey);
 
   if (existingContext) {
-    const context = await existingContext;
-    const sandbox = await createSandbox({
-      ...resolved,
-      sandboxId: context.sandbox.id,
-    });
-    const refreshedContext = { ...context, sandbox };
-    sandboxContextPromises.set(resolved.cacheKey, Promise.resolve(refreshedContext));
-    return refreshedContext;
+    return await existingContext;
   }
 
   const createdContext = createSandbox(resolved).then(async (sandbox) => {
@@ -315,8 +369,14 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
     };
   });
 
-  sandboxContextPromises.set(resolved.cacheKey, createdContext);
-  return createdContext;
+  const recoverableContext = createdContext.catch((error) => {
+    if (sandboxContextPromises.get(resolved.cacheKey) === recoverableContext) {
+      sandboxContextPromises.delete(resolved.cacheKey);
+    }
+    throw error;
+  });
+  sandboxContextPromises.set(resolved.cacheKey, recoverableContext);
+  return await recoverableContext;
 }
 
 export interface BootstrapRepositorySandboxOptions {

@@ -17,10 +17,12 @@ export function useThreadGitStatusQuery(options: {
   projectId: string;
   threadId: string;
   persistedStatus?: ThreadGitStatus;
+  enabled?: boolean;
   refetchInterval?: number | false;
 }) {
   return useQuery({
     queryKey: threadGitStatusQueryKey(options.projectId, options.threadId),
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const response = await fetch(
         `/api/project/${encodeURIComponent(options.projectId)}/thread/${encodeURIComponent(options.threadId)}?gitStatus=1&refresh=1`,
@@ -34,6 +36,7 @@ export function useThreadGitStatusQuery(options: {
     initialData: options.persistedStatus,
     initialDataUpdatedAt: options.persistedStatus?.checkedAt,
     staleTime: 10_000,
+    retry: false,
     refetchInterval: options.refetchInterval,
     refetchOnWindowFocus: true,
   });

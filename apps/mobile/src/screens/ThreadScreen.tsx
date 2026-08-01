@@ -149,6 +149,9 @@ export function ThreadScreen({ navigation, route }: Props) {
   const theme = useAppTheme();
   const { getAccessToken } = useAuth();
   const { project, thread, messages, loading, hydrationError } = useThreadData(projectId, threadId);
+  const initialSubmitPending = messages.length === 0 && Boolean(
+    route.params.initialPrompt || route.params.initialFiles?.length,
+  );
   const codex = useWebQuery<CodexStatus>(["codex", "status"], "/api/codex/status", {
     staleTime: 60_000,
     retry: false,
@@ -157,9 +160,15 @@ export function ThreadScreen({ navigation, route }: Props) {
     ["git-status", projectId, threadId],
     `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?gitStatus=1&refresh=1`,
     {
-      enabled: Boolean(project?.sandboxStatus === "ready" && thread),
+      enabled: Boolean(
+        project?.sandboxStatus === "ready"
+        && project.sandboxRuntimeStatus === "started"
+        && thread
+        && !thread.isLive
+        && !initialSubmitPending
+      ),
       staleTime: 20_000,
-      refetchInterval: thread?.isLive ? 5_000 : 30_000,
+      refetchInterval: false,
       retry: false,
     },
   );

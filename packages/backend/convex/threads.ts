@@ -306,6 +306,7 @@ export const reserveWorktreeInternal = internalMutation({
     featureBranch: v.string(),
     worktreePath: v.string(),
   },
+  returns: v.object({ acquired: v.boolean() }),
   handler: async (ctx, args) => {
     const thread = await ctx.db.query("threads").withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId)).unique();
     if (!thread || thread.authorId !== args.authorId) {
@@ -323,6 +324,13 @@ export const reserveWorktreeInternal = internalMutation({
     }
 
     const now = Date.now();
+    if (
+      thread.worktreeStatus === "provisioning"
+      && thread.worktreeUpdatedAt
+      && now - thread.worktreeUpdatedAt < 120_000
+    ) {
+      return { acquired: false };
+    }
     const shouldInvalidate = thread.worktreeStatus !== "ready";
     await ctx.db.patch(thread._id, {
       workspaceMode: "worktree",
@@ -338,7 +346,7 @@ export const reserveWorktreeInternal = internalMutation({
       } : {}),
       updatedAt: now,
     });
-    return null;
+    return { acquired: true };
   },
 });
 

@@ -24,6 +24,7 @@ import {
   handleAgentChatRequest,
   isAgentChatRequest,
 } from "#/lib/trigger-agent-chat-server";
+import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import type { agentTask } from "#/trigger/agent";
 
 const agentRequestSchema = z.object({
@@ -134,16 +135,6 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
-    let worktree: Awaited<ReturnType<typeof resolveThreadWorkspaceForRun>>;
-    try {
-      worktree = await resolveThreadWorkspaceForRun(projectId, threadId);
-    } catch (error) {
-      return Response.json(
-        { error: error instanceof Error ? error.message : "Could not prepare the thread worktree." },
-        { status: 409 },
-      );
-    }
-
     const requiredRunTags = [agentProjectTag(projectId), agentThreadTag(threadId)];
     if (thread.currentRunId) {
       const currentRunLookup = await lookupTriggerAgentRun(thread.currentRunId, requiredRunTags);
@@ -167,6 +158,17 @@ async function POST(
         threadId,
         thread.currentRunId,
         currentRunLookup.status === "found" ? currentRunLookup.run : null,
+      );
+    }
+
+    let worktree: { worktreePath: string; featureBranch: string };
+    try {
+      worktree = persistedThreadWorkspace(project, thread)
+        ?? await resolveThreadWorkspaceForRun(projectId, threadId);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Could not prepare the thread worktree." },
+        { status: 409 },
       );
     }
 

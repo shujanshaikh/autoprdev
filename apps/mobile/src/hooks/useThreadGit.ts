@@ -59,7 +59,7 @@ export function useThreadGit(projectId: string, threadId: string) {
     `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}?gitStatus=1&refresh=1`,
     {
       staleTime: 5_000,
-      refetchInterval: operationRunning ? 2_000 : false,
+      refetchInterval: false,
       retry: false,
     },
   );

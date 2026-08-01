@@ -2,19 +2,11 @@ import type { GitChangedFile } from "@autopr/backend/convex/lib/gitStatus";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { CircleArrowOutUpRight, CircleCheckBig } from "lucide-react-native";
 import { useCallback, useLayoutEffect, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GitActionButton, GitInlineMeta } from "../components/git/GitSheet";
+import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadGit } from "../hooks/useThreadGit";
@@ -90,10 +82,7 @@ export function GitCommitScreen({ navigation, route }: Props) {
   const disabledReason = blockedReason ?? commitAvailability.reason;
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.screen}
-      >
+      <KeyboardAvoidingScreen style={styles.screen}>
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardDismissMode="interactive"
@@ -196,7 +185,7 @@ export function GitCommitScreen({ navigation, route }: Props) {
             </Text>
           ) : null}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoidingScreen>
     </SafeAreaView>
   );
 }

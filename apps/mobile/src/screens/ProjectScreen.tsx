@@ -6,12 +6,10 @@ import * as ImagePicker from "expo-image-picker";
 import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import {
   Archive,
-  ArrowUp,
   ChevronDown,
   ChevronRight,
   GitBranch,
   GitPullRequest,
-  ImagePlus,
   Layers,
   MessageSquare,
   MoreHorizontal,
@@ -36,10 +34,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ComposerSheet } from "../components/ComposerSheet";
-import { GlassSurface } from "../components/GlassSurface";
+import { Composer } from "../components/Composer";
 import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
-import { OpenAIIcon } from "../components/OpenAIIcon";
 import { EmptyState, ErrorNotice, LoadingState, SecondaryButton, StatusPill } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebQuery } from "../hooks/useWebQuery";
@@ -139,7 +135,6 @@ export function ProjectScreen({ navigation, route }: Props) {
   const [workspaceMode, setWorkspaceMode] = useState<"checkout" | "worktree">("checkout");
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [showPromptControls, setShowPromptControls] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
   const [threadMenuTarget, setThreadMenuTarget] = useState<{
     threadId: string;
     title: string;
@@ -172,15 +167,6 @@ export function ProjectScreen({ navigation, route }: Props) {
       setReasoningEffort(getCodexReasoningEfforts(selectedModel)[0] ?? DEFAULT_CODEX_REASONING_EFFORT);
     }
   }, [reasoningEffort, selectedModel]);
-
-  useEffect(() => {
-    if (!route.params.focusComposer || project === undefined) return;
-    const timer = setTimeout(() => {
-      setComposerOpen(true);
-      navigation.setParams({ focusComposer: undefined });
-    }, 280);
-    return () => clearTimeout(timer);
-  }, [navigation, project, route.params.focusComposer]);
 
   const filteredThreads = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -324,7 +310,12 @@ export function ProjectScreen({ navigation, route }: Props) {
     : running ? "Stop" : "Start";
   return (
     <SafeAreaView edges={["bottom"]} style={[styles.screen, { backgroundColor: theme.screen }]}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+      >
         {error ? <ErrorNotice message={error} /> : null}
         {project.sandboxError ? <ErrorNotice message={project.sandboxError} /> : null}
 
@@ -337,70 +328,36 @@ export function ProjectScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
-          <GlassSurface interactive radius={20} style={styles.promptBox}>
-            {pendingImages.length > 0 ? (
-              <FlatList
-                horizontal
-                data={pendingImages}
-                keyExtractor={(image) => image.id}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.promptImages}
-                renderItem={renderPromptImage}
-              />
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Task prompt"
-              accessibilityHint="Opens a full-screen editor"
-              disabled={creating || !promptReady}
-              onPress={() => setComposerOpen(true)}
-              style={({ pressed }) => [styles.taskInput, { opacity: pressed ? 0.65 : 1 }]}
-            >
-              <Text
-                numberOfLines={3}
-                style={[styles.taskInputText, { color: prompt.trim() ? theme.ink : theme.faint }]}
-              >
-                {prompt.trim() ? prompt : promptPlaceholder}
-              </Text>
-            </Pressable>
-            <View style={styles.promptToolbar}>
-              <Pressable
-                accessibilityLabel="Add photos"
-                disabled={!promptReady || creating}
-                onPress={() => void chooseImages()}
-                style={[styles.promptToolButton, { backgroundColor: theme.surfaceSoft }]}
-              >
-                <ImagePlus color={theme.muted} size={17} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="Choose model and reasoning"
-                onPress={() => setShowPromptControls((value) => !value)}
-                style={styles.promptSelector}
-              >
-                <OpenAIIcon size={16} />
-                <Text numberOfLines={1} style={[styles.promptSelectorText, { color: theme.muted }]}>
-                  {formatCodexModelLabel(selectedModel)} · {formatReasoningEffort(reasoningEffort)}
-                </Text>
-                <ChevronDown color={theme.faint} size={13} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="Send task"
-                disabled={!promptReady || creating || (!prompt.trim() && pendingImages.length === 0)}
-                onPress={() => void newThread()}
-                style={[
-                  styles.promptSend,
-                  {
-                    backgroundColor: theme.accent,
-                    opacity: !promptReady || creating || (!prompt.trim() && pendingImages.length === 0) ? 0.35 : 1,
-                  },
-                ]}
-              >
-                {creating
-                  ? <ActivityIndicator color={theme.accentInk} size="small" />
-                  : <ArrowUp color={theme.accentInk} size={18} strokeWidth={2.6} />}
-              </Pressable>
-            </View>
-          </GlassSurface>
+          <View style={styles.promptBox}>
+            <Composer
+              alwaysExpanded
+              attachments={pendingImages.length > 0 ? (
+                <FlatList
+                  horizontal
+                  data={pendingImages}
+                  keyExtractor={(image) => image.id}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.promptImages}
+                  style={styles.promptImageList}
+                  renderItem={renderPromptImage}
+                />
+              ) : null}
+              autoFocus={Boolean(route.params.focusComposer)}
+              canSend={promptReady && !creating && (Boolean(prompt.trim()) || pendingImages.length > 0)}
+              editable={promptReady && !creating}
+              hasAttachments={pendingImages.length > 0}
+              modelLabel={formatCodexModelLabel(selectedModel)}
+              onAddImage={() => void chooseImages()}
+              onChangeText={setPrompt}
+              onPressModel={() => setShowPromptControls(true)}
+              onPressReasoning={() => setShowPromptControls(true)}
+              onSend={() => void newThread()}
+              placeholder={promptPlaceholder}
+              reasoningLabel={formatReasoningEffort(reasoningEffort)}
+              sending={creating}
+              value={prompt}
+            />
+          </View>
 
           <View style={styles.taskOptions}>
             <Pressable
@@ -727,39 +684,6 @@ export function ProjectScreen({ navigation, route }: Props) {
           </View>
         </View>
       </Modal>
-      <ComposerSheet
-        visible={composerOpen}
-        title="New task"
-        subtitle={`${project.repoFullName} · ${branch}`}
-        placeholder={promptPlaceholder}
-        value={prompt}
-        editable={promptReady && !creating}
-        canSend={promptReady && !creating && (Boolean(prompt.trim()) || pendingImages.length > 0)}
-        sending={creating}
-        picker={{
-          models: modelOptions,
-          selectedModel,
-          reasoningEfforts: reasoningOptions,
-          selectedReasoningEffort: reasoningEffort,
-          onSelectModel: setSelectedModelChoice,
-          onSelectReasoningEffort: setReasoningEffort,
-        }}
-        attachments={pendingImages.length > 0 ? (
-          <FlatList
-            horizontal
-            data={pendingImages}
-            keyExtractor={(image) => image.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.sheetImages}
-            renderItem={renderPromptImage}
-            style={styles.sheetImageList}
-          />
-        ) : null}
-        onChangeText={setPrompt}
-        onAddImage={() => void chooseImages()}
-        onClose={() => setComposerOpen(false)}
-        onSend={() => void newThread()}
-      />
       <ModelReasoningSheet
         visible={showPromptControls}
         models={modelOptions}
@@ -792,8 +716,6 @@ const styles = StyleSheet.create({
   runtimeLabel: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
   runtimeSeparator: { fontFamily: "DMSans_500Medium", fontSize: 11 },
   runtimeAction: { fontFamily: "DMSans_700Bold", fontSize: 11 },
-  sheetImageList: { flexGrow: 0 },
-  sheetImages: { gap: 10, paddingHorizontal: 16, paddingBottom: 10 },
   promptSection: { alignItems: "center", paddingTop: 26, paddingBottom: 22 },
   promptTitle: { fontFamily: "DMSans_700Bold", fontSize: 25, letterSpacing: -0.8, textAlign: "center" },
   promptMeta: {
@@ -806,17 +728,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   promptMetaText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 11 },
-  promptBox: { width: "100%", minHeight: 136, padding: 11 },
-  promptImages: { gap: 8, paddingHorizontal: 3, paddingTop: 2, paddingBottom: 8 },
+  promptBox: { width: "100%" },
+  promptImageList: { flexGrow: 0 },
+  promptImages: { gap: 8, paddingRight: 3, paddingBottom: 11 },
   promptImage: { width: 62, height: 62, borderRadius: 10 },
   removeImage: { position: "absolute", right: -5, top: -5, width: 21, height: 21, borderRadius: 999, alignItems: "center", justifyContent: "center" },
-  taskInput: { minHeight: 72, justifyContent: "flex-start", paddingHorizontal: 6, paddingTop: 8, paddingBottom: 8 },
-  taskInputText: { fontFamily: "DMSans_400Regular", fontSize: 15, lineHeight: 22 },
-  promptToolbar: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 5 },
-  promptToolButton: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
-  promptSelector: { flex: 1, minWidth: 0, minHeight: 34, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", gap: 4 },
-  promptSelectorText: { flexShrink: 1, fontFamily: "DMSans_500Medium", fontSize: 10 },
-  promptSend: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   taskOptions: {
     width: "100%",
     marginTop: 10,

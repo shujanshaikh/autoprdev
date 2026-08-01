@@ -9,10 +9,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import {
   ArrowDown,
-  ArrowUp,
   Bot,
-  ChevronDown,
-  CircleStop,
   FileDiff,
   GitCommitHorizontal,
   MoreHorizontal,
@@ -40,11 +37,10 @@ import {
 
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
-import { ComposerSheet } from "../components/ComposerSheet";
+import { Composer } from "../components/Composer";
+import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
 import { GitMenu } from "../components/git/GitMenu";
-import { GlassSurface } from "../components/GlassSurface";
 import { ModelReasoningSheet } from "../components/ModelReasoningSheet";
-import { OpenAIIcon } from "../components/OpenAIIcon";
 import { AgentWorkingIndicator, ThreadMessage } from "../components/thread/ThreadMessage";
 import { mobileConfig } from "../config";
 import { useAppTheme } from "../hooks/useAppTheme";
@@ -63,6 +59,8 @@ import {
 } from "../lib/threadTitle";
 import {
   DEFAULT_CODEX_REASONING_EFFORT,
+  formatCodexModelLabel,
+  formatReasoningEffort,
   getCodexModelOptions,
   getCodexReasoningEfforts,
   isCodexReasoningEffortForModel,
@@ -193,7 +191,6 @@ export function ThreadScreen({ navigation, route }: Props) {
   const [renameTitle, setRenameTitle] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
   const [demoSaving, setDemoSaving] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const listRef = useRef<FlatList>(null);
   const autoSubmitRef = useRef(false);
@@ -916,11 +913,7 @@ export function ThreadScreen({ navigation, route }: Props) {
     || pendingImages.length > 0
     || handoffFiles.length > 0;
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-      style={[styles.screen, { backgroundColor: theme.screen }]}
-    >
+    <KeyboardAvoidingScreen style={[styles.screen, { backgroundColor: theme.screen }]}>
       {(hydrationError || sendError || thread.agentRunIssue?.message || thread.workflowIssue?.message || git.error) ? (
         <View style={styles.errorWrap}>
           <ErrorNotice message={
@@ -1004,76 +997,35 @@ export function ThreadScreen({ navigation, route }: Props) {
       )}
 
       <View style={[styles.composerWrap, { backgroundColor: theme.screen }]}>
-        {composerAttachments.length > 0 ? (
-          <FlatList
-            horizontal
-            data={composerAttachments}
-            keyExtractor={attachmentKey}
-            renderItem={renderComposerAttachment}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.attachments}
-          />
-        ) : null}
-        <GlassSurface
-          interactive
-          radius={28}
-          style={[styles.composer, { borderColor: theme.line }]}
-        >
-          <Pressable
-            accessibilityLabel="Select model and reasoning effort"
-            accessibilityRole="button"
-            onPress={() => setShowControls(true)}
-            style={({ pressed }) => [
-              styles.modelButton,
-              { backgroundColor: theme.surfaceSoft, opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <OpenAIIcon size={15} />
-            <ChevronDown color={theme.faint} size={12} />
-          </Pressable>
-          <Pressable
-            accessibilityHint="Opens a full-screen editor"
-            accessibilityLabel="Message"
-            accessibilityRole="button"
-            disabled={!canChat}
-            onPress={() => setComposerOpen(true)}
-            style={({ pressed }) => [styles.promptPreview, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.prompt, { color: prompt.trim() ? theme.ink : theme.faint }]}
-            >
-              {prompt.trim() || composerPlaceholder}
-            </Text>
-          </Pressable>
-          <View style={styles.composerActions}>
-            {canStop || stopping ? (
-              <Pressable
-                accessibilityLabel="Stop agent"
-                disabled={stopping}
-                onPress={() => void stop()}
-                style={[styles.sendButton, { backgroundColor: theme.dangerSoft, opacity: stopping ? 0.55 : 1 }]}
-              >
-                <CircleStop color={theme.danger} size={19} />
-              </Pressable>
-            ) : (
-              <Pressable
-                accessibilityLabel="Send message"
-                disabled={!hasComposerContent || !canChat || demoSaving || running}
-                onPress={() => void send()}
-                style={[
-                  styles.sendButton,
-                  {
-                    backgroundColor: theme.accent,
-                    opacity: !hasComposerContent || !canChat || demoSaving || running ? 0.35 : 1,
-                  },
-                ]}
-              >
-                <ArrowUp color={theme.accentInk} size={19} strokeWidth={2.5} />
-              </Pressable>
-            )}
-          </View>
-        </GlassSurface>
+        <Composer
+          attachments={composerAttachments.length > 0 ? (
+            <FlatList
+              horizontal
+              data={composerAttachments}
+              keyExtractor={attachmentKey}
+              renderItem={renderComposerAttachment}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.attachments}
+              style={styles.attachmentList}
+            />
+          ) : null}
+          canSend={hasComposerContent && canChat && !demoSaving && !running}
+          editable={canChat}
+          hasAttachments={composerAttachments.length > 0}
+          modelLabel={formatCodexModelLabel(selectedModel)}
+          onAddImage={() => void chooseImage()}
+          onChangeText={setPrompt}
+          onPressModel={() => setShowControls(true)}
+          onPressReasoning={() => setShowControls(true)}
+          onSend={() => void send()}
+          onStop={() => void stop()}
+          placeholder={composerPlaceholder}
+          reasoningLabel={formatReasoningEffort(reasoningEffort)}
+          sending={sending}
+          showStop={canStop || stopping}
+          stopping={stopping}
+          value={prompt}
+        />
         {latestGitOperation?.status === "running" || latestGitOperation?.status === "failed" ? (
           <View style={[
             styles.gitOperation,
@@ -1095,39 +1047,6 @@ export function ThreadScreen({ navigation, route }: Props) {
         ) : null}
 
       </View>
-      <ComposerSheet
-        visible={composerOpen}
-        title={messages.length > 0 ? "Follow-up" : "New task"}
-        subtitle={[project.repoName, thread.featureBranch ?? thread.baseBranch].filter(Boolean).join(" · ")}
-        placeholder={composerPlaceholder}
-        value={prompt}
-        editable={canChat}
-        canSend={hasComposerContent && canChat && !running && !demoSaving}
-        sending={sending}
-        picker={{
-          models: modelOptions,
-          selectedModel,
-          reasoningEfforts: reasoningOptions,
-          selectedReasoningEffort: reasoningEffort,
-          onSelectModel: setSelectedModelChoice,
-          onSelectReasoningEffort: setReasoningEffort,
-        }}
-        attachments={composerAttachments.length > 0 ? (
-          <FlatList
-            horizontal
-            data={composerAttachments}
-            keyExtractor={attachmentKey}
-            renderItem={renderComposerAttachment}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.sheetAttachments}
-            style={styles.sheetAttachmentList}
-          />
-        ) : null}
-        onChangeText={setPrompt}
-        onAddImage={() => void chooseImage()}
-        onClose={() => setComposerOpen(false)}
-        onSend={() => void send()}
-      />
       <GitMenu
         onClose={() => setGitMenuVisible(false)}
         onOpenCommit={() => navigation.navigate("GitCommit", { projectId, threadId, title: thread.title })}
@@ -1325,7 +1244,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingScreen>
   );
 }
 
@@ -1370,35 +1289,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   composerWrap: { paddingHorizontal: 12, paddingTop: 7, paddingBottom: 8 },
-  attachments: { gap: 8, paddingHorizontal: 4, paddingTop: 4, paddingBottom: 9 },
+  attachmentList: { flexGrow: 0 },
+  attachments: { gap: 8, paddingRight: 4, paddingBottom: 11 },
   attachment: { marginRight: 2 },
   attachmentImage: { width: 64, height: 64, borderRadius: 8 },
   removeAttachment: { position: "absolute", right: -5, top: -5, width: 22, height: 22, borderRadius: 999, alignItems: "center", justifyContent: "center" },
-  composer: {
-    minHeight: 54,
-    borderWidth: 1,
-    borderRadius: 27,
-    paddingLeft: 7,
-    paddingRight: 7,
-    paddingVertical: 6,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  promptPreview: { flex: 1, minWidth: 0, justifyContent: "center", minHeight: 40 },
-  prompt: { fontFamily: "DMSans_400Regular", fontSize: 15, lineHeight: 21 },
-  composerActions: { flexDirection: "row", alignItems: "center", gap: 6 },
-  sheetAttachmentList: { flexGrow: 0 },
-  sheetAttachments: { gap: 10, paddingHorizontal: 18, paddingBottom: 10 },
-  modelButton: {
-    minHeight: 38,
-    borderRadius: 19,
-    paddingHorizontal: 11,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  sendButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   gitOperation: { minHeight: 35, marginTop: 6, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   gitOperationDot: { width: 7, height: 7, borderRadius: 99 },
   gitOperationText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 10, textTransform: "capitalize" },

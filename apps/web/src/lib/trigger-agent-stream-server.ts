@@ -27,10 +27,11 @@ export function emptyUIMessageStream() {
   });
 }
 
-function ensureTerminalRunFinishes(
+export function ensureTerminalRunFinishes(
   stream: ReadableStream<UIMessageChunk> & AsyncIterable<UIMessageChunk>,
   runId: string,
-  onTerminalWithoutFinish?: (run: TriggerAgentRun | null) => void | Promise<void>,
+  onTerminal?: (run: TriggerAgentRun | null) => void | Promise<void>,
+  retrieveRun: (runId: string) => Promise<TriggerAgentRun | null> = retrieveTriggerAgentRun,
 ) {
   return new ReadableStream<UIMessageChunk>({
     async start(controller) {
@@ -38,14 +39,21 @@ function ensureTerminalRunFinishes(
 
       try {
         for await (const chunk of stream) {
-          gotFinish ||= chunk.type === "finish";
+          if (chunk.type === "finish" && !gotFinish) {
+            // The app-level finish chunk is authoritative even though the
+            // Trigger task may still be completing its final persistence
+            // step. Settle Convex before exposing finish to clients so every
+            // connected surface leaves its live state at the same boundary.
+            await onTerminal?.(null);
+            gotFinish = true;
+          }
           controller.enqueue(chunk);
         }
 
         if (!gotFinish) {
-          const run = await retrieveTriggerAgentRun(runId);
+          const run = await retrieveRun(runId);
           if (!run || run.isCompleted) {
-            await onTerminalWithoutFinish?.(run);
+            await onTerminal?.(run);
             controller.enqueue({ type: "finish" });
           }
         }

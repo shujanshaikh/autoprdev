@@ -1,4 +1,6 @@
 const MAX_COLUMN = 1_000;
+const MAX_ROW = 1_000;
+const MAX_OSC_SEQUENCE_LENGTH = 4_096;
 
 function csiParameter(parameters: string, fallback: number) {
   const first = parameters.replace(/^\?/, "").split(";")[0];
@@ -17,6 +19,8 @@ function csiParameter(parameters: string, fallback: number) {
  */
 export class TerminalOutputSanitizer {
   private remainder = "";
+  private discardingOsc = false;
+  private discardedOscTail = "";
   private lines: string[][] = [[]];
   private row = 0;
   private column = 0;
@@ -29,8 +33,29 @@ export class TerminalOutputSanitizer {
   }
 
   private moveRows(change: number) {
-    this.row = Math.max(0, this.row + change);
+    this.row = Math.min(MAX_ROW, Math.max(0, this.row + change));
     while (this.lines.length <= this.row) this.lines.push([]);
+  }
+
+  private oscEnd(value: string, start = 0) {
+    const bellEnd = value.indexOf("\x07", start);
+    const stringEnd = value.indexOf("\x1b\\", start);
+    const candidates = [bellEnd, stringEnd].filter((candidate) => candidate >= 0);
+    if (candidates.length === 0) return null;
+    const index = Math.min(...candidates);
+    return { index, length: index === bellEnd ? 1 : 2 };
+  }
+
+  private finishDiscardingOsc(chunk: string) {
+    const value = `${this.discardedOscTail}${chunk}`;
+    this.discardedOscTail = "";
+    const end = this.oscEnd(value);
+    if (!end) {
+      this.discardedOscTail = value.endsWith("\x1b") ? "\x1b" : "";
+      return null;
+    }
+    this.discardingOsc = false;
+    return value.slice(end.index + end.length);
   }
 
   private setColumn(column: number) {
@@ -98,22 +123,28 @@ export class TerminalOutputSanitizer {
   }
 
   push(chunk: string) {
-    const value = `${this.remainder}${chunk}`;
+    const pending = this.discardingOsc ? this.finishDiscardingOsc(chunk) : chunk;
+    if (pending === null) return this.snapshot();
+
+    const value = `${this.remainder}${pending}`;
     this.remainder = "";
 
     for (let index = 0; index < value.length;) {
       const character = value[index];
 
       if (character === "\x1b" && value[index + 1] === "]") {
-        const bellEnd = value.indexOf("\x07", index + 2);
-        const stringEnd = value.indexOf("\x1b\\", index + 2);
-        const candidates = [bellEnd, stringEnd].filter((candidate) => candidate >= 0);
-        if (candidates.length === 0) {
-          this.remainder = value.slice(index);
+        const end = this.oscEnd(value, index + 2);
+        if (!end) {
+          const sequence = value.slice(index);
+          if (sequence.length <= MAX_OSC_SEQUENCE_LENGTH) {
+            this.remainder = sequence;
+          } else {
+            this.discardingOsc = true;
+            this.discardedOscTail = sequence.endsWith("\x1b") ? "\x1b" : "";
+          }
           break;
         }
-        const end = Math.min(...candidates);
-        index = end + (end === bellEnd ? 1 : 2);
+        index = end.index + end.length;
         continue;
       }
 
@@ -161,6 +192,8 @@ export class TerminalOutputSanitizer {
 
   reset() {
     this.remainder = "";
+    this.discardingOsc = false;
+    this.discardedOscTail = "";
     this.lines = [[]];
     this.row = 0;
     this.setColumn(0);

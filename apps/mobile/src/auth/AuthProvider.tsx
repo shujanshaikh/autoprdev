@@ -13,6 +13,7 @@ import {
 
 import { WebRequestError, webRequest } from "../api/web";
 import type { MobileSession } from "../types";
+import { commitRefreshedSession } from "./sessionGeneration";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -64,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const sessionRef = useRef(session);
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
+  const authGenerationRef = useRef(0);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -94,31 +96,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (refreshPromiseRef.current) return await refreshPromiseRef.current;
     const refreshToken = sessionRef.current?.refreshToken;
     if (!refreshToken) return null;
+    const generation = authGenerationRef.current;
 
-    const request = webRequest<MobileSession>("/api/mobile/auth", null, {
+    let request: Promise<string | null>;
+    request = webRequest<MobileSession>("/api/mobile/auth", null, {
       method: "POST",
       body: JSON.stringify({ action: "refresh", refreshToken }),
     })
-      .then(async (next) => {
-        setSession(next);
-        setAuthError(null);
-        await saveSession(next);
-        return next.accessToken;
-      })
+      .then(async (next) => await commitRefreshedSession({
+        session: next,
+        generation,
+        currentGeneration: () => authGenerationRef.current,
+        applySession: (accepted) => {
+          sessionRef.current = accepted;
+          setSession(accepted);
+          setAuthError(null);
+        },
+        persistSession: saveSession,
+      }))
       .catch(async (cause: unknown) => {
+        if (generation !== authGenerationRef.current) return null;
         const isAuthFailure = cause instanceof WebRequestError
           && (cause.status === 400 || cause.status === 401 || cause.status === 403);
         if (!isAuthFailure) {
           setAuthError("Could not reach the server. Check your connection.");
           return null;
         }
+        authGenerationRef.current += 1;
+        sessionRef.current = null;
         setSession(null);
         setAuthError("Your session expired. Sign in again.");
         await saveSession(null);
         return null;
       })
       .finally(() => {
-        refreshPromiseRef.current = null;
+        if (refreshPromiseRef.current === request) {
+          refreshPromiseRef.current = null;
+        }
       });
     refreshPromiseRef.current = request;
     return await request;
@@ -176,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: "POST",
         body: JSON.stringify({ action: "exchange", code, codeVerifier: verifier }),
       });
+      sessionRef.current = next;
       setSession(next);
       setAuthError(null);
       await saveSession(next);
@@ -186,6 +201,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const accessToken = sessionRef.current?.accessToken ?? null;
+    authGenerationRef.current += 1;
+    sessionRef.current = null;
+    refreshPromiseRef.current = null;
     setSession(null);
     setAuthError(null);
     await saveSession(null);

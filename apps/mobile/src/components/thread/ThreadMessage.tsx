@@ -23,7 +23,9 @@ import {
 import { webRequest } from "../../api/web";
 import { useAuth } from "../../auth/AuthProvider";
 import { useAppTheme } from "../../hooks/useAppTheme";
+import { trustedAttachmentImageUrl } from "../../lib/attachmentUrls";
 import { messageParts, type MessagePartView } from "../../lib/messages";
+import { formatRecordingDuration } from "../../lib/recordingDuration";
 import { exploreGroupSummary, shortDirectory } from "../../lib/toolPresentation";
 import { PulsingDots, Shimmer } from "../Shimmer";
 
@@ -60,6 +62,16 @@ function isExternalUrl(url: string) {
 function openExternalUrl(url: string) {
   if (!isExternalUrl(url)) return;
   void Linking.openURL(url).catch(() => undefined);
+}
+
+function trustedImageParts(parts: MessagePartView[]) {
+  const images: Array<Extract<MessagePartView, { kind: "file" }>> = [];
+  for (const part of parts) {
+    if (part.kind !== "file" || !part.mediaType.startsWith("image/")) continue;
+    const url = trustedAttachmentImageUrl(part.url);
+    if (url) images.push({ ...part, url });
+  }
+  return images;
 }
 
 function timeLabel(timestamp?: number) {
@@ -581,11 +593,7 @@ function RecordingCard({
     }
   };
 
-  const duration = recording.durationSeconds === undefined
-    ? null
-    : recording.durationSeconds < 60
-      ? `${Math.max(1, Math.round(recording.durationSeconds))}s`
-      : `${Math.floor(recording.durationSeconds / 60)}:${String(Math.round(recording.durationSeconds) % 60).padStart(2, "0")}`;
+  const duration = formatRecordingDuration(recording.durationSeconds);
 
   return (
     <Pressable
@@ -640,7 +648,7 @@ function ThreadMessageView({
     const text = parts.filter((part) => part.kind === "text");
     return {
       textParts: text,
-      images: parts.filter((part) => part.kind === "file" && part.mediaType.startsWith("image/")),
+      images: trustedImageParts(parts),
       files: parts.filter((part) => part.kind === "file" && !part.mediaType.startsWith("image/")),
       recordings: parts.filter((part) => part.kind === "recording"),
       timestamp: timeLabel(message.updatedAt ?? message.createdAt),

@@ -16,6 +16,10 @@ Copy `.env.example` to `.env` and set:
 
 - `EXPO_PUBLIC_CONVEX_URL` to the same deployment used by `apps/web`.
 - `EXPO_PUBLIC_WEB_URL` to a reachable HTTPS deployment of `apps/web`.
+- `EXPO_PUBLIC_ATTACHMENT_ORIGIN` to the exact HTTPS origin used by signed R2
+  download URLs. With the standard R2 S3 endpoint, this is usually
+  `https://<bucket>.<account-id>.r2.cloudflarestorage.com`. Mobile renders
+  persisted attachment images only from this origin.
 
 Add `autopr://auth/callback` to the Redirects list for the same WorkOS
 application used by Convex. The mobile app uses PKCE; the web backend performs

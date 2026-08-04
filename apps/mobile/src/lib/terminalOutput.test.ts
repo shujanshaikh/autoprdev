@@ -43,4 +43,21 @@ describe("TerminalOutputSanitizer", () => {
     expect(output.length).toBe(1_001);
     expect(output.endsWith("X")).toBe(true);
   });
+
+  it("caps hostile cursor-row parameters before materializing blank rows", () => {
+    const sanitizer = new TerminalOutputSanitizer();
+
+    const output = sanitizer.push("start\x1b[999999999Bend");
+
+    expect(output.split("\n")).toHaveLength(1_001);
+    expect(output.endsWith("end")).toBe(true);
+  });
+
+  it("discards an oversized unterminated OSC sequence through its terminator", () => {
+    const sanitizer = new TerminalOutputSanitizer();
+
+    expect(sanitizer.push(`before\x1b]0;${"x".repeat(5_000)}`)).toBe("before");
+    expect(sanitizer.push("still discarded\x1b")).toBe("before");
+    expect(sanitizer.push("\\after")).toBe("beforeafter");
+  });
 });

@@ -23,6 +23,7 @@ describe("sandbox lookup coalescing", () => {
       autoArchiveInterval: 120,
       start: vi.fn(),
       setAutoArchiveInterval: vi.fn(),
+      updateNetworkSettings: vi.fn(),
     };
     mocks.get.mockResolvedValue(sandbox);
     const { createSandbox, getSandboxContext } = await import("./index");
@@ -43,5 +44,8 @@ describe("sandbox lookup coalescing", () => {
     });
 
     expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(sandbox.updateNetworkSettings).toHaveBeenCalledWith({
+      domainAllowList: expect.stringContaining("github.com"),
+    });
   });
 });

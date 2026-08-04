@@ -9,9 +9,11 @@ import { Pipes, WorkOsWidgets } from "@workos-inc/widgets";
 import { ArrowLeft, Check, GitBranch, Github, Loader2, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { getSafeRedirectUrl } from "#/lib/safe-redirect";
+
 export const Route = createFileRoute("/github-connect")({
   validateSearch: (search: Record<string, unknown>) => ({
-    returnTo: typeof search.returnTo === "string" ? search.returnTo : "/dashboard",
+    returnTo: getSafeRedirectUrl(typeof search.returnTo === "string" ? search.returnTo : undefined),
   }),
   component: GithubConnect,
 });

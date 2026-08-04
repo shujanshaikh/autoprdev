@@ -7,6 +7,7 @@ import { convexMutation, convexQuery } from "#/lib/convex-server";
 import { createProjectSandbox } from "#/lib/daytona-project-sandbox";
 import {
   getGithubOAuthToken,
+  getGithubRepositoryToken,
   GithubConnectionError,
   requireWorkOSAuth,
   safeErrorMessage,
@@ -49,6 +50,7 @@ async function POST(req: Request) {
     if (!branches.some((entry) => entry.name === branch)) {
       return Response.json({ error: "That branch no longer exists on GitHub." }, { status: 404 });
     }
+    const repositoryToken = await getGithubRepositoryToken(verifiedRepo.owner, verifiedRepo.name);
 
     const project = await convexMutation(api.projects.ensureForGithubSelection, {
       githubRepositoryId: verifiedRepo.id,
@@ -82,7 +84,7 @@ async function POST(req: Request) {
             branch: existingBranch,
             repoName: verifiedRepo.name,
             sandboxWorkDir: project.sandboxWorkDir,
-            githubToken: token,
+            githubToken: repositoryToken,
           });
           await convexMutation(api.projects.markBranchSwitchReady, {
             projectId: project.projectId,
@@ -109,7 +111,7 @@ async function POST(req: Request) {
     try {
       const sandbox = await createProjectSandbox({
         cloneUrl: verifiedRepo.cloneUrl,
-        githubToken: token,
+        githubToken: repositoryToken,
         branch,
         repoName: verifiedRepo.name,
       });

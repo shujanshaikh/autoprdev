@@ -64,8 +64,10 @@ For production deploys, configure Vercel with:
 - `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_REDIRECT_URI`: the WorkOS values for the same WorkOS environment used by the Convex deployment.
 - `TRIGGER_SECRET_KEY`: the Trigger.dev environment secret used by the Vercel routes to start, inspect, stream, and cancel agent runs.
 - Any app runtime secrets such as `AI_GATEWAY_API_KEY`, `DAYTONA_API_KEY`, and `DAYTONA_API_URL`.
+- `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`: a GitHub App with repository Contents read/write access, installed on every repository AutoPR may open. The private key may be PEM text (including escaped newlines) or base64-encoded PEM. Sandbox Git commands use one-repository installation tokens instead of the user's broad OAuth token.
+- Optionally, `DAYTONA_DOMAIN_ALLOW_LIST`: a comma-separated Daytona egress domain allow-list. If omitted, AutoPR allows GitHub and common npm, Python, Ruby, Go, Rust, Maven, and Gradle package registries only.
 
-Also make sure the Convex deployment itself has `WORKOS_CLIENT_ID` set to the same WorkOS AuthKit client ID. If the web bundle uses one WorkOS app but the Convex deployment was never deployed or has a different `WORKOS_CLIENT_ID`, the browser will reconnect but Convex will log `No auth provider found matching the given token`.
+Also make sure the Convex deployment itself has `WORKOS_CLIENT_ID`, `DAYTONA_API_KEY`, and (when customized) `DAYTONA_API_URL` set. `WORKOS_CLIENT_ID` must match the WorkOS AuthKit client ID used by the web app. If the web bundle uses one WorkOS app but the Convex deployment was never deployed or has a different `WORKOS_CLIENT_ID`, the browser will reconnect but Convex will log `No auth provider found matching the given token`.
 
 ### Trigger.dev agent runtime
 

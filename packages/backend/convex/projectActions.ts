@@ -47,6 +47,25 @@ const WORKTREE_PROVISION_POLL_MS = 500;
 const MAX_ENV_VALUE_LENGTH = 64 * 1024;
 const MAX_BULK_ENV_COUNT = 50;
 const MAX_BULK_ENV_VALUE_LENGTH = 512 * 1024;
+const DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST = [
+  "github.com",
+  "api.github.com",
+  "*.githubusercontent.com",
+  "registry.npmjs.org",
+  "*.npmjs.org",
+  "pypi.org",
+  "*.pypi.org",
+  "*.pythonhosted.org",
+  "rubygems.org",
+  "*.rubygems.org",
+  "proxy.golang.org",
+  "sum.golang.org",
+  "crates.io",
+  "*.crates.io",
+  "repo.maven.apache.org",
+  "plugins.gradle.org",
+  "services.gradle.org",
+].join(",");
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 
@@ -248,6 +267,15 @@ function createDaytonaClient() {
     apiKey: process.env.DAYTONA_API_KEY,
     apiUrl: process.env.DAYTONA_API_URL,
   });
+}
+
+function sandboxDomainAllowList() {
+  return process.env.DAYTONA_DOMAIN_ALLOW_LIST?.trim() || DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST;
+}
+
+async function secureSandboxNetwork(sandbox: DaytonaSandbox) {
+  await sandbox.updateNetworkSettings({ domainAllowList: sandboxDomainAllowList() });
+  return sandbox;
 }
 
 function validateSandboxEnvironmentInput(envName: string, value: string) {
@@ -521,12 +549,12 @@ async function ensureSandboxStartedUncoalesced(sandboxId: string) {
       const sandbox = await daytona.get(sandboxId);
 
       if (!sandbox.state || normalizeSandboxRuntimeStatus(sandbox.state) === "started") {
-        return sandbox;
+        return secureSandboxNetwork(sandbox);
       }
 
       const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
       await sandbox.start(timeoutSeconds);
-      return sandbox;
+      return secureSandboxNetwork(sandbox);
     } catch (error) {
       lastError = error;
       if (isSandboxStateChangeInProgressError(error)) {
@@ -718,6 +746,7 @@ async function bootstrapRepositorySandbox(options: {
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
     autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
     autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
+    domainAllowList: sandboxDomainAllowList(),
   });
   const repoDir = sandboxRepositoryDirectoryName({
     repoName: options.repoName,

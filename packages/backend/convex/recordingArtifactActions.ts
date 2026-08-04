@@ -1,3 +1,6 @@
+"use node";
+
+import { Daytona } from "@daytona/sdk";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -12,6 +15,19 @@ type EnsureUploadedResult = {
 type R2StoreCtx = Parameters<typeof r2.store>[0];
 
 const RECORDING_SOURCE_FETCH_TIMEOUT_MS = 60_000;
+const RECORDING_DASHBOARD_PORT = 33333;
+const RECORDING_PREVIEW_EXPIRES_SECONDS = 5 * 60;
+const RECORDING_READY_ATTEMPTS = 10;
+const RECORDING_READY_RETRY_MS = 1_000;
+const MAX_RECORDING_BYTES = 250 * 1024 * 1024;
+
+type DaytonaRecording = {
+  fileName?: string;
+  status?: string;
+  endTime?: string;
+  durationSeconds?: number;
+  sizeBytes?: number;
+};
 
 function safeSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160) || "unknown";
@@ -45,9 +61,89 @@ function isExistingR2ObjectError(error: unknown, key: string) {
   return message.includes("Metadata already exists") && message.includes(key);
 }
 
-function numericHeader(headers: Headers, name: string) {
-  const value = Number(headers.get(name));
-  return Number.isFinite(value) && value >= 0 ? value : undefined;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeRecording(value: unknown): DaytonaRecording {
+  if (!isRecord(value)) return {};
+
+  return {
+    fileName: typeof value.fileName === "string" ? value.fileName : undefined,
+    status: typeof value.status === "string" ? value.status : undefined,
+    endTime: typeof value.endTime === "string" ? value.endTime : undefined,
+    durationSeconds: typeof value.durationSeconds === "number" ? value.durationSeconds : undefined,
+    sizeBytes: typeof value.sizeBytes === "number" ? value.sizeBytes : undefined,
+  };
+}
+
+function isPlayableRecording(recording: DaytonaRecording) {
+  return Boolean(
+    recording.fileName?.trim()
+      && (!recording.status || recording.status === "completed")
+      && (recording.endTime || typeof recording.durationSeconds === "number" || typeof recording.sizeBytes === "number"),
+  );
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getPlayableRecording(sandbox: Awaited<ReturnType<Daytona["get"]>>, recordingId: string) {
+  let latest: DaytonaRecording = {};
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= RECORDING_READY_ATTEMPTS; attempt += 1) {
+    try {
+      latest = normalizeRecording(await sandbox.computerUse.recording.get(recordingId));
+      if (isPlayableRecording(latest)) return latest;
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < RECORDING_READY_ATTEMPTS) await delay(RECORDING_READY_RETRY_MS);
+  }
+
+  if (lastError && !latest.fileName) throw lastError;
+  throw new Error(`Recording is not ready for playback yet.${latest.status ? ` Current status: ${latest.status}.` : ""}`);
+}
+
+function recordingDashboardVideoUrl(baseUrl: string, fileName: string) {
+  const url = new URL(baseUrl);
+  const basePath = url.pathname.replace(/\/+$/, "");
+  url.pathname = `${basePath}/videos/${encodeURIComponent(fileName)}`;
+  return url.toString();
+}
+
+async function readLimitedBlob(response: Response) {
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_RECORDING_BYTES) {
+    throw new Error("Recording exceeds the maximum upload size.");
+  }
+  if (!response.body) throw new Error("Daytona recording response did not include a body.");
+
+  const reader = response.body.getReader();
+  const chunks: ArrayBuffer[] = [];
+  let sizeBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      sizeBytes += value.byteLength;
+      if (sizeBytes > MAX_RECORDING_BYTES) {
+        await reader.cancel("Recording exceeds the maximum upload size.");
+        throw new Error("Recording exceeds the maximum upload size.");
+      }
+      const chunk = new Uint8Array(value.byteLength);
+      chunk.set(value);
+      chunks.push(chunk.buffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return { blob: new Blob(chunks, { type: "video/mp4" }), sizeBytes };
 }
 
 async function fetchRecordingSource(sourceUrl: string) {
@@ -57,16 +153,16 @@ async function fetchRecordingSource(sourceUrl: string) {
   }, RECORDING_SOURCE_FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(sourceUrl, { signal: controller.signal });
+    const response = await fetch(sourceUrl, {
+      redirect: "error",
+      signal: controller.signal,
+    });
 
     if (!response.ok) {
       throw new Error(`Could not fetch Daytona recording: ${response.status} ${response.statusText}`);
     }
 
-    return {
-      response,
-      blob: await response.blob(),
-    };
+    return readLimitedBlob(response);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("Timed out fetching Daytona recording.");
@@ -83,11 +179,6 @@ export const ensureUploaded = action({
     projectId: v.string(),
     threadId: v.string(),
     recordingId: v.string(),
-    sourceUrl: v.string(),
-    sourceFileName: v.optional(v.string()),
-    contentType: v.optional(v.string()),
-    sizeBytes: v.optional(v.number()),
-    durationSeconds: v.optional(v.number()),
   },
   returns: v.object({
     status: v.literal("uploaded"),
@@ -101,12 +192,18 @@ export const ensureUploaded = action({
     }
 
     const authorId = identity.subject;
-    const existing = await ctx.runQuery(internal.recordingArtifacts.getForUploadInternal, {
-      authorId,
-      projectId: args.projectId,
-      threadId: args.threadId,
-      recordingId: args.recordingId,
-    });
+    const [existing, project] = await Promise.all([
+      ctx.runQuery(internal.recordingArtifacts.getForUploadInternal, {
+        authorId,
+        projectId: args.projectId,
+        threadId: args.threadId,
+        recordingId: args.recordingId,
+      }),
+      ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+        authorId,
+        projectId: args.projectId,
+      }),
+    ]);
 
     if (existing?.status === "uploaded" && existing.r2Key) {
       return {
@@ -115,8 +212,25 @@ export const ensureUploaded = action({
       };
     }
 
+    const daytona = new Daytona({
+      apiKey: process.env.DAYTONA_API_KEY,
+      apiUrl: process.env.DAYTONA_API_URL,
+    });
+    const sandbox = await daytona.get(project.sandboxId);
+    const recording = await getPlayableRecording(sandbox, args.recordingId);
+    const sourceFileName = recording.fileName?.trim();
+    if (!sourceFileName) throw new Error("Recording file name is not available yet.");
+    if (typeof recording.sizeBytes === "number" && recording.sizeBytes > MAX_RECORDING_BYTES) {
+      throw new Error("Recording exceeds the maximum upload size.");
+    }
+    const preview = await sandbox.getSignedPreviewUrl(
+      RECORDING_DASHBOARD_PORT,
+      RECORDING_PREVIEW_EXPIRES_SECONDS,
+    );
+    const sourceUrl = recordingDashboardVideoUrl(preview.url, sourceFileName);
     const r2Key = existing?.r2Key ?? recordingObjectKey(authorId, args.threadId, args.recordingId);
-    const fileName = safeFileName(args.recordingId, args.sourceFileName);
+    const fileName = safeFileName(args.recordingId, sourceFileName);
+    const contentType = "video/mp4";
     const uploadState = await ctx.runMutation(internal.recordingArtifacts.markUploadingInternal, {
       authorId,
       projectId: args.projectId,
@@ -124,9 +238,9 @@ export const ensureUploaded = action({
       recordingId: args.recordingId,
       r2Key,
       sourceFileName: fileName,
-      contentType: args.contentType,
-      sizeBytes: args.sizeBytes,
-      durationSeconds: args.durationSeconds,
+      contentType,
+      sizeBytes: recording.sizeBytes,
+      durationSeconds: recording.durationSeconds,
     });
 
     if (uploadState.status === "uploaded") {
@@ -137,9 +251,7 @@ export const ensureUploaded = action({
     }
 
     try {
-      const { response, blob } = await fetchRecordingSource(args.sourceUrl);
-      const contentType = (args.contentType ?? response.headers.get("content-type") ?? blob.type) || "video/mp4";
-      const sizeBytes = args.sizeBytes ?? numericHeader(response.headers, "content-length") ?? blob.size;
+      const { blob, sizeBytes } = await fetchRecordingSource(sourceUrl);
 
       try {
         await r2.store(ctx as unknown as R2StoreCtx, blob, {
@@ -163,7 +275,7 @@ export const ensureUploaded = action({
         sourceFileName: fileName,
         contentType,
         sizeBytes,
-        durationSeconds: args.durationSeconds,
+        durationSeconds: recording.durationSeconds,
       });
 
       return {

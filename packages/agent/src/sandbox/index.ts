@@ -27,6 +27,7 @@ export interface DaytonaSandbox {
   toolboxProxyUrl?: string;
   start(timeout?: number): Promise<void>;
   setAutoArchiveInterval(interval: number): Promise<void>;
+  updateNetworkSettings(settings: { domainAllowList: string }): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
   getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
   computerUse: {
@@ -115,6 +116,7 @@ export interface DaytonaSandbox {
   fs: {
     downloadFile(path: string): Promise<Uint8Array>;
     uploadFile(file: Uint8Array | Buffer, path: string): Promise<unknown>;
+    deleteFile(path: string, recursive?: boolean): Promise<void>;
     listFiles(path: string): Promise<unknown[]>;
     searchFiles(path: string, pattern: string): Promise<{ files: string[] }>;
   };
@@ -168,6 +170,25 @@ const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000] as const;
 const SANDBOX_LOOKUP_CACHE_MS = 5_000;
+const DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST = [
+  "github.com",
+  "api.github.com",
+  "*.githubusercontent.com",
+  "registry.npmjs.org",
+  "*.npmjs.org",
+  "pypi.org",
+  "*.pypi.org",
+  "*.pythonhosted.org",
+  "rubygems.org",
+  "*.rubygems.org",
+  "proxy.golang.org",
+  "sum.golang.org",
+  "crates.io",
+  "*.crates.io",
+  "repo.maven.apache.org",
+  "plugins.gradle.org",
+  "services.gradle.org",
+].join(",");
 
 const sandboxContextPromises = new Map<string, Promise<SandboxContext>>();
 const sandboxLookupPromises = new Map<string, Promise<DaytonaSandbox>>();
@@ -291,6 +312,15 @@ function createDaytonaClient() {
   });
 }
 
+function sandboxDomainAllowList() {
+  return process.env.DAYTONA_DOMAIN_ALLOW_LIST?.trim() || DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST;
+}
+
+async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
+  await sandbox.updateNetworkSettings({ domainAllowList: sandboxDomainAllowList() });
+  return sandbox;
+}
+
 export async function createSandbox(options: SandboxSessionOptions = {}): Promise<DaytonaSandbox> {
   const resolved = resolveSessionOptions(options);
   const daytona = await createDaytonaClient();
@@ -304,8 +334,8 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
     const existing = sandboxLookupPromises.get(sandboxId);
     if (existing) return await existing;
 
-    const pending = retryDaytonaRateLimit(async () => ensureSandboxStarted(
-      await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId)),
+    const pending = retryDaytonaRateLimit(async () => ensureSandboxNetworkPolicy(
+      await ensureSandboxStarted(await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId))),
     ));
     sandboxLookupPromises.set(sandboxId, pending);
     try {
@@ -327,6 +357,7 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
       snapshot: resolved.snapshot,
       autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
       autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
+      domainAllowList: sandboxDomainAllowList(),
     }),
   );
 }
@@ -334,7 +365,10 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
 /** Fetches an existing sandbox without changing its runtime state. */
 export async function getSandboxWithoutStarting(sandboxId: string): Promise<DaytonaSandbox> {
   const daytona = createDaytonaClient();
-  return await daytona.get(sandboxId);
+  const sandbox = await daytona.get(sandboxId);
+  return sandbox.state === "started"
+    ? ensureSandboxNetworkPolicy(sandbox)
+    : sandbox;
 }
 
 export async function deleteSandbox(sandboxId: string): Promise<void> {

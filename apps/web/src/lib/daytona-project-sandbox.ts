@@ -9,7 +9,7 @@ import {
   type DaytonaSandbox,
 } from "@autopr/agent/sandbox";
 
-import { createEphemeralGitAuthEnvironment } from "#/lib/thread-git-status-server";
+import { runAuthenticatedSandboxCommand } from "#/lib/sandbox-git-auth";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
 import {
   sandboxCommandOutput,
@@ -127,14 +127,18 @@ export async function createProjectSandbox(options: {
   });
   const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
 
-  await sandbox.git.clone(
-    options.cloneUrl,
-    repoPath,
-    options.branch,
-    undefined,
-    "x-access-token",
+  const clone = await runAuthenticatedSandboxCommand(
+    sandbox,
     options.githubToken,
+    `git clone --branch ${shellEscape(options.branch)} --single-branch -- ${shellEscape(options.cloneUrl)} ${shellEscape(repoPath)}`,
+    DEFAULT_SANDBOX_WORKDIR,
   );
+  if (typeof clone.exitCode === "number" && clone.exitCode !== 0) {
+    throw new SandboxGitCommandError(
+      "Could not clone the selected repository.",
+      redactGitDiagnostic(sandboxCommandOutput(clone), [options.githubToken]),
+    );
+  }
 
   return {
     sandboxId: sandbox.id,
@@ -160,11 +164,11 @@ export async function switchProjectSandboxBranch(options: {
   const quotedBranch = shellEscape(options.branch);
   const quotedRepoPath = shellEscape(repoPath);
 
-  const fetchResult = await sandbox.process.executeCommand(
+  const fetchResult = await runAuthenticatedSandboxCommand(
+    sandbox,
+    options.githubToken,
     "git fetch origin --prune",
     repoPath,
-    createEphemeralGitAuthEnvironment(options.githubToken),
-    120,
   );
   if (typeof fetchResult.exitCode === "number" && fetchResult.exitCode !== 0) {
     throw new Error(fetchResult.stderr || fetchResult.result || "Could not fetch the selected branch.");
@@ -187,9 +191,13 @@ export async function materializeGithubPullRequestWorktree(options: {
   githubToken: string;
 }): Promise<{ headSha: string; upstreamBranch: string }> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const auth = createEphemeralGitAuthEnvironment(options.githubToken);
   const runGit = async (cwd: string, args: string, allowFailure = false) => {
-    const result = await sandbox.process.executeCommand(`git ${args}`, cwd, auth, 120);
+    const result = await runAuthenticatedSandboxCommand(
+      sandbox,
+      options.githubToken,
+      `git ${args}`,
+      cwd,
+    );
     const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
     const output = sandboxCommandOutput({ result: result.result, stderr: result.stderr }).trim();
     if (!allowFailure && exitCode !== 0) {
@@ -426,11 +434,11 @@ export async function createProjectSandboxFeatureBranch(options: {
       `cd ${quotedRepoPath} && git for-each-ref --format='%(refname:short)' refs/heads`,
     ),
   ).split(/\r?\n/).map((branch) => branch.trim()).filter(Boolean);
-  const remoteBranchesResult = await sandbox.process.executeCommand(
+  const remoteBranchesResult = await runAuthenticatedSandboxCommand(
+    sandbox,
+    options.githubToken,
     `git ls-remote --heads origin ${shellEscape(`refs/heads/${options.preferredBranch}*`)}`,
     repoPath,
-    createEphemeralGitAuthEnvironment(options.githubToken),
-    120,
   );
   if (typeof remoteBranchesResult.exitCode === "number" && remoteBranchesResult.exitCode !== 0) {
     throw new SandboxGitCommandError(
@@ -480,11 +488,11 @@ async function inspectRemoteBranch(
     `cd ${quotedRepoPath} && git rev-parse HEAD`,
   )).trim();
   if (!branch) throw new Error("The sandbox repository is not on a named branch.");
-  const remote = await sandbox.process.executeCommand(
+  const remote = await runAuthenticatedSandboxCommand(
+    sandbox,
+    githubToken,
     `git ls-remote --heads ${shellEscape(target?.remoteUrl ?? "origin")} ${shellEscape(`refs/heads/${target?.remoteBranch ?? branch}`)}`,
     repoPath,
-    createEphemeralGitAuthEnvironment(githubToken),
-    120,
   );
   if (typeof remote.exitCode === "number" && remote.exitCode !== 0) {
     throw new SandboxGitCommandError(
@@ -528,11 +536,11 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
     const remote = options.target?.remoteUrl ?? "origin";
     const remoteBranch = options.target?.remoteBranch ?? branch;
     const setUpstream = options.target ? "" : "--set-upstream ";
-    const result = await sandbox.process.executeCommand(
+    const result = await runAuthenticatedSandboxCommand(
+      sandbox,
+      options.githubToken,
       `git push ${setUpstream}${shellEscape(remote)} ${shellEscape(`HEAD:refs/heads/${remoteBranch}`)}`,
       repoPath,
-      createEphemeralGitAuthEnvironment(options.githubToken),
-      120,
     );
     if (typeof result.exitCode === "number" && result.exitCode !== 0) {
       throw new Error(sandboxCommandOutput(result) || "Could not push the thread branch.");
@@ -574,11 +582,11 @@ export async function readProjectSandboxPullRequestContext(options: {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const remoteBase = `refs/remotes/origin/${options.baseBranch}`;
-  const fetchBase = await sandbox.process.executeCommand(
+  const fetchBase = await runAuthenticatedSandboxCommand(
+    sandbox,
+    options.githubToken,
     `git fetch --no-tags origin ${shellEscape(`refs/heads/${options.baseBranch}:${remoteBase}`)}`,
     repoPath,
-    createEphemeralGitAuthEnvironment(options.githubToken),
-    120,
   );
   if (typeof fetchBase.exitCode === "number" && fetchBase.exitCode !== 0) {
     throw new SandboxGitCommandError(
@@ -639,13 +647,13 @@ export async function pullProjectSandboxBranch(options: {
     );
   }
 
-  const fetchResult = await sandbox.process.executeCommand(
+  const fetchResult = await runAuthenticatedSandboxCommand(
+    sandbox,
+    options.githubToken,
     options.target
       ? `git fetch ${shellEscape(options.target.remoteUrl)} ${shellEscape(`refs/heads/${options.target.remoteBranch}`)}`
       : "git fetch origin --prune",
     repoPath,
-    createEphemeralGitAuthEnvironment(options.githubToken),
-    120,
   );
   if (typeof fetchResult.exitCode === "number" && fetchResult.exitCode !== 0) {
     throw new Error(fetchResult.stderr || fetchResult.result || "Could not fetch the thread branch.");

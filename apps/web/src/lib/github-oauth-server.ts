@@ -3,7 +3,7 @@ import "@tanstack/react-start/server-only";
 import { getRequestHeader } from "@tanstack/react-start/server";
 import { WorkOS } from "@workos-inc/node";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, importPKCS8, jwtVerify, SignJWT } from "jose";
 
 import { getWorkOSAccessTokenVerificationOptions } from "#/lib/workos-access-token";
 
@@ -30,6 +30,10 @@ type AuthenticatedWorkOSAuth = {
 const mobileAuthCache = new Map<string, {
   expiresAt: number;
   auth: AuthenticatedWorkOSAuth;
+}>();
+const repositoryInstallationTokenCache = new Map<string, {
+  expiresAt: number;
+  token: string;
 }>();
 
 function getWorkOSClientId() {
@@ -187,6 +191,99 @@ export async function getGithubOAuthToken(userId: string, organizationId?: strin
   }
 
   return token;
+}
+
+function getGithubAppConfiguration() {
+  const appId = process.env.GITHUB_APP_ID?.trim();
+  const encodedPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim();
+  if (!appId || !encodedPrivateKey) {
+    throw new GithubConnectionError(
+      "GitHub App sandbox access is not configured. Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY.",
+    );
+  }
+
+  const privateKey = encodedPrivateKey.includes("BEGIN PRIVATE KEY")
+    ? encodedPrivateKey.replace(/\\n/g, "\n")
+    : Buffer.from(encodedPrivateKey, "base64").toString("utf8");
+  return { appId, privateKey };
+}
+
+async function createGithubAppJwt() {
+  const { appId, privateKey } = getGithubAppConfiguration();
+  const now = Math.floor(Date.now() / 1000);
+  const key = await importPKCS8(privateKey, "RS256");
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "RS256" })
+    .setIssuedAt(now - 60)
+    .setIssuer(appId)
+    .setExpirationTime(now + 9 * 60)
+    .sign(key);
+}
+
+async function githubAppJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${await createGithubAppJwt()}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...init?.headers,
+    },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
+    throw new GithubConnectionError(
+      response.status === 404
+        ? "Install the AutoPR GitHub App on this repository before opening it in a sandbox."
+        : body?.message ?? "Could not authorize the project repository for sandbox Git access.",
+    );
+  }
+  return await response.json() as T;
+}
+
+/** Mints a short-lived GitHub App token selected down to one repository. */
+export async function getGithubRepositoryToken(owner: string, repo: string): Promise<string> {
+  const normalizedOwner = owner.trim();
+  const normalizedRepo = repo.trim();
+  if (!normalizedOwner || !normalizedRepo || /[\\/]/.test(normalizedOwner) || /[\\/]/.test(normalizedRepo)) {
+    throw new GithubConnectionError("Invalid GitHub repository.");
+  }
+
+  const cacheKey = `${normalizedOwner}/${normalizedRepo}`.toLowerCase();
+  const cached = repositoryInstallationTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() + 5 * 60_000) return cached.token;
+
+  const installation = await githubAppJson<{ id: number }>(
+    `https://api.github.com/repos/${encodeURIComponent(normalizedOwner)}/${encodeURIComponent(normalizedRepo)}/installation`,
+  );
+  const access = await githubAppJson<{
+    token: string;
+    expires_at: string;
+    repositories?: Array<{ full_name?: string }>;
+  }>(`https://api.github.com/app/installations/${installation.id}/access_tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repositories: [normalizedRepo] }),
+  });
+  if (!access.token) throw new GithubConnectionError("GitHub did not issue a repository access token.");
+  if (access.repositories && !access.repositories.some((entry) => entry.full_name?.toLowerCase() === cacheKey)) {
+    throw new GithubConnectionError("GitHub issued a token for a different repository.");
+  }
+
+  const expiresAt = Date.parse(access.expires_at);
+  repositoryInstallationTokenCache.set(cacheKey, {
+    token: access.token,
+    expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 50 * 60_000,
+  });
+  return access.token;
+}
+
+export function getGithubRepositoryTokenForFullName(fullName: string) {
+  const [owner, repo, ...extra] = fullName.split("/");
+  if (!owner || !repo || extra.length > 0) {
+    throw new GithubConnectionError("Invalid GitHub repository.");
+  }
+  return getGithubRepositoryToken(owner, repo);
 }
 
 export async function getGithubWidgetToken(userId: string, organizationId?: string) {

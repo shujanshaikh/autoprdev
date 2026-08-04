@@ -10,6 +10,7 @@ import {
   type ThreadGitStatus,
 } from "@autopr/backend/convex/lib/gitStatus";
 import { sandboxCommandOutput } from "@autopr/backend/convex/lib/sandboxCommandOutput";
+import { withEphemeralGitAuth } from "#/lib/sandbox-git-auth";
 
 type CommandResult = {
   exitCode: number;
@@ -42,20 +43,6 @@ async function runGit(
   }
 
   return { exitCode, output };
-}
-
-export function createEphemeralGitAuthEnvironment(githubToken?: string) {
-  const env: Record<string, string> = {
-    GIT_TERMINAL_PROMPT: "0",
-  };
-
-  if (githubToken) {
-    env.GIT_CONFIG_COUNT = "1";
-    env.GIT_CONFIG_KEY_0 = "http.extraHeader";
-    env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${Buffer.from(`x-access-token:${githubToken}`).toString("base64")}`;
-  }
-
-  return env;
 }
 
 function safeRemoteError(error: unknown) {
@@ -96,8 +83,9 @@ export class SandboxRuntimeNotStartedError extends Error {
 }
 
 /**
- * Reads one thread's authoritative worktree state. Authentication is injected
- * only into the fetch process environment and is never written to Git config.
+ * Reads one thread's authoritative worktree state. Authentication is exposed
+ * through a short-lived askpass file and is never written to Git config or the
+ * Git process environment.
  */
 export async function readThreadGitStatus(options: ReadThreadGitStatusOptions): Promise<ThreadGitStatus> {
   const checkedAt = Date.now();
@@ -153,9 +141,8 @@ export async function readThreadGitStatus(options: ReadThreadGitStatusOptions): 
           `remote set-url origin ${shellQuote(options.repositoryUrl)}`,
         );
       }
-      await runGit(sandbox, options.worktreePath, `fetch --prune ${shellQuote(remote)}`, {
-        env: createEphemeralGitAuthEnvironment(options.githubToken),
-      });
+      await withEphemeralGitAuth(sandbox, options.githubToken, (env) =>
+        runGit(sandbox, options.worktreePath, `fetch --prune ${shellQuote(remote)}`, { env }));
       remoteStatus = "available";
       remoteCheckedAt = Date.now();
       parsed = await readPorcelainStatus(sandbox, options.worktreePath);

@@ -877,6 +877,7 @@ export const completeAgentSessionTurnInternal = internalMutation({
 
     await ctx.db.patch(thread._id, {
       currentRunId: undefined,
+      currentRunTransport: undefined,
       isLive: false,
       triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
       triggerSessionLastEventId: args.lastEventId ?? thread.triggerSessionLastEventId,
@@ -907,6 +908,7 @@ export const settleAgentSessionTurnInternal = internalMutation({
 
     await ctx.db.patch(thread._id, {
       currentRunId: undefined,
+      currentRunTransport: undefined,
       isLive: false,
       triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
       triggerSessionLastEventId: args.lastEventId ?? thread.triggerSessionLastEventId,

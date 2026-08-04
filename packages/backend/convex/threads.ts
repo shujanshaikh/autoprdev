@@ -680,6 +680,7 @@ export const markAgentSessionTurnStartedInternal = internalMutation({
 
     await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
+      currentRunTransport: "session",
       isLive: true,
       settledOverride: undefined,
       settledAt: undefined,
@@ -730,6 +731,7 @@ export const markRunStarted = mutation({
     if (existingIssueRunId === args.runId) {
       await ctx.db.patch(thread._id, {
         currentRunId: undefined,
+        currentRunTransport: undefined,
         isLive: false,
         updatedAt: now,
       });
@@ -739,6 +741,7 @@ export const markRunStarted = mutation({
 
     await ctx.db.patch(thread._id, {
       currentRunId: args.runId,
+      currentRunTransport: "task",
       isLive: true,
       settledOverride: undefined,
       settledAt: undefined,
@@ -786,6 +789,7 @@ async function applyRunIssue(
 
   await ctx.db.patch(thread._id, {
     currentRunId: undefined,
+    currentRunTransport: undefined,
     isLive: false,
     agentRunIssue: {
       ...issue,
@@ -897,6 +901,7 @@ async function applyRunFinished(
 
   await ctx.db.patch(thread._id, {
     currentRunId: undefined,
+    currentRunTransport: undefined,
     isLive: false,
     gitStatusInvalidatedAt: Date.now(),
     gitStatusInvalidationReason: "agent_changes",

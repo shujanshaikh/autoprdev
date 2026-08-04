@@ -753,27 +753,26 @@ function ExistingSessionThreadChat(props: ThreadChatProps) {
 }
 
 export function ThreadChat(props: ThreadChatProps) {
-  // A legacy run that was already active when the page mounted must finish
-  // on its run-scoped stream. New threads and known Sessions use the durable
-  // session transport for the lifetime of this mount.
-  const usingSessionTransportRef = useRef<boolean | null>(null);
-  usingSessionTransportRef.current ??= shouldUseTriggerSessionTransport({
+  // Task runs are the cross-client transport: mobile and web can both consume
+  // their indexed stream. Keep support for an already-active durable Session
+  // turn, then switch back to task transport as soon as that turn settles.
+  const usingSessionTransport = shouldUseTriggerSessionTransport({
     sessionCreatedAt: props.thread?.triggerSessionCreatedAt,
     currentRunId: props.currentRunId,
+    currentRunTransport: props.thread?.currentRunTransport,
   });
-  const existingSessionAtMountRef = useRef(
-    Boolean(props.thread?.triggerSessionCreatedAt),
-  );
 
-  if (!usingSessionTransportRef.current) {
-    return <ThreadChatRuntime {...props} usingSessionTransport={false} />;
+  if (!usingSessionTransport) {
+    return (
+      <ThreadChatRuntime
+        key="task-transport"
+        {...props}
+        usingSessionTransport={false}
+      />
+    );
   }
 
-  if (existingSessionAtMountRef.current) {
-    return <ExistingSessionThreadChat {...props} />;
-  }
-
-  return <ThreadChatRuntime {...props} usingSessionTransport />;
+  return <ExistingSessionThreadChat key="session-transport" {...props} />;
 }
 
 function ThreadChatRuntime({

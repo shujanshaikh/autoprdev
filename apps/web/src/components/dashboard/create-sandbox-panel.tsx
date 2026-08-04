@@ -17,10 +17,11 @@ import {
   Lock,
   RefreshCw,
   Search,
-  ShieldCheck,
   Unlock,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+
+import { GitHubLogo } from "#/components/icons/github-logo";
 
 import type { GithubAppInstallation, GithubBranch, GithubRepository } from "./types";
 
@@ -711,11 +712,22 @@ function LaunchColumn({
             </div>
           ) : selectedRepo && githubAppInstallation && !githubAppInstallation.installed ? (
             <div className="space-y-2">
-              <div className="border border-primary/30 bg-primary/5 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                <ShieldCheck className="mr-1.5 inline size-3.5 text-primary" aria-hidden="true" />
-                {githubAppInstallation.action === "configure"
-                  ? "Add this repository to the existing Autopr installation."
-                  : "Install Autopr on this repository before creating its sandbox."}
+              <div className="flex items-start gap-2.5 border border-primary/30 bg-primary/5 px-3 py-2.5">
+                <span className="inline-flex size-7 shrink-0 items-center justify-center border border-primary/30 bg-background text-foreground">
+                  <GitHubLogo className="size-3.5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary">
+                    {githubAppInstallation.action === "configure"
+                      ? "grant access"
+                      : "install required"}
+                  </p>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {githubAppInstallation.action === "configure"
+                      ? "Add this repository to the existing Autopr installation on GitHub."
+                      : "Install the Autopr GitHub App on this repository before creating its sandbox."}
+                  </p>
+                </div>
               </div>
               <a
                 href={githubAppInstallation.installUrl}
@@ -723,10 +735,14 @@ function LaunchColumn({
                 rel="noreferrer"
                 className="group inline-flex h-10 w-full items-center justify-center gap-2 rounded-[var(--radius-pill)] border border-primary bg-primary type-button text-primary-foreground transition hover:bg-primary/90"
               >
+                <GitHubLogo className="size-3.5" aria-hidden="true" />
                 {githubAppInstallation.action === "configure"
                   ? "Configure Autopr"
                   : "Install Autopr"}
-                <ExternalLink className="size-3.5" aria-hidden="true" />
+                <ExternalLink
+                  className="size-3 opacity-60 transition-opacity group-hover:opacity-100"
+                  aria-hidden="true"
+                />
               </a>
             </div>
           ) : (

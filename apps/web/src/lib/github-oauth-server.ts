@@ -11,7 +11,11 @@ import {
   decodeGithubAppPrivateKey,
   getTrustedGithubInstallationUrl,
 } from "#/lib/github-app-config";
-import { getWorkOSAccessTokenVerificationOptions } from "#/lib/workos-access-token";
+import {
+  getWorkOSAccessTokenVerificationOptions,
+  resolveWorkOSRequestAccessToken,
+  WORKOS_ACCESS_TOKEN_HEADER,
+} from "#/lib/workos-access-token";
 
 export class GithubConnectionError extends Error {
   constructor(message = "Connect GitHub to continue.") {
@@ -138,11 +142,11 @@ function getWorkOSApiKey() {
 }
 
 export async function requireWorkOSAuth(): Promise<AuthenticatedWorkOSAuth> {
-  const authorization = getRequestHeader("authorization");
-  if (authorization?.startsWith("Bearer ")) {
-    const accessToken = authorization.slice("Bearer ".length).trim();
-    if (!accessToken) throw new GithubConnectionError("Unauthorized");
-
+  const accessToken = resolveWorkOSRequestAccessToken({
+    dedicatedHeader: getRequestHeader(WORKOS_ACCESS_TOKEN_HEADER),
+    authorization: getRequestHeader("authorization"),
+  });
+  if (accessToken) {
     try {
       return await getBearerAuth(accessToken);
     } catch (error) {

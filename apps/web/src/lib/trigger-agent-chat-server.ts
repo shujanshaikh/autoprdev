@@ -11,6 +11,8 @@ import {
   codexErrorResponse,
   getCodexAgentModelConfig,
 } from "#/lib/codex-auth-server";
+import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
+import { appendToTriggerSession } from "#/lib/trigger-session-append";
 import {
   AGENT_CHAT_TASK_ID,
   AGENT_CHAT_OPERATION_HEADER,
@@ -22,7 +24,6 @@ import {
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
 import type { agentChatTask } from "#/trigger/agent-chat";
-import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 
 const APPEND_OPERATION = "append";
 
@@ -268,14 +269,12 @@ async function proxyInputChunk(options: {
     };
   }
 
-  return await fetch(
-    `${triggerApiBaseUrl()}/realtime/v1/sessions/${encodeURIComponent(options.thread.threadId)}/in/append`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify(inputChunk),
-    },
-  );
+  return await appendToTriggerSession({
+    url: `${triggerApiBaseUrl()}/realtime/v1/sessions/${encodeURIComponent(options.thread.threadId)}/in/append`,
+    headers,
+    body: JSON.stringify(inputChunk),
+    signal: options.request.signal,
+  });
 }
 
 export function isAgentChatRequest(request: Request, body: unknown) {

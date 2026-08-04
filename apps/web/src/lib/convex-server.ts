@@ -9,6 +9,11 @@ import type {
   FunctionReturnType,
 } from "convex/server";
 
+import {
+  resolveWorkOSRequestAccessToken,
+  WORKOS_ACCESS_TOKEN_HEADER,
+} from "#/lib/workos-access-token";
+
 const missingConvexAuthMessage =
   "Convex auth is not configured for WorkOS AuthKit. Set WORKOS_CLIENT_ID in Convex and make sure the app uses the same WorkOS environment.";
 
@@ -35,10 +40,12 @@ function getConvexUrl() {
 }
 
 async function getConvexAuthToken() {
-  const authorization = getRequestHeader("authorization");
-  if (authorization?.startsWith("Bearer ")) {
-    const token = authorization.slice("Bearer ".length).trim();
-    if (token) return token;
+  const requestToken = resolveWorkOSRequestAccessToken({
+    dedicatedHeader: getRequestHeader(WORKOS_ACCESS_TOKEN_HEADER),
+    authorization: getRequestHeader("authorization"),
+  });
+  if (requestToken) {
+    return requestToken;
   }
 
   const authState = await getAuth();

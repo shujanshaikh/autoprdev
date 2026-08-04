@@ -53,6 +53,7 @@ import {
   AGENT_CHAT_TASK_ID,
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
+import { setWorkOSAccessTokenHeader } from "#/lib/workos-access-token";
 import {
   runTriggerSessionReconnectAttempt,
   shouldUseTriggerSessionTransport,
@@ -636,22 +637,42 @@ function useAgentSessionTokenRequest(agentApi: string) {
       operation: "start-session" | "access-token",
       clientData?: AgentChatClientInput,
     ) => {
-      await getAccessTokenRef.current();
+      const workOSAccessToken = await getAccessTokenRef.current();
+      const headers = setWorkOSAccessTokenHeader(
+        new Headers({ "Content-Type": "application/json" }),
+        workOSAccessToken,
+      );
       const response = await fetch(agentApi, {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           operation,
           ...(operation === "start-session" ? { clientData } : {}),
         }),
       });
-      const result = (await response.json().catch(() => null)) as {
+      type SessionTokenResult = {
         publicAccessToken?: string;
         error?: string;
-      } | null;
+      };
 
-      if (!response.ok || !result?.publicAccessToken) {
+      if (!response.ok) {
+        const errorResult = (await response.json().catch(() => null)) as
+          | SessionTokenResult
+          | null;
+        throw new Error(
+          errorResult?.error ??
+            (operation === "start-session"
+              ? "Could not start the agent chat."
+              : "Could not refresh the agent chat token."),
+        );
+      }
+
+      const result = (await response.json().catch(() => null)) as
+        | SessionTokenResult
+        | null;
+
+      if (!result?.publicAccessToken) {
         throw new Error(
           result?.error ??
             (operation === "start-session"
@@ -871,9 +892,10 @@ function ThreadChatRuntime({
         return await globalThis.fetch(url, init);
       }
 
-      await getWorkOSAccessTokenRef.current();
+      const workOSAccessToken = await getWorkOSAccessTokenRef.current();
       const headers = new Headers(init.headers);
       headers.set(AGENT_CHAT_OPERATION_HEADER, "append");
+      setWorkOSAccessTokenHeader(headers, workOSAccessToken);
 
       return await globalThis.fetch(agentApi, {
         ...init,

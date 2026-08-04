@@ -11,15 +11,8 @@ const project = {
 };
 
 describe("persistedThreadWorkspace", () => {
-  it("reuses checkout metadata without provisioning", () => {
-    expect(persistedThreadWorkspace(project, { workspaceMode: "checkout" })).toEqual({
-      workspaceMode: "checkout",
-      baseBranch: "main",
-      featureBranch: "main",
-      worktreePath: "/home/widget",
-      headSha: undefined,
-      upstreamBranch: undefined,
-    });
+  it("requires live branch inspection for checkout-mode workspaces", () => {
+    expect(persistedThreadWorkspace(project, { workspaceMode: "checkout" })).toBeNull();
   });
 
   it("reuses a ready worktree", () => {

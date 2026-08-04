@@ -9,7 +9,7 @@ import {
   Play,
   Video,
 } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -38,14 +38,28 @@ export type ThreadMessageValue = {
 
 const messageTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
-function keyed<T>(items: readonly T[], baseKey: (item: T) => string) {
+function keyed<T>(items: readonly T[], baseKey: (item: T, index: number) => string) {
   const seen = new Map<string, number>();
-  return items.map((item) => {
-    const base = baseKey(item);
+  return items.map((item, index) => {
+    const base = baseKey(item, index);
     const occurrence = seen.get(base) ?? 0;
     seen.set(base, occurrence + 1);
     return { item, key: `${base}:${occurrence}` };
   });
+}
+
+function isExternalUrl(url: string) {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url: string) {
+  if (!isExternalUrl(url)) return;
+  void Linking.openURL(url).catch(() => undefined);
 }
 
 function timeLabel(timestamp?: number) {
@@ -143,11 +157,13 @@ function inlineMarkdown(value: string, color: string, muted: string): ReactNode[
     }
     const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link) {
+      const url = link[2] ?? "";
+      if (!isExternalUrl(url)) return link[1] ?? "";
       return (
         <Text
           accessibilityRole="link"
           key={key}
-          onPress={() => void Linking.openURL(link[2] ?? "")}
+          onPress={() => openExternalUrl(url)}
           style={[styles.link, { color }]}
         >
           {link[1]}
@@ -306,13 +322,10 @@ function toActivities(parts: MessagePartView[]): Activity[] {
   return activities;
 }
 
-function activityKey(activity: Activity) {
-  if (activity.kind === "reasoning") return `reasoning:${activity.part.text}`;
-  if (activity.kind === "tool") {
-    const { part } = activity;
-    return `tool:${part.name}:${part.state ?? ""}:${part.summary ?? ""}`;
-  }
-  return `explore:${activity.parts.map((part) => `${part.name}:${part.summary ?? ""}`).join("|")}`;
+function activityKey(activity: Activity, index: number) {
+  if (activity.kind === "reasoning") return `${index}:reasoning`;
+  if (activity.kind === "tool") return `${index}:tool:${activity.part.name}`;
+  return `${index}:explore`;
 }
 
 function Disclosure({ open }: { open: boolean }) {
@@ -541,6 +554,7 @@ function RecordingCard({
     setError(undefined);
     try {
       if (recording.url) {
+        if (!isExternalUrl(recording.url)) throw new Error("The recording URL is invalid.");
         await Linking.openURL(recording.url);
         return;
       }
@@ -558,6 +572,7 @@ function RecordingCard({
       } catch {
         result = await request(true);
       }
+      if (!isExternalUrl(result.url)) throw new Error("The recording URL is invalid.");
       await Linking.openURL(result.url);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The recording could not be opened.");
@@ -603,7 +618,7 @@ function RecordingCard({
   );
 }
 
-export function ThreadMessage({
+function ThreadMessageView({
   message,
   isLast,
   isLive,
@@ -619,15 +634,20 @@ export function ThreadMessage({
   threadId: string;
 }) {
   const theme = useAppTheme();
-  const parts = messageParts(message.parts);
+  const parts = useMemo(() => messageParts(message.parts), [message.parts]);
   const isUser = message.role === "user";
-  const textParts = parts.filter((part) => part.kind === "text");
-  const images = parts.filter((part) => part.kind === "file" && part.mediaType.startsWith("image/"));
-  const files = parts.filter((part) => part.kind === "file" && !part.mediaType.startsWith("image/"));
-  const recordings = parts.filter((part) => part.kind === "recording");
-  const timestamp = timeLabel(message.updatedAt ?? message.createdAt);
-  const assistantRun = runPresentation(message.metadata);
-  const copyText = textParts.map((part) => part.kind === "text" ? part.text : "").join("\n\n");
+  const { textParts, images, files, recordings, timestamp, assistantRun, copyText } = useMemo(() => {
+    const text = parts.filter((part) => part.kind === "text");
+    return {
+      textParts: text,
+      images: parts.filter((part) => part.kind === "file" && part.mediaType.startsWith("image/")),
+      files: parts.filter((part) => part.kind === "file" && !part.mediaType.startsWith("image/")),
+      recordings: parts.filter((part) => part.kind === "recording"),
+      timestamp: timeLabel(message.updatedAt ?? message.createdAt),
+      assistantRun: runPresentation(message.metadata),
+      copyText: text.map((part) => part.kind === "text" ? part.text : "").join("\n\n"),
+    };
+  }, [message.createdAt, message.metadata, message.updatedAt, parts]);
 
   if (isUser) {
     return (
@@ -648,7 +668,7 @@ export function ThreadMessage({
             <Pressable
               accessibilityRole="link"
               key={`${message.messageId}:file:${key}`}
-              onPress={() => void Linking.openURL(part.url)}
+              onPress={() => openExternalUrl(part.url)}
               style={[styles.fileCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
             >
               <FileText color={theme.muted} size={17} />
@@ -694,7 +714,7 @@ export function ThreadMessage({
         <Pressable
           accessibilityRole="link"
           key={`${message.messageId}:file:${key}`}
-          onPress={() => void Linking.openURL(part.url)}
+          onPress={() => openExternalUrl(part.url)}
           style={[styles.fileCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
         >
           <FileText color={theme.muted} size={17} />
@@ -725,6 +745,8 @@ export function ThreadMessage({
     </View>
   );
 }
+
+export const ThreadMessage = memo(ThreadMessageView);
 
 const styles = StyleSheet.create({
   richText: { gap: 2 },

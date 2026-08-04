@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { WorkOS } from "@workos-inc/node";
 import { z } from "zod";
 
-import { requireWorkOSAuth } from "#/lib/github-oauth-server";
+import { invalidateBearerAuth, requireWorkOSAuth } from "#/lib/github-oauth-server";
 
 const redirectUriSchema = z
   .url()
   .refine((value) => {
     const url = new URL(value);
     return url.protocol === "autopr:" || (
-      process.env.NODE_ENV !== "production" &&
+      process.env.NODE_ENV === "development" &&
       (url.hostname === "localhost" || url.hostname === "127.0.0.1")
     );
   }, "Use an AutoPR app redirect URI.");
@@ -99,6 +99,7 @@ async function POST({ request }: { request: Request }) {
       if (auth.sessionId) {
         await workos.userManagement.revokeSession({ sessionId: auth.sessionId });
       }
+      invalidateBearerAuth(auth.accessToken);
       return Response.json({ success: true }, {
         headers: { "Cache-Control": "private, no-store" },
       });

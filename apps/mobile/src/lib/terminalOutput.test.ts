@@ -34,4 +34,13 @@ describe("TerminalOutputSanitizer", () => {
       "➜  /home/repo git:main",
     );
   });
+
+  it("clamps hostile cursor-column parameters before padding a line", () => {
+    const sanitizer = new TerminalOutputSanitizer();
+
+    const output = sanitizer.push("start\x1b[999999999CX");
+
+    expect(output.length).toBe(1_001);
+    expect(output.endsWith("X")).toBe(true);
+  });
 });

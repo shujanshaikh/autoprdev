@@ -13,7 +13,7 @@ import {
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { GitPullRequest, X } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Platform, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -237,6 +237,7 @@ function Navigator() {
 }
 
 function ConnectedApp() {
+  const { session } = useAuth();
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
@@ -249,6 +250,14 @@ function ConnectedApp() {
   const [convex] = useState(() => new ConvexReactClient(mobileConfig.convexUrl, {
     unsavedChangesWarning: false,
   }));
+  const userId = session?.user.id ?? null;
+  const previousUserIdRef = useRef(userId);
+
+  useEffect(() => {
+    if (previousUserIdRef.current === userId) return;
+    previousUserIdRef.current = userId;
+    queryClient.clear();
+  }, [queryClient, userId]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {

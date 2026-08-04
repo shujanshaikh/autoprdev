@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { webRequest } from "../api/web";
+import { WebRequestError, webRequest } from "../api/web";
 import type { MobileSession } from "../types";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -105,7 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await saveSession(next);
         return next.accessToken;
       })
-      .catch(async () => {
+      .catch(async (cause: unknown) => {
+        const isAuthFailure = cause instanceof WebRequestError
+          && (cause.status === 400 || cause.status === 401 || cause.status === 403);
+        if (!isAuthFailure) {
+          setAuthError("Could not reach the server. Check your connection.");
+          return null;
+        }
         setSession(null);
         setAuthError("Your session expired. Sign in again.");
         await saveSession(null);

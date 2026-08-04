@@ -44,4 +44,40 @@ describe("sandbox lookup coalescing", () => {
 
     expect(mocks.get).toHaveBeenCalledTimes(1);
   });
+
+  it("revalidates and restarts a cached context after its short TTL", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-04T00:00:00Z"));
+    const sandbox = {
+      id: "sandbox-2",
+      state: "started",
+      autoArchiveInterval: 120,
+      start: vi.fn(async () => {
+        sandbox.state = "started";
+      }),
+      setAutoArchiveInterval: vi.fn(),
+    };
+    mocks.get.mockImplementation(async () => sandbox);
+    const { getSandboxContext } = await import("./index");
+
+    try {
+      await getSandboxContext({
+        cacheKey: "project:thread:2",
+        sandboxId: sandbox.id,
+        workDir: "/home/widget",
+      });
+      sandbox.state = "stopped";
+      vi.advanceTimersByTime(5_001);
+      await getSandboxContext({
+        cacheKey: "project:thread:2",
+        sandboxId: sandbox.id,
+        workDir: "/home/widget",
+      });
+
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+      expect(sandbox.start).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

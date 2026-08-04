@@ -1,8 +1,3 @@
-import {
-  DEFAULT_SANDBOX_WORKDIR,
-  sandboxRepositoryDirectoryName,
-  sandboxRepositoryPath,
-} from "@autopr/agent/sandbox";
 import { resolveThreadWorkspaceMode } from "@autopr/backend/convex/lib/threadWorktree";
 
 export type PersistedThreadWorkspace = {
@@ -41,14 +36,10 @@ type WorkspaceThread = {
  * still needs the explicit resolve/provision path.
  */
 export function persistedThreadWorkspace(
-  project: WorkspaceProject,
+  _project: WorkspaceProject,
   thread: WorkspaceThread,
 ): PersistedThreadWorkspace | null {
   const workspaceMode = resolveThreadWorkspaceMode(thread);
-  const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
-    DEFAULT_SANDBOX_WORKDIR,
-    sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
-  );
 
   if (workspaceMode === "worktree") {
     if (
@@ -70,18 +61,8 @@ export function persistedThreadWorkspace(
     };
   }
 
-  const featureBranch = project.currentBranch
-    ?? project.repoBranch
-    ?? thread.baseBranch
-    ?? project.defaultBranch;
-  if (!featureBranch) return null;
-
-  return {
-    workspaceMode,
-    baseBranch: project.defaultBranch ?? thread.baseBranch ?? featureBranch,
-    featureBranch,
-    worktreePath: repositoryPath,
-    headSha: thread.headSha,
-    upstreamBranch: thread.upstreamBranch,
-  };
+  // Checkout-mode branches can change through the terminal or another Git
+  // client, so cached Convex metadata is not authoritative. Returning null
+  // sends callers through resolveThreadWorkspace's live Git inspection.
+  return null;
 }

@@ -32,6 +32,10 @@ const mobileAuthCache = new Map<string, {
   auth: AuthenticatedWorkOSAuth;
 }>();
 
+export function invalidateBearerAuth(accessToken: string) {
+  mobileAuthCache.delete(accessToken);
+}
+
 function getWorkOSClientId() {
   const clientId = process.env.WORKOS_CLIENT_ID;
   if (!clientId) {

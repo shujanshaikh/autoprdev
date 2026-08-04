@@ -244,6 +244,8 @@ export function TerminalScreen({ route }: Props) {
     let socket: WebSocket | null = null;
     let activeSessionId: string | null = null;
     let wakeTimer: ReturnType<typeof setTimeout> | null = null;
+    let openTimer: ReturnType<typeof setTimeout> | null = null;
+    let openTimedOut = false;
     let receivedOutput = false;
 
     const start = async () => {
@@ -264,8 +266,16 @@ export function TerminalScreen({ route }: Props) {
       socket = new WebSocket(terminal.websocketUrl, "X-Daytona-SDK-Version~");
       socketRef.current = socket;
       socket.binaryType = "arraybuffer";
+      openTimer = setTimeout(() => {
+        if (!active || socket?.readyState === WebSocket.OPEN) return;
+        openTimedOut = true;
+        setStatus("disconnected");
+        setError("The terminal did not connect. Reconnect to try again.");
+        socket?.close();
+      }, 15_000);
       socket.onopen = () => {
         if (!active || !socket) return;
+        if (openTimer) clearTimeout(openTimer);
         setStatus("connected");
         setError(null);
         wakeTimer = setTimeout(() => {
@@ -288,13 +298,15 @@ export function TerminalScreen({ route }: Props) {
         });
       };
       socket.onerror = () => {
+        if (openTimer) clearTimeout(openTimer);
         if (active) setError("Terminal connection failed.");
       };
       socket.onclose = () => {
         if (!active) return;
+        if (openTimer) clearTimeout(openTimer);
         if (wakeTimer) clearTimeout(wakeTimer);
         setStatus("disconnected");
-        setError("Terminal disconnected. Reconnect to continue.");
+        if (!openTimedOut) setError("Terminal disconnected. Reconnect to continue.");
       };
     };
 
@@ -306,6 +318,7 @@ export function TerminalScreen({ route }: Props) {
 
     return () => {
       active = false;
+      if (openTimer) clearTimeout(openTimer);
       if (wakeTimer) clearTimeout(wakeTimer);
       socket?.close();
       socketRef.current = null;

@@ -68,6 +68,28 @@ describe("consumeAgentRunStream", () => {
     expect(fetchAuthenticated).toHaveBeenCalledTimes(1);
   });
 
+  it("stops reconnecting after repeated empty responses", async () => {
+    vi.useFakeTimers();
+    const fetchAuthenticated = vi.fn().mockImplementation(async () => chunkResponse());
+    const consume = consumeAgentRunStream({
+      runId: "run-empty",
+      streamPath: "/agent/run-empty/stream",
+      fetchAuthenticated,
+      signal: new AbortController().signal,
+      onMessage: () => undefined,
+      onStatus: () => undefined,
+    });
+
+    try {
+      const rejection = expect(consume).rejects.toThrow("The live response produced no output.");
+      await vi.runAllTimersAsync();
+      await rejection;
+      expect(fetchAuthenticated).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("continues a stream that omits start by using the canonical assistant message", async () => {
     const fetchAuthenticated = vi.fn()
       .mockResolvedValueOnce(chunkResponse(

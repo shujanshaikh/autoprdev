@@ -62,18 +62,13 @@ export function GitCommitScreen({ navigation, route }: Props) {
     setPendingAction(action);
     setActionError(null);
     try {
-      // The workflow POST stays open for the whole run, so the sheet dismisses
-      // as soon as the request is away and progress is followed on the Git sheet
-      // underneath, which reads the live operation record.
-      const request = run({
+      await run({
         action,
         ...(message ? { commitMessage: message } : {}),
       });
       navigation.goBack();
-      await request;
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "The commit could not be completed.");
-    } finally {
       setPendingAction(null);
     }
   }, [commitMessage, navigation, pendingAction, run]);

@@ -67,15 +67,17 @@ export function parseUnifiedDiff(diff: string): ParsedDiffFile[] {
       continue;
     }
     current ??= { oldPath: null, newPath: null, lines: [] };
-    const oldPath = diffPath(rawLine, "--- ");
-    if (oldPath !== undefined) {
-      current.oldPath = oldPath;
-      continue;
-    }
-    const newPath = diffPath(rawLine, "+++ ");
-    if (newPath !== undefined) {
-      current.newPath = newPath;
-      continue;
+    if (oldLine === null && newLine === null) {
+      const oldPath = diffPath(rawLine, "--- ");
+      if (oldPath !== undefined) {
+        current.oldPath = oldPath;
+        continue;
+      }
+      const newPath = diffPath(rawLine, "+++ ");
+      if (newPath !== undefined) {
+        current.newPath = newPath;
+        continue;
+      }
     }
     const hunk = hunkStart(rawLine);
     if (hunk) {

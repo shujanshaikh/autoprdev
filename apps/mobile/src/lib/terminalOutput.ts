@@ -1,3 +1,5 @@
+const MAX_COLUMN = 1_000;
+
 function csiParameter(parameters: string, fallback: number) {
   const first = parameters.replace(/^\?/, "").split(";")[0];
   if (!first) return fallback;
@@ -31,22 +33,26 @@ export class TerminalOutputSanitizer {
     while (this.lines.length <= this.row) this.lines.push([]);
   }
 
+  private setColumn(column: number) {
+    this.column = Math.min(MAX_COLUMN, Math.max(0, column));
+  }
+
   private handleCsi(parameters: string, command: string) {
     const amount = Math.max(1, csiParameter(parameters, 1));
 
     if (command === "A") this.moveRows(-amount);
     if (command === "B") this.moveRows(amount);
-    if (command === "C") this.column += amount;
-    if (command === "D") this.column = Math.max(0, this.column - amount);
+    if (command === "C") this.setColumn(this.column + amount);
+    if (command === "D") this.setColumn(this.column - amount);
     if (command === "E") {
       this.moveRows(amount);
-      this.column = 0;
+      this.setColumn(0);
     }
     if (command === "F") {
       this.moveRows(-amount);
-      this.column = 0;
+      this.setColumn(0);
     }
-    if (command === "G") this.column = Math.max(0, amount - 1);
+    if (command === "G") this.setColumn(amount - 1);
 
     if (command === "K") {
       const mode = csiParameter(parameters, 0);
@@ -62,7 +68,7 @@ export class TerminalOutputSanitizer {
     if (command === "J" && csiParameter(parameters, 0) >= 2) {
       this.lines = [[]];
       this.row = 0;
-      this.column = 0;
+      this.setColumn(0);
     }
   }
 
@@ -70,7 +76,7 @@ export class TerminalOutputSanitizer {
     const line = this.currentLine();
     while (line.length < this.column) line.push(" ");
     line[this.column] = character;
-    this.column += 1;
+    this.setColumn(this.column + 1);
   }
 
   private snapshot() {
@@ -135,12 +141,12 @@ export class TerminalOutputSanitizer {
       }
 
       if (character === "\r") {
-        this.column = 0;
+        this.setColumn(0);
       } else if (character === "\n") {
         this.moveRows(1);
-        this.column = 0;
+        this.setColumn(0);
       } else if (character === "\b") {
-        this.column = Math.max(0, this.column - 1);
+        this.setColumn(this.column - 1);
       } else if (character === "\t") {
         const spaces = 8 - (this.column % 8);
         for (let count = 0; count < spaces; count += 1) this.write(" ");
@@ -157,6 +163,6 @@ export class TerminalOutputSanitizer {
     this.remainder = "";
     this.lines = [[]];
     this.row = 0;
-    this.column = 0;
+    this.setColumn(0);
   }
 }

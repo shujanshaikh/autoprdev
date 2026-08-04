@@ -114,9 +114,10 @@ export function useThreadGit(projectId: string, threadId: string) {
     }
   }, [getAccessToken, projectId, queryClient, statusKey, threadId]);
 
+  const { refetch: refetchStatus } = statusQuery;
   const refresh = useCallback(async () => {
-    await statusQuery.refetch();
-  }, [statusQuery]);
+    await refetchStatus();
+  }, [refetchStatus]);
 
   return {
     status,

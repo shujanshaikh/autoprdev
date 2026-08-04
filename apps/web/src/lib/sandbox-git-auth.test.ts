@@ -19,7 +19,7 @@ describe("withEphemeralGitAuth", () => {
         }),
       },
     };
-    const token = "github_pat_must_not_be_in_proc_environ";
+    const token = "test-token-must-not-be-in-proc-environ";
 
     const env = await withEphemeralGitAuth(
       sandbox as never,

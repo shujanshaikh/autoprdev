@@ -36,6 +36,7 @@ import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel"
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import {
   readJson,
+  type GithubAppInstallation,
   type GithubBranch,
   type GithubRepository,
 } from "#/components/dashboard/types";
@@ -118,7 +119,10 @@ function WorkspaceCreateSandboxDialog({
     return repositories.filter((r) => r.fullName.toLowerCase().includes(search));
   }, [repoSearch, repositories]);
 
-  const branchesQuery = useReactQuery({
+  const branchesQuery = useReactQuery<{
+    branches: GithubBranch[];
+    githubApp?: GithubAppInstallation;
+  }>({
     queryKey: ["github", "branches", selectedRepo?.owner, selectedRepo?.name],
     enabled: isAuthenticated && open && Boolean(selectedRepo),
     queryFn: async () => {
@@ -126,7 +130,10 @@ function WorkspaceCreateSandboxDialog({
         return { branches: EMPTY_BRANCHES };
       }
 
-      return readJson<{ branches: GithubBranch[] }>(
+      return readJson<{
+        branches: GithubBranch[];
+        githubApp: GithubAppInstallation;
+      }>(
         await fetch(
           `/api/github/repositories/${encodeURIComponent(selectedRepo.owner)}/${encodeURIComponent(selectedRepo.name)}/branches`,
         ),
@@ -135,6 +142,7 @@ function WorkspaceCreateSandboxDialog({
   });
 
   const branches = branchesQuery.data?.branches ?? EMPTY_BRANCHES;
+  const githubAppInstallation = branchesQuery.data?.githubApp;
   const defaultBranchName =
     selectedRepo && branches.some((branch) => branch.name === selectedRepo.defaultBranch)
       ? selectedRepo.defaultBranch
@@ -156,6 +164,9 @@ function WorkspaceCreateSandboxDialog({
     mutationFn: async () => {
       if (!selectedRepo || !selectedBranch) {
         throw new Error("Select a GitHub repository and branch.");
+      }
+      if (!githubAppInstallation?.installed) {
+        throw new Error("Install Autopr on this repository before creating its sandbox.");
       }
 
       return readJson<{ projectId: string; error?: string }>(
@@ -218,6 +229,9 @@ function WorkspaceCreateSandboxDialog({
             isLoadingRepos={isLoadingRepos}
             isRefreshingRepos={isRefreshingRepos}
             isLoadingBranches={isLoadingBranches}
+            isCheckingGithubAppInstallation={
+              branchesQuery.isPending && Boolean(selectedRepo)
+            }
             isCreating={isCreating}
             repositories={repositories}
             filteredRepositories={filteredRepositories}
@@ -226,6 +240,7 @@ function WorkspaceCreateSandboxDialog({
             selectedBranch={selectedBranch}
             repoSearch={repoSearch}
             selectedRepo={selectedRepo}
+            githubAppInstallation={githubAppInstallation}
             error={error ?? repoError ?? branchesError}
             onConnectGithub={connectGithub}
             onRefreshRepos={refreshRepositories}

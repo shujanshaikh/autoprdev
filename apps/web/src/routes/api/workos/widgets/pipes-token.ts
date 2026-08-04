@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getGithubWidgetToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
+import {
+  getGithubAppInstallUrl,
+  getGithubWidgetToken,
+  GithubConnectionError,
+  requireWorkOSAuth,
+  safeErrorMessage,
+} from "#/lib/github-oauth-server";
 
 async function GET() {
   try {
@@ -17,9 +23,12 @@ async function GET() {
       );
     }
 
-    const token = await getGithubWidgetToken(authState.user.id, authState.organizationId);
+    const [token, githubAppInstallUrl] = await Promise.all([
+      getGithubWidgetToken(authState.user.id, authState.organizationId),
+      getGithubAppInstallUrl(),
+    ]);
 
-    return Response.json({ token });
+    return Response.json({ token, githubAppInstallUrl });
   } catch (error) {
     const status = error instanceof GithubConnectionError ? 401 : 500;
     return Response.json(

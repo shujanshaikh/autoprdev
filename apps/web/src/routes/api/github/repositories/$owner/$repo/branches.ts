@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchGithubBranches } from "@autopr/backend/convex/lib/github_oauth";
 
-import { getGithubOAuthToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
+import {
+  getGithubOAuthToken,
+  getGithubRepositoryInstallationStatus,
+  GithubConnectionError,
+  requireWorkOSAuth,
+  safeErrorMessage,
+} from "#/lib/github-oauth-server";
 
 async function GET(_req: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const { owner, repo } = await params;
@@ -9,9 +15,12 @@ async function GET(_req: Request, { params }: { params: Promise<{ owner: string;
   try {
     const authState = await requireWorkOSAuth();
     const token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
-    const branches = await fetchGithubBranches(token, owner, repo);
+    const [branches, githubApp] = await Promise.all([
+      fetchGithubBranches(token, owner, repo),
+      getGithubRepositoryInstallationStatus(owner, repo),
+    ]);
 
-    return Response.json({ branches });
+    return Response.json({ branches, githubApp });
   } catch (error) {
     if (error instanceof GithubConnectionError) {
       return Response.json({ code: "GITHUB_NOT_CONNECTED", error: error.message }, { status: 401 });

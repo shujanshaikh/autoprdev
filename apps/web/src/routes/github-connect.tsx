@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { Pipes, WorkOsWidgets } from "@workos-inc/widgets";
-import { ArrowLeft, Check, GitBranch, Github, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, GitBranch, Github, Loader2, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { getSafeRedirectUrl } from "#/lib/safe-redirect";
@@ -22,7 +22,7 @@ function GithubConnect() {
   const { returnTo } = Route.useSearch();
   const { loading, organizationId, user } = useAuth();
   const {
-    data: widgetToken,
+    data: githubConnection,
     error: widgetTokenError,
     isError: isWidgetTokenError,
     isPending: isWidgetTokenPending,
@@ -83,14 +83,14 @@ function GithubConnect() {
                 secure repository access
               </p>
               <h2 className="type-section-heading mt-3">
-                Choose the GitHub account AutoPR should use.
+                Choose the GitHub account Autopr should use.
               </h2>
             </div>
 
             <div className="grid max-w-lg gap-2 text-sm text-muted-foreground">
-              <IntegrationPoint icon={<GitBranch className="size-4" />} label="Repositories, branches, and pull requests stay tied to this account." />
+              <IntegrationPoint icon={<GitBranch className="size-4" />} label="Connect your account for repositories, branches, and pull requests." />
               <IntegrationPoint icon={<ShieldCheck className="size-4" />} label="Tokens are handled by WorkOS Pipes and can be revoked at any time." />
-              <IntegrationPoint icon={<Check className="size-4" />} label="After authorization, you will return to the sandbox flow." />
+              <IntegrationPoint icon={<Check className="size-4" />} label="Install Autopr only on repositories that sandboxes may access." />
             </div>
           </div>
 
@@ -125,11 +125,32 @@ function GithubConnect() {
                 ) : (
                   <div className="github-pipes-frame">
                     <WorkOsWidgets>
-                      <Pipes authToken={widgetToken} />
+                      <Pipes authToken={githubConnection?.token} />
                     </WorkOsWidgets>
                   </div>
                 )}
               </div>
+              {githubConnection ? (
+                <div className="flex flex-col gap-3 border-t border-border/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="max-w-sm">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">
+                      repository access
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Install Autopr once, then choose the repositories it may open in a sandbox.
+                    </p>
+                  </div>
+                  <a
+                    href={githubConnection.githubAppInstallUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-pill)] border border-primary bg-primary px-5 type-button text-primary-foreground transition hover:bg-primary/90"
+                  >
+                    Install Autopr
+                    <ExternalLink className="size-3.5" aria-hidden="true" />
+                  </a>
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
@@ -140,13 +161,20 @@ function GithubConnect() {
 
 async function getPipesWidgetToken() {
   const response = await fetch("/api/workos/widgets/pipes-token");
-  const body = (await response.json().catch(() => undefined)) as { token?: string; error?: string } | undefined;
+  const body = (await response.json().catch(() => undefined)) as {
+    token?: string;
+    githubAppInstallUrl?: string;
+    error?: string;
+  } | undefined;
 
-  if (!response.ok || !body?.token) {
+  if (!response.ok || !body?.token || !body.githubAppInstallUrl) {
     throw new Error(body?.error ?? "Could not create a WorkOS widget token.");
   }
 
-  return body.token;
+  return {
+    token: body.token,
+    githubAppInstallUrl: body.githubAppInstallUrl,
+  };
 }
 
 function GithubConnectError({ message }: { message: string }) {

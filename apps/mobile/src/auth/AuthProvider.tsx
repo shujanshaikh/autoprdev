@@ -13,7 +13,7 @@ import {
 
 import { WebRequestError, webRequest } from "../api/web";
 import type { MobileSession } from "../types";
-import { commitRefreshedSession } from "./sessionGeneration";
+import { commitRefreshedSession, createSessionPersister } from "./sessionGeneration";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -66,6 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef(session);
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
   const authGenerationRef = useRef(0);
+  const sessionPersisterRef = useRef<ReturnType<typeof createSessionPersister> | null>(null);
+  if (sessionPersisterRef.current === null) {
+    sessionPersisterRef.current = createSessionPersister({
+      currentGeneration: () => authGenerationRef.current,
+      persist: saveSession,
+    });
+  }
+  const persistSession = sessionPersisterRef.current;
 
   useEffect(() => {
     sessionRef.current = session;
@@ -112,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(accepted);
           setAuthError(null);
         },
-        persistSession: saveSession,
+        persistSession,
       }))
       .catch(async (cause: unknown) => {
         if (generation !== authGenerationRef.current) return null;
@@ -126,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionRef.current = null;
         setSession(null);
         setAuthError("Your session expired. Sign in again.");
-        await saveSession(null);
+        await persistSession(null, authGenerationRef.current);
         return null;
       })
       .finally(() => {
@@ -190,10 +198,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: "POST",
         body: JSON.stringify({ action: "exchange", code, codeVerifier: verifier }),
       });
+      authGenerationRef.current += 1;
+      refreshPromiseRef.current = null;
       sessionRef.current = next;
       setSession(next);
       setAuthError(null);
-      await saveSession(next);
+      await persistSession(next, authGenerationRef.current);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Sign-in failed.");
     }
@@ -206,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshPromiseRef.current = null;
     setSession(null);
     setAuthError(null);
-    await saveSession(null);
+    await persistSession(null, authGenerationRef.current);
     if (!accessToken) return;
 
     let revokeError: string | null = null;

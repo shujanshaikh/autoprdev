@@ -1,15 +1,13 @@
 import { ConvexError, v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
-import { requireUserId } from "./lib/auth";
+import { internalMutation, internalQuery } from "./_generated/server";
 
-export const status = query({
-  args: {},
-  handler: async (ctx) => {
-    const authorId = await requireUserId(ctx);
+export const status = internalQuery({
+  args: { authorId: v.string() },
+  handler: async (ctx, args) => {
     const record = await ctx.db
       .query("codexCredentials")
-      .withIndex("by_author", (q) => q.eq("authorId", authorId))
+      .withIndex("by_author", (q) => q.eq("authorId", args.authorId))
       .unique();
 
     if (!record) {
@@ -27,13 +25,12 @@ export const status = query({
   },
 });
 
-export const getConnection = query({
-  args: {},
-  handler: async (ctx) => {
-    const authorId = await requireUserId(ctx);
+export const getConnection = internalQuery({
+  args: { authorId: v.string() },
+  handler: async (ctx, args) => {
     const record = await ctx.db
       .query("codexCredentials")
-      .withIndex("by_author", (q) => q.eq("authorId", authorId))
+      .withIndex("by_author", (q) => q.eq("authorId", args.authorId))
       .unique();
 
     if (!record) {
@@ -50,8 +47,9 @@ export const getConnection = query({
   },
 });
 
-export const upsert = mutation({
+export const upsert = internalMutation({
   args: {
+    authorId: v.string(),
     vaultObjectId: v.string(),
     vaultVersionId: v.optional(v.string()),
     accountId: v.optional(v.string()),
@@ -59,11 +57,10 @@ export const upsert = mutation({
     expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const authorId = await requireUserId(ctx);
     const now = Date.now();
     const existing = await ctx.db
       .query("codexCredentials")
-      .withIndex("by_author", (q) => q.eq("authorId", authorId))
+      .withIndex("by_author", (q) => q.eq("authorId", args.authorId))
       .unique();
 
     if (existing) {
@@ -79,7 +76,7 @@ export const upsert = mutation({
     }
 
     await ctx.db.insert("codexCredentials", {
-      authorId,
+      authorId: args.authorId,
       vaultObjectId: args.vaultObjectId,
       vaultVersionId: args.vaultVersionId,
       accountId: args.accountId,
@@ -91,13 +88,12 @@ export const upsert = mutation({
   },
 });
 
-export const getVaultReference = query({
-  args: {},
-  handler: async (ctx) => {
-    const authorId = await requireUserId(ctx);
+export const getVaultReference = internalQuery({
+  args: { authorId: v.string() },
+  handler: async (ctx, args) => {
     const record = await ctx.db
       .query("codexCredentials")
-      .withIndex("by_author", (q) => q.eq("authorId", authorId))
+      .withIndex("by_author", (q) => q.eq("authorId", args.authorId))
       .unique();
 
     if (!record) {
@@ -111,13 +107,12 @@ export const getVaultReference = query({
   },
 });
 
-export const remove = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const authorId = await requireUserId(ctx);
+export const remove = internalMutation({
+  args: { authorId: v.string() },
+  handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("codexCredentials")
-      .withIndex("by_author", (q) => q.eq("authorId", authorId))
+      .withIndex("by_author", (q) => q.eq("authorId", args.authorId))
       .unique();
 
     if (!existing) {

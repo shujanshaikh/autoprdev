@@ -8,6 +8,10 @@ import {
   sandboxRepositoryPath,
   type DaytonaSandbox,
 } from "@autopr/agent/sandbox";
+import {
+  autoprSandboxLabels,
+  autoprSandboxName,
+} from "@autopr/backend/convex/lib/sandboxIdentity";
 
 import { runAuthenticatedSandboxCommand } from "#/lib/sandbox-git-auth";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
@@ -110,6 +114,7 @@ async function resolveProjectRepoLocation(
 }
 
 export async function createProjectSandbox(options: {
+  projectId: string;
   cloneUrl: string;
   githubToken: string;
   branch: string;
@@ -120,7 +125,11 @@ export async function createProjectSandbox(options: {
   sandboxSnapshot?: string;
   sandboxWorkDir: string;
 }> {
-  const sandbox = await createSandbox();
+  const sandbox = await createSandbox({
+    cacheKey: options.projectId,
+    name: autoprSandboxName(options.projectId),
+    labels: autoprSandboxLabels(options.projectId),
+  });
   const repoDir = sandboxRepositoryDirectoryName({
     repoName: options.repoName,
     repoUrl: options.cloneUrl,

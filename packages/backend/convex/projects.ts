@@ -232,6 +232,29 @@ export const markSandboxReadyInternal = internalMutation({
   },
 });
 
+export const getSandboxBindingTargetInternal = internalQuery({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    return {
+      projectId: project.projectId,
+      repoName: project.repoName,
+      cloneUrl: project.cloneUrl,
+    };
+  },
+});
+
 export const markSandboxFailedInternal = internalMutation({
   args: {
     authorId: v.string(),
@@ -254,51 +277,6 @@ export const markSandboxFailedInternal = internalMutation({
       sandboxError: shortError(args.sandboxError),
       updatedAt: Date.now(),
     });
-    return null;
-  },
-});
-
-export const markSandboxReady = mutation({
-  args: {
-    projectId: v.string(),
-    sandboxId: v.string(),
-    sandboxName: v.optional(v.string()),
-    sandboxSnapshot: v.optional(v.string()),
-    sandboxWorkDir: v.optional(v.string()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const authorId = await requireUserId(ctx);
-    const project = await ctx.db
-      .query("projects")
-      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
-      .unique();
-
-    if (!project || project.authorId !== authorId) {
-      throw new ConvexError({ code: "UNAUTHORIZED" });
-    }
-
-    await ctx.db.patch(project._id, {
-      sandboxId: args.sandboxId,
-      sandboxName: args.sandboxName,
-      sandboxSnapshot: args.sandboxSnapshot,
-      sandboxWorkDir: args.sandboxWorkDir,
-      sandboxStatus: "ready",
-      sandboxRuntimeStatus: "started",
-      sandboxRuntimeCheckedAt: Date.now(),
-      sandboxError: undefined,
-      branchSwitchStatus: "idle",
-      updatedAt: Date.now(),
-    });
-    await ctx.runMutation(internal.sandboxCosts.upsertWhenSandboxReadyInternal, {
-      authorId,
-      projectId: args.projectId,
-      sandboxId: args.sandboxId,
-      sandboxName: args.sandboxName,
-      repoFullName: project.repoFullName,
-      sandboxCreatedAt: project.createdAt,
-    });
-
     return null;
   },
 });

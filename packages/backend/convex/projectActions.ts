@@ -9,6 +9,11 @@ import { action, type ActionCtx } from "./_generated/server";
 import { normalizeGithubUrl } from "./lib/github";
 import { sandboxCommandText } from "./lib/sandboxCommandOutput";
 import {
+  autoprSandboxLabels,
+  autoprSandboxName,
+  isExpectedAutoprSandbox,
+} from "./lib/sandboxIdentity";
+import {
   assessWorktreeCleanup,
   createThreadFeatureBranch,
   createThreadWorktreePath,
@@ -30,6 +35,7 @@ const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;
 const DAYTONA_WEB_TERMINAL_PORT = 22222;
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
+const TERMINAL_PREVIEW_EXPIRES_SECONDS = 60;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
 const DESKTOP_RECOVERY_DELAY_MS = 1_000;
@@ -93,12 +99,6 @@ interface TerminalPreviewResult {
   url: string;
   port: number;
   expiresInSeconds: number;
-}
-
-interface PtyTerminalResult {
-  sessionId: string;
-  websocketUrl: string;
-  cwd: string;
 }
 
 interface ThreadWorktreeResult {
@@ -638,36 +638,6 @@ async function stopDaytonaSandbox(sandboxId: string) {
   return "stopped" as const;
 }
 
-async function runWithAlreadyStartedSandboxRetry<T>(
-  sandboxId: string,
-  operation: (sandbox: DaytonaSandbox) => Promise<T>,
-): Promise<{ status: "started"; result: T } | { status: Exclude<SandboxRuntimeStatus, "started"> }> {
-  const daytona = createDaytonaClient();
-  const deadline = Date.now() + DAYTONA_OPERATION_READY_TIMEOUT_MS;
-  let lastError: unknown;
-
-  while (Date.now() <= deadline) {
-    const sandbox = await daytona.get(sandboxId);
-    const status = normalizeSandboxRuntimeStatus(sandbox.state);
-
-    if (status !== "started") {
-      return { status };
-    }
-
-    try {
-      return { status, result: await operation(sandbox) };
-    } catch (error) {
-      if (!isSandboxNetworkNotReadyError(error) && !isSandboxStateChangeInProgressError(error)) {
-        throw error;
-      }
-      lastError = error;
-      await sleep(DAYTONA_OPERATION_READY_POLL_MS);
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error("Sandbox filesystem did not become ready.");
-}
-
 async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
     await ensureDesktopReady(sandbox.computerUse);
@@ -686,50 +656,15 @@ async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPrevi
 
 async function getDaytonaTerminalPreview(sandboxId: string): Promise<TerminalPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
-    const preview = await sandbox.getSignedPreviewUrl(DAYTONA_WEB_TERMINAL_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
+    const preview = await sandbox.getSignedPreviewUrl(
+      DAYTONA_WEB_TERMINAL_PORT,
+      TERMINAL_PREVIEW_EXPIRES_SECONDS,
+    );
 
     return {
       url: normalizePreviewUrl(preview.url),
       port: DAYTONA_WEB_TERMINAL_PORT,
-      expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
-    };
-  });
-}
-
-function ptyWebsocketUrl(toolboxProxyUrl: string, sandboxId: string, sessionId: string, token: string): string {
-  const baseUrl = toolboxProxyUrl.endsWith("/") ? toolboxProxyUrl.slice(0, -1) : toolboxProxyUrl;
-  const url = new URL(`${baseUrl}/${sandboxId}/process/pty/${encodeURIComponent(sessionId)}/connect`);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("DAYTONA_SANDBOX_AUTH_KEY", token);
-  return url.toString();
-}
-
-async function createDaytonaPtyTerminal(sandboxId: string, cwd: string, cols: number, rows: number): Promise<PtyTerminalResult> {
-  return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
-    const sessionId = `autopr-terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const handle = await sandbox.process.createPty({
-      id: sessionId,
-      cwd,
-      envs: {
-        TERM: "xterm-256color",
-        COLORTERM: "truecolor",
-        LANG: "en_US.UTF-8",
-        LC_ALL: "en_US.UTF-8",
-        CLICOLOR: "1",
-        FORCE_COLOR: "1",
-      },
-      cols,
-      rows,
-      onData: () => undefined,
-    });
-    await handle.disconnect().catch(() => undefined);
-
-    const preview = await sandbox.getPreviewLink(1);
-
-    return {
-      sessionId,
-      websocketUrl: ptyWebsocketUrl(sandbox.toolboxProxyUrl, sandbox.id, sessionId, preview.token),
-      cwd,
+      expiresInSeconds: TERMINAL_PREVIEW_EXPIRES_SECONDS,
     };
   });
 }
@@ -743,6 +678,8 @@ async function bootstrapRepositorySandbox(options: {
 }) {
   const daytona = createDaytonaClient();
   const sandbox = await daytona.create({
+    name: autoprSandboxName(options.cacheKey),
+    labels: autoprSandboxLabels(options.cacheKey),
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
     autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
     autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
@@ -1348,123 +1285,6 @@ export const getDesktopPreview = action({
   },
 });
 
-export const getPtyTerminal = action({
-  args: {
-    projectId: v.string(),
-    threadId: v.string(),
-    cols: v.optional(v.number()),
-    rows: v.optional(v.number()),
-  },
-  returns: v.object({
-    sessionId: v.string(),
-    websocketUrl: v.string(),
-    cwd: v.string(),
-  }),
-  handler: async (ctx, args): Promise<PtyTerminalResult> => {
-    const identity = await ctx.auth.getUserIdentity();
-
-    if (!identity) {
-      throw new ConvexError({ code: "UNAUTHORIZED" });
-    }
-
-    const workspace = await resolveThreadWorkspaceForAuthor(
-      ctx,
-      identity.subject,
-      args.projectId,
-      args.threadId,
-    );
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
-      authorId: identity.subject,
-      projectId: args.projectId,
-    });
-    const cwd = workspace.worktreePath;
-
-    try {
-      const terminal = await createDaytonaPtyTerminal(project.sandboxId, cwd, args.cols ?? 100, args.rows ?? 30);
-      await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
-        authorId: identity.subject,
-        projectId: args.projectId,
-        sandboxRuntimeStatus: "started",
-      });
-      return terminal;
-    } catch (error) {
-      throw new ConvexError({
-        code: "DAYTONA_PTY_TERMINAL_FAILED",
-        message: errorMessage(error),
-      });
-    }
-  },
-});
-
-export const resizePtyTerminal = action({
-  args: {
-    projectId: v.string(),
-    sessionId: v.string(),
-    cols: v.number(),
-    rows: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-
-    if (!identity) {
-      throw new ConvexError({ code: "UNAUTHORIZED" });
-    }
-
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
-      authorId: identity.subject,
-      projectId: args.projectId,
-    });
-
-    try {
-      await runWithStartedSandboxRetry(project.sandboxId, async (sandbox) => {
-        await sandbox.process.resizePtySession(args.sessionId, args.cols, args.rows);
-      });
-      return null;
-    } catch (error) {
-      throw new ConvexError({
-        code: "DAYTONA_PTY_RESIZE_FAILED",
-        message: errorMessage(error),
-      });
-    }
-  },
-});
-
-export const killPtyTerminal = action({
-  args: {
-    projectId: v.string(),
-    sessionId: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-
-    if (!identity) {
-      throw new ConvexError({ code: "UNAUTHORIZED" });
-    }
-
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
-      authorId: identity.subject,
-      projectId: args.projectId,
-    });
-
-    try {
-      await runWithStartedSandboxRetry(project.sandboxId, async (sandbox) => {
-        await sandbox.process.killPtySession(args.sessionId);
-      });
-      return null;
-    } catch (error) {
-      if (isSandboxNotFoundError(error)) {
-        return null;
-      }
-      throw new ConvexError({
-        code: "DAYTONA_PTY_KILL_FAILED",
-        message: errorMessage(error),
-      });
-    }
-  },
-});
-
 export const getTerminalPreview = action({
   args: {
     projectId: v.string(),
@@ -1701,6 +1521,59 @@ export const removeWithSandbox = action({
     });
 
     return null;
+  },
+});
+
+export const bindProvisionedSandbox = action({
+  args: {
+    projectId: v.string(),
+    sandboxId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { projectId: string; repoName: string; cloneUrl: string } = await ctx.runQuery(
+      internal.projects.getSandboxBindingTargetInternal,
+      {
+        authorId: identity.subject,
+        projectId: args.projectId,
+      },
+    );
+
+    try {
+      const sandbox = await createDaytonaClient().get(args.sandboxId);
+      if (!isExpectedAutoprSandbox(sandbox, project.projectId)) {
+        throw new ConvexError({ code: "INVALID_SANDBOX_BINDING" });
+      }
+
+      const repoDirectory = sandboxRepositoryDirectoryName({
+        repoName: project.repoName,
+        repoUrl: project.cloneUrl,
+      });
+      const sandboxWorkDir = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDirectory);
+      await sandbox.git.status(sandboxWorkDir);
+
+      await ctx.runMutation(internal.projects.markSandboxReadyInternal, {
+        authorId: identity.subject,
+        projectId: project.projectId,
+        sandboxId: sandbox.id,
+        sandboxName: sandbox.name,
+        sandboxSnapshot: sandbox.snapshot,
+        sandboxWorkDir,
+      });
+      return null;
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError({
+        code: "INVALID_SANDBOX_BINDING",
+        message: "The provisioned sandbox could not be verified for this project.",
+      });
+    }
   },
 });
 

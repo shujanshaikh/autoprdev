@@ -1,11 +1,7 @@
 import "@tanstack/react-start/server-only";
 
-import { api } from "@autopr/backend/convex/_generated/api";
-import type { ChatGPTUser } from "@opencoredev/loginwithchatgpt-server";
-
 import {
   chatGPTAuth,
-  CODEX_SESSION_TTL_MS,
   CodexConnectionError,
   createCodexResponsesModel,
   type CodexResponsesModel,
@@ -14,7 +10,6 @@ import {
   isVaultConflict,
   vaultObjectName,
 } from "#/lib/codex-auth-runtime-server";
-import { convexMutation, convexQuery } from "#/lib/convex-server";
 import {
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
@@ -36,96 +31,62 @@ export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
 
 export { CodexConnectionError, createCodexResponsesModel };
 
-async function getCodexCredentialState() {
-  const connection = await convexQuery(api.codexAuth.getConnection, {});
-  if (!connection) {
-    return { connection: undefined, reference: undefined };
-  }
-
-  return {
-    connection,
-    reference: {
-      vaultObjectId: connection.vaultObjectId,
-      vaultVersionId: connection.vaultVersionId,
-    },
-  };
-}
-
-async function readVaultObject(id: string) {
-  return await getWorkOSVault().readObject({ id }).catch((error: unknown) => {
-    if (isMissingVaultObject(error)) {
-      return undefined;
-    }
-    throw error;
-  });
-}
-
 async function loadAccountCodexSessionLink() {
-  const { reference } = await getCodexCredentialState();
-  if (!reference) {
-    return undefined;
-  }
-
-  const object = await readVaultObject(reference.vaultObjectId);
+  const authState = await requireWorkOSAuth();
+  const object = await getWorkOSVault()
+    .readObjectByName(vaultObjectName("account-session", authState.user.id))
+    .catch((error: unknown) => {
+      if (isMissingVaultObject(error)) return undefined;
+      throw error;
+    });
   if (!object?.value) {
     return undefined;
   }
 
   const link = parseStoredCodexSessionLink(object.value);
-  return link ? { link, reference } : undefined;
+  return link ? { link, vaultObjectId: object.id } : undefined;
 }
 
 async function persistAccountCodexSession(options: {
   userId: string;
   sessionCookieHeader: string;
-  user?: ChatGPTUser;
 }) {
   const value = JSON.stringify(createStoredCodexSessionLink(options.sessionCookieHeader));
-  const { connection, reference } = await getCodexCredentialState();
-  const existingObject = reference ? await readVaultObject(reference.vaultObjectId) : undefined;
+  const objectName = vaultObjectName("account-session", options.userId);
+  const existingObject = await getWorkOSVault().readObjectByName(objectName).catch((error: unknown) => {
+    if (isMissingVaultObject(error)) return undefined;
+    throw error;
+  });
   const existingLink = existingObject?.value
     ? parseStoredCodexSessionLink(existingObject.value)
     : undefined;
 
-  if (
-    existingLink?.sessionCookieHeader === options.sessionCookieHeader &&
-    connection &&
-    connection.accountId === options.user?.accountId &&
-    connection.email === options.user?.email
-  ) {
+  if (existingLink?.sessionCookieHeader === options.sessionCookieHeader) {
     return;
   }
 
-  const vaultObject = existingObject
-    ? await getWorkOSVault().updateObject({ id: existingObject.id, value })
-    : await getWorkOSVault()
-        .createObject({
-          name: vaultObjectName("account-session", options.userId),
-          value,
-          context: {
-            app: "autopr",
-            purpose: "login-with-chatgpt-account-session",
-            userId: options.userId,
-          },
-        })
-        .catch(async (error: unknown) => {
-          if (!isVaultConflict(error)) {
-            throw error;
-          }
+  if (existingObject) {
+    await getWorkOSVault().updateObject({ id: existingObject.id, value });
+  } else {
+    await getWorkOSVault()
+      .createObject({
+        name: objectName,
+        value,
+        context: {
+          app: "autopr",
+          purpose: "login-with-chatgpt-account-session",
+          userId: options.userId,
+        },
+      })
+      .catch(async (error: unknown) => {
+        if (!isVaultConflict(error)) {
+          throw error;
+        }
 
-          const latest = await getWorkOSVault().readObjectByName(
-            vaultObjectName("account-session", options.userId),
-          );
-          return await getWorkOSVault().updateObject({ id: latest.id, value });
-        });
-
-  await convexMutation(api.codexAuth.upsert, {
-    vaultObjectId: vaultObject.id,
-    vaultVersionId: vaultObject.metadata?.versionId,
-    accountId: options.user?.accountId,
-    email: options.user?.email,
-    expiresAt: Date.now() + CODEX_SESSION_TTL_MS,
-  });
+        const latest = await getWorkOSVault().readObjectByName(objectName);
+        return await getWorkOSVault().updateObject({ id: latest.id, value });
+      });
+  }
 }
 
 async function resolveAccountCodexSession(request: Request) {
@@ -141,7 +102,6 @@ async function resolveAccountCodexSession(request: Request) {
     await persistAccountCodexSession({
       userId: authState.user.id,
       sessionCookieHeader: resolved.cookieHeader,
-      user: resolved.session.user,
     });
   }
 
@@ -149,18 +109,16 @@ async function resolveAccountCodexSession(request: Request) {
 }
 
 async function removeAccountCodexSessionLink() {
-  const { reference } = await getCodexCredentialState();
-  if (reference) {
+  const accountLink = await loadAccountCodexSessionLink();
+  if (accountLink) {
     await getWorkOSVault()
-      .deleteObject({ id: reference.vaultObjectId })
+      .deleteObject({ id: accountLink.vaultObjectId })
       .catch((error: unknown) => {
         if (!isMissingVaultObject(error)) {
           throw error;
         }
       });
   }
-
-  await convexMutation(api.codexAuth.remove, {});
 }
 
 export async function handleChatGPTAuthRequest(request: Request) {

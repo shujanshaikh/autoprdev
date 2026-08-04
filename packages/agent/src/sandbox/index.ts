@@ -157,6 +157,8 @@ export interface SandboxSessionOptions {
   cacheKey?: string;
   sandboxId?: string;
   snapshot?: string;
+  name?: string;
+  labels?: Record<string, string>;
   repoUrl?: string;
   repoBranch?: string;
   repoName?: string;
@@ -228,6 +230,8 @@ interface ResolvedSandboxSessionOptions {
   cacheKey: string;
   sandboxId?: string;
   snapshot: string;
+  name?: string;
+  labels?: Record<string, string>;
   repoUrl?: string;
   repoBranch?: string;
   repoName?: string;
@@ -247,6 +251,8 @@ function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSan
     cacheKey,
     sandboxId,
     snapshot,
+    name: options.name,
+    labels: options.labels,
     repoUrl,
     repoBranch,
     repoName,
@@ -355,6 +361,8 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
   return ensureSandboxStarted(
     await daytona.create({
       snapshot: resolved.snapshot,
+      name: resolved.name,
+      labels: resolved.labels,
       autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
       autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
       domainAllowList: sandboxDomainAllowList(),

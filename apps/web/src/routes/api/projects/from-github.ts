@@ -3,7 +3,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubBranches, getGithubRepository } from "@autopr/backend/convex/lib/github_oauth";
 import { z } from "zod";
 
-import { convexMutation, convexQuery } from "#/lib/convex-server";
+import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { createProjectSandbox } from "#/lib/daytona-project-sandbox";
 import {
   getGithubOAuthToken,
@@ -110,18 +110,16 @@ async function POST(req: Request) {
 
     try {
       const sandbox = await createProjectSandbox({
+        projectId: project.projectId,
         cloneUrl: verifiedRepo.cloneUrl,
         githubToken: repositoryToken,
         branch,
         repoName: verifiedRepo.name,
       });
 
-      await convexMutation(api.projects.markSandboxReady, {
+      await convexAction(api.projectActions.bindProvisionedSandbox, {
         projectId: project.projectId,
         sandboxId: sandbox.sandboxId,
-        sandboxName: sandbox.sandboxName,
-        sandboxSnapshot: sandbox.sandboxSnapshot,
-        sandboxWorkDir: sandbox.sandboxWorkDir,
       });
 
       return Response.json({

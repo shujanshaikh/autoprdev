@@ -187,10 +187,8 @@ export function ThreadDiffPanel({
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
-  const terminalSessionIdsRef = useRef(new Map<string, string>());
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
-  const killPtyTerminal = useAction(api.projectActions.killPtyTerminal);
 
   useEffect(() => {
     try {
@@ -405,15 +403,6 @@ export function ThreadDiffPanel({
 
   const removePanelTab = useCallback(
     (tabId: string) => {
-      const tab = visibleTabs.find((candidate) => candidate.id === tabId);
-      if (tab?.kind === "terminal") {
-        const sessionId = terminalSessionIdsRef.current.get(tabId);
-        terminalSessionIdsRef.current.delete(tabId);
-        if (sessionId) {
-          void killPtyTerminal({ projectId, sessionId }).catch(() => undefined);
-        }
-      }
-
       setVisibleTabs((current) => {
         const removedIndex = current.findIndex((tab) => tab.id === tabId);
         const next = current.filter((tab) => tab.id !== tabId);
@@ -423,7 +412,7 @@ export function ThreadDiffPanel({
         return next;
       });
     },
-    [activeTabId, killPtyTerminal, projectId, visibleTabs],
+    [activeTabId],
   );
 
   const loadDesktop = useCallback(async () => {
@@ -871,15 +860,7 @@ export function ThreadDiffPanel({
             <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-background", isActiveTerminal ? "flex" : "hidden")}>
               <DaytonaTerminalView
                 projectId={projectId}
-                threadId={threadId}
                 active={isActiveTerminal}
-                onSessionChange={(sessionId) => {
-                  if (sessionId) {
-                    terminalSessionIdsRef.current.set(terminalTab.id, sessionId);
-                  } else {
-                    terminalSessionIdsRef.current.delete(terminalTab.id);
-                  }
-                }}
               />
             </div>
           );

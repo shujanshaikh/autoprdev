@@ -43,6 +43,7 @@ import {
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
 import { ThreadGitMutationConflictError } from "#/lib/thread-git-mutation-server";
+import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 
 export type GitWorkflowRequest = {
   operationId: string;
@@ -242,10 +243,13 @@ export async function runThreadGitWorkflow(options: {
     }
   }
 
-  const resolveWorkspace = () => convexAction(api.projectActions.resolveThreadWorkspace, {
-    projectId: options.projectId,
-    threadId: options.threadId,
-  });
+  const persistedWorkspace = persistedThreadWorkspace(project, thread);
+  const resolveWorkspace = () => persistedWorkspace
+    ? Promise.resolve(persistedWorkspace)
+    : convexAction(api.projectActions.resolveThreadWorkspace, {
+        projectId: options.projectId,
+        threadId: options.threadId,
+      });
   let workspace: Awaited<ReturnType<typeof resolveWorkspace>>;
   try {
     workspace = await resolveWorkspace();

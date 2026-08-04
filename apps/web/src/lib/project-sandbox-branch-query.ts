@@ -66,7 +66,8 @@ export function useProjectSandboxBranchQuery(options: {
       return parseProjectSandboxBranchResponse(body);
     },
     staleTime: 5_000,
-    refetchInterval: options.refetchInterval ?? 15_000,
+    retry: false,
+    refetchInterval: options.refetchInterval ?? false,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });

@@ -22,6 +22,7 @@ import {
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
 import type { agentChatTask } from "#/trigger/agent-chat";
+import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 
 const APPEND_OPERATION = "append";
 
@@ -65,6 +66,8 @@ type AgentProject = {
   sandboxId?: string;
   sandboxWorkDir?: string;
   cloneUrl: string;
+  currentBranch?: string;
+  defaultBranch?: string;
   repoBranch?: string;
   repoName: string;
 };
@@ -77,6 +80,10 @@ type AgentThread = {
   baseBranch?: string;
   featureBranch?: string;
   worktreePath?: string;
+  workspaceMode?: "checkout" | "worktree";
+  worktreeStatus?: "pending" | "provisioning" | "ready" | "failed" | "cleaned";
+  headSha?: string;
+  upstreamBranch?: string;
 };
 
 type AgentUserSettings = {
@@ -137,11 +144,14 @@ async function createTrustedClientData(options: {
   userSettings: AgentUserSettings;
   requested: AgentChatClientInput;
 }) {
+  const persistedWorkspace = persistedThreadWorkspace(options.project, options.thread);
   const [worktree, codex, persistenceGrant] = await Promise.all([
-    convexAction(api.projectActions.resolveThreadWorkspace, {
-      projectId: options.project.projectId,
-      threadId: options.thread.threadId,
-    }),
+    persistedWorkspace
+      ? Promise.resolve(persistedWorkspace)
+      : convexAction(api.projectActions.resolveThreadWorkspace, {
+          projectId: options.project.projectId,
+          threadId: options.thread.threadId,
+        }),
     getCodexAgentModelConfig(
       options.request,
       options.requested.model,

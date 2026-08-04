@@ -147,6 +147,7 @@ type ThreadChatProps = {
   onDiffCountChange: (count: number) => void;
   project?: any;
   thread?: any;
+  gitStatusEnabled?: boolean;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -772,6 +773,7 @@ function ThreadChatRuntime({
   onDiffCountChange,
   project,
   thread,
+  gitStatusEnabled = true,
   usingSessionTransport,
   initialSessionToken,
   resumeSession = false,
@@ -809,7 +811,8 @@ function ThreadChatRuntime({
     projectId,
     threadId,
     persistedStatus: thread?.gitStatus,
-    refetchInterval: thread?.isLive ? 5_000 : 30_000,
+    enabled: gitStatusEnabled,
+    refetchInterval: false,
   });
   const addDiffPromptContext = useCallback((context: DiffPromptContext) => {
     setDiffPromptContexts((current) => current.some((item) => item.id === context.id)

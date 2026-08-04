@@ -16,12 +16,16 @@ import {
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
-import { readThreadGitStatus } from "#/lib/thread-git-status-server";
+import {
+  readThreadGitStatus,
+  SandboxRuntimeNotStartedError,
+} from "#/lib/thread-git-status-server";
 import { runThreadGitWorkflow } from "#/lib/thread-git-workflow-server";
 import {
   ThreadGitMutationConflictError,
   withThreadGitMutation,
 } from "#/lib/thread-git-mutation-server";
+import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 
 type DaytonaRecording = {
   fileName?: string;
@@ -191,8 +195,32 @@ async function GET(
       );
     }
 
+    if (project.sandboxRuntimeStatus !== "started") {
+      return Response.json(
+        {
+          error: {
+            code: "SANDBOX_RUNTIME_NOT_STARTED",
+            message: "Start the project workspace before refreshing Git status.",
+          },
+        },
+        { status: 409 },
+      );
+    }
+
+    const worktree = persistedThreadWorkspace(project, thread);
+    if (!worktree) {
+      return Response.json(
+        {
+          error: {
+            code: "THREAD_WORKSPACE_NOT_READY",
+            message: "The thread workspace is still being prepared.",
+          },
+        },
+        { status: 409 },
+      );
+    }
+
     try {
-      const worktree = await convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId });
       let githubToken: string | undefined;
         let pullRequest: GithubPullRequestSummary | undefined = thread.pullRequestNumber && thread.pullRequestUrl
         ? {
@@ -245,14 +273,17 @@ async function GET(
         { headers: { "Cache-Control": "private, no-store" } },
       );
     } catch (error) {
+      const runtimeStopped = error instanceof SandboxRuntimeNotStartedError;
       return Response.json(
         {
           error: {
-            code: "GIT_STATUS_REFRESH_FAILED",
-            message: safeErrorMessage(error, "Could not refresh thread Git status."),
+            code: runtimeStopped ? error.code : "GIT_STATUS_REFRESH_FAILED",
+            message: runtimeStopped
+              ? "Start the project workspace before refreshing Git status."
+              : safeErrorMessage(error, "Could not refresh thread Git status."),
           },
         },
-        { status: 502 },
+        { status: runtimeStopped ? 409 : 502 },
       );
     }
   }
@@ -461,8 +492,11 @@ async function POST(
       threadId,
       action: "pull",
       run: async () => {
+        const persistedWorkspace = persistedThreadWorkspace(project, thread);
         const [worktree, authState] = await Promise.all([
-          convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId }),
+          persistedWorkspace
+            ? Promise.resolve(persistedWorkspace)
+            : convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId }),
           requireWorkOSAuth(),
         ]);
         const githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);

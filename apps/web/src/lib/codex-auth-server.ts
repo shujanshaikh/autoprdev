@@ -1,16 +1,19 @@
 import "@tanstack/react-start/server-only";
 
 import { api } from "@autopr/backend/convex/_generated/api";
-import { createChatGPT, type CreateChatGPTOptions } from "@opencoredev/loginwithchatgpt-ai";
-import {
-  createChatGPTHandler,
-  type ChatGPTUser,
-  type KeyValueStore,
-  type RateLimitBucket,
-  type StoredSession,
-} from "@opencoredev/loginwithchatgpt-server";
-import { WorkOS } from "@workos-inc/node";
+import type { ChatGPTUser } from "@opencoredev/loginwithchatgpt-server";
 
+import {
+  chatGPTAuth,
+  CODEX_SESSION_TTL_MS,
+  CodexConnectionError,
+  createCodexResponsesModel,
+  type CodexResponsesModel,
+  getWorkOSVault,
+  isMissingVaultObject,
+  isVaultConflict,
+  vaultObjectName,
+} from "#/lib/codex-auth-runtime-server";
 import { convexMutation, convexQuery } from "#/lib/convex-server";
 import {
   DEFAULT_CODEX_MODEL,
@@ -31,204 +34,7 @@ import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 
 export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
 
-const DEFAULT_CHATGPT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const DEFAULT_RESPONSES_RATE_LIMIT = 30;
-const DEFAULT_RESPONSES_RATE_WINDOW_MS = 60 * 1000;
-const DEFAULT_CODEX_CLIENT_VERSION = "0.144.0";
-
-type CodexResponsesModel = ReturnType<ReturnType<typeof createChatGPT>["responses"]>;
-
-type WorkOSVaultObject = {
-  id: string;
-  value?: string;
-  metadata?: {
-    versionId?: string;
-  };
-};
-
-type WorkOSVault = {
-  createObject(input: {
-    name: string;
-    value: string;
-    context: Record<string, string>;
-  }): Promise<WorkOSVaultObject>;
-  readObject(input: { id: string }): Promise<WorkOSVaultObject>;
-  readObjectByName(name: string): Promise<WorkOSVaultObject>;
-  updateObject(input: { id: string; value: string }): Promise<WorkOSVaultObject>;
-  deleteObject(input: { id: string }): Promise<void>;
-};
-
-type VaultStoreEnvelope<T> = {
-  value: T;
-  expiresAt?: number;
-};
-
-export class CodexConnectionError extends Error {
-  constructor(message: string, readonly status = 400) {
-    super(message);
-    this.name = "CodexConnectionError";
-  }
-}
-
-function getWorkOSVault() {
-  const apiKey = process.env.WORKOS_API_KEY;
-  if (!apiKey) {
-    throw new CodexConnectionError("WorkOS Vault is not configured. Set WORKOS_API_KEY.", 500);
-  }
-
-  return new WorkOS(apiKey).vault as WorkOSVault;
-}
-
-function getChatGPTSecret() {
-  const secret = process.env.LWC_SECRET ?? process.env.LOGIN_WITH_CHATGPT_SECRET;
-  if (!secret && process.env.NODE_ENV === "production") {
-    throw new CodexConnectionError("Login with ChatGPT is not configured. Set LWC_SECRET.", 500);
-  }
-
-  return secret;
-}
-
-function getAllowedOrigins() {
-  return (process.env.LWC_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-}
-
-function getAllowedModels() {
-  const models = (process.env.LWC_ALLOWED_MODELS ?? "")
-    .split(",")
-    .map((model) => model.trim())
-    .filter(Boolean);
-
-  return models.length > 0 ? models : undefined;
-}
-
-function getCodexClientVersion() {
-  return process.env.LWC_CLIENT_VERSION?.trim() || DEFAULT_CODEX_CLIENT_VERSION;
-}
-
-function isResponseStatus(error: unknown, status: number) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    (error as { status?: unknown }).status === status
-  );
-}
-
-function isMissingVaultObject(error: unknown) {
-  return isResponseStatus(error, 404);
-}
-
-function isVaultConflict(error: unknown) {
-  return isResponseStatus(error, 409);
-}
-
-function vaultObjectName(scope: string, key: string) {
-  const encodedKey = Buffer.from(key).toString("base64url");
-  return `autopr-lwc-${scope}-${encodedKey}`;
-}
-
-class WorkOSVaultStore<T> implements KeyValueStore<T> {
-  constructor(private readonly scope: string) {}
-
-  async get(key: string): Promise<T | undefined> {
-    const name = vaultObjectName(this.scope, key);
-    let object: WorkOSVaultObject;
-
-    try {
-      object = await getWorkOSVault().readObjectByName(name);
-    } catch (error) {
-      if (isMissingVaultObject(error)) {
-        return undefined;
-      }
-      throw error;
-    }
-
-    if (!object.value) {
-      return undefined;
-    }
-
-    const envelope = JSON.parse(object.value) as VaultStoreEnvelope<T>;
-    if (envelope.expiresAt !== undefined && envelope.expiresAt <= Date.now()) {
-      await getWorkOSVault().deleteObject({ id: object.id }).catch(() => undefined);
-      return undefined;
-    }
-
-    return envelope.value;
-  }
-
-  async set(key: string, value: T, options: { ttlMs?: number } = {}): Promise<void> {
-    const name = vaultObjectName(this.scope, key);
-    const serialized = JSON.stringify({
-      value,
-      expiresAt: options.ttlMs === undefined ? undefined : Date.now() + options.ttlMs,
-    } satisfies VaultStoreEnvelope<T>);
-
-    const existing = await getWorkOSVault().readObjectByName(name).catch((error: unknown) => {
-      if (isMissingVaultObject(error)) {
-        return undefined;
-      }
-      throw error;
-    });
-
-    if (existing) {
-      await getWorkOSVault().updateObject({ id: existing.id, value: serialized });
-      return;
-    }
-
-    await getWorkOSVault()
-      .createObject({
-        name,
-        value: serialized,
-        context: {
-          app: "autopr",
-          purpose: "login-with-chatgpt",
-          scope: this.scope,
-        },
-      })
-      .catch(async (error: unknown) => {
-        if (!isVaultConflict(error)) {
-          throw error;
-        }
-
-        const latest = await getWorkOSVault().readObjectByName(name);
-        await getWorkOSVault().updateObject({ id: latest.id, value: serialized });
-      });
-  }
-
-  async delete(key: string): Promise<void> {
-    const name = vaultObjectName(this.scope, key);
-    const existing = await getWorkOSVault().readObjectByName(name).catch((error: unknown) => {
-      if (isMissingVaultObject(error)) {
-        return undefined;
-      }
-      throw error;
-    });
-
-    if (existing) {
-      await getWorkOSVault().deleteObject({ id: existing.id });
-    }
-  }
-}
-
-export const chatGPTAuth = createChatGPTHandler({
-  basePath: CHATGPT_AUTH_BASE_PATH,
-  clientVersion: getCodexClientVersion(),
-  secret: getChatGPTSecret(),
-  sessionStore: new WorkOSVaultStore<StoredSession>("session"),
-  sessionTtlMs: DEFAULT_CHATGPT_SESSION_TTL_MS,
-  allowedOrigins: getAllowedOrigins(),
-  responsesProxy: {
-    allowedModels: getAllowedModels(),
-    rateLimit: {
-      limit: Number.parseInt(process.env.LWC_RATE_LIMIT_PER_MINUTE ?? "", 10) || DEFAULT_RESPONSES_RATE_LIMIT,
-      windowMs: DEFAULT_RESPONSES_RATE_WINDOW_MS,
-      store: new WorkOSVaultStore<RateLimitBucket>("responses-rate"),
-    },
-  },
-});
+export { CodexConnectionError, createCodexResponsesModel };
 
 async function getCodexCredentialState() {
   const connection = await convexQuery(api.codexAuth.getConnection, {});
@@ -318,7 +124,7 @@ async function persistAccountCodexSession(options: {
     vaultVersionId: vaultObject.metadata?.versionId,
     accountId: options.user?.accountId,
     email: options.user?.email,
-    expiresAt: Date.now() + DEFAULT_CHATGPT_SESSION_TTL_MS,
+    expiresAt: Date.now() + CODEX_SESSION_TTL_MS,
   });
 }
 
@@ -376,12 +182,6 @@ export async function handleChatGPTAuthRequest(request: Request) {
   }
 
   return response;
-}
-
-function authRequestFromCookieHeader(cookieHeader: string) {
-  return new Request(`${new URL("http://autopr.local").origin}${CHATGPT_AUTH_BASE_PATH}/session`, {
-    headers: { cookie: cookieHeader },
-  });
 }
 
 function rewriteToChatGPTPath(request: Request, path: string, method = request.method) {
@@ -473,30 +273,6 @@ export async function disconnectCodex(request: Request) {
   response ??= await chatGPTAuth.handler(rewriteToChatGPTPath(request, "/logout", "POST"));
   await removeAccountCodexSessionLink();
   return response;
-}
-
-export async function createCodexResponsesModel(options: {
-  chatgptCookieHeader: string;
-  modelId: string;
-  reasoningEffort: string;
-}): Promise<CodexResponsesModel> {
-  const authRequest = authRequestFromCookieHeader(options.chatgptCookieHeader);
-  const chatgpt = createChatGPT({
-    clientVersion: getCodexClientVersion(),
-    defaultModel: options.modelId,
-    reasoningEffort: options.reasoningEffort as CreateChatGPTOptions["reasoningEffort"],
-    reasoningSummary: "auto",
-    credentials: async () => {
-      const tokens = await chatGPTAuth.getTokens(authRequest);
-      if (!tokens) {
-        throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
-      }
-
-      return tokens;
-    },
-  });
-
-  return chatgpt.responses(options.modelId);
 }
 
 export async function createAuthenticatedCodexResponsesModel(options: {

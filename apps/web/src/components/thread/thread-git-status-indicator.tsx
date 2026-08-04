@@ -10,7 +10,7 @@ interface ThreadGitStatusIndicatorProps {
   threadId: string;
   persistedStatus?: ThreadGitStatus;
   invalidatedAt?: number;
-  isLive: boolean;
+  enabled: boolean;
 }
 
 const kindLabels: Record<ThreadGitStatus["kind"], string> = {
@@ -75,21 +75,22 @@ export function ThreadGitStatusIndicator({
   threadId,
   persistedStatus,
   invalidatedAt,
-  isLive,
+  enabled,
 }: ThreadGitStatusIndicatorProps) {
   const query = useThreadGitStatusQuery({
     projectId,
     threadId,
     persistedStatus,
-    refetchInterval: isLive ? 5_000 : 30_000,
+    enabled,
+    refetchInterval: false,
   });
   const status = query.data ?? persistedStatus;
 
   useEffect(() => {
-    if (invalidatedAt && invalidatedAt > (status?.checkedAt ?? 0)) {
+    if (enabled && invalidatedAt && invalidatedAt > (status?.checkedAt ?? 0)) {
       void query.refetch();
     }
-  }, [invalidatedAt, query.refetch, status?.checkedAt]);
+  }, [enabled, invalidatedAt, query.refetch, status?.checkedAt]);
 
   if (!status) {
     return (

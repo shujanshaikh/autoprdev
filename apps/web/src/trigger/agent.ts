@@ -23,7 +23,7 @@ import {
   type AgentRunIssue,
 } from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
-import { createCodexResponsesModel } from "#/lib/codex-auth-server";
+import { createCodexResponsesModel } from "#/lib/codex-auth-runtime-server";
 import { getCodexContextLimit } from "#/lib/codex-models";
 import {
   AGENT_TASK_ID,

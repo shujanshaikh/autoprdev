@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { getAuth } from "@workos/authkit-tanstack-react-start";
+import { getRequestHeader } from "@tanstack/react-start/server";
 import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import type {
   FunctionArgs,
@@ -34,6 +35,12 @@ function getConvexUrl() {
 }
 
 async function getConvexAuthToken() {
+  const authorization = getRequestHeader("authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    const token = authorization.slice("Bearer ".length).trim();
+    if (token) return token;
+  }
+
   const authState = await getAuth();
 
   if (!authState.user) {

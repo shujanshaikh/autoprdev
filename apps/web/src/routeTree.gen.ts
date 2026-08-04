@@ -19,6 +19,7 @@ import { Route as ProjectProjectIdRouteRouteImport } from './routes/project/$pro
 import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$projectId/index'
 import { Route as ProjectProjectIdPullsRouteImport } from './routes/project/$projectId/pulls'
 import { Route as ApiProjectsFromGithubRouteImport } from './routes/api/projects/from-github'
+import { Route as ApiMobileAuthRouteImport } from './routes/api/mobile/auth'
 import { Route as ApiGithubRepositoriesRouteImport } from './routes/api/github/repositories'
 import { Route as ApiGithubConnectRouteImport } from './routes/api/github/connect'
 import { Route as ApiCodexStatusRouteImport } from './routes/api/codex/status'
@@ -88,6 +89,11 @@ const ProjectProjectIdPullsRoute = ProjectProjectIdPullsRouteImport.update({
 const ApiProjectsFromGithubRoute = ApiProjectsFromGithubRouteImport.update({
   id: '/api/projects/from-github',
   path: '/api/projects/from-github',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileAuthRoute = ApiMobileAuthRouteImport.update({
+  id: '/api/mobile/auth',
+  path: '/api/mobile/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGithubRepositoriesRoute = ApiGithubRepositoriesRouteImport.update({
@@ -217,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
+  '/api/mobile/auth': typeof ApiMobileAuthRoute
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
@@ -248,6 +255,7 @@ export interface FileRoutesByTo {
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
+  '/api/mobile/auth': typeof ApiMobileAuthRoute
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
   '/project/$projectId': typeof ProjectProjectIdIndexRoute
@@ -281,6 +289,7 @@ export interface FileRoutesById {
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
+  '/api/mobile/auth': typeof ApiMobileAuthRoute
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
@@ -315,6 +324,7 @@ export interface FileRouteTypes {
     | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
+    | '/api/mobile/auth'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
     | '/project/$projectId/'
@@ -346,6 +356,7 @@ export interface FileRouteTypes {
     | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
+    | '/api/mobile/auth'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
     | '/project/$projectId'
@@ -378,6 +389,7 @@ export interface FileRouteTypes {
     | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
+    | '/api/mobile/auth'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
     | '/project/$projectId/'
@@ -410,6 +422,7 @@ export interface RootRouteChildren {
   ApiCodexStatusRoute: typeof ApiCodexStatusRoute
   ApiGithubConnectRoute: typeof ApiGithubConnectRoute
   ApiGithubRepositoriesRoute: typeof ApiGithubRepositoriesRouteWithChildren
+  ApiMobileAuthRoute: typeof ApiMobileAuthRoute
   ApiProjectsFromGithubRoute: typeof ApiProjectsFromGithubRoute
   ApiCodexDevicePollRoute: typeof ApiCodexDevicePollRoute
   ApiCodexDeviceStartRoute: typeof ApiCodexDeviceStartRoute
@@ -489,6 +502,13 @@ declare module '@tanstack/react-router' {
       path: '/api/projects/from-github'
       fullPath: '/api/projects/from-github'
       preLoaderRoute: typeof ApiProjectsFromGithubRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/auth': {
+      id: '/api/mobile/auth'
+      path: '/api/mobile/auth'
+      fullPath: '/api/mobile/auth'
+      preLoaderRoute: typeof ApiMobileAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/github/repositories': {
@@ -754,6 +774,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCodexStatusRoute: ApiCodexStatusRoute,
   ApiGithubConnectRoute: ApiGithubConnectRoute,
   ApiGithubRepositoriesRoute: ApiGithubRepositoriesRouteWithChildren,
+  ApiMobileAuthRoute: ApiMobileAuthRoute,
   ApiProjectsFromGithubRoute: ApiProjectsFromGithubRoute,
   ApiCodexDevicePollRoute: ApiCodexDevicePollRoute,
   ApiCodexDeviceStartRoute: ApiCodexDeviceStartRoute,

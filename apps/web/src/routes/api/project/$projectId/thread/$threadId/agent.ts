@@ -24,6 +24,7 @@ import {
   handleAgentChatRequest,
   isAgentChatRequest,
 } from "#/lib/trigger-agent-chat-server";
+import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import type { agentTask } from "#/trigger/agent";
 
 const agentRequestSchema = z.object({
@@ -67,11 +68,12 @@ function stripAutoprProviderMetadata(part: UIMessage["parts"][number]) {
   };
 }
 
-function acceptedAgentRunResponse(runId: string) {
+function acceptedAgentRunResponse(runId: string, assistantMessageId?: string) {
   return new Response(null, {
     status: 202,
     headers: {
       "x-trigger-run-id": runId,
+      ...(assistantMessageId ? { "x-assistant-message-id": assistantMessageId } : {}),
     },
   });
 }
@@ -133,23 +135,17 @@ async function POST(
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
 
-    let worktree: Awaited<ReturnType<typeof resolveThreadWorkspaceForRun>>;
-    try {
-      worktree = await resolveThreadWorkspaceForRun(projectId, threadId);
-    } catch (error) {
-      return Response.json(
-        { error: error instanceof Error ? error.message : "Could not prepare the thread worktree." },
-        { status: 409 },
-      );
-    }
-
     const requiredRunTags = [agentProjectTag(projectId), agentThreadTag(threadId)];
     if (thread.currentRunId) {
       const currentRunLookup = await lookupTriggerAgentRun(thread.currentRunId, requiredRunTags);
 
       if (currentRunLookup.status === "found" && !currentRunLookup.run.isCompleted) {
         if (currentRunLookup.run.metadata?.userMessageId === parsed.data.message.id) {
-          return acceptedAgentRunResponse(thread.currentRunId);
+          const assistantMessageId = currentRunLookup.run.metadata?.assistantMessageId;
+          return acceptedAgentRunResponse(
+            thread.currentRunId,
+            typeof assistantMessageId === "string" ? assistantMessageId : undefined,
+          );
         }
 
         return Response.json(
@@ -162,6 +158,17 @@ async function POST(
         threadId,
         thread.currentRunId,
         currentRunLookup.status === "found" ? currentRunLookup.run : null,
+      );
+    }
+
+    let worktree: { worktreePath: string; featureBranch: string };
+    try {
+      worktree = persistedThreadWorkspace(project, thread)
+        ?? await resolveThreadWorkspaceForRun(projectId, threadId);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Could not prepare the thread worktree." },
+        { status: 409 },
       );
     }
 
@@ -255,7 +262,7 @@ async function POST(
       runId: run.id,
     });
 
-    return acceptedAgentRunResponse(run.id);
+    return acceptedAgentRunResponse(run.id, assistantMessageId);
   });
 }
 

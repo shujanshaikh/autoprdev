@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { createSandbox, type DaytonaSandbox } from "@autopr/agent/sandbox";
+import { getSandboxWithoutStarting, type DaytonaSandbox } from "@autopr/agent/sandbox";
 import {
   attachGitNumstat,
   classifyGitStatus,
@@ -86,13 +86,25 @@ export interface ReadThreadGitStatusOptions {
   pullRequest?: GithubPullRequestSummary;
 }
 
+export class SandboxRuntimeNotStartedError extends Error {
+  readonly code = "SANDBOX_RUNTIME_NOT_STARTED";
+
+  constructor(state?: string) {
+    super(`The Daytona sandbox is not running${state ? ` (state: ${state})` : ""}.`);
+    this.name = "SandboxRuntimeNotStartedError";
+  }
+}
+
 /**
  * Reads one thread's authoritative worktree state. Authentication is injected
  * only into the fetch process environment and is never written to Git config.
  */
 export async function readThreadGitStatus(options: ReadThreadGitStatusOptions): Promise<ThreadGitStatus> {
   const checkedAt = Date.now();
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await getSandboxWithoutStarting(options.sandboxId);
+  if (sandbox.state && sandbox.state !== "started" && sandbox.state !== "running") {
+    throw new SandboxRuntimeNotStartedError(sandbox.state);
+  }
   const repoCheck = await runGit(sandbox, options.worktreePath, "rev-parse --is-inside-work-tree", {
     allowFailure: true,
   });

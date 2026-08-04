@@ -149,6 +149,7 @@ export default defineSchema({
     )),
     worktreeError: v.optional(v.string()),
     worktreeUpdatedAt: v.optional(v.number()),
+    worktreeProvisionAttemptId: v.optional(v.string()),
     pullRequestStatus: v.optional(v.union(v.literal("idle"), v.literal("creating"), v.literal("created"), v.literal("failed"))),
     pullRequestUrl: v.optional(v.string()),
     pullRequestNumber: v.optional(v.number()),

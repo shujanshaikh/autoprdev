@@ -48,6 +48,12 @@ export function ensureTerminalRunFinishes(
             gotFinish = true;
           }
           controller.enqueue(chunk);
+          if (gotFinish) {
+            // Trigger realtime reads can remain open until their request
+            // timeout even after the app stream has emitted finish. Breaking
+            // here cancels that upstream read and closes the HTTP response now.
+            break;
+          }
         }
 
         if (!gotFinish) {
@@ -73,7 +79,7 @@ export async function readAgentUIMessageStream(
   runId: string,
   startIndex: number,
   signal: AbortSignal,
-  onTerminalWithoutFinish?: (run: TriggerAgentRun | null) => void | Promise<void>,
+  onTerminal?: (run: TriggerAgentRun | null) => void | Promise<void>,
 ) {
   const stream = await agentUIStream.read(runId, {
     startIndex,
@@ -81,5 +87,5 @@ export async function readAgentUIMessageStream(
     signal,
   });
 
-  return ensureTerminalRunFinishes(stream, runId, onTerminalWithoutFinish);
+  return ensureTerminalRunFinishes(stream, runId, onTerminal);
 }

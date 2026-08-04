@@ -238,12 +238,16 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
             receivedChunk = true;
             consecutiveErrors = 0;
             chunkIndex += 1;
-            yield chunk.value;
             if (chunk.value.type === "finish") {
               gotFinish = true;
             }
+            yield chunk.value;
+            if (gotFinish) break;
           }
         } finally {
+          if (gotFinish) {
+            await reader.cancel().catch(() => undefined);
+          }
           reader.releaseLock();
         }
 

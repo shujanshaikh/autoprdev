@@ -12,6 +12,17 @@ function chunkStream(chunks: UIMessageChunk[]) {
   }) as ReadableStream<UIMessageChunk> & AsyncIterable<UIMessageChunk>;
 }
 
+function hangingFinishStream(onCancel: () => void) {
+  return new ReadableStream<UIMessageChunk>({
+    start(controller) {
+      controller.enqueue({ type: "finish" });
+    },
+    cancel() {
+      onCancel();
+    },
+  }) as ReadableStream<UIMessageChunk> & AsyncIterable<UIMessageChunk>;
+}
+
 async function collect(stream: ReadableStream<UIMessageChunk>) {
   const chunks: UIMessageChunk[] = [];
   const reader = stream.getReader();
@@ -27,21 +38,22 @@ async function collect(stream: ReadableStream<UIMessageChunk>) {
 }
 
 describe("Trigger agent stream settlement", () => {
-  it("settles the thread before forwarding a normal finish chunk", async () => {
+  it("settles and closes even when the upstream stays open after finish", async () => {
     const events: string[] = [];
-    const source = chunkStream([{ type: "finish" }]);
+    const cancelled = vi.fn();
+    const source = hangingFinishStream(cancelled);
     const settled = vi.fn(async () => {
       events.push("settled");
     });
     const output = ensureTerminalRunFinishes(source, "run-1", settled);
-    const reader = output.getReader();
 
-    const result = await reader.read().finally(() => reader.releaseLock());
-    events.push(result.value?.type ?? "closed");
+    const chunks = await collect(output);
+    events.push(chunks.at(-1)?.type ?? "closed");
 
-    expect(result).toEqual({ done: false, value: { type: "finish" } });
+    expect(chunks).toEqual([{ type: "finish" }]);
     expect(events).toEqual(["settled", "finish"]);
     expect(settled).toHaveBeenCalledExactlyOnceWith(null);
+    expect(cancelled).toHaveBeenCalledOnce();
   });
 
   it("synthesizes finish and settles when a completed run omitted it", async () => {

@@ -30,6 +30,16 @@ function chunkResponseThenError(chunk: UIMessageChunk) {
   });
 }
 
+function hangingChunkResponse(chunk: UIMessageChunk) {
+  return createUIMessageStreamResponse({
+    stream: new ReadableStream<UIMessageChunk>({
+      start(controller) {
+        controller.enqueue(chunk);
+      },
+    }),
+  });
+}
+
 describe("consumeAgentRunStream", () => {
   it("resumes from the next indexed chunk after a stream closes", async () => {
     const fetchAuthenticated = vi.fn()
@@ -50,6 +60,22 @@ describe("consumeAgentRunStream", () => {
     expect(fetchAuthenticated.mock.calls[0]?.[0]).toContain("startIndex=0");
     expect(fetchAuthenticated.mock.calls[1]?.[0]).toContain("startIndex=1");
     expect(statuses).toContain("streaming");
+  });
+
+  it("completes when finish arrives before the realtime response closes", async () => {
+    const fetchAuthenticated = vi.fn().mockResolvedValueOnce(
+      hangingChunkResponse({ type: "finish" }),
+    );
+
+    await expect(consumeAgentRunStream({
+      runId: "run-hanging-response",
+      streamPath: "/agent/run-hanging-response/stream",
+      fetchAuthenticated,
+      signal: new AbortController().signal,
+      onMessage: () => undefined,
+      onStatus: () => undefined,
+    })).resolves.toBeUndefined();
+    expect(fetchAuthenticated).toHaveBeenCalledOnce();
   });
 
   it("does not retry permanent HTTP failures", async () => {

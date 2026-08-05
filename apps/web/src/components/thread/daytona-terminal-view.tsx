@@ -1,6 +1,6 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useAction } from "convex/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type DaytonaTerminalViewProps = {
   projectId: string;
@@ -9,6 +9,7 @@ type DaytonaTerminalViewProps = {
 };
 
 const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
+const TERMINAL_OPEN_TIMEOUT_MS = 30_000;
 
 export function DaytonaTerminalView({ projectId, threadId, active }: DaytonaTerminalViewProps) {
   const getTerminalPreview = useAction(api.projectActions.getTerminalPreview);
@@ -17,12 +18,29 @@ export function DaytonaTerminalView({ projectId, threadId, active }: DaytonaTerm
   const [error, setError] = useState<string>();
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [previewExpiresAt, setPreviewExpiresAt] = useState<number>();
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const clearOpenTimeout = useCallback(() => {
+    if (openTimeoutRef.current) {
+      clearTimeout(openTimeoutRef.current);
+      openTimeoutRef.current = undefined;
+    }
+  }, []);
 
   useEffect(() => {
     if (!active) return;
     let current = true;
     setLoading(true);
     setError(undefined);
+    clearOpenTimeout();
+    openTimeoutRef.current = setTimeout(() => {
+      if (!current) return;
+      current = false;
+      openTimeoutRef.current = undefined;
+      setPreviewUrl(undefined);
+      setLoading(false);
+      setError("The terminal took too long to open. Reconnect to try again.");
+    }, TERMINAL_OPEN_TIMEOUT_MS);
 
     void getTerminalPreview({ projectId, threadId })
       .then((preview) => {
@@ -36,6 +54,7 @@ export function DaytonaTerminalView({ projectId, threadId, active }: DaytonaTerm
       })
       .catch((cause) => {
         if (!current) return;
+        clearOpenTimeout();
         setPreviewUrl(undefined);
         setError(cause instanceof Error ? cause.message : "Could not open the terminal.");
         setLoading(false);
@@ -43,8 +62,9 @@ export function DaytonaTerminalView({ projectId, threadId, active }: DaytonaTerm
 
     return () => {
       current = false;
+      clearOpenTimeout();
     };
-  }, [active, connectionAttempt, getTerminalPreview, projectId, threadId]);
+  }, [active, clearOpenTimeout, connectionAttempt, getTerminalPreview, projectId, threadId]);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -88,10 +108,14 @@ export function DaytonaTerminalView({ projectId, threadId, active }: DaytonaTerm
           className="min-h-0 flex-1 border-0 bg-[var(--autopr-terminal-bg)]"
           key={`${connectionAttempt}:${previewUrl}`}
           onError={() => {
+            clearOpenTimeout();
             setError("Terminal connection failed.");
             setLoading(false);
           }}
-          onLoad={() => setLoading(false)}
+          onLoad={() => {
+            clearOpenTimeout();
+            setLoading(false);
+          }}
           referrerPolicy="no-referrer"
           sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-scripts"
           src={previewUrl}

@@ -2,7 +2,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAction } from "convex/react";
 import { ExternalLink, RefreshCw } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -29,6 +29,7 @@ const WebView = TurboModuleRegistry.get("RNCWebViewModule")
   : undefined;
 
 const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
+const TERMINAL_OPEN_TIMEOUT_MS = 30_000;
 
 export function TerminalScreen({ route }: Props) {
   const { projectId, threadId, title } = route.params;
@@ -40,6 +41,7 @@ export function TerminalScreen({ route }: Props) {
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [openingBrowser, setOpeningBrowser] = useState(false);
   const [previewExpiresAt, setPreviewExpiresAt] = useState<number>();
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const previewOrigin = useMemo(() => {
     if (!previewUrl) return undefined;
     try {
@@ -57,16 +59,35 @@ export function TerminalScreen({ route }: Props) {
     setConnectionAttempt((attempt) => attempt + 1);
   }, []);
 
+  const clearOpenTimeout = useCallback(() => {
+    if (openTimeoutRef.current) {
+      clearTimeout(openTimeoutRef.current);
+      openTimeoutRef.current = undefined;
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(undefined);
+    clearOpenTimeout();
+    openTimeoutRef.current = setTimeout(() => {
+      if (!active) return;
+      active = false;
+      openTimeoutRef.current = undefined;
+      setPreviewUrl(undefined);
+      setLoading(false);
+      setError("The terminal took too long to open. Reconnect to try again.");
+    }, TERMINAL_OPEN_TIMEOUT_MS);
 
     void getTerminalPreview({ projectId, threadId })
       .then((preview) => {
         if (!active) return;
         setPreviewUrl(preview.url);
-        if (!WebView) setLoading(false);
+        if (!WebView) {
+          clearOpenTimeout();
+          setLoading(false);
+        }
         const refreshAfterSeconds = Math.max(
           1,
           preview.expiresInSeconds - TERMINAL_URL_REFRESH_SAFETY_SECONDS,
@@ -75,14 +96,16 @@ export function TerminalScreen({ route }: Props) {
       })
       .catch((cause) => {
         if (!active) return;
+        clearOpenTimeout();
         setLoading(false);
         setError(cause instanceof Error ? cause.message : "Could not open the terminal.");
       });
 
     return () => {
       active = false;
+      clearOpenTimeout();
     };
-  }, [connectionAttempt, getTerminalPreview, projectId, threadId]);
+  }, [clearOpenTimeout, connectionAttempt, getTerminalPreview, projectId, threadId]);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -154,10 +177,14 @@ export function TerminalScreen({ route }: Props) {
           incognito
           key={`${connectionAttempt}:${previewUrl}`}
           onError={() => {
+            clearOpenTimeout();
             setLoading(false);
             setError("Terminal connection failed.");
           }}
-          onLoadEnd={() => setLoading(false)}
+          onLoadEnd={() => {
+            clearOpenTimeout();
+            setLoading(false);
+          }}
           onShouldStartLoadWithRequest={({ url }) => {
             try {
               if (new URL(url).origin === previewOrigin) return true;

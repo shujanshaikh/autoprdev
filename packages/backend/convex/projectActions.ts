@@ -673,9 +673,8 @@ fi
 # <<< autopr terminal cwd <<<`;
 
 async function configureTerminalWorkingDirectory(sandbox: DaytonaSandbox, workDir: string) {
-  await runSandboxShell(
-    sandbox,
-    `set -eu
+  const result = await sandbox.process.executeCommand(
+    `set -e
 test -d ${shellQuote(workDir)}
 mkdir -p "$HOME/.config/autopr"
 printf '%s\\n' ${shellQuote(workDir)} > "$HOME/.config/autopr/terminal-cwd"
@@ -684,7 +683,43 @@ touch "$HOME/.zshrc"
 if ! grep -Fq ${shellQuote(TERMINAL_CWD_PROFILE_MARKER)} "$HOME/.zshrc"; then
   printf '\\n%s\\n' ${shellQuote(TERMINAL_CWD_PROFILE_SNIPPET)} >> "$HOME/.zshrc"
 fi`,
+    "/",
+    undefined,
+    20,
   );
+
+  if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+    throw new Error(sandboxCommandText(result) || "Could not configure the terminal working directory.");
+  }
+}
+
+async function resolveThreadTerminalWorkingDirectory(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  threadId: string,
+) {
+  const { project, thread } = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
+    authorId,
+    projectId,
+    threadId,
+  });
+
+  if (resolveThreadWorkspaceMode(thread) === "checkout") {
+    return project.sandboxWorkDir ?? sandboxRepositoryPath(
+      DEFAULT_SANDBOX_WORKDIR,
+      sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
+    );
+  }
+
+  const provisioned = await provisionThreadWorktree(ctx, authorId, projectId, threadId);
+  if ("status" in provisioned) {
+    throw new ConvexError({
+      code: "THREAD_WORKTREE_PROVISIONING",
+      message: "The thread workspace is still being prepared. Try again shortly.",
+    });
+  }
+  return provisioned.worktreePath;
 }
 
 async function getDaytonaTerminalPreview(
@@ -1341,12 +1376,12 @@ export const getTerminalPreview = action({
 
     try {
       const workDir = args.threadId
-        ? (await resolveThreadWorkspaceForAuthor(
+        ? await resolveThreadTerminalWorkingDirectory(
             ctx,
             identity.subject,
             args.projectId,
             args.threadId,
-          )).worktreePath
+          )
         : project.sandboxWorkDir;
       const preview = await getDaytonaTerminalPreview(project.sandboxId, workDir);
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {

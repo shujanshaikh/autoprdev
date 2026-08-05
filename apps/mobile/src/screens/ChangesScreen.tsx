@@ -318,13 +318,20 @@ export function ChangesScreen({ navigation, route }: Props) {
   useEffect(() => {
     void AsyncStorage.getItem(viewedKey).then((stored) => {
       if (!stored) return;
-      const ids = JSON.parse(stored) as unknown;
+      let ids: unknown;
+      try {
+        ids = JSON.parse(stored);
+      } catch {
+        return;
+      }
       if (Array.isArray(ids)) setViewed(new Set(ids.filter((value): value is string => typeof value === "string")));
-    });
+    }).catch(() => undefined);
   }, [viewedKey]);
 
   useEffect(() => {
-    void AsyncStorage.getItem(wrapKey).then((stored) => setWrapped(stored === "1"));
+    void AsyncStorage.getItem(wrapKey)
+      .then((stored) => setWrapped(stored === "1"))
+      .catch(() => undefined);
   }, [wrapKey]);
 
   const updateViewed = useCallback((entryId: string) => {

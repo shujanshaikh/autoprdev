@@ -1,3 +1,7 @@
+const MAX_COLUMN = 1_000;
+const MAX_ROW = 1_000;
+const MAX_OSC_SEQUENCE_LENGTH = 4_096;
+
 function csiParameter(parameters: string, fallback: number) {
   const first = parameters.replace(/^\?/, "").split(";")[0];
   if (!first) return fallback;
@@ -15,6 +19,8 @@ function csiParameter(parameters: string, fallback: number) {
  */
 export class TerminalOutputSanitizer {
   private remainder = "";
+  private discardingOsc = false;
+  private discardedOscTail = "";
   private lines: string[][] = [[]];
   private row = 0;
   private column = 0;
@@ -27,8 +33,33 @@ export class TerminalOutputSanitizer {
   }
 
   private moveRows(change: number) {
-    this.row = Math.max(0, this.row + change);
+    this.row = Math.min(MAX_ROW, Math.max(0, this.row + change));
     while (this.lines.length <= this.row) this.lines.push([]);
+  }
+
+  private oscEnd(value: string, start = 0) {
+    const bellEnd = value.indexOf("\x07", start);
+    const stringEnd = value.indexOf("\x1b\\", start);
+    const candidates = [bellEnd, stringEnd].filter((candidate) => candidate >= 0);
+    if (candidates.length === 0) return null;
+    const index = Math.min(...candidates);
+    return { index, length: index === bellEnd ? 1 : 2 };
+  }
+
+  private finishDiscardingOsc(chunk: string) {
+    const value = `${this.discardedOscTail}${chunk}`;
+    this.discardedOscTail = "";
+    const end = this.oscEnd(value);
+    if (!end) {
+      this.discardedOscTail = value.endsWith("\x1b") ? "\x1b" : "";
+      return null;
+    }
+    this.discardingOsc = false;
+    return value.slice(end.index + end.length);
+  }
+
+  private setColumn(column: number) {
+    this.column = Math.min(MAX_COLUMN, Math.max(0, column));
   }
 
   private handleCsi(parameters: string, command: string) {
@@ -36,17 +67,17 @@ export class TerminalOutputSanitizer {
 
     if (command === "A") this.moveRows(-amount);
     if (command === "B") this.moveRows(amount);
-    if (command === "C") this.column += amount;
-    if (command === "D") this.column = Math.max(0, this.column - amount);
+    if (command === "C") this.setColumn(this.column + amount);
+    if (command === "D") this.setColumn(this.column - amount);
     if (command === "E") {
       this.moveRows(amount);
-      this.column = 0;
+      this.setColumn(0);
     }
     if (command === "F") {
       this.moveRows(-amount);
-      this.column = 0;
+      this.setColumn(0);
     }
-    if (command === "G") this.column = Math.max(0, amount - 1);
+    if (command === "G") this.setColumn(amount - 1);
 
     if (command === "K") {
       const mode = csiParameter(parameters, 0);
@@ -62,7 +93,7 @@ export class TerminalOutputSanitizer {
     if (command === "J" && csiParameter(parameters, 0) >= 2) {
       this.lines = [[]];
       this.row = 0;
-      this.column = 0;
+      this.setColumn(0);
     }
   }
 
@@ -70,7 +101,7 @@ export class TerminalOutputSanitizer {
     const line = this.currentLine();
     while (line.length < this.column) line.push(" ");
     line[this.column] = character;
-    this.column += 1;
+    this.setColumn(this.column + 1);
   }
 
   private snapshot() {
@@ -92,22 +123,28 @@ export class TerminalOutputSanitizer {
   }
 
   push(chunk: string) {
-    const value = `${this.remainder}${chunk}`;
+    const pending = this.discardingOsc ? this.finishDiscardingOsc(chunk) : chunk;
+    if (pending === null) return this.snapshot();
+
+    const value = `${this.remainder}${pending}`;
     this.remainder = "";
 
     for (let index = 0; index < value.length;) {
       const character = value[index];
 
       if (character === "\x1b" && value[index + 1] === "]") {
-        const bellEnd = value.indexOf("\x07", index + 2);
-        const stringEnd = value.indexOf("\x1b\\", index + 2);
-        const candidates = [bellEnd, stringEnd].filter((candidate) => candidate >= 0);
-        if (candidates.length === 0) {
-          this.remainder = value.slice(index);
+        const end = this.oscEnd(value, index + 2);
+        if (!end) {
+          const sequence = value.slice(index);
+          if (sequence.length <= MAX_OSC_SEQUENCE_LENGTH) {
+            this.remainder = sequence;
+          } else {
+            this.discardingOsc = true;
+            this.discardedOscTail = sequence.endsWith("\x1b") ? "\x1b" : "";
+          }
           break;
         }
-        const end = Math.min(...candidates);
-        index = end + (end === bellEnd ? 1 : 2);
+        index = end.index + end.length;
         continue;
       }
 
@@ -135,12 +172,12 @@ export class TerminalOutputSanitizer {
       }
 
       if (character === "\r") {
-        this.column = 0;
+        this.setColumn(0);
       } else if (character === "\n") {
         this.moveRows(1);
-        this.column = 0;
+        this.setColumn(0);
       } else if (character === "\b") {
-        this.column = Math.max(0, this.column - 1);
+        this.setColumn(this.column - 1);
       } else if (character === "\t") {
         const spaces = 8 - (this.column % 8);
         for (let count = 0; count < spaces; count += 1) this.write(" ");
@@ -155,8 +192,10 @@ export class TerminalOutputSanitizer {
 
   reset() {
     this.remainder = "";
+    this.discardingOsc = false;
+    this.discardedOscTail = "";
     this.lines = [[]];
     this.row = 0;
-    this.column = 0;
+    this.setColumn(0);
   }
 }

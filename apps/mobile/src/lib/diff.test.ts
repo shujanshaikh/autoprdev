@@ -52,6 +52,24 @@ describe("parseUnifiedDiff", () => {
       ["old.ts", null],
     ]);
   });
+
+  it("keeps header-like added and deleted content inside a hunk", () => {
+    const [file] = parseUnifiedDiff([
+      "diff --git a/notes.md b/notes.md",
+      "--- a/notes.md",
+      "+++ b/notes.md",
+      "@@ -1,2 +1,2 @@",
+      "--- deleted heading",
+      "+++ added heading",
+    ].join("\n"));
+
+    expect(file?.oldPath).toBe("notes.md");
+    expect(file?.newPath).toBe("notes.md");
+    expect(file?.lines.slice(1).map((line) => [line.type, line.content])).toEqual([
+      ["delete", "-- deleted heading"],
+      ["add", "++ added heading"],
+    ]);
+  });
 });
 
 describe("extractDiffEntries", () => {

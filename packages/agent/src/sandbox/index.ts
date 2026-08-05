@@ -192,7 +192,10 @@ const DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST = [
   "services.gradle.org",
 ].join(",");
 
-const sandboxContextPromises = new Map<string, Promise<SandboxContext>>();
+const sandboxContextPromises = new Map<string, {
+  promise: Promise<SandboxContext>;
+  expiresAt: number;
+}>();
 const sandboxLookupPromises = new Map<string, Promise<DaytonaSandbox>>();
 const recentSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
 
@@ -391,9 +394,10 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
   const resolved = resolveSessionOptions(options);
   const existingContext = sandboxContextPromises.get(resolved.cacheKey);
 
-  if (existingContext) {
-    return await existingContext;
+  if (existingContext && existingContext.expiresAt > Date.now()) {
+    return await existingContext.promise;
   }
+  if (existingContext) sandboxContextPromises.delete(resolved.cacheKey);
 
   const createdContext = createSandbox(resolved).then(async (sandbox) => {
     if (resolved.workDir) {
@@ -411,13 +415,32 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
     };
   });
 
-  const recoverableContext = createdContext.catch((error) => {
-    if (sandboxContextPromises.get(resolved.cacheKey) === recoverableContext) {
+  const entry = {
+    promise: createdContext,
+    expiresAt: Number.POSITIVE_INFINITY,
+  };
+  const recoverableContext = createdContext.then((context) => {
+    if (sandboxContextPromises.get(resolved.cacheKey) === entry) {
+      entry.expiresAt = Date.now() + SANDBOX_LOOKUP_CACHE_MS;
+      const evictionTimer = setTimeout(() => {
+        if (
+          sandboxContextPromises.get(resolved.cacheKey) === entry
+          && entry.expiresAt <= Date.now()
+        ) {
+          sandboxContextPromises.delete(resolved.cacheKey);
+        }
+      }, SANDBOX_LOOKUP_CACHE_MS);
+      evictionTimer.unref?.();
+    }
+    return context;
+  }).catch((error) => {
+    if (sandboxContextPromises.get(resolved.cacheKey) === entry) {
       sandboxContextPromises.delete(resolved.cacheKey);
     }
     throw error;
   });
-  sandboxContextPromises.set(resolved.cacheKey, recoverableContext);
+  entry.promise = recoverableContext;
+  sandboxContextPromises.set(resolved.cacheKey, entry);
   return await recoverableContext;
 }
 

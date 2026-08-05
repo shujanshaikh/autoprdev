@@ -48,8 +48,6 @@ const DAYTONA_RATE_LIMIT_RETRY_BASE_MS = 1_000;
 const DAYTONA_RATE_LIMIT_RETRY_MAX_MS = 10_000;
 const SANDBOX_STARTED_CACHE_MS = 5_000;
 const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
-const WORKTREE_PROVISION_WAIT_MS = 120_000;
-const WORKTREE_PROVISION_POLL_MS = 500;
 const MAX_ENV_VALUE_LENGTH = 64 * 1024;
 const MAX_BULK_ENV_COUNT = 50;
 const MAX_BULK_ENV_VALUE_LENGTH = 512 * 1024;
@@ -111,6 +109,13 @@ interface ThreadWorktreeResult {
 
 interface ThreadWorkspaceResult extends ThreadWorktreeResult {
   workspaceMode: ThreadWorkspaceMode;
+}
+
+interface ThreadWorktreeProvisioningResult {
+  status: "provisioning";
+  baseBranch: string;
+  featureBranch: string;
+  worktreePath: string;
 }
 
 type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
@@ -628,12 +633,16 @@ async function runWithStartedSandboxRetry<T>(
 }
 
 async function stopDaytonaSandbox(sandboxId: string) {
+  const pendingStart = sandboxStartPromises.get(sandboxId);
+  if (pendingStart) await pendingStart.catch(() => undefined);
   const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
 
   if (sandbox.state && normalizeSandboxRuntimeStatus(sandbox.state) !== "stopped") {
     await sandbox.stop();
   }
+
+  recentlyStartedSandboxes.delete(sandboxId);
 
   return "stopped" as const;
 }
@@ -732,7 +741,7 @@ async function provisionThreadWorktree(
   authorId: string,
   projectId: string,
   threadId: string,
-): Promise<ThreadWorktreeResult> {
+): Promise<ThreadWorktreeResult | ThreadWorktreeProvisioningResult> {
   const { project, thread } = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
     authorId,
     projectId,
@@ -782,49 +791,18 @@ async function provisionThreadWorktree(
     throw new ConvexError({ code: "THREAD_WORKTREE_PATH_UNSAFE" });
   }
 
+  const attemptId = `worktree:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 12)}`;
   const reservation = await ctx.runMutation(internal.threads.reserveWorktreeInternal, {
     authorId,
     threadId,
     baseBranch,
     featureBranch,
     worktreePath,
+    attemptId,
   });
 
   if (!reservation.acquired) {
-    const waitDeadline = Date.now() + WORKTREE_PROVISION_WAIT_MS;
-    while (Date.now() < waitDeadline) {
-      await sleep(WORKTREE_PROVISION_POLL_MS);
-      const current = await ctx.runQuery(internal.threads.getWorktreeContextInternal, {
-        authorId,
-        projectId,
-        threadId,
-      });
-      if (
-        current.thread.worktreeStatus === "ready"
-        && current.thread.baseBranch
-        && current.thread.featureBranch
-        && current.thread.worktreePath
-        && current.thread.headSha
-      ) {
-        return {
-          baseBranch: current.thread.baseBranch,
-          featureBranch: current.thread.featureBranch,
-          worktreePath: current.thread.worktreePath,
-          headSha: current.thread.headSha,
-          upstreamBranch: current.thread.upstreamBranch,
-        };
-      }
-      if (current.thread.worktreeStatus === "failed") {
-        throw new ConvexError({
-          code: "THREAD_WORKTREE_PROVISION_FAILED",
-          message: current.thread.worktreeError ?? "The concurrent worktree preparation failed.",
-        });
-      }
-    }
-    throw new ConvexError({
-      code: "THREAD_WORKTREE_PROVISION_TIMEOUT",
-      message: "Timed out waiting for the concurrent worktree preparation.",
-    });
+    return { status: "provisioning", baseBranch, featureBranch, worktreePath };
   }
 
   try {
@@ -893,19 +871,24 @@ async function provisionThreadWorktree(
       ? sandboxCommandText(upstreamResult) || undefined
       : undefined;
 
-    await ctx.runMutation(internal.threads.markWorktreeReadyInternal, {
+    const markedReady = await ctx.runMutation(internal.threads.markWorktreeReadyInternal, {
       authorId,
       threadId,
+      attemptId,
       worktreePath,
       headSha,
       upstreamBranch,
     });
+    if (!markedReady) {
+      throw new Error("A newer worktree provisioning attempt replaced this one.");
+    }
 
     return { baseBranch, featureBranch, worktreePath, headSha, upstreamBranch };
   } catch (error) {
     await ctx.runMutation(internal.threads.markWorktreeFailedInternal, {
       authorId,
       threadId,
+      attemptId,
       error: errorMessage(error),
     }).catch(() => undefined);
     throw new ConvexError({
@@ -917,14 +900,22 @@ async function provisionThreadWorktree(
 
 export const ensureThreadWorktree = action({
   args: { projectId: v.string(), threadId: v.string() },
-  returns: v.object({
-    baseBranch: v.string(),
-    featureBranch: v.string(),
-    worktreePath: v.string(),
-    headSha: v.string(),
-    upstreamBranch: v.optional(v.string()),
-  }),
-  handler: async (ctx, args): Promise<ThreadWorktreeResult> => {
+  returns: v.union(
+    v.object({
+      baseBranch: v.string(),
+      featureBranch: v.string(),
+      worktreePath: v.string(),
+      headSha: v.string(),
+      upstreamBranch: v.optional(v.string()),
+    }),
+    v.object({
+      status: v.literal("provisioning"),
+      baseBranch: v.string(),
+      featureBranch: v.string(),
+      worktreePath: v.string(),
+    }),
+  ),
+  handler: async (ctx, args): Promise<ThreadWorktreeResult | ThreadWorktreeProvisioningResult> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new ConvexError({ code: "UNAUTHORIZED" });
     return await provisionThreadWorktree(ctx, identity.subject, args.projectId, args.threadId);
@@ -945,9 +936,16 @@ async function resolveThreadWorkspaceForAuthor(
   const workspaceMode = resolveThreadWorkspaceMode(thread);
 
   if (workspaceMode === "worktree") {
+    const provisioned = await provisionThreadWorktree(ctx, authorId, projectId, threadId);
+    if ("status" in provisioned) {
+      throw new ConvexError({
+        code: "THREAD_WORKTREE_PROVISIONING",
+        message: "The thread workspace is still being prepared. Try again shortly.",
+      });
+    }
     return {
       workspaceMode,
-      ...await provisionThreadWorktree(ctx, authorId, projectId, threadId),
+      ...provisioned,
     };
   }
 

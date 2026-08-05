@@ -69,6 +69,7 @@ function hostMatches(hostname: string, entry: string): boolean {
 export function trustedImageHosts(): string[] {
   const convexHost = configuredHost(mobileConfig.convexUrl);
   return [
+    configuredHost(mobileConfig.attachmentOrigin),
     configuredHost(mobileConfig.webUrl),
     convexHost,
     convexSiteHost(convexHost),

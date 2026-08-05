@@ -34,10 +34,23 @@ export async function webRequest<T>(
   }
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
 
-  const response = await fetch(`${mobileConfig.webUrl}${path}`, {
-    ...init,
-    headers,
-  });
+  const timeoutSignal = AbortSignal.timeout(30_000);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+  let response: Response;
+  try {
+    response = await fetch(`${mobileConfig.webUrl}${path}`, {
+      ...init,
+      headers,
+      signal,
+    });
+  } catch (error) {
+    if (timeoutSignal.aborted && !init.signal?.aborted) {
+      throw new WebRequestError("The request timed out. Try again.", 408);
+    }
+    throw error;
+  }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ErrorBody | null;
     throw new WebRequestError(errorMessage(body, response.status), response.status);

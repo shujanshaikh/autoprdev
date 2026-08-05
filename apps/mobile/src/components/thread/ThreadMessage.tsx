@@ -8,7 +8,7 @@ import {
   Play,
   Video,
 } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -21,8 +21,10 @@ import {
 import { webRequest } from "../../api/web";
 import { useAuth } from "../../auth/AuthProvider";
 import { useAppTheme } from "../../hooks/useAppTheme";
+import { trustedAttachmentImageUrl } from "../../lib/attachmentUrls";
 import { messageParts, type MessagePartView } from "../../lib/messages";
 import { confirmOpenExternalUrl, openExternalUrl } from "../../lib/openUrl";
+import { formatRecordingDuration } from "../../lib/recordingDuration";
 import { exploreGroupSummary, shortDirectory } from "../../lib/toolPresentation";
 import { RemoteImage } from "../RemoteImage";
 import { PulsingDots, Shimmer } from "../Shimmer";
@@ -38,14 +40,24 @@ export type ThreadMessageValue = {
 
 const messageTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
-function keyed<T>(items: readonly T[], baseKey: (item: T) => string) {
+function keyed<T>(items: readonly T[], baseKey: (item: T, index: number) => string) {
   const seen = new Map<string, number>();
-  return items.map((item) => {
-    const base = baseKey(item);
+  return items.map((item, index) => {
+    const base = baseKey(item, index);
     const occurrence = seen.get(base) ?? 0;
     seen.set(base, occurrence + 1);
     return { item, key: `${base}:${occurrence}` };
   });
+}
+
+function trustedImageParts(parts: MessagePartView[]) {
+  const images: Array<Extract<MessagePartView, { kind: "file" }>> = [];
+  for (const part of parts) {
+    if (part.kind !== "file" || !part.mediaType.startsWith("image/")) continue;
+    const url = trustedAttachmentImageUrl(part.url);
+    if (url) images.push({ ...part, url });
+  }
+  return images;
 }
 
 function timeLabel(timestamp?: number) {
@@ -317,13 +329,10 @@ function toActivities(parts: MessagePartView[]): Activity[] {
   return activities;
 }
 
-function activityKey(activity: Activity) {
-  if (activity.kind === "reasoning") return `reasoning:${activity.part.text}`;
-  if (activity.kind === "tool") {
-    const { part } = activity;
-    return `tool:${part.name}:${part.state ?? ""}:${part.summary ?? ""}`;
-  }
-  return `explore:${activity.parts.map((part) => `${part.name}:${part.summary ?? ""}`).join("|")}`;
+function activityKey(activity: Activity, index: number) {
+  if (activity.kind === "reasoning") return `${index}:reasoning`;
+  if (activity.kind === "tool") return `${index}:tool:${activity.part.name}`;
+  return `${index}:explore`;
 }
 
 function Disclosure({ open }: { open: boolean }) {
@@ -579,11 +588,7 @@ function RecordingCard({
     }
   };
 
-  const duration = recording.durationSeconds === undefined
-    ? null
-    : recording.durationSeconds < 60
-      ? `${Math.max(1, Math.round(recording.durationSeconds))}s`
-      : `${Math.floor(recording.durationSeconds / 60)}:${String(Math.round(recording.durationSeconds) % 60).padStart(2, "0")}`;
+  const duration = formatRecordingDuration(recording.durationSeconds);
 
   return (
     <Pressable
@@ -616,7 +621,7 @@ function RecordingCard({
   );
 }
 
-export function ThreadMessage({
+function ThreadMessageView({
   message,
   isLast,
   isLive,
@@ -632,15 +637,20 @@ export function ThreadMessage({
   threadId: string;
 }) {
   const theme = useAppTheme();
-  const parts = messageParts(message.parts);
+  const parts = useMemo(() => messageParts(message.parts), [message.parts]);
   const isUser = message.role === "user";
-  const textParts = parts.filter((part) => part.kind === "text");
-  const images = parts.filter((part) => part.kind === "file" && part.mediaType.startsWith("image/"));
-  const files = parts.filter((part) => part.kind === "file" && !part.mediaType.startsWith("image/"));
-  const recordings = parts.filter((part) => part.kind === "recording");
-  const timestamp = timeLabel(message.updatedAt ?? message.createdAt);
-  const assistantRun = runPresentation(message.metadata);
-  const copyText = textParts.map((part) => part.kind === "text" ? part.text : "").join("\n\n");
+  const { textParts, images, files, recordings, timestamp, assistantRun, copyText } = useMemo(() => {
+    const text = parts.filter((part) => part.kind === "text");
+    return {
+      textParts: text,
+      images: trustedImageParts(parts),
+      files: parts.filter((part) => part.kind === "file" && !part.mediaType.startsWith("image/")),
+      recordings: parts.filter((part) => part.kind === "recording"),
+      timestamp: timeLabel(message.updatedAt ?? message.createdAt),
+      assistantRun: runPresentation(message.metadata),
+      copyText: text.map((part) => part.kind === "text" ? part.text : "").join("\n\n"),
+    };
+  }, [message.createdAt, message.metadata, message.updatedAt, parts]);
 
   if (isUser) {
     return (
@@ -738,6 +748,8 @@ export function ThreadMessage({
     </View>
   );
 }
+
+export const ThreadMessage = memo(ThreadMessageView);
 
 const styles = StyleSheet.create({
   richText: { gap: 2 },

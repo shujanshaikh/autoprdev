@@ -8,6 +8,8 @@ import {
 import { WorkOS } from "@workos-inc/node";
 import { nanoid } from "nanoid";
 
+import { mergeRateLimitBucket } from "#/lib/codex-rate-limit";
+
 export const CODEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const DEFAULT_RESPONSES_RATE_LIMIT = 30;
@@ -32,7 +34,11 @@ type WorkOSVault = {
   }): Promise<WorkOSVaultObject>;
   readObject(input: { id: string }): Promise<WorkOSVaultObject>;
   readObjectByName(name: string): Promise<WorkOSVaultObject>;
-  updateObject(input: { id: string; value: string }): Promise<WorkOSVaultObject>;
+  updateObject(input: {
+    id: string;
+    value: string;
+    versionCheck?: string;
+  }): Promise<WorkOSVaultObject>;
   deleteObject(input: { id: string }): Promise<void>;
 };
 
@@ -40,6 +46,8 @@ type VaultStoreEnvelope<T> = {
   value: T;
   expiresAt?: number;
 };
+
+type VaultConflictMerge<T> = (latest: T, proposed: T) => T;
 
 export class CodexConnectionError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -109,7 +117,10 @@ export function vaultObjectName(scope: string, key: string) {
 }
 
 class WorkOSVaultStore<T> implements KeyValueStore<T> {
-  constructor(private readonly scope: string) {}
+  constructor(
+    private readonly scope: string,
+    private readonly mergeConflict?: VaultConflictMerge<T>,
+  ) {}
 
   async get(key: string): Promise<T | undefined> {
     const name = vaultObjectName(this.scope, key);
@@ -139,12 +150,14 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
 
   async set(key: string, value: T, options: { ttlMs?: number } = {}): Promise<void> {
     const name = vaultObjectName(this.scope, key);
-    const serialized = JSON.stringify({
-      value,
-      expiresAt: options.ttlMs === undefined ? undefined : Date.now() + options.ttlMs,
+    const expiresAt = options.ttlMs === undefined ? undefined : Date.now() + options.ttlMs;
+    const serialize = (nextValue: T) => JSON.stringify({
+      value: nextValue,
+      expiresAt,
     } satisfies VaultStoreEnvelope<T>);
+    const vault = getWorkOSVault();
 
-    const existing = await getWorkOSVault().readObjectByName(name).catch((error: unknown) => {
+    const existing = await vault.readObjectByName(name).catch((error: unknown) => {
       if (isMissingVaultObject(error)) {
         return undefined;
       }
@@ -152,14 +165,33 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
     });
 
     if (existing) {
-      await getWorkOSVault().updateObject({ id: existing.id, value: serialized });
+      let current = existing;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const currentEnvelope = current.value
+          ? JSON.parse(current.value) as VaultStoreEnvelope<T>
+          : undefined;
+        const nextValue = this.mergeConflict && currentEnvelope
+          ? this.mergeConflict(currentEnvelope.value, value)
+          : value;
+        try {
+          await vault.updateObject({
+            id: current.id,
+            value: serialize(nextValue),
+            versionCheck: current.metadata?.versionId,
+          });
+          return;
+        } catch (error) {
+          if (!isVaultConflict(error) || attempt === 2) throw error;
+          current = await vault.readObjectByName(name);
+        }
+      }
       return;
     }
 
-    await getWorkOSVault()
+    await vault
       .createObject({
         name,
-        value: serialized,
+        value: serialize(value),
         context: {
           app: "autopr",
           purpose: "login-with-chatgpt",
@@ -171,8 +203,26 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
           throw error;
         }
 
-        const latest = await getWorkOSVault().readObjectByName(name);
-        await getWorkOSVault().updateObject({ id: latest.id, value: serialized });
+        let latest = await vault.readObjectByName(name);
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const latestEnvelope = latest.value
+            ? JSON.parse(latest.value) as VaultStoreEnvelope<T>
+            : undefined;
+          const nextValue = this.mergeConflict && latestEnvelope
+            ? this.mergeConflict(latestEnvelope.value, value)
+            : value;
+          try {
+            await vault.updateObject({
+              id: latest.id,
+              value: serialize(nextValue),
+              versionCheck: latest.metadata?.versionId,
+            });
+            return;
+          } catch (updateError) {
+            if (!isVaultConflict(updateError) || attempt === 2) throw updateError;
+            latest = await vault.readObjectByName(name);
+          }
+        }
       });
   }
 
@@ -203,7 +253,7 @@ export const chatGPTAuth = createChatGPTHandler({
     rateLimit: {
       limit: Number.parseInt(process.env.LWC_RATE_LIMIT_PER_MINUTE ?? "", 10) || DEFAULT_RESPONSES_RATE_LIMIT,
       windowMs: DEFAULT_RESPONSES_RATE_WINDOW_MS,
-      store: new WorkOSVaultStore<RateLimitBucket>("responses-rate"),
+      store: new WorkOSVaultStore<RateLimitBucket>("responses-rate", mergeRateLimitBucket),
     },
   },
 });

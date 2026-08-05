@@ -47,6 +47,10 @@ const repositoryInstallationTokenCache = new Map<string, {
 }>();
 let githubAppInstallUrlPromise: Promise<string> | undefined;
 
+export function invalidateBearerAuth(accessToken: string) {
+  mobileAuthCache.delete(accessToken);
+}
+
 function getWorkOSClientId() {
   const clientId = process.env.WORKOS_CLIENT_ID;
   if (!clientId) {

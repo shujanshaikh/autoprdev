@@ -14,6 +14,7 @@ const config: ExpoConfig = {
     supportsTablet: true,
   },
   android: {
+    package: "com.shujanshaikh.autopr",
     predictiveBackGestureEnabled: true,
   },
   plugins: [

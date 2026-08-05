@@ -136,9 +136,7 @@ export function TerminalScreen({ route }: Props) {
       ) : previewUrl ? (
         <View style={styles.browserSurface}>
           <Text style={[styles.browserTitle, { color: theme.codeInk }]}>Terminal ready</Text>
-          <Text
-            style={[styles.browserDescription, { color: theme.codeMuted }]}
-          >
+          <Text style={[styles.browserDescription, { color: theme.codeMuted }]}>
             This development client does not include the embedded browser module. Open the secure
             terminal in your device browser instead.
           </Text>
@@ -161,16 +159,18 @@ export function TerminalScreen({ route }: Props) {
             ) : (
               <ExternalLink color={theme.accentOn} size={16} />
             )}
-            <Text
-              style={[styles.browserButtonText, { color: theme.accentOn }]}
-            >
+            <Text style={[styles.browserButtonText, { color: theme.accentOn }]}>
               {openingBrowser ? "Opening…" : "Open terminal"}
             </Text>
           </Pressable>
         </View>
       ) : (
         <View style={styles.loadingSurface}>
-          {loading ? <Text style={[styles.loadingText, { color: theme.codeMuted }]}>Opening secure terminal…</Text> : null}
+          {loading ? (
+            <Text style={[styles.loadingText, { color: theme.codeMuted }]}>
+              Opening secure terminal…
+            </Text>
+          ) : null}
         </View>
       )}
     </View>

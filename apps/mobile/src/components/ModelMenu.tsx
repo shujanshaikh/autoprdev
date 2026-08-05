@@ -8,6 +8,8 @@ import {
 } from "../lib/codexModels";
 import { MenuSheet, type MenuAnchor, type MenuOption } from "./MenuSheet";
 
+const AUTO_MODEL_ID = "auto";
+
 /**
  * The composer's two control pills each open their own menu, as they do in
  * T3 Code — one list of models, one list of reasoning levels — rather than a
@@ -31,7 +33,7 @@ export function ModelMenu({
 }) {
   const options = useMemo<MenuOption[]>(() => {
     if (models.length === 0) {
-      return [{ id: "auto", label: "Auto model", selected: true }];
+      return [{ id: AUTO_MODEL_ID, label: "Auto model", selected: true }];
     }
     return models.map((model) => ({
       id: model,
@@ -44,7 +46,10 @@ export function ModelMenu({
     <MenuSheet
       anchor={anchor}
       onClose={onClose}
-      onSelect={onSelectModel}
+      onSelect={(id) => {
+        if (id === AUTO_MODEL_ID && models.length === 0) return;
+        onSelectModel(id);
+      }}
       options={options}
       title="Model"
       visible={visible}

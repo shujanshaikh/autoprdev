@@ -28,6 +28,13 @@ class AgentStreamResponseError extends Error {
   }
 }
 
+class EmptyAgentStreamError extends Error {
+  constructor() {
+    super("The live response produced no output.");
+    this.name = "EmptyAgentStreamError";
+  }
+}
+
 function isRetryableStatus(status: number) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
@@ -98,10 +105,9 @@ export async function consumeAgentRunStream({
           { method: "GET", headers: { Accept: "text/event-stream" }, signal },
         );
         if (!response.ok) {
-          const body = await response.text().catch(() => "");
           throw new AgentStreamResponseError(
             response.status,
-            `Could not read the agent response (${response.status})${body ? `: ${body}` : ""}`,
+            `Could not read the agent response (${response.status})`,
           );
         }
         if (!response.body) throw new Error("The agent response stream was empty.");
@@ -135,10 +141,16 @@ export async function consumeAgentRunStream({
           reader.releaseLock();
         }
 
-        consecutiveErrors = 0;
-        if (!receivedChunk && !finished) await wait(250, signal);
+        if (!receivedChunk && !finished) {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 5) throw new EmptyAgentStreamError();
+          await wait(Math.min(250 * 2 ** (consecutiveErrors - 1), 2_000), signal);
+        } else {
+          consecutiveErrors = 0;
+        }
       } catch (error) {
         if (signal.aborted) return;
+        if (error instanceof EmptyAgentStreamError) throw error;
         if (error instanceof AgentStreamResponseError && !isRetryableStatus(error.status)) {
           throw error;
         }

@@ -108,6 +108,7 @@ import {
   formatDiffPromptContextLabel,
   type DiffPromptContext,
   type ThreadChangedFile,
+  type ThreadChangedFileSummary,
   type ThreadDiffDeepLink,
   type ThreadDiffEntry,
 } from "#/components/thread/thread-diff-panel-utils";
@@ -120,6 +121,7 @@ import {
   type TokenUsage,
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
+import { fetchThreadGitFileDiff } from "#/lib/thread-git-diff";
 import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 import {
   DEFAULT_THREAD_TITLE,
@@ -824,7 +826,11 @@ function ThreadChatRuntime({
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
   const changedFileRequestRef = useRef(0);
+  const workspaceDiffRequestRef = useRef(0);
   const [diffPromptContexts, setDiffPromptContexts] = useState<DiffPromptContext[]>([]);
+  const [workspaceDiffEntries, setWorkspaceDiffEntries] = useState<ThreadDiffEntry[]>([]);
+  const [workspaceDiffLoadingFile, setWorkspaceDiffLoadingFile] = useState<string>();
+  const [workspaceDiffError, setWorkspaceDiffError] = useState<Error>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const [selectedDiffLink, setSelectedDiffLink] = useState<ThreadDiffDeepLink | undefined>();
   const composerGitStatusQuery = useThreadGitStatusQuery({
@@ -1168,8 +1174,14 @@ function ThreadChatRuntime({
   }, [allowPersistedPartRemoval, initialMessages, setMessages]);
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
-  const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
-  const handleSelectChangedFile = useCallback((file: ThreadChangedFile) => {
+  const persistedDiffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
+  const diffEntries = useMemo(() => [
+    ...persistedDiffEntries,
+    ...workspaceDiffEntries.filter((workspaceEntry) =>
+      !persistedDiffEntries.some((entry) => entry.file === workspaceEntry.file)
+    ),
+  ], [persistedDiffEntries, workspaceDiffEntries]);
+  const openChangedFile = useCallback((file: ThreadChangedFile) => {
     changedFileRequestRef.current += 1;
     setSelectedDiffLink({
       entryId: file.entry.id,
@@ -1178,6 +1190,61 @@ function ThreadChatRuntime({
     });
     onDiffPanelOpenChange(true);
   }, [onDiffPanelOpenChange]);
+  const handleSelectChangedFile = useCallback(async (file: ThreadChangedFileSummary) => {
+    if (file.changedFile) {
+      workspaceDiffRequestRef.current += 1;
+      setWorkspaceDiffLoadingFile(undefined);
+      openChangedFile(file.changedFile);
+      return;
+    }
+
+    const requestId = workspaceDiffRequestRef.current + 1;
+    workspaceDiffRequestRef.current = requestId;
+    setWorkspaceDiffLoadingFile(file.file);
+    setWorkspaceDiffError(undefined);
+
+    try {
+      const diff = await fetchThreadGitFileDiff({ projectId, threadId, file: file.file });
+      if (workspaceDiffRequestRef.current !== requestId) return;
+
+      const latestAssistantMessage = [...messages]
+        .reverse()
+        .find((message) => message.role === "assistant");
+      const entry: ThreadDiffEntry = {
+        id: `workspace:${diff.file}`,
+        messageId: latestAssistantMessage?.id ?? "workspace",
+        partIndex: -1,
+        turn: messages.length,
+        tool: "edit",
+        file: diff.file,
+        patch: diff.patch,
+        additions: file.additions,
+        deletions: file.deletions,
+        status: diff.status,
+        diff: {
+          renderer: "pierre",
+          patch: diff.patch,
+          patchOmitted: diff.patchOmitted,
+          status: diff.status,
+        },
+      };
+
+      setWorkspaceDiffEntries((current) => [
+        ...current.filter((candidate) => candidate.id !== entry.id),
+        entry,
+      ]);
+      openChangedFile({ entry, additions: file.additions, deletions: file.deletions });
+    } catch (diffError) {
+      if (workspaceDiffRequestRef.current !== requestId) return;
+      setWorkspaceDiffError(diffError instanceof Error
+        ? diffError
+        : new Error("Could not open the file diff."));
+    } finally {
+      if (workspaceDiffRequestRef.current === requestId) {
+        setWorkspaceDiffLoadingFile(undefined);
+      }
+    }
+  }, [messages, openChangedFile, projectId, threadId]);
   useEffect(() => {
     onDiffCountChange(diffEntries.length);
   }, [diffEntries.length, onDiffCountChange]);
@@ -1638,7 +1705,7 @@ function ThreadChatRuntime({
           <ThreadMessages
             keyedMessages={keyedMessages}
             ready={ready}
-            error={error}
+            error={error ?? workspaceDiffError}
             showingInitialPromptHandoff={showingInitialPromptHandoff}
             initialPrompt={initialPrompt}
             awaitingAgentResponse={awaitingAgentResponse}
@@ -1651,6 +1718,7 @@ function ThreadChatRuntime({
             workspaceChangedFiles={composerGitStatus?.hasWorkingTreeChanges
               ? composerGitStatus.changedFiles
               : []}
+            workspaceDiffLoadingFile={workspaceDiffLoadingFile}
             onSelectChangedFile={handleSelectChangedFile}
           />
         </div>

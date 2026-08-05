@@ -18,6 +18,7 @@ type CommandResult = {
 };
 
 const MAX_PERSISTED_CHANGED_FILES = 500;
+const MAX_FILE_DIFF_LENGTH = 2_000_000;
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -80,6 +81,67 @@ export class SandboxRuntimeNotStartedError extends Error {
     super(`The Daytona sandbox is not running${state ? ` (state: ${state})` : ""}.`);
     this.name = "SandboxRuntimeNotStartedError";
   }
+}
+
+export class ThreadGitFileNotChangedError extends Error {
+  readonly code = "THREAD_GIT_FILE_NOT_CHANGED";
+
+  constructor(file: string) {
+    super(`The file is no longer changed: ${file}`);
+    this.name = "ThreadGitFileNotChangedError";
+  }
+}
+
+export type ThreadGitFileDiff = {
+  file: string;
+  patch: string;
+  patchOmitted: boolean;
+  status: "added" | "deleted" | "modified";
+};
+
+/** Reads a single, currently changed file without allowing arbitrary paths. */
+export async function readThreadGitFileDiff(options: {
+  sandboxId: string;
+  worktreePath: string;
+  file: string;
+}): Promise<ThreadGitFileDiff> {
+  const sandbox = await getSandboxWithoutStarting(options.sandboxId);
+  if (sandbox.state && sandbox.state !== "started" && sandbox.state !== "running") {
+    throw new SandboxRuntimeNotStartedError(sandbox.state);
+  }
+
+  const parsed = await readPorcelainStatus(sandbox, options.worktreePath);
+  const changedFile = parsed.changedFiles.find((candidate) => candidate.path === options.file);
+  if (!changedFile) {
+    throw new ThreadGitFileNotChangedError(options.file);
+  }
+
+  const isUntracked = changedFile.indexStatus === "?" && changedFile.workingTreeStatus === "?";
+  const pathspec = changedFile.originalPath
+    ? `${shellQuote(changedFile.originalPath)} ${shellQuote(changedFile.path)}`
+    : shellQuote(changedFile.path);
+  const result = isUntracked
+    ? await runGit(
+        sandbox,
+        options.worktreePath,
+        `diff --no-index --no-ext-diff --unified=40 -- /dev/null ${shellQuote(changedFile.path)}`,
+        { allowFailure: true },
+      )
+    : await runGit(
+        sandbox,
+        options.worktreePath,
+        `diff --no-ext-diff --unified=40 HEAD -- ${pathspec}`,
+      );
+  const patchOmitted = result.output.length > MAX_FILE_DIFF_LENGTH;
+  const deleted = changedFile.indexStatus === "D" || changedFile.workingTreeStatus === "D";
+  const added = isUntracked || changedFile.indexStatus === "A" || changedFile.workingTreeStatus === "A";
+
+  return {
+    file: changedFile.path,
+    patch: patchOmitted ? "" : result.output,
+    patchOmitted,
+    status: deleted ? "deleted" : added ? "added" : "modified",
+  };
 }
 
 /**

@@ -4,13 +4,10 @@ import {
   CollapsibleTrigger,
 } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 
 import { FileTypeIcon, pathParts } from "#/lib/file-type-icon";
-import type {
-  ThreadChangedFile,
-  ThreadChangedFileSummary,
-} from "./thread-diff-panel-utils";
+import type { ThreadChangedFileSummary } from "./thread-diff-panel-utils";
 
 function ChangeCount({
   additions,
@@ -48,10 +45,12 @@ function shortDir(dir: string) {
 
 export function ThreadChangedFiles({
   files,
+  loadingFile,
   onSelect,
 }: {
   files: ThreadChangedFileSummary[];
-  onSelect: (file: ThreadChangedFile) => void;
+  loadingFile?: string;
+  onSelect: (file: ThreadChangedFileSummary) => void;
 }) {
   if (files.length === 0) return null;
 
@@ -92,13 +91,17 @@ export function ThreadChangedFiles({
           {files.map((file) => {
             const { name, dir } = pathParts(file.file);
             const displayDir = shortDir(dir);
-            const selectableFile = file.changedFile;
+            const loading = loadingFile === file.file;
             const content = (
               <>
-                <FileTypeIcon
-                  file={file.file}
-                  className="size-3.5 shrink-0 opacity-70 transition-opacity group-hover/file:opacity-100"
-                />
+                {loading ? (
+                  <Loader2 className="size-3.5 shrink-0 animate-spin opacity-70" aria-hidden="true" />
+                ) : (
+                  <FileTypeIcon
+                    file={file.file}
+                    className="size-3.5 shrink-0 opacity-70 transition-opacity group-hover/file:opacity-100"
+                  />
+                )}
                 <span className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono text-[11px] leading-none tracking-tight">
                   <span className="shrink-0 text-foreground/90">{name}</span>
                   {displayDir ? (
@@ -116,27 +119,20 @@ export function ThreadChangedFiles({
 
             return (
               <li key={file.file}>
-                {selectableFile ? (
-                  <button
-                    type="button"
-                    title={`Open ${file.file} in changes panel`}
-                    onClick={() => onSelect(selectableFile)}
-                    className={cn(
-                      "group/file flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left",
-                      "transition-colors hover:bg-[color:var(--project-panel-soft)]",
-                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
-                    )}
-                  >
-                    {content}
-                  </button>
-                ) : (
-                  <div
-                    title={file.file}
-                    className="group/file flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left"
-                  >
-                    {content}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  title={loading ? `Loading ${file.file} diff` : `Open ${file.file} in changes panel`}
+                  disabled={loading}
+                  onClick={() => onSelect(file)}
+                  className={cn(
+                    "group/file flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left",
+                    "transition-colors hover:bg-[color:var(--project-panel-soft)]",
+                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+                    "disabled:cursor-wait disabled:opacity-70",
+                  )}
+                >
+                  {content}
+                </button>
               </li>
             );
           })}

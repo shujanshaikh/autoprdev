@@ -18,8 +18,10 @@ import {
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
 import {
+  readThreadGitFileDiff,
   readThreadGitStatus,
   SandboxRuntimeNotStartedError,
+  ThreadGitFileNotChangedError,
 } from "#/lib/thread-git-status-server";
 import { runThreadGitWorkflow } from "#/lib/thread-git-workflow-server";
 import {
@@ -63,8 +65,12 @@ async function GET(
   const { searchParams } = new URL(req.url);
   const recordingId = searchParams.get("recordingId")?.trim();
   const shouldPrepare = searchParams.get("prepare") === "1";
+  const requestedDiffFileParam = searchParams.get("gitDiff");
+  const requestedDiffFile = requestedDiffFileParam && requestedDiffFileParam.length > 0
+    ? requestedDiffFileParam
+    : undefined;
 
-  if (searchParams.get("gitStatus") === "1") {
+  if (searchParams.get("gitStatus") === "1" || requestedDiffFile) {
     const { projectId, threadId } = await params;
     const [project, thread] = await Promise.all([
       convexQuery(api.projects.get, { projectId }),
@@ -89,7 +95,9 @@ async function GET(
         {
           error: {
             code: "SANDBOX_RUNTIME_NOT_STARTED",
-            message: "Start the project workspace before refreshing Git status.",
+            message: requestedDiffFile
+              ? "Start the project workspace before opening this diff."
+              : "Start the project workspace before refreshing Git status.",
           },
         },
         { status: 409 },
@@ -117,6 +125,47 @@ async function GET(
         },
         { status: 409 },
       );
+    }
+
+    if (requestedDiffFile) {
+      if (requestedDiffFile.length > 4_000 || requestedDiffFile.includes("\0")) {
+        return Response.json(
+          { error: { code: "INVALID_GIT_DIFF_FILE", message: "Invalid changed file path." } },
+          { status: 400 },
+        );
+      }
+
+      try {
+        const diff = await readThreadGitFileDiff({
+          sandboxId: project.sandboxId,
+          worktreePath: worktree.worktreePath,
+          file: requestedDiffFile,
+        });
+        return Response.json(
+          { diff },
+          { headers: { "Cache-Control": "private, no-store" } },
+        );
+      } catch (error) {
+        const runtimeStopped = error instanceof SandboxRuntimeNotStartedError;
+        const fileNotChanged = error instanceof ThreadGitFileNotChangedError;
+        return Response.json(
+          {
+            error: {
+              code: runtimeStopped
+                ? error.code
+                : fileNotChanged
+                  ? error.code
+                  : "GIT_DIFF_READ_FAILED",
+              message: runtimeStopped
+                ? "Start the project workspace before opening this diff."
+                : fileNotChanged
+                  ? error.message
+                  : safeErrorMessage(error, "Could not open the file diff."),
+            },
+          },
+          { status: runtimeStopped ? 409 : fileNotChanged ? 404 : 502 },
+        );
+      }
     }
 
     try {

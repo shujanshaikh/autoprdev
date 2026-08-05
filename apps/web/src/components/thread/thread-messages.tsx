@@ -61,7 +61,7 @@ import { ThreadChangedFiles } from "./thread-changed-files";
 import {
   changedFilesForMessage,
   mergeChangedFilesWithWorkspace,
-  type ThreadChangedFile,
+  type ThreadChangedFileSummary,
   type ThreadDiffEntry,
 } from "./thread-diff-panel-utils";
 
@@ -471,6 +471,7 @@ export function ThreadMessages({
   onSubmitMessage,
   diffEntries,
   workspaceChangedFiles,
+  workspaceDiffLoadingFile,
   onSelectChangedFile,
 }: {
   keyedMessages: KeyedMessage[];
@@ -486,7 +487,8 @@ export function ThreadMessages({
   onSubmitMessage: (text: string) => void;
   diffEntries: ThreadDiffEntry[];
   workspaceChangedFiles: GitChangedFile[];
-  onSelectChangedFile: (file: ThreadChangedFile) => void;
+  workspaceDiffLoadingFile?: string;
+  onSelectChangedFile: (file: ThreadChangedFileSummary) => void;
 }) {
   const userMessageNavigation: Array<{ id: string; preview: string }> = [];
   for (const { message } of keyedMessages) {
@@ -871,7 +873,11 @@ export function ThreadMessages({
                     {!isUser ? recordingItems.map(renderRecordingItem) : null}
                     {mainDisplayGrouped.map((item) => renderGroupedItem(item, "main"))}
                     {!isUser ? (
-                      <ThreadChangedFiles files={changedFiles} onSelect={onSelectChangedFile} />
+                      <ThreadChangedFiles
+                        files={changedFiles}
+                        loadingFile={workspaceDiffLoadingFile}
+                        onSelect={onSelectChangedFile}
+                      />
                     ) : null}
                   </div>
                 ) : null}

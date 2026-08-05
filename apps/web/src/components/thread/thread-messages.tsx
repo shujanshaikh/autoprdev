@@ -1,3 +1,4 @@
+import type { GitChangedFile } from "@autopr/backend/convex/lib/gitStatus";
 import {
   Collapsible,
   CollapsibleContent,
@@ -59,6 +60,7 @@ import {
 import { ThreadChangedFiles } from "./thread-changed-files";
 import {
   changedFilesForMessage,
+  mergeChangedFilesWithWorkspace,
   type ThreadChangedFile,
   type ThreadDiffEntry,
 } from "./thread-diff-panel-utils";
@@ -468,6 +470,7 @@ export function ThreadMessages({
   recordingPlaybackBasePath,
   onSubmitMessage,
   diffEntries,
+  workspaceChangedFiles,
   onSelectChangedFile,
 }: {
   keyedMessages: KeyedMessage[];
@@ -482,6 +485,7 @@ export function ThreadMessages({
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
   diffEntries: ThreadDiffEntry[];
+  workspaceChangedFiles: GitChangedFile[];
   onSelectChangedFile: (file: ThreadChangedFile) => void;
 }) {
   const userMessageNavigation: Array<{ id: string; preview: string }> = [];
@@ -494,6 +498,10 @@ export function ThreadMessages({
       });
     }
   }
+
+  const latestAssistantMessageId = [...keyedMessages]
+    .reverse()
+    .find(({ message }) => message.role === "assistant")?.message.id;
 
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
@@ -566,9 +574,15 @@ export function ThreadMessages({
       }
   
       const isUser = message.role === "user";
-      const changedFiles = !isUser && message.id !== activeAssistantMessageId
+      const messageChangedFiles = !isUser && message.id !== activeAssistantMessageId
         ? changedFilesForMessage(diffEntries, message.id)
         : [];
+      const changedFiles = mergeChangedFilesWithWorkspace(
+        messageChangedFiles,
+        !isUser && message.id === latestAssistantMessageId && message.id !== activeAssistantMessageId
+          ? workspaceChangedFiles
+          : [],
+      );
       const messageText = isUser ? getTextParts(message.parts) : "";
       const isImageFileItem = (item: GroupedItem) =>
         item.kind === "single" && isFileUIPart(item.part) && item.part.mediaType.startsWith("image/");

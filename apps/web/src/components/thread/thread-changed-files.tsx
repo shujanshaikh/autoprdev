@@ -7,13 +7,16 @@ import { cn } from "@autopr/ui/lib/utils";
 import { ChevronRight } from "lucide-react";
 
 import { FileTypeIcon, pathParts } from "#/lib/file-type-icon";
-import type { ThreadChangedFile } from "./thread-diff-panel-utils";
+import type {
+  ThreadChangedFile,
+  ThreadChangedFileSummary,
+} from "./thread-diff-panel-utils";
 
 function ChangeCount({
   additions,
   deletions,
   className,
-}: Pick<ThreadChangedFile, "additions" | "deletions"> & { className?: string }) {
+}: Pick<ThreadChangedFileSummary, "additions" | "deletions"> & { className?: string }) {
   if (additions === 0 && deletions === 0) return null;
 
   return (
@@ -47,7 +50,7 @@ export function ThreadChangedFiles({
   files,
   onSelect,
 }: {
-  files: ThreadChangedFile[];
+  files: ThreadChangedFileSummary[];
   onSelect: (file: ThreadChangedFile) => void;
 }) {
   if (files.length === 0) return null;
@@ -87,38 +90,53 @@ export function ThreadChangedFiles({
       >
         <ul className="mt-1 flex flex-col gap-px border-l border-border/40 py-0.5 pl-2.5 ml-[5px]">
           {files.map((file) => {
-            const { name, dir } = pathParts(file.entry.file);
+            const { name, dir } = pathParts(file.file);
             const displayDir = shortDir(dir);
+            const selectableFile = file.changedFile;
+            const content = (
+              <>
+                <FileTypeIcon
+                  file={file.file}
+                  className="size-3.5 shrink-0 opacity-70 transition-opacity group-hover/file:opacity-100"
+                />
+                <span className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono text-[11px] leading-none tracking-tight">
+                  <span className="shrink-0 text-foreground/90">{name}</span>
+                  {displayDir ? (
+                    <span className="truncate text-[10px] text-muted-foreground/50">
+                      {displayDir}
+                    </span>
+                  ) : null}
+                </span>
+                <ChangeCount
+                  additions={file.additions}
+                  deletions={file.deletions}
+                />
+              </>
+            );
 
             return (
-              <li key={file.entry.file}>
-                <button
-                  type="button"
-                  title={`Open ${file.entry.file} in changes panel`}
-                  onClick={() => onSelect(file)}
-                  className={cn(
-                    "group/file flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left",
-                    "transition-colors hover:bg-[color:var(--project-panel-soft)]",
-                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
-                  )}
-                >
-                  <FileTypeIcon
-                    file={file.entry.file}
-                    className="size-3.5 shrink-0 opacity-70 transition-opacity group-hover/file:opacity-100"
-                  />
-                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono text-[11px] leading-none tracking-tight">
-                    <span className="shrink-0 text-foreground/90">{name}</span>
-                    {displayDir ? (
-                      <span className="truncate text-[10px] text-muted-foreground/50">
-                        {displayDir}
-                      </span>
-                    ) : null}
-                  </span>
-                  <ChangeCount
-                    additions={file.additions}
-                    deletions={file.deletions}
-                  />
-                </button>
+              <li key={file.file}>
+                {selectableFile ? (
+                  <button
+                    type="button"
+                    title={`Open ${file.file} in changes panel`}
+                    onClick={() => onSelect(selectableFile)}
+                    className={cn(
+                      "group/file flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left",
+                      "transition-colors hover:bg-[color:var(--project-panel-soft)]",
+                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
+                    )}
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div
+                    title={file.file}
+                    className="group/file flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left"
+                  >
+                    {content}
+                  </div>
+                )}
               </li>
             );
           })}

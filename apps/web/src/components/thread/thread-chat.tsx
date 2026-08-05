@@ -1460,7 +1460,9 @@ function ThreadChatRuntime({
   }, [demoRecordingExperimentEnabled, pendingDemoEnabled, setDemoEnabled, thread?.demoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
   const awaitingAgentResponse = status === "submitted";
-  const activeAssistantMessageId = busy && lastMessage?.role === "assistant" ? lastMessage.id : undefined;
+  const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
+    ? lastMessage.id
+    : undefined;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
 
@@ -1646,6 +1648,9 @@ function ThreadChatRuntime({
             recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
             diffEntries={diffEntries}
+            workspaceChangedFiles={composerGitStatus?.hasWorkingTreeChanges
+              ? composerGitStatus.changedFiles
+              : []}
             onSelectChangedFile={handleSelectChangedFile}
           />
         </div>

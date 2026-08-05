@@ -9,7 +9,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import {
   ArrowDown,
-  Bot,
   FileDiff,
   MoreHorizontal,
   Pencil,
@@ -941,33 +940,7 @@ export function ThreadScreen({ navigation, route }: Props) {
       ) : null}
 
       {displayMessages.length === 0 ? (
-        <View style={styles.threadEmpty}>
-          <View style={[styles.emptyBot, { backgroundColor: theme.accentSoft }]}>
-            <Bot color={theme.accentOn} size={28} />
-          </View>
-          <Text style={[styles.emptyTitle, { color: theme.ink }]}>Give AutoPR a task</Text>
-          <Text style={[styles.emptyBody, { color: theme.muted }]}>
-            Be specific about the outcome. The agent will inspect this repository, make the change, and return a reviewable diff.
-          </Text>
-          <View style={styles.starters}>
-            {["Explain this codebase", "Fix failing checks", "Review the current branch"].map((starter) => (
-              <Pressable
-                key={starter}
-                disabled={!canChat || running}
-                onPress={() => void send({ text: starter })}
-                style={({ pressed }) => [
-                  styles.starter,
-                  {
-                    backgroundColor: pressed ? theme.accentSoft : theme.surface,
-                    borderColor: theme.line,
-                  },
-                ]}
-              >
-                <Text style={[styles.starterText, { color: theme.ink }]}>{starter}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
+        <View style={styles.threadEmpty} />
       ) : (
         <View style={styles.feed}>
           <FlatList
@@ -1284,13 +1257,7 @@ const styles = StyleSheet.create({
   },
   headerBadgeText: { fontFamily: "DMSans_700Bold", fontSize: 8 },
   errorWrap: { paddingHorizontal: 12, paddingTop: 10 },
-  threadEmpty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, paddingVertical: 20 },
-  emptyBot: { width: 52, height: 52, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 15 },
-  emptyTitle: { fontFamily: "DMSans_500Medium", fontSize: 20, letterSpacing: -0.45 },
-  emptyBody: { maxWidth: 330, fontFamily: "DMSans_400Regular", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 9 },
-  starters: { width: "100%", maxWidth: 340, gap: 7, marginTop: 21 },
-  starter: { minHeight: 44, borderRadius: 7, borderWidth: 1, paddingHorizontal: 13, justifyContent: "center" },
-  starterText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  threadEmpty: { flex: 1 },
   feed: { flex: 1 },
   messages: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 28 },
   latestButton: {

@@ -5,7 +5,6 @@ import { ExternalLink, RefreshCw } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -14,6 +13,7 @@ import {
 } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
+import { openExternalUrl } from "../lib/openUrl";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Terminal">;
@@ -73,7 +73,9 @@ export function TerminalScreen({ route }: Props) {
     setOpeningBrowser(true);
     setError(undefined);
     try {
-      await Linking.openURL(previewUrl);
+      if (!(await openExternalUrl(previewUrl))) {
+        throw new Error("Could not open the terminal in your browser.");
+      }
     } catch (cause) {
       setError(
         cause instanceof Error

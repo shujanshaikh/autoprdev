@@ -12,7 +12,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useLayoutEffect, useState } from "react";
 import {
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -34,6 +33,7 @@ import {
   rowLabel,
   type GitOverviewRow,
 } from "../lib/gitActions";
+import { openExternalUrl } from "../lib/openUrl";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "GitActions">;
@@ -102,7 +102,7 @@ export function GitActionsScreen({ navigation, route }: Props) {
 
     if (action === "view_pr") {
       const url = status?.pullRequest?.url;
-      if (url) await Linking.openURL(url);
+      if (url) await openExternalUrl(url);
       return;
     }
 
@@ -229,7 +229,7 @@ export function GitActionsScreen({ navigation, route }: Props) {
             {status.pullRequest ? (
               <Pressable
                 accessibilityRole="link"
-                onPress={() => void Linking.openURL(status.pullRequest?.url ?? "")}
+                onPress={() => void openExternalUrl(status.pullRequest?.url ?? "")}
               >
                 <SheetMetaCard
                   label={`Pull request · ${status.pullRequest.state}`}

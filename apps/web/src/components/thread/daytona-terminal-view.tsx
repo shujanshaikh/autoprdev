@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 
 type DaytonaTerminalViewProps = {
   projectId: string;
+  threadId: string;
   active: boolean;
 };
 
 const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
 
-export function DaytonaTerminalView({ projectId, active }: DaytonaTerminalViewProps) {
+export function DaytonaTerminalView({ projectId, threadId, active }: DaytonaTerminalViewProps) {
   const getTerminalPreview = useAction(api.projectActions.getTerminalPreview);
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -23,7 +24,7 @@ export function DaytonaTerminalView({ projectId, active }: DaytonaTerminalViewPr
     setLoading(true);
     setError(undefined);
 
-    void getTerminalPreview({ projectId })
+    void getTerminalPreview({ projectId, threadId })
       .then((preview) => {
         if (!current) return;
         setPreviewUrl(preview.url);
@@ -43,7 +44,7 @@ export function DaytonaTerminalView({ projectId, active }: DaytonaTerminalViewPr
     return () => {
       current = false;
     };
-  }, [active, connectionAttempt, getTerminalPreview, projectId]);
+  }, [active, connectionAttempt, getTerminalPreview, projectId, threadId]);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;

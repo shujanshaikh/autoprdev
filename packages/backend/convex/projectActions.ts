@@ -661,8 +661,41 @@ async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPrevi
   });
 }
 
-async function getDaytonaTerminalPreview(sandboxId: string): Promise<TerminalPreviewResult> {
+const TERMINAL_CWD_PROFILE_MARKER = "# >>> autopr terminal cwd >>>";
+const TERMINAL_CWD_PROFILE_SNIPPET = `${TERMINAL_CWD_PROFILE_MARKER}
+if [[ -o interactive ]] && [[ -r "$HOME/.config/autopr/terminal-cwd" ]]; then
+  autopr_terminal_cwd="$(<"$HOME/.config/autopr/terminal-cwd")"
+  if [[ -d "$autopr_terminal_cwd" ]] && [[ "$PWD" == "/" || "$PWD" == "/home" || "$PWD" == "$HOME" ]]; then
+    cd -- "$autopr_terminal_cwd"
+  fi
+  unset autopr_terminal_cwd
+fi
+# <<< autopr terminal cwd <<<`;
+
+async function configureTerminalWorkingDirectory(sandbox: DaytonaSandbox, workDir: string) {
+  await runSandboxShell(
+    sandbox,
+    `set -eu
+test -d ${shellQuote(workDir)}
+mkdir -p "$HOME/.config/autopr"
+printf '%s\\n' ${shellQuote(workDir)} > "$HOME/.config/autopr/terminal-cwd"
+chmod 0600 "$HOME/.config/autopr/terminal-cwd"
+touch "$HOME/.zshrc"
+if ! grep -Fq ${shellQuote(TERMINAL_CWD_PROFILE_MARKER)} "$HOME/.zshrc"; then
+  printf '\\n%s\\n' ${shellQuote(TERMINAL_CWD_PROFILE_SNIPPET)} >> "$HOME/.zshrc"
+fi`,
+  );
+}
+
+async function getDaytonaTerminalPreview(
+  sandboxId: string,
+  workDir?: string,
+): Promise<TerminalPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    if (workDir) {
+      await configureTerminalWorkingDirectory(sandbox, workDir);
+    }
+
     const preview = await sandbox.getSignedPreviewUrl(
       DAYTONA_WEB_TERMINAL_PORT,
       TERMINAL_PREVIEW_EXPIRES_SECONDS,
@@ -1284,6 +1317,7 @@ export const getDesktopPreview = action({
 export const getTerminalPreview = action({
   args: {
     projectId: v.string(),
+    threadId: v.optional(v.string()),
   },
   returns: v.object({
     url: v.string(),
@@ -1297,13 +1331,24 @@ export const getTerminalPreview = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
-      authorId: identity.subject,
-      projectId: args.projectId,
-    });
+    const project: { sandboxId: string; sandboxWorkDir?: string } = await ctx.runQuery(
+      internal.projects.getDesktopSandboxInternal,
+      {
+        authorId: identity.subject,
+        projectId: args.projectId,
+      },
+    );
 
     try {
-      const preview = await getDaytonaTerminalPreview(project.sandboxId);
+      const workDir = args.threadId
+        ? (await resolveThreadWorkspaceForAuthor(
+            ctx,
+            identity.subject,
+            args.projectId,
+            args.threadId,
+          )).worktreePath
+        : project.sandboxWorkDir;
+      const preview = await getDaytonaTerminalPreview(project.sandboxId, workDir);
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,

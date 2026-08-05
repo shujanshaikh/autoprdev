@@ -860,6 +860,7 @@ export function ThreadDiffPanel({
             <div key={terminalTab.id} className={cn("min-h-0 flex-1 overflow-hidden bg-background", isActiveTerminal ? "flex" : "hidden")}>
               <DaytonaTerminalView
                 projectId={projectId}
+                threadId={threadId}
                 active={isActiveTerminal}
               />
             </div>

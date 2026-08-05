@@ -31,7 +31,7 @@ const WebView = TurboModuleRegistry.get("RNCWebViewModule")
 const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
 
 export function TerminalScreen({ route }: Props) {
-  const { projectId, title } = route.params;
+  const { projectId, threadId, title } = route.params;
   const theme = useAppTheme();
   const getTerminalPreview = useAction(api.projectActions.getTerminalPreview);
   const [previewUrl, setPreviewUrl] = useState<string>();
@@ -62,7 +62,7 @@ export function TerminalScreen({ route }: Props) {
     setLoading(true);
     setError(undefined);
 
-    void getTerminalPreview({ projectId })
+    void getTerminalPreview({ projectId, threadId })
       .then((preview) => {
         if (!active) return;
         setPreviewUrl(preview.url);
@@ -82,7 +82,7 @@ export function TerminalScreen({ route }: Props) {
     return () => {
       active = false;
     };
-  }, [connectionAttempt, getTerminalPreview, projectId]);
+  }, [connectionAttempt, getTerminalPreview, projectId, threadId]);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;

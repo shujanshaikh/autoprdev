@@ -26,9 +26,11 @@ The snapshot installs zsh, Starship, tmux, autosuggestions, and syntax highlight
 
 Daytona's web terminal is exposed on port `22222`, and AutoPR's embedded terminal creates Daytona PTY sessions for the same sandbox user. Both paths pick up this shell profile when the sandbox is created from the `autopr` snapshot.
 
+Before AutoPR opens a browser terminal, it resolves the selected thread's authoritative checkout or worktree and writes that path to `~/.config/autopr/terminal-cwd`. Interactive shells that start in `/`, `/home`, or the sandbox user's home directory move into that workspace automatically. Existing shells and nested shells keep their current directory.
+
 Tmux is opt-in so browser PTYs and automated sessions continue to open as normal zsh shells. Run `work` to create or attach to the shared `autopr` tmux session.
 
-AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr` snapshot when the terminal profile needs to change.
+AutoPR does not otherwise rewrite or sync these terminal files at runtime. For compatibility with sandboxes created from older snapshots, terminal startup may append the marked AutoPR working-directory block to `~/.zshrc` when it is missing. Update the files in this directory and rebuild the `autopr` snapshot when the rest of the terminal profile needs to change.
 
 Starship is installed from its official release archive at the version pinned in the Dockerfile. The archive checksum is selected for the build architecture and verified before installation.
 

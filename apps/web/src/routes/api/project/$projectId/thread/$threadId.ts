@@ -26,7 +26,10 @@ import {
   ThreadGitMutationConflictError,
   withThreadGitMutation,
 } from "#/lib/thread-git-mutation-server";
-import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
+import {
+  persistedThreadWorkspace,
+  resolveThreadWorkspaceCoordinates,
+} from "#/lib/thread-workspace-server";
 
 const postRequestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -93,13 +96,23 @@ async function GET(
       );
     }
 
-    const worktree = persistedThreadWorkspace(project, thread);
-    if (!worktree) {
+    let worktree;
+    try {
+      // Checkout-mode threads deliberately have no persisted workspace: the
+      // branch can be changed from a terminal, so it must be inspected live.
+      // Worktree-mode threads also use this path for first-time provisioning.
+      worktree = await resolveThreadWorkspaceCoordinates(project, thread, () =>
+        convexAction(api.projectActions.resolveThreadWorkspace, {
+          projectId,
+          threadId,
+        }),
+      );
+    } catch (error) {
       return Response.json(
         {
           error: {
             code: "THREAD_WORKSPACE_NOT_READY",
-            message: "The thread workspace is still being prepared.",
+            message: safeErrorMessage(error, "Could not prepare the thread workspace."),
           },
         },
         { status: 409 },

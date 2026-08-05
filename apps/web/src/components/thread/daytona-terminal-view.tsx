@@ -1,11 +1,13 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useAction } from "convex/react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 type DaytonaTerminalViewProps = {
   projectId: string;
   active: boolean;
 };
+
+const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
 
 export function DaytonaTerminalView({ projectId, active }: DaytonaTerminalViewProps) {
   const getTerminalPreview = useAction(api.projectActions.getTerminalPreview);
@@ -13,25 +15,47 @@ export function DaytonaTerminalView({ projectId, active }: DaytonaTerminalViewPr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [connectionAttempt, setConnectionAttempt] = useState(0);
-
-  const connect = useCallback(async () => {
-    setLoading(true);
-    setError(undefined);
-
-    try {
-      const preview = await getTerminalPreview({ projectId });
-      setPreviewUrl(preview.url);
-    } catch (cause) {
-      setPreviewUrl(undefined);
-      setError(cause instanceof Error ? cause.message : "Could not open the terminal.");
-      setLoading(false);
-    }
-  }, [getTerminalPreview, projectId]);
+  const [previewExpiresAt, setPreviewExpiresAt] = useState<number>();
 
   useEffect(() => {
     if (!active) return;
-    void connect();
-  }, [active, connect, connectionAttempt]);
+    let current = true;
+    setLoading(true);
+    setError(undefined);
+
+    void getTerminalPreview({ projectId })
+      .then((preview) => {
+        if (!current) return;
+        setPreviewUrl(preview.url);
+        const refreshAfterSeconds = Math.max(
+          1,
+          preview.expiresInSeconds - TERMINAL_URL_REFRESH_SAFETY_SECONDS,
+        );
+        setPreviewExpiresAt(Date.now() + refreshAfterSeconds * 1_000);
+      })
+      .catch((cause) => {
+        if (!current) return;
+        setPreviewUrl(undefined);
+        setError(cause instanceof Error ? cause.message : "Could not open the terminal.");
+        setLoading(false);
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [active, connectionAttempt, getTerminalPreview, projectId]);
+
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    if (previewExpiresAt !== undefined) {
+      refreshTimer = setTimeout(() => {
+        setConnectionAttempt((attempt) => attempt + 1);
+      }, Math.max(0, previewExpiresAt - Date.now()));
+    }
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
+  }, [previewExpiresAt]);
 
   return (
     <div className="autopr-terminal relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--autopr-terminal-bg)]">
@@ -40,7 +64,10 @@ export function DaytonaTerminalView({ projectId, active }: DaytonaTerminalViewPr
           <span className="truncate">{error}</span>
           <button
             type="button"
-            onClick={() => setConnectionAttempt((attempt) => attempt + 1)}
+            onClick={() => {
+              setPreviewExpiresAt(undefined);
+              setConnectionAttempt((attempt) => attempt + 1);
+            }}
             className="shrink-0 text-foreground underline decoration-border underline-offset-2"
           >
             Reconnect
@@ -58,6 +85,7 @@ export function DaytonaTerminalView({ projectId, active }: DaytonaTerminalViewPr
         <iframe
           allow="clipboard-read; clipboard-write"
           className="min-h-0 flex-1 border-0 bg-[var(--autopr-terminal-bg)]"
+          key={`${connectionAttempt}:${previewUrl}`}
           onError={() => {
             setError("Terminal connection failed.");
             setLoading(false);

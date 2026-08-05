@@ -35,6 +35,8 @@ export async function withEphemeralGitAuth<T>(
     throw new Error("Could not create temporary Git credentials.");
   }
 
+  let operationError: unknown;
+  let result: T | undefined;
   try {
     await Promise.all([
       sandbox.fs.uploadFile(Buffer.from(githubToken), credentialPath),
@@ -50,14 +52,28 @@ export async function withEphemeralGitAuth<T>(
       throw new Error("Could not secure temporary Git credentials.");
     }
 
-    return await operation({
+    result = await operation({
       ...baseEnv,
       GIT_ASKPASS: askPassPath,
-      GIT_ASKPASS_REQUIRE: "force",
     });
-  } finally {
-    await sandbox.fs.deleteFile(authDirectory, true).catch(() => undefined);
+  } catch (error) {
+    operationError = error;
   }
+
+  try {
+    await sandbox.fs.deleteFile(authDirectory, true);
+  } catch (cleanupError) {
+    if (operationError !== undefined) {
+      throw new AggregateError(
+        [operationError, cleanupError],
+        "Git operation and temporary credential cleanup both failed.",
+      );
+    }
+    throw new Error("Could not remove temporary Git credentials.", { cause: cleanupError });
+  }
+
+  if (operationError !== undefined) throw operationError;
+  return result as T;
 }
 
 export function runAuthenticatedSandboxCommand(

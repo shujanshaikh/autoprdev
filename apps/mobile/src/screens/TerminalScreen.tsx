@@ -2,7 +2,7 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAction } from "convex/react";
 import { ExternalLink, RefreshCw } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -28,6 +28,8 @@ const WebView = TurboModuleRegistry.get("RNCWebViewModule")
   ? (require("react-native-webview").WebView as WebViewComponent)
   : undefined;
 
+const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
+
 export function TerminalScreen({ route }: Props) {
   const { projectId, title } = route.params;
   const theme = useAppTheme();
@@ -37,11 +39,21 @@ export function TerminalScreen({ route }: Props) {
   const [error, setError] = useState<string>();
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [openingBrowser, setOpeningBrowser] = useState(false);
+  const [previewExpiresAt, setPreviewExpiresAt] = useState<number>();
+  const previewOrigin = useMemo(() => {
+    if (!previewUrl) return undefined;
+    try {
+      return new URL(previewUrl).origin;
+    } catch {
+      return undefined;
+    }
+  }, [previewUrl]);
 
   const reconnect = useCallback(() => {
     setPreviewUrl(undefined);
     setLoading(true);
     setError(undefined);
+    setPreviewExpiresAt(undefined);
     setConnectionAttempt((attempt) => attempt + 1);
   }, []);
 
@@ -55,6 +67,11 @@ export function TerminalScreen({ route }: Props) {
         if (!active) return;
         setPreviewUrl(preview.url);
         if (!WebView) setLoading(false);
+        const refreshAfterSeconds = Math.max(
+          1,
+          preview.expiresInSeconds - TERMINAL_URL_REFRESH_SAFETY_SECONDS,
+        );
+        setPreviewExpiresAt(Date.now() + refreshAfterSeconds * 1_000);
       })
       .catch((cause) => {
         if (!active) return;
@@ -66,6 +83,19 @@ export function TerminalScreen({ route }: Props) {
       active = false;
     };
   }, [connectionAttempt, getTerminalPreview, projectId]);
+
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    if (previewExpiresAt !== undefined) {
+      refreshTimer = setTimeout(() => {
+        setLoading(true);
+        setConnectionAttempt((attempt) => attempt + 1);
+      }, Math.max(0, previewExpiresAt - Date.now()));
+    }
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
+  }, [previewExpiresAt]);
 
   const openTerminalInBrowser = useCallback(async () => {
     if (!previewUrl || openingBrowser) return;
@@ -118,7 +148,7 @@ export function TerminalScreen({ route }: Props) {
         </View>
       ) : null}
 
-      {previewUrl && WebView ? (
+      {previewUrl && previewOrigin && WebView ? (
         <WebView
           cacheEnabled={false}
           incognito
@@ -128,6 +158,16 @@ export function TerminalScreen({ route }: Props) {
             setError("Terminal connection failed.");
           }}
           onLoadEnd={() => setLoading(false)}
+          onShouldStartLoadWithRequest={({ url }) => {
+            try {
+              if (new URL(url).origin === previewOrigin) return true;
+            } catch {
+              return false;
+            }
+            void openExternalUrl(url);
+            return false;
+          }}
+          originWhitelist={[`${previewOrigin}/*`]}
           sharedCookiesEnabled={false}
           source={{ uri: previewUrl }}
           style={styles.webview}

@@ -138,7 +138,7 @@ function inlineMarkdown(
   value: string,
   color: string,
   muted: string,
-  onOpenLink: (url: string) => unknown,
+  onOpenLink: (url: string) => void,
 ): ReactNode[] {
   const tokens = value.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\*[^*\n]+\*|\[[^\]\n]+\]\([^)]+\))/g);
   return keyed(tokens, (token) => token).map(({ item: token, key }) => {
@@ -188,7 +188,7 @@ function RichMessageText({
    * Rendered text is agent output by default, so links confirm with the raw
    * URL before opening. User-authored bubbles pass `openExternalUrl`.
    */
-  onOpenLink?: (url: string) => unknown;
+  onOpenLink?: (url: string) => void;
 }) {
   const theme = useAppTheme();
   const blocks = useMemo(() => {

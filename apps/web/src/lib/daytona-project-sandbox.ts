@@ -13,7 +13,7 @@ import {
   autoprSandboxName,
 } from "@autopr/backend/convex/lib/sandboxIdentity";
 
-import { runAuthenticatedSandboxCommand } from "#/lib/sandbox-git-auth";
+import { runAuthenticatedSandboxCommand, withEphemeralGitAuth } from "#/lib/sandbox-git-auth";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
 import {
   sandboxCommandOutput,
@@ -200,94 +200,118 @@ export async function materializeGithubPullRequestWorktree(options: {
   githubToken: string;
 }): Promise<{ headSha: string; upstreamBranch: string }> {
   const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const runGit = async (cwd: string, args: string, allowFailure = false) => {
-    const result = await runAuthenticatedSandboxCommand(
-      sandbox,
-      options.githubToken,
-      `git ${args}`,
-      cwd,
-    );
-    const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
-    const output = sandboxCommandOutput({ result: result.result, stderr: result.stderr }).trim();
-    if (!allowFailure && exitCode !== 0) {
-      throw new SandboxGitCommandError("Could not check out the pull request.", redactGitDiagnostic(output, [options.githubToken]));
+  return withEphemeralGitAuth(sandbox, options.githubToken, async (env) => {
+    const runGit = async (cwd: string, args: string, allowFailure = false) => {
+      const result = await sandbox.process.executeCommand(`git ${args}`, cwd, env, 120);
+      const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
+      const output = sandboxCommandOutput({
+        result: result.result,
+        stderr: result.stderr,
+      }).trim();
+      if (!allowFailure && exitCode !== 0) {
+        throw new SandboxGitCommandError(
+          "Could not check out the pull request.",
+          redactGitDiagnostic(output, [options.githubToken]),
+        );
+      }
+      return { exitCode, output };
+    };
+
+    await runGit(options.repositoryPath, "worktree prune");
+    const [list, branchCheck] = await Promise.all([
+      runGit(options.repositoryPath, "worktree list --porcelain"),
+      runGit(
+        options.repositoryPath,
+        `show-ref --verify --quiet ${shellEscape(`refs/heads/${options.localBranch}`)}`,
+        true,
+      ),
+    ]);
+    let decision = decideWorktreeProvision({
+      entries: parseGitWorktreeList(list.output),
+      desiredPath: options.worktreePath,
+      featureBranch: options.localBranch,
+      branchExists: branchCheck.exitCode === 0,
+    });
+    if (decision.kind === "conflict") {
+      throw new SandboxGitConflictError(decision.message);
     }
-    return { exitCode, output };
-  };
 
-  await runGit(options.repositoryPath, "worktree prune");
-  const [list, branchCheck] = await Promise.all([
-    runGit(options.repositoryPath, "worktree list --porcelain"),
-    runGit(
+    const remoteName = `autopr-pr-${options.pullRequestNumber}`;
+    const remoteCheck = await runGit(
       options.repositoryPath,
-      `show-ref --verify --quiet ${shellEscape(`refs/heads/${options.localBranch}`)}`,
+      `remote get-url ${shellEscape(remoteName)}`,
       true,
-    ),
-  ]);
-  let decision = decideWorktreeProvision({
-    entries: parseGitWorktreeList(list.output),
-    desiredPath: options.worktreePath,
-    featureBranch: options.localBranch,
-    branchExists: branchCheck.exitCode === 0,
-  });
-  if (decision.kind === "conflict") throw new SandboxGitConflictError(decision.message);
+    );
+    await runGit(
+      options.repositoryPath,
+      remoteCheck.exitCode === 0
+        ? `remote set-url ${shellEscape(remoteName)} ${shellEscape(options.headCloneUrl)}`
+        : `remote add ${shellEscape(remoteName)} ${shellEscape(options.headCloneUrl)}`,
+    );
+    const remoteTrackingRef = `refs/remotes/${remoteName}/${options.headBranch}`;
 
-  const remoteName = `autopr-pr-${options.pullRequestNumber}`;
-  const remoteCheck = await runGit(options.repositoryPath, `remote get-url ${shellEscape(remoteName)}`, true);
-  await runGit(
-    options.repositoryPath,
-    remoteCheck.exitCode === 0
-      ? `remote set-url ${shellEscape(remoteName)} ${shellEscape(options.headCloneUrl)}`
-      : `remote add ${shellEscape(remoteName)} ${shellEscape(options.headCloneUrl)}`,
-  );
-  const remoteTrackingRef = `refs/remotes/${remoteName}/${options.headBranch}`;
+    if (decision.kind === "create-branch-and-worktree") {
+      await runGit(
+        options.repositoryPath,
+        `fetch --force ${shellEscape(remoteName)} ${shellEscape(`refs/heads/${options.headBranch}:${remoteTrackingRef}`)}`,
+      );
+      const fetched = await runGit(
+        options.repositoryPath,
+        `rev-parse ${shellEscape(remoteTrackingRef)}`,
+      );
+      if (fetched.output !== options.expectedHeadSha) {
+        throw new SandboxGitCommandError(
+          "The pull request branch moved while it was being opened. Resolve the PR again and retry.",
+        );
+      }
+      await runGit(
+        options.repositoryPath,
+        `branch ${shellEscape(options.localBranch)} ${shellEscape(options.expectedHeadSha)}`,
+      );
+      decision = { kind: "create-from-existing-branch", path: options.worktreePath };
+    }
 
-  if (decision.kind === "create-branch-and-worktree") {
+    if (decision.kind === "create-from-existing-branch") {
+      const parent = options.worktreePath.slice(0, options.worktreePath.lastIndexOf("/"));
+      const pathCheck = await sandbox.process.executeCommand(
+        `test -e ${shellEscape(options.worktreePath)}`,
+        options.repositoryPath,
+        undefined,
+        30,
+      );
+      if (pathCheck.exitCode === 0) {
+        throw new SandboxGitConflictError(
+          `The thread worktree path already exists outside Git: ${options.worktreePath}`,
+        );
+      }
+      const mkdir = await sandbox.process.executeCommand(
+        `mkdir -p ${shellEscape(parent)}`,
+        options.repositoryPath,
+        undefined,
+        30,
+      );
+      if (typeof mkdir.exitCode === "number" && mkdir.exitCode !== 0) {
+        throw new SandboxGitCommandError("Could not create the thread worktree directory.");
+      }
+      await runGit(
+        options.repositoryPath,
+        `worktree add ${shellEscape(options.worktreePath)} ${shellEscape(options.localBranch)}`,
+      );
+    }
+
+    // A retry may reuse a branch whose tracking ref was pruned. Refresh it before
+    // restoring the upstream relationship, without resetting local work.
     await runGit(
       options.repositoryPath,
       `fetch --force ${shellEscape(remoteName)} ${shellEscape(`refs/heads/${options.headBranch}:${remoteTrackingRef}`)}`,
     );
-    const fetched = await runGit(options.repositoryPath, `rev-parse ${shellEscape(remoteTrackingRef)}`);
-    if (fetched.output !== options.expectedHeadSha) {
-      throw new SandboxGitCommandError(
-        "The pull request branch moved while it was being opened. Resolve the PR again and retry.",
-      );
-    }
     await runGit(
       options.repositoryPath,
-      `branch ${shellEscape(options.localBranch)} ${shellEscape(options.expectedHeadSha)}`,
+      `branch --set-upstream-to=${shellEscape(`${remoteName}/${options.headBranch}`)} ${shellEscape(options.localBranch)}`,
     );
-    decision = { kind: "create-from-existing-branch", path: options.worktreePath };
-  }
-
-  if (decision.kind === "create-from-existing-branch") {
-    const parent = options.worktreePath.slice(0, options.worktreePath.lastIndexOf("/"));
-    const pathCheck = await sandbox.process.executeCommand(`test -e ${shellEscape(options.worktreePath)}`, options.repositoryPath, undefined, 30);
-    if (pathCheck.exitCode === 0) {
-      throw new SandboxGitConflictError(`The thread worktree path already exists outside Git: ${options.worktreePath}`);
-    }
-    const mkdir = await sandbox.process.executeCommand(`mkdir -p ${shellEscape(parent)}`, options.repositoryPath, undefined, 30);
-    if (typeof mkdir.exitCode === "number" && mkdir.exitCode !== 0) {
-      throw new SandboxGitCommandError("Could not create the thread worktree directory.");
-    }
-    await runGit(
-      options.repositoryPath,
-      `worktree add ${shellEscape(options.worktreePath)} ${shellEscape(options.localBranch)}`,
-    );
-  }
-
-  // A retry may reuse a branch whose tracking ref was pruned. Refresh it before
-  // restoring the upstream relationship, without resetting local work.
-  await runGit(
-    options.repositoryPath,
-    `fetch --force ${shellEscape(remoteName)} ${shellEscape(`refs/heads/${options.headBranch}:${remoteTrackingRef}`)}`,
-  );
-  await runGit(
-    options.repositoryPath,
-    `branch --set-upstream-to=${shellEscape(`${remoteName}/${options.headBranch}`)} ${shellEscape(options.localBranch)}`,
-  );
-  const headSha = (await runGit(options.worktreePath, "rev-parse HEAD")).output;
-  return { headSha, upstreamBranch: `${remoteName}/${options.headBranch}` };
+    const headSha = (await runGit(options.worktreePath, "rev-parse HEAD")).output;
+    return { headSha, upstreamBranch: `${remoteName}/${options.headBranch}` };
+  });
 }
 
 export class SandboxNoChangesError extends Error {

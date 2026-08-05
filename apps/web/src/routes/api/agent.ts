@@ -6,7 +6,11 @@ import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { codexErrorResponse, createCodexAgentModelOptions } from "#/lib/codex-auth-server";
+import {
+  codexErrorResponse,
+  createCodexAgentModelOptions,
+  revokeCodexAgentModelOptions,
+} from "#/lib/codex-auth-server";
 import {
   AGENT_IDEMPOTENCY_KEY_TTL,
   AGENT_TASK_ID,
@@ -40,10 +44,14 @@ async function POST(req: Request) {
   if (!workOSSession) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const requestId = messages.at(-1)?.id ?? nanoid();
 
   const [modelMessages, codex] = await Promise.all([
     convertToModelMessages(messages),
-    createCodexAgentModelOptions(req, model, reasoningEffort).catch((error) =>
+    createCodexAgentModelOptions(req, model, reasoningEffort, {
+      taskId: AGENT_TASK_ID,
+      contextId: `standalone:${requestId}`,
+    }).catch((error) =>
       error instanceof Error ? error : new Error("Could not load Codex credentials."),
     ),
   ]);
@@ -52,30 +60,35 @@ async function POST(req: Request) {
     return codexErrorResponse(codex, "Could not load Codex credentials.");
   }
 
-  const requestId = messages.at(-1)?.id ?? nanoid();
   const idempotencyKey = await idempotencyKeys.create(
     ["standalone-agent", workOSSession.user.id, requestId],
     { scope: "global" },
   );
-  const run = await tasks.trigger<typeof agentTask>(
-    AGENT_TASK_ID,
-    {
-      messages: modelMessages,
-      options: {
-        sandboxCacheKey: `trigger-agent:${workOSSession.user.id}:${requestId}`,
-        codex,
+  let run;
+  try {
+    run = await tasks.trigger<typeof agentTask>(
+      AGENT_TASK_ID,
+      {
+        messages: modelMessages,
+        options: {
+          sandboxCacheKey: `trigger-agent:${workOSSession.user.id}:${requestId}`,
+          codex,
+        },
       },
-    },
-    {
-      idempotencyKey,
-      idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
-      tags: [agentUserTag(workOSSession.user.id)],
-      metadata: {
-        userId: workOSSession.user.id,
-        userMessageId: requestId,
+      {
+        idempotencyKey,
+        idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
+        tags: [agentUserTag(workOSSession.user.id)],
+        metadata: {
+          userId: workOSSession.user.id,
+          userMessageId: requestId,
+        },
       },
-    },
-  );
+    );
+  } catch (error) {
+    await revokeCodexAgentModelOptions(codex).catch(() => undefined);
+    throw error;
+  }
 
   return new Response(null, {
     status: 202,

@@ -229,9 +229,7 @@ function WorkspaceCreateSandboxDialog({
             isLoadingRepos={isLoadingRepos}
             isRefreshingRepos={isRefreshingRepos}
             isLoadingBranches={isLoadingBranches}
-            isCheckingGithubAppInstallation={
-              branchesQuery.isPending && Boolean(selectedRepo)
-            }
+            isCheckingGithubAppInstallation={isLoadingBranches}
             isCreating={isCreating}
             repositories={repositories}
             filteredRepositories={filteredRepositories}

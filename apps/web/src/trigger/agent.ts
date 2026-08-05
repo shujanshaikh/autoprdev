@@ -4,6 +4,7 @@ import {
   createCachedSystemMessage,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
+  withSandboxAgentProjectContext,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
@@ -23,7 +24,10 @@ import {
   type AgentRunIssue,
 } from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
-import { createCodexResponsesModel } from "#/lib/codex-auth-runtime-server";
+import {
+  createCodexResponsesModel,
+  revokeCodexAgentGrant,
+} from "#/lib/codex-auth-runtime-server";
 import { getCodexContextLimit } from "#/lib/codex-models";
 import {
   AGENT_TASK_ID,
@@ -221,7 +225,7 @@ async function runAgentTask(
   }
 
   try {
-    await harness.run(async ({ instructions, tools }) => {
+    await harness.run(async ({ instructions, repositoryContext, tools }) => {
       const model = wrapLanguageModel({
         model: await createCodexResponsesModel(codexOptions),
         middleware: createContextOverflowRecoveryMiddleware(),
@@ -229,7 +233,9 @@ async function runAgentTask(
       const result = streamText({
         model,
         system: createCachedSystemMessage(instructions),
-        messages: applyAgenticCache(inputMessages),
+        messages: applyAgenticCache(
+          withSandboxAgentProjectContext(inputMessages, repositoryContext),
+        ),
         tools,
         toolChoice: "auto",
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
@@ -357,7 +363,13 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
     await finishCancelledAgentRun(payload.options, ctx.run.id);
   },
   run: async (payload: AgentTaskPayload, { ctx, signal }) => {
-    await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);
-    return { ok: true as const };
+    try {
+      await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);
+      return { ok: true as const };
+    } finally {
+      await revokeCodexAgentGrant(payload.options.codex.credentialsGrantId).catch((error) => {
+        console.error("Failed to revoke the Codex credential grant", error);
+      });
+    }
   },
 });

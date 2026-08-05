@@ -90,6 +90,9 @@ function emulateDownload(command: string, files: Record<string, string>) {
     payload = Buffer.from(windowText, "utf8");
   }
 
+  const skippedBytes = Number(/tail -c \+(\d+)/.exec(command)?.[1] ?? 1) - 1;
+  if (skippedBytes > 0) payload = payload.subarray(skippedBytes);
+
   const capped = payload.subarray(0, cap);
   return {
     cmdId: "cmd-download",
@@ -143,9 +146,10 @@ describe("resolveJailedSandboxPath", () => {
       resolveJailedSandboxPath("src/a.ts", { workDir: WORK_DIR, sandboxOptions: {} }),
     ).resolves.toBe(`${WORK_DIR}/src/a.ts`);
 
-    const command = mocks.executeSessionCommand.mock.calls[0]![1].command as string;
-    expect(command).toContain("realpath -m");
-    expect(command).toContain(WORK_DIR);
+    const commands = mocks.executeSessionCommand.mock.calls.map((call) => call[1].command as string);
+    expect(commands).toHaveLength(2);
+    expect(commands.every((command) => command.includes("realpath -m"))).toBe(true);
+    expect(commands.some((command) => command.includes(WORK_DIR))).toBe(true);
   });
 
   it("rejects absolute escapes without a sandbox round trip", async () => {
@@ -182,6 +186,19 @@ describe("resolveJailedSandboxPath", () => {
         extraAllowedRoots: ["/data"],
       }),
     ).resolves.toBe("/data/cache/blob");
+  });
+
+  it("caches canonical roots per sandbox while rechecking each candidate", async () => {
+    mocks.getSandboxContext.mockResolvedValue({
+      sandbox: { ...fakeSandbox, id: "sandbox-cache-test" },
+      workDir: WORK_DIR,
+    });
+    mocks.executeSessionCommand.mockImplementation(emulateRemote());
+
+    await resolveJailedSandboxPath("src/a.ts", { workDir: WORK_DIR, sandboxOptions: {} });
+    await resolveJailedSandboxPath("src/b.ts", { workDir: WORK_DIR, sandboxOptions: {} });
+
+    expect(mocks.executeSessionCommand).toHaveBeenCalledTimes(3);
   });
 
   it("rejects paths containing newlines", async () => {
@@ -249,6 +266,24 @@ describe("downloadRemoteFileChunk", () => {
     const command = mocks.executeSessionCommand.mock.calls[0]![1].command as string;
     expect(command).toContain("sed -n");
     expect(command).toContain("2,3p");
+    expect(command).not.toContain("set -o pipefail");
+  });
+
+  it("skips bytes within a selected line before applying the cap", async () => {
+    mocks.executeSessionCommand.mockImplementation(
+      emulateRemote({ files: { "/work/repo/line.txt": "abcdefghij\n" } }),
+    );
+
+    const chunk = await downloadRemoteFileChunk({
+      remotePath: "/work/repo/line.txt",
+      maxBytes: 4,
+      startLine: 1,
+      endLine: 1,
+      skipBytes: 4,
+      sandboxOptions: {},
+    });
+
+    expect(chunk.content.toString("utf8")).toBe("efgh");
   });
 
   it("throws RemoteFileNotFoundError for missing files", async () => {
@@ -286,4 +321,3 @@ describe("resolveSandboxPath", () => {
     expect(resolveSandboxPath("/abs/path", WORK_DIR)).toBe("/abs/path");
   });
 });
-

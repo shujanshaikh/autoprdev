@@ -43,8 +43,9 @@ type WorkOSVault = {
 };
 
 type VaultStoreEnvelope<T> = {
-  value: T;
+  value?: T;
   expiresAt?: number;
+  consumedAt?: number;
 };
 
 type VaultConflictMerge<T> = (latest: T, proposed: T) => T;
@@ -170,7 +171,7 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
         const currentEnvelope = current.value
           ? JSON.parse(current.value) as VaultStoreEnvelope<T>
           : undefined;
-        const nextValue = this.mergeConflict && currentEnvelope
+        const nextValue = this.mergeConflict && currentEnvelope?.value !== undefined
           ? this.mergeConflict(currentEnvelope.value, value)
           : value;
         try {
@@ -208,7 +209,7 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
           const latestEnvelope = latest.value
             ? JSON.parse(latest.value) as VaultStoreEnvelope<T>
             : undefined;
-          const nextValue = this.mergeConflict && latestEnvelope
+          const nextValue = this.mergeConflict && latestEnvelope?.value !== undefined
             ? this.mergeConflict(latestEnvelope.value, value)
             : value;
           try {
@@ -238,6 +239,39 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
     if (existing) {
       await getWorkOSVault().deleteObject({ id: existing.id });
     }
+  }
+
+  async take(key: string): Promise<T | undefined> {
+    const name = vaultObjectName(this.scope, key);
+    const vault = getWorkOSVault();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const object = await vault.readObjectByName(name).catch((error: unknown) => {
+        if (isMissingVaultObject(error)) return undefined;
+        throw error;
+      });
+      if (!object?.value) return undefined;
+      const envelope = JSON.parse(object.value) as VaultStoreEnvelope<T>;
+      if (envelope.value === undefined || envelope.expiresAt !== undefined && envelope.expiresAt <= Date.now()) {
+        await vault.deleteObject({ id: object.id }).catch(() => undefined);
+        return undefined;
+      }
+
+      try {
+        await vault.updateObject({
+          id: object.id,
+          value: JSON.stringify({ consumedAt: Date.now() } satisfies VaultStoreEnvelope<T>),
+          versionCheck: object.metadata?.versionId,
+        });
+        await vault.deleteObject({ id: object.id }).catch(() => undefined);
+        return envelope.value;
+      } catch (error) {
+        if (isMissingVaultObject(error)) return undefined;
+        if (!isVaultConflict(error) || attempt === 2) throw error;
+      }
+    }
+
+    return undefined;
   }
 }
 
@@ -269,13 +303,16 @@ function authRequestFromCookieHeader(cookieHeader: string) {
  * session cookie must never be placed on a task payload. Instead the web
  * server stores the cookie in a short-lived Vault grant and only the opaque
  * grant id travels to Trigger; the worker redeems it here, inside the run.
- * The TTL covers Trigger's maximum run lifecycle (see AGENT_IDEMPOTENCY_KEY_TTL)
- * and the store deletes expired objects on read.
+ * The TTL covers Trigger's maximum run lifecycle (see AGENT_IDEMPOTENCY_KEY_TTL).
+ * Grants are atomically consumed and deleted on redemption, explicitly revoked
+ * after task completion or failed startup, and stale grants are deleted if read.
  */
 export const CODEX_AGENT_GRANT_TTL_MS = 2 * 60 * 60 * 1000;
 
 export type CodexAgentGrant = {
   userId: string;
+  taskId: "autopr-agent" | "autopr-chat-agent";
+  contextId: string;
   sessionCookieHeader: string;
 };
 
@@ -287,11 +324,29 @@ export async function createCodexAgentGrant(grant: CodexAgentGrant): Promise<str
   return grantId;
 }
 
-export async function resolveCodexAgentGrant(grantId: string): Promise<CodexAgentGrant> {
-  const grant = await codexAgentGrantStore.get(grantId);
+export function revokeCodexAgentGrant(grantId: string): Promise<void> {
+  return codexAgentGrantStore.delete(grantId);
+}
+
+export async function resolveCodexAgentGrant(
+  grantId: string,
+  expected: Pick<CodexAgentGrant, "userId" | "taskId" | "contextId">,
+): Promise<CodexAgentGrant> {
+  const grant = await codexAgentGrantStore.take(grantId);
   if (!grant) {
     throw new CodexConnectionError(
       "Codex credentials for this run are missing or expired. Send the message again to start a fresh run.",
+      401,
+    );
+  }
+
+  if (
+    grant.userId !== expected.userId ||
+    grant.taskId !== expected.taskId ||
+    grant.contextId !== expected.contextId
+  ) {
+    throw new CodexConnectionError(
+      "Codex credentials do not match this agent run. Send the message again to start a fresh run.",
       401,
     );
   }
@@ -301,7 +356,11 @@ export async function resolveCodexAgentGrant(grantId: string): Promise<CodexAgen
 
 export type CodexResponsesModelCredentials =
   | { chatgptCookieHeader: string; credentialsGrantId?: never }
-  | { credentialsGrantId: string; chatgptCookieHeader?: never };
+  | {
+      credentialsGrantId: string;
+      credentialsGrantContext: Pick<CodexAgentGrant, "userId" | "taskId" | "contextId">;
+      chatgptCookieHeader?: never;
+    };
 
 export async function createCodexResponsesModel(options: {
   modelId: string;
@@ -318,7 +377,10 @@ export async function createCodexResponsesModel(options: {
           return options.chatgptCookieHeader;
         }
 
-        return (await resolveCodexAgentGrant(options.credentialsGrantId)).sessionCookieHeader;
+        return (await resolveCodexAgentGrant(
+          options.credentialsGrantId,
+          options.credentialsGrantContext,
+        )).sessionCookieHeader;
       })();
       cookieHeaderPromise = pending;
       // Do not cache failures: a transient Vault error should not poison the

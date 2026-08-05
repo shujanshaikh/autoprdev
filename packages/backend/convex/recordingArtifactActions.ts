@@ -162,7 +162,7 @@ async function fetchRecordingSource(sourceUrl: string) {
       throw new Error(`Could not fetch Daytona recording: ${response.status} ${response.statusText}`);
     }
 
-    return readLimitedBlob(response);
+    return await readLimitedBlob(response);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("Timed out fetching Daytona recording.");
@@ -231,6 +231,7 @@ export const ensureUploaded = action({
     const r2Key = existing?.r2Key ?? recordingObjectKey(authorId, args.threadId, args.recordingId);
     const fileName = safeFileName(args.recordingId, sourceFileName);
     const contentType = "video/mp4";
+    const uploadAttemptId = crypto.randomUUID();
     const uploadState = await ctx.runMutation(internal.recordingArtifacts.markUploadingInternal, {
       authorId,
       projectId: args.projectId,
@@ -241,6 +242,7 @@ export const ensureUploaded = action({
       contentType,
       sizeBytes: recording.sizeBytes,
       durationSeconds: recording.durationSeconds,
+      uploadAttemptId,
     });
 
     if (uploadState.status === "uploaded") {
@@ -276,6 +278,7 @@ export const ensureUploaded = action({
         contentType,
         sizeBytes,
         durationSeconds: recording.durationSeconds,
+        uploadAttemptId,
       });
 
       return {
@@ -288,6 +291,7 @@ export const ensureUploaded = action({
         projectId: args.projectId,
         threadId: args.threadId,
         recordingId: args.recordingId,
+        uploadAttemptId,
         error: errorMessage(error),
       });
 

@@ -26,6 +26,9 @@ const readInputSchema = z.object({
     .describe("Required. Path to the file to read. Relative paths resolve from the sandbox workdir."),
   offset: z.number().min(1).optional().describe("Line number to start reading from. Uses 1-based indexing."),
   limit: z.number().min(1).optional().describe("Maximum number of lines to return."),
+  byteOffset: z.number().int().min(0).optional().describe(
+    "Byte offset within the requested line. Use only when a previous read says a single oversized line is incomplete.",
+  ),
 });
 
 type ReadInput = z.infer<typeof readInputSchema>;
@@ -38,6 +41,7 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
     sandboxOptions,
   });
   const offset = Math.max(1, input.offset ?? 1);
+  const byteOffset = input.byteOffset ?? 0;
   const limit = clampLimit(input.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT);
   // Only the requested line window leaves the sandbox host, and it is byte-capped
   // there, so a multi-GB artifact can no longer OOM the harness on a single read.
@@ -45,7 +49,8 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
     remotePath,
     maxBytes: MAX_READ_WINDOW_BYTES,
     startLine: offset,
-    endLine: offset + limit - 1,
+    endLine: byteOffset > 0 ? offset : offset + limit - 1,
+    skipBytes: byteOffset,
     countLines: true,
     sandboxOptions,
   });
@@ -105,15 +110,21 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
     chunk.reachedMaxBytes && !windowText.endsWith("\n") && !droppedPartialLine;
   const lineEnd = offset + windowLines.length - 1;
   const truncated = lineEnd < totalLines || droppedPartialLine || partialLineKept;
-  const continuation = truncated ? `\n\n[Use offset=${lineEnd + 1} to continue.]` : "";
-  const byteCapNote = droppedPartialLine || partialLineKept
-    ? `\n[Stopped at the ${formatSize(MAX_READ_WINDOW_BYTES)} per-read byte cap.]`
-    : "";
+  const continuation = partialLineKept
+    ? `\n\n[The final line is incomplete. Use offset=${lineEnd} byteOffset=${byteOffset + chunk.content.length} to continue that line.]`
+    : truncated
+      ? `\n\n[Use offset=${lineEnd + 1} to continue.]`
+      : "";
+  const byteCapNote = droppedPartialLine
+    ? `\n[Stopped at the ${formatSize(MAX_READ_WINDOW_BYTES)} per-read byte cap; the partial final line was omitted and will be re-read by the continuation offset.]`
+    : partialLineKept
+      ? `\n[Stopped at the ${formatSize(MAX_READ_WINDOW_BYTES)} per-read byte cap; the returned final line is only a byte fragment.]`
+      : "";
 
   return {
     content:
       `File: ${remotePath}\n` +
-      `Showing lines ${offset}-${lineEnd} of ${totalLines}\n\n` +
+      `Showing lines ${offset}-${lineEnd} of ${totalLines}${byteOffset > 0 ? ` (line ${offset} starting at byte ${byteOffset})` : ""}\n\n` +
       `${formatNumberedLines(windowLines, offset)}${continuation}${byteCapNote}`,
     details: {
       path: remotePath,
@@ -124,6 +135,7 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
       truncated,
       isBinary: false,
       byteLimited: chunk.reachedMaxBytes,
+      lineByteOffset: byteOffset,
     },
   };
 }

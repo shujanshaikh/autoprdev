@@ -33,6 +33,7 @@ describe("Trigger session append", () => {
     expect(secondHeaders.get("X-Part-Id")).toBe(
       firstHeaders.get("X-Part-Id"),
     );
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ redirect: "error" });
   });
 
   it("preserves the transport idempotency key across retries", async () => {
@@ -102,5 +103,45 @@ describe("Trigger session append", () => {
       1_000,
       1_000,
     ]);
+  });
+
+  it("rejects non-HTTPS and mismatched append origins before sending credentials", async () => {
+    const fetcher = vi.fn();
+
+    await expect(appendToTriggerSession({
+      url: "http://api.trigger.dev/realtime/v1/sessions/thread-1/in/append",
+      body: "{}",
+      headers: { Authorization: "Bearer token" },
+      fetcher,
+    })).rejects.toThrow("require HTTPS");
+    await expect(appendToTriggerSession({
+      url: "https://attacker.example/realtime/v1/sessions/thread-1/in/append",
+      trustedOrigin: "https://api.trigger.dev",
+      body: "{}",
+      headers: { Authorization: "Bearer token" },
+      fetcher,
+    })).rejects.toThrow("does not match");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("times out and retries a stalled append attempt", async () => {
+    const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        if (fetcher.mock.calls.length === 2) resolve(new Response(null, { status: 200 }));
+      }),
+    );
+
+    const response = await appendToTriggerSession({
+      url: "https://api.trigger.dev/realtime/v1/sessions/thread-1/in/append",
+      body: "{}",
+      headers: {},
+      fetcher,
+      waitForRetry: async () => undefined,
+      attemptTimeoutMs: 5,
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

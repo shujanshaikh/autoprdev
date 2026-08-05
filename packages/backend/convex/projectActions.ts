@@ -2,6 +2,7 @@
 
 import * as daytonaSdk from "@daytona/sdk";
 import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
+import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -51,25 +52,6 @@ const SANDBOX_RUNTIME_STATUS_CACHE_MS = 60_000;
 const MAX_ENV_VALUE_LENGTH = 64 * 1024;
 const MAX_BULK_ENV_COUNT = 50;
 const MAX_BULK_ENV_VALUE_LENGTH = 512 * 1024;
-const DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST = [
-  "github.com",
-  "api.github.com",
-  "*.githubusercontent.com",
-  "registry.npmjs.org",
-  "*.npmjs.org",
-  "pypi.org",
-  "*.pypi.org",
-  "*.pythonhosted.org",
-  "rubygems.org",
-  "*.rubygems.org",
-  "proxy.golang.org",
-  "sum.golang.org",
-  "crates.io",
-  "*.crates.io",
-  "repo.maven.apache.org",
-  "plugins.gradle.org",
-  "services.gradle.org",
-].join(",");
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 
@@ -266,6 +248,17 @@ function daytonaRateLimitRetryDelay(attempt: number) {
   );
 }
 
+async function retryDaytonaRateLimit<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isDaytonaRateLimitError(error) || attempt >= 4) throw error;
+      await sleep(daytonaRateLimitRetryDelay(attempt));
+    }
+  }
+}
+
 function createDaytonaClient() {
   const { Daytona } = daytonaSdk;
   return new Daytona({
@@ -274,12 +267,11 @@ function createDaytonaClient() {
   });
 }
 
-function sandboxDomainAllowList() {
-  return process.env.DAYTONA_DOMAIN_ALLOW_LIST?.trim() || DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST;
-}
-
 async function secureSandboxNetwork(sandbox: DaytonaSandbox) {
-  await sandbox.updateNetworkSettings({ domainAllowList: sandboxDomainAllowList() });
+  const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
+  if (sandbox.domainAllowList === domainAllowList) return sandbox;
+  await sandbox.updateNetworkSettings({ domainAllowList });
+  sandbox.domainAllowList = domainAllowList;
   return sandbox;
 }
 
@@ -557,6 +549,12 @@ async function ensureSandboxStartedUncoalesced(sandboxId: string) {
         return secureSandboxNetwork(sandbox);
       }
 
+      if (sandbox.domainAllowList !== sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST)) {
+        throw new Error(
+          "Refusing to start a sandbox whose network policy is missing or outdated. Recreate the sandbox to apply the configured domain allow-list before startup.",
+        );
+      }
+
       const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
       await sandbox.start(timeoutSeconds);
       return secureSandboxNetwork(sandbox);
@@ -692,7 +690,7 @@ async function bootstrapRepositorySandbox(options: {
     snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
     autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
     autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
-    domainAllowList: sandboxDomainAllowList(),
+    domainAllowList: sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST),
   });
   const repoDir = sandboxRepositoryDirectoryName({
     repoName: options.repoName,
@@ -1543,35 +1541,31 @@ export const bindProvisionedSandbox = action({
       },
     );
 
-    try {
-      const sandbox = await createDaytonaClient().get(args.sandboxId);
-      if (!isExpectedAutoprSandbox(sandbox, project.projectId)) {
-        throw new ConvexError({ code: "INVALID_SANDBOX_BINDING" });
-      }
-
-      const repoDirectory = sandboxRepositoryDirectoryName({
-        repoName: project.repoName,
-        repoUrl: project.cloneUrl,
-      });
-      const sandboxWorkDir = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDirectory);
-      await sandbox.git.status(sandboxWorkDir);
-
-      await ctx.runMutation(internal.projects.markSandboxReadyInternal, {
-        authorId: identity.subject,
-        projectId: project.projectId,
-        sandboxId: sandbox.id,
-        sandboxName: sandbox.name,
-        sandboxSnapshot: sandbox.snapshot,
-        sandboxWorkDir,
-      });
-      return null;
-    } catch (error) {
-      if (error instanceof ConvexError) throw error;
+    const daytona = createDaytonaClient();
+    const sandbox = await retryDaytonaRateLimit(() => daytona.get(args.sandboxId));
+    if (!isExpectedAutoprSandbox(sandbox, project.projectId)) {
       throw new ConvexError({
         code: "INVALID_SANDBOX_BINDING",
-        message: "The provisioned sandbox could not be verified for this project.",
+        message: "The provisioned sandbox belongs to a different project.",
       });
     }
+
+    const repoDirectory = sandboxRepositoryDirectoryName({
+      repoName: project.repoName,
+      repoUrl: project.cloneUrl,
+    });
+    const sandboxWorkDir = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDirectory);
+    await sandbox.git.status(sandboxWorkDir);
+
+    await ctx.runMutation(internal.projects.markSandboxReadyInternal, {
+      authorId: identity.subject,
+      projectId: project.projectId,
+      sandboxId: sandbox.id,
+      sandboxName: sandbox.name,
+      sandboxSnapshot: sandbox.snapshot,
+      sandboxWorkDir,
+    });
+    return null;
   },
 });
 

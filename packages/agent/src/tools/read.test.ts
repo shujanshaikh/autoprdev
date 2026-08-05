@@ -34,6 +34,7 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
       maxBytes: number;
       startLine?: number;
       endLine?: number;
+      skipBytes?: number;
       countLines?: boolean;
     }) => {
       const text = mocks.currentFiles.value.get(options.remotePath);
@@ -55,7 +56,7 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
         payload = Buffer.from(windowText, "utf8");
       }
 
-      const content = payload.subarray(0, options.maxBytes);
+      const content = payload.subarray(options.skipBytes ?? 0, (options.skipBytes ?? 0) + options.maxBytes);
       return {
         content,
         totalBytes: buffer.length,
@@ -96,7 +97,7 @@ function createSandboxFiles(initialFiles: Record<string, string> = {}) {
   return { files, sandbox };
 }
 
-async function executeRead(input: { path: string; offset?: number; limit?: number }): Promise<ReadResult> {
+async function executeRead(input: { path: string; offset?: number; limit?: number; byteOffset?: number }): Promise<ReadResult> {
   const readTool = createDaytonaReadTool({ cacheKey: "read-test" });
   if (!readTool.execute) {
     throw new Error("Read tool is not executable");
@@ -181,5 +182,21 @@ describe("Daytona read tool", () => {
     expect(result.details.linesReturned).toBe(1);
     expect(result.details.truncated).toBe(true);
   });
-});
 
+  it("continues an oversized single line by byte offset without losing its tail", async () => {
+    const hugeLine = `${"a".repeat(1024 * 1024)}TAIL`;
+    createSandboxFiles({ [`${WORK_DIR}/single-line.txt`]: `${hugeLine}\nnext\n` });
+
+    const first = await executeRead({ path: "single-line.txt", limit: 2 });
+    expect(first.content).toContain("final line is incomplete");
+    expect(first.content).toContain("offset=1 byteOffset=1048576");
+
+    const continuation = await executeRead({
+      path: "single-line.txt",
+      offset: 1,
+      byteOffset: 1024 * 1024,
+    });
+    expect(continuation.content).toContain("1 | TAIL");
+    expect(continuation.content).toContain("[Use offset=2 to continue.]");
+  });
+});

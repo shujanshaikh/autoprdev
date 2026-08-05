@@ -135,9 +135,7 @@ export async function consumeAgentRunStream({
             if (finished) break;
           }
         } finally {
-          if (finished) {
-            await reader.cancel().catch(() => undefined);
-          }
+          await reader.cancel().catch(() => undefined);
           reader.releaseLock();
         }
 

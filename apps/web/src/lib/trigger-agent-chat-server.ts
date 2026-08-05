@@ -10,6 +10,7 @@ import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import {
   codexErrorResponse,
   createCodexAgentModelOptions,
+  revokeCodexAgentModelOptions,
 } from "#/lib/codex-auth-server";
 import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import { appendToTriggerSession } from "#/lib/trigger-session-append";
@@ -117,7 +118,18 @@ function requestedClientData(metadata: Record<string, unknown> | undefined): Age
 }
 
 function triggerApiBaseUrl() {
-  return (process.env.TRIGGER_API_URL?.trim() || "https://api.trigger.dev").replace(/\/$/, "");
+  const raw = process.env.TRIGGER_API_URL?.trim() || "https://api.trigger.dev";
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("TRIGGER_API_URL must be a valid HTTPS URL.");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error("TRIGGER_API_URL must use HTTPS.");
+  }
+  url.pathname = url.pathname.replace(/\/$/, "");
+  return url;
 }
 
 async function loadAgentContext(projectId: string, threadId: string) {
@@ -157,6 +169,10 @@ async function createTrustedClientData(options: {
       options.request,
       options.requested.model,
       options.requested.reasoningEffort,
+      {
+        taskId: AGENT_CHAT_TASK_ID,
+        contextId: `${options.project.projectId}:${options.thread.threadId}`,
+      },
     ),
     createAgentPersistenceGrant(),
   ]);
@@ -236,11 +252,11 @@ async function proxyInputChunk(options: {
   }
 
   let inputChunk = parsed.data;
+  let issuedCodex: AgentChatClientData["codex"] | undefined;
   if (inputChunk.kind === "message") {
     if (inputChunk.payload.chatId !== options.thread.threadId) {
       return Response.json({ error: "Chat session does not match this thread." }, { status: 409 });
     }
-
     if (options.project.sandboxStatus !== "ready" || !options.project.sandboxId) {
       return Response.json({ error: "Project sandbox is not ready yet." }, { status: 409 });
     }
@@ -257,6 +273,7 @@ async function proxyInputChunk(options: {
     } catch (error) {
       return codexErrorResponse(error, "Could not load Codex credentials.");
     }
+    issuedCodex = trustedClientData.codex;
 
     inputChunk = {
       ...inputChunk,
@@ -269,12 +286,29 @@ async function proxyInputChunk(options: {
     };
   }
 
-  return await appendToTriggerSession({
-    url: `${triggerApiBaseUrl()}/realtime/v1/sessions/${encodeURIComponent(options.thread.threadId)}/in/append`,
-    headers,
-    body: JSON.stringify(inputChunk),
-    signal: options.request.signal,
-  });
+  const triggerBaseUrl = triggerApiBaseUrl();
+  const appendUrl = new URL(
+    `${triggerBaseUrl.pathname}/realtime/v1/sessions/${encodeURIComponent(options.thread.threadId)}/in/append`,
+    triggerBaseUrl,
+  );
+  try {
+    const response = await appendToTriggerSession({
+      url: appendUrl.toString(),
+      trustedOrigin: triggerBaseUrl.origin,
+      headers,
+      body: JSON.stringify(inputChunk),
+      signal: options.request.signal,
+    });
+    if (!response.ok && issuedCodex) {
+      await revokeCodexAgentModelOptions(issuedCodex).catch(() => undefined);
+    }
+    return response;
+  } catch (error) {
+    if (issuedCodex) {
+      await revokeCodexAgentModelOptions(issuedCodex).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 export function isAgentChatRequest(request: Request, body: unknown) {
@@ -367,6 +401,7 @@ export async function handleAgentChatRequest(options: {
       publicAccessToken: session.publicAccessToken,
     });
   } catch (error) {
+    await revokeCodexAgentModelOptions(clientData.codex).catch(() => undefined);
     return Response.json(
       { error: error instanceof Error ? error.message : "Could not start agent chat." },
       { status: 500 },

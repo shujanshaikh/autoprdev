@@ -1,4 +1,5 @@
 import { Daytona } from "@daytona/sdk";
+import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 
 import {
   DEFAULT_SANDBOX_WORKDIR,
@@ -12,6 +13,10 @@ export {
   sandboxRepositoryDirectoryName,
   sandboxRepositoryPath,
 } from "./repo-path";
+export {
+  DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST,
+  sandboxDomainAllowList,
+} from "@autopr/config/sandbox-network-policy";
 
 export interface SandboxContext {
   sandbox: DaytonaSandbox;
@@ -25,6 +30,7 @@ export interface DaytonaSandbox {
   state?: string;
   autoArchiveInterval?: number;
   toolboxProxyUrl?: string;
+  domainAllowList?: string;
   start(timeout?: number): Promise<void>;
   setAutoArchiveInterval(interval: number): Promise<void>;
   updateNetworkSettings(settings: { domainAllowList: string }): Promise<void>;
@@ -172,26 +178,6 @@ const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000] as const;
 const SANDBOX_LOOKUP_CACHE_MS = 5_000;
-const DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST = [
-  "github.com",
-  "api.github.com",
-  "*.githubusercontent.com",
-  "registry.npmjs.org",
-  "*.npmjs.org",
-  "pypi.org",
-  "*.pypi.org",
-  "*.pythonhosted.org",
-  "rubygems.org",
-  "*.rubygems.org",
-  "proxy.golang.org",
-  "sum.golang.org",
-  "crates.io",
-  "*.crates.io",
-  "repo.maven.apache.org",
-  "plugins.gradle.org",
-  "services.gradle.org",
-].join(",");
-
 const sandboxContextPromises = new Map<string, {
   promise: Promise<SandboxContext>;
   expiresAt: number;
@@ -321,12 +307,16 @@ function createDaytonaClient() {
   });
 }
 
-function sandboxDomainAllowList() {
-  return process.env.DAYTONA_DOMAIN_ALLOW_LIST?.trim() || DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST;
-}
-
 async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
-  await sandbox.updateNetworkSettings({ domainAllowList: sandboxDomainAllowList() });
+  const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
+  if (sandbox.domainAllowList === domainAllowList) return sandbox;
+  if (sandbox.state && sandbox.state !== "started") {
+    throw new Error(
+      "Refusing to start a sandbox whose network policy is missing or outdated. Recreate the sandbox to apply the configured domain allow-list before startup.",
+    );
+  }
+  await sandbox.updateNetworkSettings({ domainAllowList });
+  sandbox.domainAllowList = domainAllowList;
   return sandbox;
 }
 
@@ -343,8 +333,10 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
     const existing = sandboxLookupPromises.get(sandboxId);
     if (existing) return await existing;
 
-    const pending = retryDaytonaRateLimit(async () => ensureSandboxNetworkPolicy(
-      await ensureSandboxStarted(await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId))),
+    const pending = retryDaytonaRateLimit(async () => ensureSandboxStarted(
+      await ensureSandboxNetworkPolicy(
+        await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId)),
+      ),
     ));
     sandboxLookupPromises.set(sandboxId, pending);
     try {
@@ -368,7 +360,7 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
       labels: resolved.labels,
       autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
       autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
-      domainAllowList: sandboxDomainAllowList(),
+      domainAllowList: sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST),
     }),
   );
 }
@@ -377,9 +369,7 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
 export async function getSandboxWithoutStarting(sandboxId: string): Promise<DaytonaSandbox> {
   const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
-  return sandbox.state === "started"
-    ? ensureSandboxNetworkPolicy(sandbox)
-    : sandbox;
+  return ensureSandboxNetworkPolicy(sandbox);
 }
 
 export async function deleteSandbox(sandboxId: string): Promise<void> {

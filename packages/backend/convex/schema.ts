@@ -280,6 +280,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     uploadedAt: v.optional(v.number()),
+    uploadAttemptId: v.optional(v.string()),
   })
     .index("by_thread_recording", ["threadId", "recordingId"])
     .index("by_project", ["projectId"])

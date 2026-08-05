@@ -30,12 +30,13 @@ function chunkResponseThenError(chunk: UIMessageChunk) {
   });
 }
 
-function hangingChunkResponse(chunk: UIMessageChunk) {
+function hangingChunkResponse(chunk: UIMessageChunk, onCancel: () => void) {
   return createUIMessageStreamResponse({
     stream: new ReadableStream<UIMessageChunk>({
       start(controller) {
         controller.enqueue(chunk);
       },
+      cancel: onCancel,
     }),
   });
 }
@@ -63,8 +64,9 @@ describe("consumeAgentRunStream", () => {
   });
 
   it("completes when finish arrives before the realtime response closes", async () => {
+    const onCancel = vi.fn();
     const fetchAuthenticated = vi.fn().mockResolvedValueOnce(
-      hangingChunkResponse({ type: "finish" }),
+      hangingChunkResponse({ type: "finish" }, onCancel),
     );
 
     await expect(consumeAgentRunStream({
@@ -76,7 +78,8 @@ describe("consumeAgentRunStream", () => {
       onStatus: () => undefined,
     })).resolves.toBeUndefined();
     expect(fetchAuthenticated).toHaveBeenCalledOnce();
-  });
+    expect(onCancel).toHaveBeenCalledOnce();
+  }, 2_000);
 
   it("does not retry permanent HTTP failures", async () => {
     const fetchAuthenticated = vi.fn().mockResolvedValue(

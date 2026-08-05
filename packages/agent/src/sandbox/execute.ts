@@ -1,4 +1,8 @@
-import { getSandboxContext, type SandboxSessionOptions } from "./index";
+import {
+  getSandboxContext,
+  type DaytonaSandbox,
+  type SandboxSessionOptions,
+} from "./index";
 
 function toPosixPath(path: string): string {
   return path.replace(/\\/g, "/");
@@ -196,6 +200,35 @@ async function canonicalizeRemotePaths(
   return lines;
 }
 
+const canonicalRootCache = new WeakMap<
+  DaytonaSandbox,
+  Map<string, Promise<string[]>>
+>();
+
+async function canonicalizeRemoteRoots(
+  roots: string[],
+  sandboxOptions?: SandboxSessionOptions,
+) {
+  const { sandbox } = await getSandboxContext(sandboxOptions);
+  let sandboxCache = canonicalRootCache.get(sandbox);
+  if (!sandboxCache) {
+    sandboxCache = new Map();
+    canonicalRootCache.set(sandbox, sandboxCache);
+  }
+  const key = JSON.stringify(roots);
+  const cached = sandboxCache.get(key);
+  if (cached) return cached;
+
+  const pending = canonicalizeRemotePaths(roots, sandboxOptions);
+  sandboxCache.set(key, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    if (sandboxCache.get(key) === pending) sandboxCache.delete(key);
+    throw error;
+  }
+}
+
 export interface ResolveJailedSandboxPathOptions {
   workDir: string;
   sandboxOptions?: SandboxSessionOptions;
@@ -231,9 +264,11 @@ export async function resolveJailedSandboxPath(
 
   // Canonical check: a symlink inside the workspace can still point outside
   // it, so compare realpath output before trusting the candidate.
-  const canonical = await canonicalizeRemotePaths([...roots, candidate], options.sandboxOptions);
-  const canonicalCandidate = canonical[roots.length]!;
-  const canonicalRoots = canonical.slice(0, roots.length);
+  const [canonicalRoots, canonicalCandidates] = await Promise.all([
+    canonicalizeRemoteRoots(roots, options.sandboxOptions),
+    canonicalizeRemotePaths([candidate], options.sandboxOptions),
+  ]);
+  const canonicalCandidate = canonicalCandidates[0]!;
 
   if (!canonicalRoots.some((root) => isPathWithinRoot(canonicalCandidate, root))) {
     throw new SandboxPathBoundaryError(candidate, options.workDir);
@@ -365,6 +400,8 @@ export interface DownloadRemoteFileChunkOptions {
   startLine?: number;
   /** 1-based inclusive last line to transfer. Requires startLine. */
   endLine?: number;
+  /** Bytes to skip within the selected line window before applying maxBytes. */
+  skipBytes?: number;
   /** Also count the file's lines remotely (returned as totalLines). */
   countLines?: boolean;
   timeout?: number;
@@ -412,6 +449,9 @@ export async function downloadRemoteFileChunk(
   if ((options.startLine === undefined) !== (options.endLine === undefined)) {
     throw new Error("startLine and endLine must be provided together.");
   }
+  if (options.skipBytes !== undefined && (!Number.isFinite(options.skipBytes) || options.skipBytes < 0)) {
+    throw new Error(`Invalid download byte offset: ${options.skipBytes}`);
+  }
 
   if (options.remotePath.includes("\n") || options.remotePath.includes("\r")) {
     throw new Error(`Invalid remote path: ${options.remotePath}`);
@@ -424,10 +464,16 @@ export async function downloadRemoteFileChunk(
     `printf '%s\\n' ${shellQuote(`remote file not found: ${options.remotePath}`)} >&2; ` +
     `exit ${REMOTE_FILE_MISSING_EXIT_CODE}; fi`;
   const stats = options.countLines ? `wc -l -c < ${quotedPath}` : `wc -c < ${quotedPath}`;
-  const payload = options.startLine !== undefined
-    ? `sed -n ${shellQuote(`${options.startLine},${options.endLine}p`)} -- ${quotedPath} | head -c ${maxBytes} | base64 | tr -d '\\n'`
+  const selected = options.startLine !== undefined
+    ? `sed -n ${shellQuote(`${options.startLine},${options.endLine}p`)} -- ${quotedPath}`
+    : undefined;
+  const skipped = options.skipBytes
+    ? `${selected ?? `cat -- ${quotedPath}`} | tail -c +${Math.floor(options.skipBytes) + 1}`
+    : selected;
+  const payload = skipped
+    ? `${skipped} | head -c ${maxBytes} | base64 | tr -d '\\n'`
     : `head -c ${maxBytes} -- ${quotedPath} | base64 | tr -d '\\n'`;
-  const command = `set -o pipefail; ${guard}; ${stats}; ${payload}`;
+  const command = `${guard}; ${stats}; ${payload}`;
 
   const result = await executeSandboxCommand(command, {
     cwd: "/",

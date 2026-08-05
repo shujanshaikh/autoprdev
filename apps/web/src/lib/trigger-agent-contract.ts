@@ -24,7 +24,9 @@ export function threadSandboxCacheKey(projectCacheKey: string, threadId: string)
   return `${projectCacheKey}:thread:${threadId}`;
 }
 
-export interface CodexAgentModelOptions {
+type AgentTaskId = typeof AGENT_TASK_ID | typeof AGENT_CHAT_TASK_ID;
+
+export interface CodexAgentModelOptions<TTaskId extends AgentTaskId = AgentTaskId> {
   provider: "openai-codex";
   modelId: string;
   reasoningEffort: string;
@@ -36,6 +38,11 @@ export interface CodexAgentModelOptions {
    * redeems this short-lived grant inside the run instead.
    */
   credentialsGrantId: string;
+  credentialsGrantContext: {
+    userId: string;
+    taskId: TTaskId;
+    contextId: string;
+  };
 }
 
 export interface AgentTaskOptions {
@@ -50,7 +57,7 @@ export interface AgentTaskOptions {
   assistantMessageId?: string;
   persistenceToken?: string;
   demoEnabled?: boolean;
-  codex: CodexAgentModelOptions;
+  codex: CodexAgentModelOptions<typeof AGENT_TASK_ID>;
 }
 
 export interface AgentTaskPayload {
@@ -83,5 +90,5 @@ export interface AgentChatClientData extends Record<string, unknown> {
   repoName?: string;
   persistenceToken: string;
   demoEnabled?: boolean;
-  codex: CodexAgentModelOptions;
+  codex: CodexAgentModelOptions<typeof AGENT_CHAT_TASK_ID>;
 }

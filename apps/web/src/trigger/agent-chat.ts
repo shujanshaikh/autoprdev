@@ -5,6 +5,7 @@ import {
   createDaytonaTools,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
+  withSandboxAgentProjectContext,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { chat } from "@trigger.dev/sdk/ai";
@@ -31,7 +32,10 @@ import {
   toUIMessage,
   type StoredMessageRow,
 } from "#/lib/chat-messages";
-import { createCodexResponsesModel } from "#/lib/codex-auth-runtime-server";
+import {
+  createCodexResponsesModel,
+  revokeCodexAgentGrant,
+} from "#/lib/codex-auth-runtime-server";
 import { getCodexContextLimit } from "#/lib/codex-models";
 import {
   AGENT_CHAT_TASK_ID,
@@ -57,6 +61,11 @@ const agentChatClientDataSchema = z.object({
     reasoningEffort: z.string().min(1),
     promptCacheKey: z.string().min(1).optional(),
     credentialsGrantId: z.string().min(1),
+    credentialsGrantContext: z.object({
+      userId: z.string().min(1),
+      taskId: z.literal(AGENT_CHAT_TASK_ID),
+      contextId: z.string().min(1),
+    }),
   }),
 }) satisfies z.ZodType<AgentChatClientData>;
 
@@ -206,20 +215,26 @@ export const agentChatTask = chat.agent({
         }
       : undefined;
 
-    await fetchAction(
-      api.messages.completeAgentSessionTurnFromAgent,
-      {
-        threadId: chatId,
-        persistenceToken: trusted.persistenceToken,
-        runId,
-        lastEventId,
-        responseMessage: persistedResponse,
-        issue: error
-          ? agentRunIssueFromError(error, runId, ctx.attempt.number)
-          : undefined,
-      },
-      { url: getConvexUrl() },
-    );
+    try {
+      await fetchAction(
+        api.messages.completeAgentSessionTurnFromAgent,
+        {
+          threadId: chatId,
+          persistenceToken: trusted.persistenceToken,
+          runId,
+          lastEventId,
+          responseMessage: persistedResponse,
+          issue: error
+            ? agentRunIssueFromError(error, runId, ctx.attempt.number)
+            : undefined,
+        },
+        { url: getConvexUrl() },
+      );
+    } finally {
+      await revokeCodexAgentGrant(trusted.codex.credentialsGrantId).catch((revokeError) => {
+        console.error("Failed to revoke the Codex credential grant", revokeError);
+      });
+    }
   },
   run: async ({ chatId, clientData, messages, signal, tools }) => {
     const trusted = requireClientData(clientData, chatId);
@@ -235,7 +250,7 @@ export const agentChatTask = chat.agent({
         trusted.codex.promptCacheKey ?? codexPromptCacheKey(trusted),
     };
     const startedAt = Date.now();
-    const { instructions } = await harness.prepare();
+    const { instructions, repositoryContext } = await harness.prepare();
     const model = wrapLanguageModel({
       model: await createCodexResponsesModel(codex),
       middleware: createContextOverflowRecoveryMiddleware(),
@@ -245,7 +260,9 @@ export const agentChatTask = chat.agent({
       ...chat.toStreamTextOptions({ tools }),
       model,
       system: createCachedSystemMessage(instructions),
-      messages: applyAgenticCache(messages),
+      messages: applyAgenticCache(
+        withSandboxAgentProjectContext(messages, repositoryContext),
+      ),
       tools,
       toolChoice: "auto",
       stopWhen: stepCountIs(MAX_AGENT_STEPS),

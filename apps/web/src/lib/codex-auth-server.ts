@@ -9,6 +9,7 @@ import {
   getWorkOSVault,
   isMissingVaultObject,
   isVaultConflict,
+  revokeCodexAgentGrant,
   vaultObjectName,
 } from "#/lib/codex-auth-runtime-server";
 import {
@@ -279,14 +280,27 @@ export async function getCodexAgentModelConfig(request: Request, model?: string,
  * opaque grant id is placed on the retained run payload; the worker redeems
  * it inside the run.
  */
-export async function createCodexAgentModelOptions(
+export async function createCodexAgentModelOptions<
+  TTaskId extends "autopr-agent" | "autopr-chat-agent",
+>(
   request: Request,
   model?: string,
   reasoningEffort?: string,
-): Promise<CodexAgentModelOptions> {
+  grantContext?: {
+    taskId: TTaskId;
+    contextId: string;
+  },
+): Promise<CodexAgentModelOptions<TTaskId>> {
+  if (!grantContext) {
+    throw new CodexConnectionError("Codex agent grant context is required.", 500);
+  }
   const config = await getCodexAgentModelConfig(request, model, reasoningEffort);
-  const credentialsGrantId = await createCodexAgentGrant({
+  const credentialsGrantContext = {
     userId: config.userId,
+    ...grantContext,
+  };
+  const credentialsGrantId = await createCodexAgentGrant({
+    ...credentialsGrantContext,
     sessionCookieHeader: config.chatgptCookieHeader,
   });
 
@@ -295,7 +309,12 @@ export async function createCodexAgentModelOptions(
     modelId: config.modelId,
     reasoningEffort: config.reasoningEffort,
     credentialsGrantId,
+    credentialsGrantContext,
   };
+}
+
+export function revokeCodexAgentModelOptions(options: CodexAgentModelOptions) {
+  return revokeCodexAgentGrant(options.credentialsGrantId);
 }
 
 export function codexErrorResponse(error: unknown, fallback: string) {

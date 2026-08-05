@@ -19,8 +19,13 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
   const original = await importOriginal<typeof import("../sandbox/execute")>();
 
   mocks.resolveJailedSandboxPath.mockImplementation(
-    async (inputPath: string | undefined, options: { workDir: string }) =>
-      original.resolveSandboxPath(inputPath, options.workDir),
+    async (inputPath: string | undefined, options: { workDir: string }) => {
+      const resolved = original.resolveSandboxPath(inputPath, options.workDir);
+      if (!original.isPathWithinRoot(resolved, options.workDir)) {
+        throw new original.SandboxPathBoundaryError(resolved, options.workDir);
+      }
+      return resolved;
+    },
   );
   mocks.downloadRemoteFileChunk.mockImplementation(
     async (options: { remotePath: string; maxBytes: number }) => {
@@ -120,6 +125,19 @@ describe("Daytona write tool", () => {
       unchanged: false,
       diff: { status: "added" },
     });
+  });
+
+  it("rejects relative and absolute paths outside the workspace jail", async () => {
+    const remote = createSandboxFiles();
+    mocks.getSandboxContext.mockResolvedValue({ sandbox: remote.sandbox, workDir: "/workspace/repo" });
+
+    await expect(executeWrite({ path: "../../etc/passwd", content: "nope" })).rejects.toThrow(
+      /outside the sandbox workspace/,
+    );
+    await expect(executeWrite({ path: "/etc/passwd", content: "nope" })).rejects.toThrow(
+      /outside the sandbox workspace/,
+    );
+    expect(remote.uploadFile).not.toHaveBeenCalled();
   });
 
   it("fully overwrites an existing file and returns its diff", async () => {

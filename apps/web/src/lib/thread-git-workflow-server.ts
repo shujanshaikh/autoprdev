@@ -41,6 +41,7 @@ import {
   getGithubRepositoryTokenForFullName,
   getGithubUserIdentity,
   GithubConnectionError,
+  requireGithubRepositoryWriteAccess,
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
@@ -66,6 +67,10 @@ function needsGithub(action: GitWorkflowAction) {
 
 function needsPullRequest(action: GitWorkflowAction) {
   return action === "create_pr" || action === "push_create_pr" || action === "commit_push_create_pr";
+}
+
+function needsPush(action: GitWorkflowAction) {
+  return action === "push" || action === "commit_push" || action === "push_create_pr" || action === "commit_push_create_pr";
 }
 
 function phaseError(error: unknown, phase: GitWorkflowPhase) {
@@ -242,7 +247,21 @@ export async function runThreadGitWorkflow(options: {
       try {
         identity = await getGithubUserIdentity(authState.user, token);
       } catch (error) {
-        if (!(error instanceof GithubConnectionError)) throw error;
+        if (!(error instanceof GithubConnectionError) || needsPush(options.input.action)) throw error;
+      }
+      if (needsPush(options.input.action)) {
+        const targetFullName = thread.githubPullRequestHeadRepository
+          ?? `${project.repoOwner}/${project.repoName}`;
+        const [targetOwner, targetRepo, ...extra] = targetFullName.split("/");
+        if (!targetOwner || !targetRepo || extra.length > 0) {
+          throw new GithubConnectionError("Invalid GitHub push repository.");
+        }
+        await requireGithubRepositoryWriteAccess(
+          token,
+          targetOwner,
+          targetRepo,
+          identity.username,
+        );
       }
       sandboxToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
       pushSandboxToken = thread.githubPullRequestHeadRepository

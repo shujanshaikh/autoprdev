@@ -12,10 +12,6 @@ const uploadStatusValidator = v.union(
   v.literal("failed"),
 );
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export const getPlaybackUrl = query({
   args: {
     projectId: v.string(),
@@ -126,10 +122,12 @@ export const markUploadingInternal = internalMutation({
     contentType: v.optional(v.string()),
     sizeBytes: v.optional(v.number()),
     durationSeconds: v.optional(v.number()),
+    uploadAttemptId: v.string(),
   },
   returns: v.object({
     r2Key: v.string(),
     status: uploadStatusValidator,
+    uploadAttemptId: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -144,7 +142,7 @@ export const markUploadingInternal = internalMutation({
       }
 
       if (existing.status === "uploaded" && existing.r2Key) {
-        return { r2Key: existing.r2Key, status: "uploaded" as const };
+        return { r2Key: existing.r2Key, status: "uploaded" as const, uploadAttemptId: undefined };
       }
 
       await ctx.db.patch(existing._id, {
@@ -156,9 +154,14 @@ export const markUploadingInternal = internalMutation({
         status: "uploading",
         error: undefined,
         updatedAt: now,
+        uploadAttemptId: args.uploadAttemptId,
       });
 
-      return { r2Key: existing.r2Key ?? args.r2Key, status: "uploading" as const };
+      return {
+        r2Key: existing.r2Key ?? args.r2Key,
+        status: "uploading" as const,
+        uploadAttemptId: args.uploadAttemptId,
+      };
     }
 
     await ctx.db.insert("recordingArtifacts", {
@@ -174,9 +177,10 @@ export const markUploadingInternal = internalMutation({
       status: "uploading",
       createdAt: now,
       updatedAt: now,
+      uploadAttemptId: args.uploadAttemptId,
     });
 
-    return { r2Key: args.r2Key, status: "uploading" as const };
+    return { r2Key: args.r2Key, status: "uploading" as const, uploadAttemptId: args.uploadAttemptId };
   },
 });
 
@@ -191,6 +195,7 @@ export const markUploadedInternal = internalMutation({
     contentType: v.optional(v.string()),
     sizeBytes: v.optional(v.number()),
     durationSeconds: v.optional(v.number()),
+    uploadAttemptId: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -201,6 +206,9 @@ export const markUploadedInternal = internalMutation({
 
     if (!artifact || artifact.authorId !== args.authorId || artifact.projectId !== args.projectId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (artifact.status !== "uploading" || artifact.uploadAttemptId !== args.uploadAttemptId) {
+      return null;
     }
 
     const now = Date.now();
@@ -214,6 +222,7 @@ export const markUploadedInternal = internalMutation({
       error: undefined,
       uploadedAt: now,
       updatedAt: now,
+      uploadAttemptId: undefined,
     });
 
     return null;
@@ -226,6 +235,7 @@ export const markFailedInternal = internalMutation({
     projectId: v.string(),
     threadId: v.string(),
     recordingId: v.string(),
+    uploadAttemptId: v.string(),
     error: v.string(),
   },
   returns: v.null(),
@@ -238,11 +248,15 @@ export const markFailedInternal = internalMutation({
     if (!artifact || artifact.authorId !== args.authorId || artifact.projectId !== args.projectId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
+    if (artifact.status !== "uploading" || artifact.uploadAttemptId !== args.uploadAttemptId) {
+      return null;
+    }
 
     await ctx.db.patch(artifact._id, {
       status: "failed",
       error: args.error.slice(0, MAX_ERROR_LENGTH),
       updatedAt: Date.now(),
+      uploadAttemptId: undefined,
     });
 
     return null;

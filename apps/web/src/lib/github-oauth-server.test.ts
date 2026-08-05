@@ -1,11 +1,19 @@
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const initialGithubAppId = process.env.GITHUB_APP_ID;
+const initialGithubAppPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY;
+
+function restoreEnvironment(name: "GITHUB_APP_ID" | "GITHUB_APP_PRIVATE_KEY", value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 describe("Autopr GitHub App installation access", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete process.env.GITHUB_APP_ID;
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
+    restoreEnvironment("GITHUB_APP_ID", initialGithubAppId);
+    restoreEnvironment("GITHUB_APP_PRIVATE_KEY", initialGithubAppPrivateKey);
   });
 
   it("accepts GitHub's PKCS#1 key and returns install or configure actions", async () => {
@@ -73,5 +81,30 @@ describe("Autopr GitHub App installation access", () => {
       action: "installed",
       installUrl: "https://github.com/apps/autopr-dev/installations/new",
     });
+  });
+
+  it("requires the connected user to retain push permission", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ permission: "write" }))
+      .mockResolvedValueOnce(Response.json({ permission: "read" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { requireGithubRepositoryWriteAccess } = await import("./github-oauth-server");
+
+    await expect(requireGithubRepositoryWriteAccess(
+      "oauth-token",
+      "acme",
+      "widget",
+      "octocat",
+    )).resolves.toBeUndefined();
+    await expect(requireGithubRepositoryWriteAccess(
+      "oauth-token",
+      "acme",
+      "widget",
+      "octocat",
+    )).rejects.toThrow("cannot push");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/acme/widget/collaborators/octocat/permission",
+      expect.objectContaining({ redirect: "error" }),
+    );
   });
 });

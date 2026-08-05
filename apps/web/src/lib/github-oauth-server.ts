@@ -453,6 +453,32 @@ export interface GithubUserIdentity {
   email: string;
 }
 
+export async function requireGithubRepositoryWriteAccess(
+  token: string,
+  owner: string,
+  repo: string,
+  username: string,
+) {
+  const response = await fetch(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}` +
+      `/collaborators/${encodeURIComponent(username)}/permission`,
+    { headers: githubHeaders(token), redirect: "error" },
+  );
+  if (!response.ok) {
+    throw new GithubConnectionError(
+      response.status === 404
+        ? `Your GitHub account cannot push to ${owner}/${repo}.`
+        : `Could not verify your GitHub write access to ${owner}/${repo}.`,
+    );
+  }
+  const body = await response.json() as { permission?: string; user?: { permissions?: { push?: boolean } } };
+  const canPush = body.user?.permissions?.push === true ||
+    body.permission === "admin" || body.permission === "maintain" || body.permission === "write";
+  if (!canPush) {
+    throw new GithubConnectionError(`Your GitHub account cannot push to ${owner}/${repo}.`);
+  }
+}
+
 function githubHeaders(token: string) {
   return {
     Accept: "application/vnd.github+json",

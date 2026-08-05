@@ -6,7 +6,7 @@ import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { codexErrorResponse, getCodexAgentModelConfig } from "#/lib/codex-auth-server";
+import { codexErrorResponse, createCodexAgentModelOptions } from "#/lib/codex-auth-server";
 import {
   AGENT_IDEMPOTENCY_KEY_TTL,
   AGENT_TASK_ID,
@@ -43,7 +43,7 @@ async function POST(req: Request) {
 
   const [modelMessages, codex] = await Promise.all([
     convertToModelMessages(messages),
-    getCodexAgentModelConfig(req, model, reasoningEffort).catch((error) =>
+    createCodexAgentModelOptions(req, model, reasoningEffort).catch((error) =>
       error instanceof Error ? error : new Error("Could not load Codex credentials."),
     ),
   ]);

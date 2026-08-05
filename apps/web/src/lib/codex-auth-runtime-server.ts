@@ -6,6 +6,7 @@ import {
   type StoredSession,
 } from "@opencoredev/loginwithchatgpt-server";
 import { WorkOS } from "@workos-inc/node";
+import { nanoid } from "nanoid";
 
 export const CODEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -213,18 +214,82 @@ function authRequestFromCookieHeader(cookieHeader: string) {
   });
 }
 
+/**
+ * Trigger.dev retains run payloads and session metadata, so the ChatGPT
+ * session cookie must never be placed on a task payload. Instead the web
+ * server stores the cookie in a short-lived Vault grant and only the opaque
+ * grant id travels to Trigger; the worker redeems it here, inside the run.
+ * The TTL covers Trigger's maximum run lifecycle (see AGENT_IDEMPOTENCY_KEY_TTL)
+ * and the store deletes expired objects on read.
+ */
+export const CODEX_AGENT_GRANT_TTL_MS = 2 * 60 * 60 * 1000;
+
+export type CodexAgentGrant = {
+  userId: string;
+  sessionCookieHeader: string;
+};
+
+const codexAgentGrantStore = new WorkOSVaultStore<CodexAgentGrant>("agent-codex-grant");
+
+export async function createCodexAgentGrant(grant: CodexAgentGrant): Promise<string> {
+  const grantId = nanoid(32);
+  await codexAgentGrantStore.set(grantId, grant, { ttlMs: CODEX_AGENT_GRANT_TTL_MS });
+  return grantId;
+}
+
+export async function resolveCodexAgentGrant(grantId: string): Promise<CodexAgentGrant> {
+  const grant = await codexAgentGrantStore.get(grantId);
+  if (!grant) {
+    throw new CodexConnectionError(
+      "Codex credentials for this run are missing or expired. Send the message again to start a fresh run.",
+      401,
+    );
+  }
+
+  return grant;
+}
+
+export type CodexResponsesModelCredentials =
+  | { chatgptCookieHeader: string; credentialsGrantId?: never }
+  | { credentialsGrantId: string; chatgptCookieHeader?: never };
+
 export async function createCodexResponsesModel(options: {
-  chatgptCookieHeader: string;
   modelId: string;
   reasoningEffort: string;
-}): Promise<CodexResponsesModel> {
-  const authRequest = authRequestFromCookieHeader(options.chatgptCookieHeader);
+} & CodexResponsesModelCredentials): Promise<CodexResponsesModel> {
+  // Resolve the session cookie lazily and cache it per model instance: a grant
+  // is redeemed at most once per turn, and token refreshes within the turn
+  // reuse the cached cookie instead of extra Vault reads.
+  let cookieHeaderPromise: Promise<string> | undefined;
+  const resolveCookieHeader = () => {
+    if (!cookieHeaderPromise) {
+      const pending = (async () => {
+        if (typeof options.chatgptCookieHeader === "string") {
+          return options.chatgptCookieHeader;
+        }
+
+        return (await resolveCodexAgentGrant(options.credentialsGrantId)).sessionCookieHeader;
+      })();
+      cookieHeaderPromise = pending;
+      // Do not cache failures: a transient Vault error should not poison the
+      // whole model instance.
+      pending.catch(() => {
+        if (cookieHeaderPromise === pending) {
+          cookieHeaderPromise = undefined;
+        }
+      });
+    }
+
+    return cookieHeaderPromise;
+  };
+
   const chatgpt = createChatGPT({
     clientVersion: getCodexClientVersion(),
     defaultModel: options.modelId,
     reasoningEffort: options.reasoningEffort as CreateChatGPTOptions["reasoningEffort"],
     reasoningSummary: "auto",
     credentials: async () => {
+      const authRequest = authRequestFromCookieHeader(await resolveCookieHeader());
       const tokens = await chatGPTAuth.getTokens(authRequest);
       if (!tokens) {
         throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);

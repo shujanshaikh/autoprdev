@@ -8,7 +8,7 @@ import { z } from "zod";
 import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
-import { codexErrorResponse, getCodexAgentModelConfig } from "#/lib/codex-auth-server";
+import { codexErrorResponse, createCodexAgentModelOptions } from "#/lib/codex-auth-server";
 import {
   AGENT_IDEMPOTENCY_KEY_TTL,
   AGENT_TASK_ID,
@@ -172,7 +172,7 @@ async function POST(
       );
     }
 
-    const codex = await getCodexAgentModelConfig(req, parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
+    const codex = await createCodexAgentModelOptions(req, parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
       error instanceof Error ? error : new Error("Could not load Codex credentials."),
     );
 

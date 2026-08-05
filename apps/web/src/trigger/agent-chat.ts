@@ -56,7 +56,7 @@ const agentChatClientDataSchema = z.object({
     modelId: z.string().min(1),
     reasoningEffort: z.string().min(1),
     promptCacheKey: z.string().min(1).optional(),
-    chatgptCookieHeader: z.string().min(1),
+    credentialsGrantId: z.string().min(1),
   }),
 }) satisfies z.ZodType<AgentChatClientData>;
 

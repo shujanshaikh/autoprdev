@@ -9,7 +9,7 @@ import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import {
   codexErrorResponse,
-  getCodexAgentModelConfig,
+  createCodexAgentModelOptions,
 } from "#/lib/codex-auth-server";
 import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import { appendToTriggerSession } from "#/lib/trigger-session-append";
@@ -153,7 +153,7 @@ async function createTrustedClientData(options: {
           projectId: options.project.projectId,
           threadId: options.thread.threadId,
         }),
-    getCodexAgentModelConfig(
+    createCodexAgentModelOptions(
       options.request,
       options.requested.model,
       options.requested.reasoningEffort,
@@ -262,8 +262,8 @@ async function proxyInputChunk(options: {
       ...inputChunk,
       payload: {
         ...inputChunk.payload,
-        // Identity, project context, persistence grants, and Codex cookies are
-        // server-owned. Never merge browser claims into this object.
+        // Identity, project context, persistence grants, and Codex credential
+        // grants are server-owned. Never merge browser claims into this object.
         metadata: trustedClientData,
       },
     };

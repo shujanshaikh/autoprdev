@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import {
   chatGPTAuth,
   CodexConnectionError,
+  createCodexAgentGrant,
   createCodexResponsesModel,
   type CodexResponsesModel,
   getWorkOSVault,
@@ -26,6 +27,7 @@ import {
   resolveCodexSession,
 } from "#/lib/codex-session";
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
+import type { CodexAgentModelOptions } from "#/lib/trigger-agent-contract";
 
 export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
 
@@ -105,7 +107,7 @@ async function resolveAccountCodexSession(request: Request) {
     });
   }
 
-  return resolved;
+  return { authState, resolved };
 }
 
 async function removeAccountCodexSessionLink() {
@@ -132,7 +134,7 @@ export async function handleChatGPTAuthRequest(request: Request) {
     return chatGPTAuth.handler(request);
   }
 
-  const resolved = await resolveAccountCodexSession(request);
+  const { resolved } = await resolveAccountCodexSession(request);
   const response = await chatGPTAuth.handler(resolved?.request ?? request);
 
   if (route === "/status" && resolved?.session.status === "pending") {
@@ -191,7 +193,7 @@ function normalizeCodexReasoningEffort(modelId: string, reasoningEffort: string 
 }
 
 export async function getCodexConnectionStatus(request: Request) {
-  const resolved = await resolveAccountCodexSession(request);
+  const { resolved } = await resolveAccountCodexSession(request);
 
   if (!resolved || resolved.session.status !== "authenticated") {
     return { connected: false as const };
@@ -252,7 +254,7 @@ export async function createAuthenticatedCodexResponsesModel(options: {
 }
 
 export async function getCodexAgentModelConfig(request: Request, model?: string, reasoningEffort?: string) {
-  const resolved = await resolveAccountCodexSession(request);
+  const { authState, resolved } = await resolveAccountCodexSession(request);
 
   if (!resolved || resolved.session.status !== "authenticated") {
     throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
@@ -267,6 +269,32 @@ export async function getCodexAgentModelConfig(request: Request, model?: string,
     modelId,
     reasoningEffort: selectedReasoningEffort,
     chatgptCookieHeader: resolved.cookieHeader,
+    userId: authState.user.id,
+  };
+}
+
+/**
+ * Builds the serializable Codex options for a Trigger.dev agent run. The
+ * session cookie is stored in a short-lived WorkOS Vault grant so only the
+ * opaque grant id is placed on the retained run payload; the worker redeems
+ * it inside the run.
+ */
+export async function createCodexAgentModelOptions(
+  request: Request,
+  model?: string,
+  reasoningEffort?: string,
+): Promise<CodexAgentModelOptions> {
+  const config = await getCodexAgentModelConfig(request, model, reasoningEffort);
+  const credentialsGrantId = await createCodexAgentGrant({
+    userId: config.userId,
+    sessionCookieHeader: config.chatgptCookieHeader,
+  });
+
+  return {
+    provider: config.provider,
+    modelId: config.modelId,
+    reasoningEffort: config.reasoningEffort,
+    credentialsGrantId,
   };
 }
 

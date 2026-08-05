@@ -29,7 +29,13 @@ export interface CodexAgentModelOptions {
   modelId: string;
   reasoningEffort: string;
   promptCacheKey?: string;
-  chatgptCookieHeader: string;
+  /**
+   * Opaque reference to the ChatGPT session credentials stored in WorkOS
+   * Vault. The cookie itself must never appear on a Trigger.dev payload
+   * because Trigger retains run payloads and session metadata; the worker
+   * redeems this short-lived grant inside the run instead.
+   */
+  credentialsGrantId: string;
 }
 
 export interface AgentTaskOptions {

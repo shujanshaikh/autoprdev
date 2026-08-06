@@ -197,7 +197,7 @@ export const markUploadedInternal = internalMutation({
     durationSeconds: v.optional(v.number()),
     uploadAttemptId: v.string(),
   },
-  returns: v.null(),
+  returns: v.object({ applied: v.boolean() }),
   handler: async (ctx, args) => {
     const artifact = await ctx.db
       .query("recordingArtifacts")
@@ -208,7 +208,7 @@ export const markUploadedInternal = internalMutation({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
     if (artifact.status !== "uploading" || artifact.uploadAttemptId !== args.uploadAttemptId) {
-      return null;
+      return { applied: false };
     }
 
     const now = Date.now();
@@ -225,7 +225,7 @@ export const markUploadedInternal = internalMutation({
       uploadAttemptId: undefined,
     });
 
-    return null;
+    return { applied: true };
   },
 });
 

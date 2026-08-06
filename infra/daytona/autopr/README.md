@@ -24,13 +24,11 @@ The snapshot installs zsh, Starship, tmux, autosuggestions, and syntax highlight
 /home/daytona/.config/starship.toml
 ```
 
-Daytona's web terminal is exposed on port `22222`, and AutoPR's embedded terminal creates Daytona PTY sessions for the same sandbox user. Both paths pick up this shell profile when the sandbox is created from the `autopr` snapshot.
-
-Before AutoPR opens a browser terminal, it resolves the selected thread's authoritative checkout or worktree and writes that path to `~/.config/autopr/terminal-cwd`. Interactive shells that start in `/`, `/home`, or the sandbox user's home directory move into that workspace automatically. Existing shells and nested shells keep their current directory.
+AutoPR launches a short-lived `ttyd` process for each browser terminal preview. Each process receives the selected thread's authoritative checkout or worktree through `ttyd --cwd` and listens on its own signed-preview port, so concurrent thread terminals cannot overwrite one another's working directory. The processes exit after their client disconnects or after a bounded timeout.
 
 Tmux is opt-in so browser PTYs and automated sessions continue to open as normal zsh shells. Run `work` to create or attach to the shared `autopr` tmux session.
 
-AutoPR does not otherwise rewrite or sync these terminal files at runtime. For compatibility with sandboxes created from older snapshots, terminal startup may append the marked AutoPR working-directory block to `~/.zshrc` when it is missing. Update the files in this directory and rebuild the `autopr` snapshot when the rest of the terminal profile needs to change.
+AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr` snapshot when the terminal profile needs to change.
 
 Starship is installed from its official release archive at the version pinned in the Dockerfile. The archive checksum is selected for the build architecture and verified before installation.
 
@@ -107,7 +105,7 @@ alias work
 test -f /home/daytona/.tmux.conf
 test -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 test -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3; do
+for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3 ttyd; do
   command -v "$executable"
 done
 rg --version

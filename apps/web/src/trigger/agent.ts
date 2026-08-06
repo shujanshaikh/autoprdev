@@ -6,6 +6,7 @@ import {
   type SandboxSessionOptions,
   withSandboxAgentProjectContext,
 } from "@autopr/agent";
+import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
@@ -90,6 +91,16 @@ async function markAgentRunFinished({
     { threadId, assistantMessageId, persistenceToken, runId },
     { url: getConvexUrl() },
   );
+}
+
+async function releaseAgentCodexGrant(options: AgentTaskOptions) {
+  const lifecycle = createGrantLifecycle(
+    options.codex.credentialsGrantId,
+    revokeCodexAgentGrant,
+  );
+  await lifecycle.release().catch((error) => {
+    console.error("Failed to revoke the Codex credential grant", error);
+  });
 }
 
 async function recordAgentRunIssue({
@@ -348,28 +359,34 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
     maxAttempts: 1,
   },
   onFailure: async ({ payload, error, ctx, signal }) => {
-    // Trigger.dev 4.5.2 can reach onFailure after its cancellation signal
-    // aborts task code. A user-requested stop must not become a run issue.
-    if (isCancellation(error, signal)) {
-      return;
-    }
+    try {
+      // Trigger.dev 4.5.2 can reach onFailure after its cancellation signal
+      // aborts task code. A user-requested stop must not become a run issue.
+      if (isCancellation(error, signal)) {
+        return;
+      }
 
-    await reportAgentFailure(payload.options, error, ctx.run.id, ctx.attempt.number);
+      await reportAgentFailure(payload.options, error, ctx.run.id, ctx.attempt.number);
+    } finally {
+      await releaseAgentCodexGrant(payload.options);
+    }
   },
   onCancel: async ({ payload, ctx }) => {
     // Trigger waits for onCancel hooks (within its cancellation timeout),
     // making this more reliable than depending on task finally blocks while
     // the managed worker is being torn down.
-    await finishCancelledAgentRun(payload.options, ctx.run.id);
+    try {
+      await finishCancelledAgentRun(payload.options, ctx.run.id);
+    } finally {
+      await releaseAgentCodexGrant(payload.options);
+    }
   },
   run: async (payload: AgentTaskPayload, { ctx, signal }) => {
     try {
       await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);
       return { ok: true as const };
     } finally {
-      await revokeCodexAgentGrant(payload.options.codex.credentialsGrantId).catch((error) => {
-        console.error("Failed to revoke the Codex credential grant", error);
-      });
+      await releaseAgentCodexGrant(payload.options);
     }
   },
 });

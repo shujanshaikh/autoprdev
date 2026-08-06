@@ -62,16 +62,3 @@ fi
 if [[ -r /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]]; then
   source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 fi
-
-# >>> autopr terminal cwd >>>
-# The app updates this file immediately before opening a browser terminal. Only
-# move shells that started in a neutral directory so nested shells preserve the
-# directory the user explicitly chose.
-if [[ -o interactive ]] && [[ -r "$HOME/.config/autopr/terminal-cwd" ]]; then
-  autopr_terminal_cwd="$(<"$HOME/.config/autopr/terminal-cwd")"
-  if [[ -d "$autopr_terminal_cwd" ]] && [[ "$PWD" == "/" || "$PWD" == "/home" || "$PWD" == "$HOME" ]]; then
-    cd -- "$autopr_terminal_cwd"
-  fi
-  unset autopr_terminal_cwd
-fi
-# <<< autopr terminal cwd <<<

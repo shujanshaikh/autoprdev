@@ -268,7 +268,7 @@ export const ensureUploaded = action({
         }
       }
 
-      await ctx.runMutation(internal.recordingArtifacts.markUploadedInternal, {
+      const completion = await ctx.runMutation(internal.recordingArtifacts.markUploadedInternal, {
         authorId,
         projectId: args.projectId,
         threadId: args.threadId,
@@ -280,6 +280,26 @@ export const ensureUploaded = action({
         durationSeconds: recording.durationSeconds,
         uploadAttemptId,
       });
+
+      if (!completion.applied) {
+        const latest = await ctx.runQuery(internal.recordingArtifacts.getForUploadInternal, {
+          authorId,
+          projectId: args.projectId,
+          threadId: args.threadId,
+          recordingId: args.recordingId,
+        });
+        if (latest?.status === "uploaded" && latest.r2Key) {
+          return {
+            status: "uploaded",
+            url: await r2.getUrl(latest.r2Key, { expiresIn: IMAGE_URL_EXPIRES_IN_SECONDS }),
+          };
+        }
+
+        throw new ConvexError({
+          code: "RECORDING_UPLOAD_CONFLICT",
+          message: "A newer recording upload attempt replaced this one. Try again.",
+        });
+      }
 
       return {
         status: "uploaded",

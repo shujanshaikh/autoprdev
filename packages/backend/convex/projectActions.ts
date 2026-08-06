@@ -34,9 +34,17 @@ const DEFAULT_SANDBOX_WORKDIR = "/home";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;
-const DAYTONA_WEB_TERMINAL_PORT = 22222;
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const TERMINAL_PREVIEW_EXPIRES_SECONDS = 60;
+const TERMINAL_PROCESS_TIMEOUT_MINUTES = 10;
+const TERMINAL_PORT_MIN = 30_000;
+const TERMINAL_PORT_SPAN = 10_000;
+const TERMINAL_PORT_ATTEMPTS = 5;
+const TTYD_VERSION = "1.7.7";
+const TTYD_SHA256 = {
+  aarch64: "b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165",
+  x86_64: "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55",
+} as const;
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
 const DESKTOP_RECOVERY_DELAY_MS = 1_000;
@@ -661,36 +669,83 @@ async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPrevi
   });
 }
 
-const TERMINAL_CWD_PROFILE_MARKER = "# >>> autopr terminal cwd >>>";
-const TERMINAL_CWD_PROFILE_SNIPPET = `${TERMINAL_CWD_PROFILE_MARKER}
-if [[ -o interactive ]] && [[ -r "$HOME/.config/autopr/terminal-cwd" ]]; then
-  autopr_terminal_cwd="$(<"$HOME/.config/autopr/terminal-cwd")"
-  if [[ -d "$autopr_terminal_cwd" ]] && [[ "$PWD" == "/" || "$PWD" == "/home" || "$PWD" == "$HOME" ]]; then
-    cd -- "$autopr_terminal_cwd"
-  fi
-  unset autopr_terminal_cwd
-fi
-# <<< autopr terminal cwd <<<`;
+async function startIsolatedTerminalPreview(sandbox: DaytonaSandbox, workDir: string) {
+  let lastError: unknown;
 
-async function configureTerminalWorkingDirectory(sandbox: DaytonaSandbox, workDir: string) {
-  const result = await sandbox.process.executeCommand(
-    `set -e
+  for (let attempt = 0; attempt < TERMINAL_PORT_ATTEMPTS; attempt += 1) {
+    const port = TERMINAL_PORT_MIN + Math.floor(Math.random() * TERMINAL_PORT_SPAN);
+    const result = await sandbox.process.executeCommand(
+      `set -eu
 test -d ${shellQuote(workDir)}
-mkdir -p "$HOME/.config/autopr"
-printf '%s\\n' ${shellQuote(workDir)} > "$HOME/.config/autopr/terminal-cwd"
-chmod 0600 "$HOME/.config/autopr/terminal-cwd"
-touch "$HOME/.zshrc"
-if ! grep -Fq ${shellQuote(TERMINAL_CWD_PROFILE_MARKER)} "$HOME/.zshrc"; then
-  printf '\\n%s\\n' ${shellQuote(TERMINAL_CWD_PROFILE_SNIPPET)} >> "$HOME/.zshrc"
-fi`,
-    "/",
-    undefined,
-    20,
-  );
+command -v lsof >/dev/null
+command -v timeout >/dev/null
+ttyd_path="$(command -v ttyd || true)"
+if [ -z "$ttyd_path" ]; then
+  architecture="$(uname -m)"
+  case "$architecture" in
+    aarch64|x86_64) ;;
+    *) printf 'Unsupported ttyd architecture: %s\\n' "$architecture" >&2; exit 1 ;;
+  esac
+  ttyd_path="$HOME/.local/bin/ttyd"
+  if [ ! -x "$ttyd_path" ]; then
+    mkdir -p "$HOME/.local/bin"
+    ttyd_download="$(mktemp "$HOME/.local/bin/.ttyd.XXXXXX")"
+    trap 'rm -f "$ttyd_download"' EXIT
+    curl -fsSL \
+      "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.$architecture" \
+      -o "$ttyd_download"
+    case "$architecture" in
+      aarch64) ttyd_checksum=${TTYD_SHA256.aarch64} ;;
+      x86_64) ttyd_checksum=${TTYD_SHA256.x86_64} ;;
+    esac
+    printf '%s  %s\\n' "$ttyd_checksum" "$ttyd_download" | sha256sum -c - >/dev/null
+    chmod 0755 "$ttyd_download"
+    mv "$ttyd_download" "$ttyd_path"
+    trap - EXIT
+  fi
+fi
+shell_path="$(command -v zsh)"
+if lsof -nP -iTCP:${port} -sTCP:LISTEN -t | grep -q .; then
+  exit 42
+fi
+terminal_log="/tmp/autopr-terminal-${port}.log"
+nohup timeout ${TERMINAL_PROCESS_TIMEOUT_MINUTES}m "$ttyd_path" \
+  --port ${port} \
+  --writable \
+  --once \
+  --cwd ${shellQuote(workDir)} \
+  "$shell_path" -l \
+  </dev/null >"$terminal_log" 2>&1 &
+terminal_pid=$!
+for readiness_attempt in $(seq 1 50); do
+  if lsof -nP -iTCP:${port} -sTCP:LISTEN -t | grep -q .; then
+    printf 'AUTOPR_TERMINAL_PORT=%s\\n' ${port}
+    exit 0
+  fi
+  if ! kill -0 "$terminal_pid" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+kill "$terminal_pid" >/dev/null 2>&1 || true
+cat "$terminal_log" >&2 || true
+exit 1`,
+      "/",
+      undefined,
+      20,
+    );
 
-  if (typeof result.exitCode === "number" && result.exitCode !== 0) {
-    throw new Error(sandboxCommandText(result) || "Could not configure the terminal working directory.");
+    if (result.exitCode === 0) {
+      return port;
+    }
+    if (result.exitCode !== 42) {
+      lastError = new Error(sandboxCommandText(result) || "Could not start the isolated terminal.");
+    }
   }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Could not allocate an isolated terminal port.");
 }
 
 async function resolveThreadTerminalWorkingDirectory(
@@ -724,21 +779,18 @@ async function resolveThreadTerminalWorkingDirectory(
 
 async function getDaytonaTerminalPreview(
   sandboxId: string,
-  workDir?: string,
+  workDir: string,
 ): Promise<TerminalPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
-    if (workDir) {
-      await configureTerminalWorkingDirectory(sandbox, workDir);
-    }
-
+    const port = await startIsolatedTerminalPreview(sandbox, workDir);
     const preview = await sandbox.getSignedPreviewUrl(
-      DAYTONA_WEB_TERMINAL_PORT,
+      port,
       TERMINAL_PREVIEW_EXPIRES_SECONDS,
     );
 
     return {
       url: normalizePreviewUrl(preview.url),
-      port: DAYTONA_WEB_TERMINAL_PORT,
+      port,
       expiresInSeconds: TERMINAL_PREVIEW_EXPIRES_SECONDS,
     };
   });
@@ -1383,7 +1435,10 @@ export const getTerminalPreview = action({
             args.threadId,
           )
         : project.sandboxWorkDir;
-      const preview = await getDaytonaTerminalPreview(project.sandboxId, workDir);
+      const preview = await getDaytonaTerminalPreview(
+        project.sandboxId,
+        workDir ?? DEFAULT_SANDBOX_WORKDIR,
+      );
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,

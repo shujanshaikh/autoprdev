@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./grant-lifecycle": "./src/grant-lifecycle.ts",
     "./sandbox": "./src/sandbox/index.ts",
     "./tools": "./src/tools/index.ts"
   },

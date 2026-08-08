@@ -259,6 +259,12 @@ importers:
       '@workos/authkit-tanstack-react-start':
         specifier: ^0.8.2
         version: 0.8.2(@tanstack/react-router@1.169.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(@tanstack/react-start@1.167.65(crossws@0.4.5(srvx@0.11.15))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(vite@8.0.12(@types/node@22.19.19)(esbuild@0.27.0)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)
+      '@xterm/addon-fit':
+        specifier: ^0.11.0
+        version: 0.11.0
+      '@xterm/xterm':
+        specifier: ^6.0.0
+        version: 6.0.0
       ai:
         specifier: ^6.0.168
         version: 6.0.168(zod@4.3.6)
@@ -4301,6 +4307,12 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+
+  '@xterm/addon-fit@0.11.0':
+    resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
+
+  '@xterm/xterm@6.0.0':
+    resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -13575,6 +13587,10 @@ snapshots:
   '@xmldom/xmldom@0.8.13': {}
 
   '@xmldom/xmldom@0.9.10': {}
+
+  '@xterm/addon-fit@0.11.0': {}
+
+  '@xterm/xterm@6.0.0': {}
 
   abort-controller@3.0.0:
     dependencies:

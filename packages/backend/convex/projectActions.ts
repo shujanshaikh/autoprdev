@@ -35,7 +35,7 @@ const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
-const TERMINAL_PREVIEW_EXPIRES_SECONDS = 60;
+const TERMINAL_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const TERMINAL_PROCESS_TIMEOUT_MINUTES = 10;
 const TERMINAL_PORT_MIN = 30_000;
 const TERMINAL_PORT_SPAN = 10_000;
@@ -85,6 +85,7 @@ interface DesktopPreviewResult {
 
 interface TerminalPreviewResult {
   url: string;
+  websocketUrl: string;
   port: number;
   expiresInSeconds: number;
 }
@@ -312,9 +313,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 function desktopWebsocketUrl(value: string): string {
+  return previewWebsocketUrl(value, "/websockify");
+}
+
+function terminalWebsocketUrl(value: string): string {
+  return previewWebsocketUrl(value, "/ws");
+}
+
+function previewWebsocketUrl(value: string, pathname: string): string {
   const url = new URL(value);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/websockify";
+  url.pathname = pathname;
   url.search = "";
   url.hash = "";
   return url.toString();
@@ -677,7 +686,6 @@ async function startIsolatedTerminalPreview(sandbox: DaytonaSandbox, workDir: st
     const result = await sandbox.process.executeCommand(
       `set -eu
 test -d ${shellQuote(workDir)}
-command -v lsof >/dev/null
 command -v timeout >/dev/null
 ttyd_path="$(command -v ttyd || true)"
 if [ -z "$ttyd_path" ]; then
@@ -704,8 +712,8 @@ if [ -z "$ttyd_path" ]; then
     trap - EXIT
   fi
 fi
-shell_path="$(command -v zsh)"
-if lsof -nP -iTCP:${port} -sTCP:LISTEN -t | grep -q .; then
+shell_path="$(command -v zsh || command -v bash || command -v sh)"
+if curl --silent --output /dev/null --max-time 1 "http://127.0.0.1:${port}/"; then
   exit 42
 fi
 terminal_log="/tmp/autopr-terminal-${port}.log"
@@ -718,7 +726,7 @@ nohup timeout ${TERMINAL_PROCESS_TIMEOUT_MINUTES}m "$ttyd_path" \
   </dev/null >"$terminal_log" 2>&1 &
 terminal_pid=$!
 for readiness_attempt in $(seq 1 50); do
-  if lsof -nP -iTCP:${port} -sTCP:LISTEN -t | grep -q .; then
+  if curl --silent --output /dev/null --max-time 1 "http://127.0.0.1:${port}/"; then
     printf 'AUTOPR_TERMINAL_PORT=%s\\n' ${port}
     exit 0
   fi
@@ -787,9 +795,11 @@ async function getDaytonaTerminalPreview(
       port,
       TERMINAL_PREVIEW_EXPIRES_SECONDS,
     );
+    const url = normalizePreviewUrl(preview.url);
 
     return {
-      url: normalizePreviewUrl(preview.url),
+      url,
+      websocketUrl: terminalWebsocketUrl(url),
       port,
       expiresInSeconds: TERMINAL_PREVIEW_EXPIRES_SECONDS,
     };
@@ -1408,6 +1418,7 @@ export const getTerminalPreview = action({
   },
   returns: v.object({
     url: v.string(),
+    websocketUrl: v.string(),
     port: v.number(),
     expiresInSeconds: v.number(),
   }),

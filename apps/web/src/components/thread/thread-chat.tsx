@@ -1526,10 +1526,10 @@ function ThreadChatRuntime({
     }
   }, [demoRecordingExperimentEnabled, pendingDemoEnabled, setDemoEnabled, thread?.demoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
-  const awaitingAgentResponse = status === "submitted";
   const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
     ? lastMessage.id
     : undefined;
+  const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
 

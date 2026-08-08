@@ -3,6 +3,7 @@ ARG FFF_NODE_VERSION=0.9.4
 ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
 ARG STARSHIP_VERSION=1.25.1
+ARG TTYD_VERSION=1.7.7
 
 FROM ${DAYTONA_BASE_IMAGE}
 
@@ -10,6 +11,7 @@ ARG FFF_NODE_VERSION=0.9.4
 ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
 ARG STARSHIP_VERSION=1.25.1
+ARG TTYD_VERSION=1.7.7
 
 USER root
 SHELL ["/bin/bash", "-lc"]
@@ -43,7 +45,6 @@ RUN apt-get update \
       tini \
       tmux \
       tree \
-      ttyd \
       unzip \
       vim \
       x11-apps \
@@ -76,6 +77,8 @@ RUN apt-get update \
         gh_checksum="a757f1ba6db18f4de8cbadb244843a5f89bc75b5e7c6fc127d2bd77fbd12ed62"; \
         starship_target="x86_64-unknown-linux-musl"; \
         starship_checksum="c6ddd3ecb9c0071a2ad38d98cee748160066b7c4f197421268058f4a5d6f8504"; \
+        ttyd_target="x86_64"; \
+        ttyd_checksum="8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55"; \
         ;; \
       arm64) \
         delta_target="aarch64-unknown-linux-gnu"; \
@@ -84,9 +87,11 @@ RUN apt-get update \
         gh_checksum="705a23b70b0f1b7ba4c302fdcef392ce3edaacfa7ce8e85e4d93d72ea800a538"; \
         starship_target="aarch64-unknown-linux-musl"; \
         starship_checksum="01517aab398959ea9ea73bdb4f032ea4dbb51dff5c8e5eb05b4a1b9b7ab872b8"; \
+        ttyd_target="aarch64"; \
+        ttyd_checksum="b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165"; \
         ;; \
       *) \
-        echo "Unsupported architecture for pinned delta, gh, and Starship binaries: $architecture" >&2; \
+        echo "Unsupported architecture for pinned delta, gh, Starship, and ttyd binaries: $architecture" >&2; \
         exit 1; \
         ;; \
     esac \
@@ -106,6 +111,10 @@ RUN apt-get update \
     && echo "${starship_checksum}  ${tools_dir}/${starship_archive}" | sha256sum -c - \
     && tar -xzf "${tools_dir}/${starship_archive}" -C "$tools_dir" starship \
     && install -m 0755 "${tools_dir}/starship" /usr/local/bin/starship \
+    && ttyd_binary="ttyd.${ttyd_target}" \
+    && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/${ttyd_binary}" -o "${tools_dir}/${ttyd_binary}" \
+    && echo "${ttyd_checksum}  ${tools_dir}/${ttyd_binary}" | sha256sum -c - \
+    && install -m 0755 "${tools_dir}/${ttyd_binary}" /usr/local/bin/ttyd \
     && rm -rf "$tools_dir" \
     && git lfs install --system \
     && if [ -e /opt/google/chrome/chrome-sandbox ]; then chown root:root /opt/google/chrome/chrome-sandbox && chmod 4755 /opt/google/chrome/chrome-sandbox; fi \

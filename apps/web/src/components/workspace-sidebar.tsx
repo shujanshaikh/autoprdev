@@ -30,6 +30,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import {
   Check,
+  ChevronsUpDown,
   CircleAlert,
   Folder,
   FolderPlus,
@@ -90,6 +91,27 @@ export interface WorkspaceProject {
 function projectName(repoFullName: string) {
   const parts = repoFullName.split("/");
   return parts.at(-1) || repoFullName;
+}
+
+const PROJECT_MARKER_CLASSES = [
+  "bg-[color:var(--framer-accent-blue)]",
+  "bg-[color:var(--framer-gradient-violet)]",
+  "bg-[color:var(--framer-gradient-orange)]",
+  "bg-[color:var(--framer-success)]",
+];
+
+function ProjectMarker({ index, repoFullName }: { index: number; repoFullName: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "grid size-5 shrink-0 place-items-center rounded-[4px] text-[9px] font-semibold uppercase text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]",
+        PROJECT_MARKER_CLASSES[index % PROJECT_MARKER_CLASSES.length],
+      )}
+    >
+      {projectName(repoFullName).slice(0, 2)}
+    </span>
+  );
 }
 
 function formatAge(timestamp?: number) {
@@ -369,6 +391,9 @@ export function WorkspaceSidebar({
     });
   }, [projects, threads]);
   const scopedProject = projectScopeId ? projectsById.get(projectScopeId) : undefined;
+  const scopedProjectIndex = scopedProject
+    ? Math.max(0, orderedProjects?.findIndex((project) => project.projectId === scopedProject.projectId) ?? 0)
+    : 0;
   const { active, settled } = useMemo(
     () => partitionSidebarThreads(threads ?? [], {
       projectId: projectScopeId,
@@ -611,71 +636,63 @@ export function WorkspaceSidebar({
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5 border-y border-sidebar-border/70 bg-sidebar-accent/20 px-2.5 py-2">
-              <div
-                role="tablist"
-                aria-label="Project scope"
-                className="workspace-project-rail flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overscroll-x-contain py-1"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={projectScopeId === null}
-                  onClick={() => {
-                    setRequestedProjectScopeId(null);
-                    setSettledVisibleCount(SETTLED_INITIAL_COUNT);
-                  }}
-                  className={cn(
-                    "relative flex h-8 max-w-36 shrink-0 items-center gap-2 rounded-[6px] border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/60",
-                    projectScopeId === null
-                      ? "border-sidebar-foreground/15 bg-sidebar text-sidebar-foreground shadow-sm"
-                      : "border-transparent text-sidebar-foreground/55 hover:border-sidebar-border hover:bg-sidebar/80 hover:text-sidebar-foreground",
-                  )}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label="Select project"
+                  className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[6px] border border-sidebar-foreground/15 bg-sidebar px-2.5 text-[12px] font-medium text-sidebar-foreground shadow-sm transition-colors hover:border-sidebar-foreground/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/60 data-popup-open:border-sidebar-foreground/30"
                 >
-                  <span className="grid size-5 shrink-0 place-items-center rounded-[4px] bg-sidebar-accent text-sidebar-foreground/55">
-                    <Folder className="size-3" aria-hidden="true" />
+                  {scopedProject ? (
+                    <ProjectMarker index={scopedProjectIndex} repoFullName={scopedProject.repoFullName} />
+                  ) : (
+                    <span className="grid size-5 shrink-0 place-items-center rounded-[4px] bg-sidebar-accent text-sidebar-foreground/55">
+                      <Folder className="size-3" aria-hidden="true" />
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {scopedProject ? projectName(scopedProject.repoFullName) : "All projects"}
                   </span>
-                  <span className="truncate">All projects</span>
-                  {projectScopeId === null ? (
-                    <span className="absolute inset-x-2.5 bottom-[3px] h-[2px] rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
-                  ) : null}
-                </button>
-                {orderedProjects?.map((project, index) => {
-                  const selected = project.projectId === projectScopeId;
-                  const markerClasses = [
-                    "bg-[color:var(--framer-accent-blue)]",
-                    "bg-[color:var(--framer-gradient-violet)]",
-                    "bg-[color:var(--framer-gradient-orange)]",
-                    "bg-[color:var(--framer-success)]",
-                  ][index % 4];
-                  return (
-                    <button
-                      key={project.projectId}
-                      type="button"
-                      role="tab"
-                      aria-selected={selected}
-                      title={project.repoFullName}
-                      onClick={() => {
-                        setRequestedProjectScopeId(project.projectId);
-                        setSettledVisibleCount(SETTLED_INITIAL_COUNT);
-                      }}
-                      className={cn(
-                        "relative flex h-8 max-w-36 shrink-0 items-center gap-2 rounded-[6px] border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/60",
-                        selected
-                          ? "border-sidebar-foreground/15 bg-sidebar text-sidebar-foreground shadow-sm"
-                          : "border-transparent text-sidebar-foreground/55 hover:border-sidebar-border hover:bg-sidebar/80 hover:text-sidebar-foreground",
-                      )}
-                    >
-                      <span className={cn("grid size-5 shrink-0 place-items-center rounded-[4px] text-[9px] font-semibold uppercase text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]", markerClasses)}>
-                        {projectName(project.repoFullName).slice(0, 2)}
-                      </span>
-                      <span className="truncate">{projectName(project.repoFullName)}</span>
-                      {selected ? (
-                        <span className="absolute inset-x-2.5 bottom-[3px] h-[2px] rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
+                  <ChevronsUpDown className="size-3.5 shrink-0 text-sidebar-foreground/40" aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-(--anchor-width) min-w-56">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setRequestedProjectScopeId(null);
+                      setSettledVisibleCount(SETTLED_INITIAL_COUNT);
+                    }}
+                  >
+                    <span className="grid size-5 shrink-0 place-items-center rounded-[4px] bg-sidebar-accent text-sidebar-foreground/55">
+                      <Folder className="size-3" aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">All projects</span>
+                    {projectScopeId === null ? (
+                      <Check className="ml-auto size-3.5 text-muted-foreground" aria-hidden="true" />
+                    ) : null}
+                  </DropdownMenuItem>
+                  {(orderedProjects?.length ?? 0) > 0 ? <DropdownMenuSeparator /> : null}
+                  {orderedProjects?.map((project, index) => {
+                    const selected = project.projectId === projectScopeId;
+                    return (
+                      <DropdownMenuItem
+                        key={project.projectId}
+                        title={project.repoFullName}
+                        onClick={() => {
+                          setRequestedProjectScopeId(project.projectId);
+                          setSettledVisibleCount(SETTLED_INITIAL_COUNT);
+                        }}
+                      >
+                        <ProjectMarker index={index} repoFullName={project.repoFullName} />
+                        <span className="min-w-0 flex-1 truncate">{projectName(project.repoFullName)}</span>
+                        <span className="truncate font-mono text-[9px] text-muted-foreground">
+                          {project.repoFullName.split("/")[0]}
+                        </span>
+                        {selected ? (
+                          <Check className="ml-auto size-3.5 text-muted-foreground" aria-hidden="true" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <button
                 type="button"
                 onClick={onCreateProject}

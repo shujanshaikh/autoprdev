@@ -545,7 +545,7 @@ export function WorkspaceSidebar({
         <SidebarHeader className="h-12 shrink-0 justify-center gap-0 border-b border-sidebar-border/80 px-3 py-0">
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="text-sidebar-foreground/70 hover:text-sidebar-foreground" />
-            <span className="min-w-0 truncate font-display text-[13px] font-medium tracking-[-0.02em] text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+            <span className="min-w-0 truncate font-display text-base font-medium tracking-[-0.02em] text-sidebar-foreground group-data-[collapsible=icon]:hidden">
               AUTOPR
             </span>
           </div>

@@ -12,6 +12,7 @@ type PullFilter = "all" | "open" | "closed";
 
 const PULL_REQUEST_SKELETON_KEYS = ["first", "second", "third", "fourth", "fifth", "sixth"];
 const EMPTY_PULL_REQUESTS: ProjectPullRequest[] = [];
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function pullState(pull: ProjectPullRequest) {
   return pull.draft ? "draft" : pull.state;
@@ -29,10 +30,9 @@ function relativeUpdate(dateValue: string) {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d`;
 
-  return new Date(dateValue).toLocaleDateString("en-US", {
-    day: "numeric",
-    month: "short",
-  });
+  const month = MONTH_LABELS[Number(dateValue.slice(5, 7)) - 1];
+  const day = Number(dateValue.slice(8, 10));
+  return month && day ? `${month} ${day}` : "earlier";
 }
 
 function PullRequestListSkeleton() {

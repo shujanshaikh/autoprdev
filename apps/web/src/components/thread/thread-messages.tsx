@@ -508,6 +508,7 @@ export function ThreadMessages({
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
     <ConversationContent className="pb-[10.5rem]">
+    {keyedMessages.length > 0 ? <div aria-hidden="true" className="min-h-0 flex-1" /> : null}
     {keyedMessages.length === 0 && !showingInitialPromptHandoff ? (
       <ConversationEmptyState className="mx-auto max-w-[680px] items-start px-6 py-10 text-left sm:px-8" icon={<Bot className="size-6 text-muted-foreground" />}>
         <div className="max-w-xl">

@@ -1,10 +1,11 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { ButtonGroup } from "@autopr/ui/components/button-group";
 import { Button } from "@autopr/ui/components/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { CheckCheck, Columns2, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Terminal, TextSearch, TextWrap, X } from "lucide-react";
+import { CheckCheck, Columns2, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Terminal, TextSearch, TextWrap, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
@@ -88,9 +89,7 @@ const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, str
   environment: "environment",
 };
 
-const DEFAULT_VISIBLE_TABS: ThreadDiffPanelVisibleTab[] = [
-  { id: SINGLETON_TAB_IDS.diff, kind: "diff" },
-];
+const DEFAULT_VISIBLE_TABS: ThreadDiffPanelVisibleTab[] = [];
 
 function createTerminalTab(): ThreadDiffPanelVisibleTab {
   return {
@@ -98,6 +97,19 @@ function createTerminalTab(): ThreadDiffPanelVisibleTab {
     kind: "terminal",
   };
 }
+
+const SURFACE_PICKER_ITEMS: Array<{
+  kind: ThreadDiffPanelTabKind;
+  title: string;
+  description: string;
+  icon: typeof GitBranch;
+}> = [
+  { kind: "diff", title: "Diff", description: "Review changes in this thread.", icon: FileDiff },
+  { kind: "desktop", title: "Desktop", description: "Open the workspace desktop.", icon: Monitor },
+  { kind: "terminal", title: "Terminal", description: "Start a shell in this workspace.", icon: Terminal },
+  { kind: "environment", title: "Environment", description: "Mount project secrets in this sandbox.", icon: KeyRound },
+  { kind: "pull-request", title: "Pull request", description: "Browse pull requests for this repository.", icon: GitPullRequest },
+];
 
 const DIFF_LAYOUT_OPTIONS: Array<{
   value: PierreDiffStyle;
@@ -137,7 +149,7 @@ export function ThreadDiffPanel({
   const [visibleTabs, setVisibleTabs] = useState<ThreadDiffPanelVisibleTab[]>(() => deepLink
     ? [{ id: SINGLETON_TAB_IDS.diff, kind: "diff" }]
     : DEFAULT_VISIBLE_TABS);
-  const [activeTabId, setActiveTabId] = useState(SINGLETON_TAB_IDS.diff);
+  const [activeTabId, setActiveTabId] = useState(() => deepLink ? SINGLETON_TAB_IDS.diff : "");
   const [handledDeepLink, setHandledDeepLink] = useState(deepLink);
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
   const [desktopLoading, setDesktopLoading] = useState(false);
@@ -423,67 +435,6 @@ export function ThreadDiffPanel({
           <span className="block h-12 w-0.5 rounded-full bg-border transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-[color:var(--project-selected-strong)] group-focus-visible/resize:bg-[color:var(--project-selected-strong)]" />
         </button>
 
-        <div className="flex min-h-0 flex-1">
-          <nav
-            aria-label="Workspace surfaces"
-            className="relative z-[2] hidden w-11 shrink-0 flex-col items-center gap-1 border-r border-border bg-[color:var(--sidebar)] py-2 lg:flex"
-          >
-            {THREAD_DIFF_PANEL_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const selected = renderedActiveTab === tab.kind;
-
-              return (
-                <Tooltip key={tab.kind}>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        onClick={() => openPanelTab(tab.kind)}
-                        aria-label={tab.menuLabel}
-                        aria-pressed={selected}
-                        className={cn(
-                          "group/surface relative inline-flex size-8 items-center justify-center rounded-[7px] text-muted-foreground transition-colors",
-                          "hover:bg-[color:var(--project-panel-soft)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]",
-                          selected && "bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)]",
-                        )}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            "absolute inset-y-1 left-[-7px] w-0.5 origin-center scale-y-0 bg-[color:var(--project-selected-strong)] transition-transform",
-                            selected && "scale-y-100",
-                          )}
-                        />
-                        <Icon className="size-4" aria-hidden="true" />
-                        {tab.kind === "pull-request" && pullRequestNumber ? (
-                          <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-[color:var(--project-selected-strong)] ring-1 ring-[color:var(--sidebar)]" aria-hidden="true" />
-                        ) : null}
-                      </button>
-                    }
-                  />
-                  <TooltipContent side="right" sideOffset={7}>{tab.menuLabel}</TooltipContent>
-                </Tooltip>
-              );
-            })}
-
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={() => onOpenChange(false)}
-                    aria-label="Close workspace panel"
-                    className="mt-auto inline-flex size-8 items-center justify-center rounded-[7px] text-muted-foreground transition-colors hover:bg-[color:var(--project-panel-soft)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--cohere-form-focus)]"
-                  >
-                    <X className="size-4" aria-hidden="true" />
-                  </button>
-                }
-              />
-              <TooltipContent side="right" sideOffset={7}>Close panel</TooltipContent>
-            </Tooltip>
-          </nav>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="relative hidden shrink-0 flex-col border-b border-border bg-background lg:flex">
           <div className="flex h-11 items-center gap-1 border-b border-border px-2.5">
             <nav aria-label="Open workspace surfaces" className="surface-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -539,6 +490,23 @@ export function ThreadDiffPanel({
             </nav>
 
             <div className="ml-auto flex shrink-0 items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8 rounded-[8px] text-muted-foreground hover:text-foreground" aria-label="Add workspace surface" />}>
+                  <Plus className="size-4" aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {THREAD_DIFF_PANEL_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <DropdownMenuItem key={tab.kind} onClick={() => openPanelTab(tab.kind)}>
+                        <Icon className="size-3.5" aria-hidden="true" />
+                        {tab.menuLabel}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -699,10 +667,37 @@ export function ThreadDiffPanel({
         </header>
 
         {!renderedActiveTab ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-6 text-center">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              Choose a surface from the sidebar
-            </p>
+          <div className="minimal-scrollbar flex min-h-0 flex-1 overflow-auto bg-background">
+            <div className="mx-auto flex w-full max-w-[540px] flex-col justify-center px-6 py-10">
+              <div className="mb-7 text-center">
+                <h2 className="text-xl font-medium tracking-normal text-foreground">Open a surface</h2>
+                <p className="mt-2 text-sm text-muted-foreground">Choose what to show in the right panel.</p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {SURFACE_PICKER_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.kind}
+                      type="button"
+                      onClick={() => openPanelTab(item.kind)}
+                      className={cn(
+                        "group flex min-h-[118px] flex-col items-start justify-between rounded-sm border border-border bg-card p-4 text-left",
+                        "transition-[background-color,border-color,transform] duration-150 hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-panel-soft)] active:translate-y-px",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
+                      )}
+                    >
+                      <Icon className="size-6 text-foreground/80 transition-colors group-hover:text-foreground/90" aria-hidden="true" />
+                      <span className="space-y-1">
+                        <span className="block text-lg font-medium text-foreground">{item.title}</span>
+                        <span className="block text-[13px] leading-relaxed text-muted-foreground">{item.description}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -829,8 +824,6 @@ export function ThreadDiffPanel({
           />
           )
         ) : null}
-          </div>
-        </div>
       </aside>
     );
   }

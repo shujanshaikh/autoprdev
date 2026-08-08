@@ -412,7 +412,7 @@ export function ThreadDiffPanel({
       id="thread-changes-panel"
       aria-hidden={!open}
       className={cn(
-        "relative h-full max-h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:static lg:z-auto lg:shrink-0 lg:flex-none lg:border-l lg:border-border lg:transition-[width] lg:duration-300 lg:ease-[cubic-bezier(0.22,1,0.36,1)] lg:will-change-[width] motion-reduce:transition-none",
+        "relative h-full max-h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:static lg:z-auto lg:shrink-0 lg:flex-none lg:flex-row lg:border-l lg:border-border lg:transition-[width] lg:duration-300 lg:ease-[cubic-bezier(0.22,1,0.36,1)] lg:will-change-[width] motion-reduce:transition-none",
         isResizingPanel && "transition-none",
         panelMaximized
           ? "w-full lg:w-full"
@@ -421,13 +421,11 @@ export function ThreadDiffPanel({
       )}
       style={{ "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
     >
-        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-px bg-border lg:block" />
-
         <button
           type="button"
           aria-label="Resize changes panel"
           className={cn(
-            "group/resize absolute inset-y-0 left-0 z-10 hidden w-2.5 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none lg:flex",
+            "group/resize relative z-10 hidden w-3 shrink-0 cursor-col-resize touch-none items-center justify-center border-r border-border/70 bg-[color:var(--sidebar)] transition-colors hover:bg-[color:var(--project-panel-soft)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--cohere-form-focus)] lg:flex",
             panelMaximized && "lg:hidden",
           )}
           onPointerDown={startResize}
@@ -435,6 +433,7 @@ export function ThreadDiffPanel({
           <span className="block h-12 w-0.5 rounded-full bg-border transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-[color:var(--project-selected-strong)] group-focus-visible/resize:bg-[color:var(--project-selected-strong)]" />
         </button>
 
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="relative hidden shrink-0 flex-col border-b border-border bg-background lg:flex">
           <div className="flex h-11 items-center gap-1 border-b border-border px-2.5">
             <nav aria-label="Open workspace surfaces" className="surface-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -824,6 +823,7 @@ export function ThreadDiffPanel({
           />
           )
         ) : null}
+        </div>
       </aside>
     );
   }

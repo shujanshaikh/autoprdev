@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./grant-lifecycle": "./src/grant-lifecycle.ts",
     "./sandbox": "./src/sandbox/index.ts",
     "./tools": "./src/tools/index.ts"
   },
@@ -13,13 +14,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@autopr/config": "workspace:*",
     "@daytona/sdk": "^0.196.0",
     "ai": "^6.0.168",
     "diff": "^8.0.2",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@autopr/config": "workspace:*",
     "@types/node": "^20",
     "typescript": "catalog:",
     "vitest": "^4.1.6"

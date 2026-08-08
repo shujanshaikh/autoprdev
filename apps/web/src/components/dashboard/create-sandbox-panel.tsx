@@ -10,6 +10,7 @@ import { cn } from "@autopr/ui/lib/utils";
 import {
   ArrowRight,
   Check,
+  ExternalLink,
   GitBranch,
   Github,
   Loader2,
@@ -18,9 +19,11 @@ import {
   Search,
   Unlock,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import type { GithubBranch, GithubRepository } from "./types";
+import { GitHubLogo } from "#/components/icons/github-logo";
+
+import type { GithubAppInstallation, GithubBranch, GithubRepository } from "./types";
 
 const REPOS_PER_PAGE = 7;
 
@@ -30,6 +33,7 @@ interface CreateSandboxPanelProps {
   isLoadingRepos: boolean;
   isRefreshingRepos: boolean;
   isLoadingBranches: boolean;
+  isCheckingGithubAppInstallation: boolean;
   isCreating: boolean;
   repositories: GithubRepository[];
   filteredRepositories: GithubRepository[];
@@ -38,6 +42,7 @@ interface CreateSandboxPanelProps {
   selectedBranch: string;
   repoSearch: string;
   selectedRepo: GithubRepository | undefined;
+  githubAppInstallation: GithubAppInstallation | undefined;
   error?: string;
   onConnectGithub: () => void;
   onRefreshRepos: () => void;
@@ -54,6 +59,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
     isLoadingRepos,
     isRefreshingRepos,
     isLoadingBranches,
+    isCheckingGithubAppInstallation,
     isCreating,
     filteredRepositories,
     repositories,
@@ -62,6 +68,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
     selectedBranch,
     repoSearch,
     selectedRepo,
+    githubAppInstallation,
     error,
     onConnectGithub,
     onRefreshRepos,
@@ -72,8 +79,15 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
   } = props;
 
   const repoDone = Boolean(selectedRepo);
+  const githubAppDone = Boolean(selectedRepo && githubAppInstallation?.installed);
   const branchDone = Boolean(selectedRepo && selectedBranch);
-  const launchReady = repoDone && branchDone && !isCreating && !isLoadingBranches;
+  const launchReady =
+    repoDone &&
+    githubAppDone &&
+    branchDone &&
+    !isCreating &&
+    !isLoadingBranches &&
+    !isCheckingGithubAppInstallation;
 
   return (
     <section className="rounded-sm border border-border bg-card text-card-foreground">
@@ -85,6 +99,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
           <FlowTrack
             githubDone={isGithubConnected}
             repoDone={repoDone}
+            githubAppDone={githubAppDone}
             branchDone={branchDone}
           />
         </div>
@@ -137,6 +152,8 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
             selectedRepo={selectedRepo}
             selectedBranch={selectedBranch}
             isCreating={isCreating}
+            isCheckingGithubAppInstallation={isCheckingGithubAppInstallation}
+            githubAppInstallation={githubAppInstallation}
             launchReady={launchReady}
             onCreate={onCreate}
           />
@@ -160,17 +177,20 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
 function FlowTrack({
   githubDone,
   repoDone,
+  githubAppDone,
   branchDone,
 }: {
   githubDone: boolean;
   repoDone: boolean;
+  githubAppDone: boolean;
   branchDone: boolean;
 }) {
   const steps = [
     { label: "github", done: githubDone, active: !githubDone },
     { label: "repo", done: repoDone, active: githubDone && !repoDone },
-    { label: "branch", done: branchDone, active: repoDone && !branchDone },
-    { label: "launch", done: false, active: branchDone },
+    { label: "autopr", done: githubAppDone, active: repoDone && !githubAppDone },
+    { label: "branch", done: githubAppDone && branchDone, active: githubAppDone && !branchDone },
+    { label: "launch", done: false, active: githubAppDone && branchDone },
   ];
   return (
     <ol className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] md:flex">
@@ -643,12 +663,16 @@ function LaunchColumn({
   selectedRepo,
   selectedBranch,
   isCreating,
+  isCheckingGithubAppInstallation,
+  githubAppInstallation,
   launchReady,
   onCreate,
 }: {
   selectedRepo: GithubRepository | undefined;
   selectedBranch: string;
   isCreating: boolean;
+  isCheckingGithubAppInstallation: boolean;
+  githubAppInstallation: GithubAppInstallation | undefined;
   launchReady: boolean;
   onCreate: () => void;
 }) {
@@ -681,32 +705,74 @@ function LaunchColumn({
         </dl>
 
         <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => void onCreate()}
-            disabled={!launchReady}
-            className={cn(
-              "group inline-flex h-10 w-full items-center justify-center gap-2 rounded-[var(--radius-pill)] border type-button transition",
-              launchReady
-                ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-                : "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/60",
-            )}
-          >
-            {isCreating ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                booting
-              </>
-            ) : (
-              <>
-                create sandbox
-                <ArrowRight
-                  className="size-3.5 transition-transform group-enabled:group-hover:translate-x-0.5"
+          {selectedRepo && isCheckingGithubAppInstallation ? (
+            <div className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-[var(--radius-pill)] border border-border bg-muted/40 type-button text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              checking Autopr access
+            </div>
+          ) : selectedRepo && githubAppInstallation && !githubAppInstallation.installed ? (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2.5 border border-primary/30 bg-primary/5 px-3 py-2.5">
+                <span className="inline-flex size-7 shrink-0 items-center justify-center border border-primary/30 bg-background text-foreground">
+                  <GitHubLogo className="size-3.5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary">
+                    {githubAppInstallation.action === "configure"
+                      ? "grant access"
+                      : "install required"}
+                  </p>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {githubAppInstallation.action === "configure"
+                      ? "Add this repository to the existing Autopr installation on GitHub."
+                      : "Install the Autopr GitHub App on this repository before creating its sandbox."}
+                  </p>
+                </div>
+              </div>
+              <a
+                href={githubAppInstallation.installUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="group inline-flex h-10 w-full items-center justify-center gap-2 rounded-[var(--radius-pill)] border border-primary bg-primary type-button text-primary-foreground transition hover:bg-primary/90"
+              >
+                <GitHubLogo className="size-3.5" aria-hidden="true" />
+                {githubAppInstallation.action === "configure"
+                  ? "Configure Autopr"
+                  : "Install Autopr"}
+                <ExternalLink
+                  className="size-3 opacity-60 transition-opacity group-hover:opacity-100"
                   aria-hidden="true"
                 />
-              </>
-            )}
-          </button>
+              </a>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void onCreate()}
+              disabled={!launchReady}
+              className={cn(
+                "group inline-flex h-10 w-full items-center justify-center gap-2 rounded-[var(--radius-pill)] border type-button transition",
+                launchReady
+                  ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/60",
+              )}
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  booting
+                </>
+              ) : (
+                <>
+                  create sandbox
+                  <ArrowRight
+                    className="size-3.5 transition-transform group-enabled:group-hover:translate-x-0.5"
+                    aria-hidden="true"
+                  />
+                </>
+              )}
+            </button>
+          )}
           {selectedRepo ? (
             <a
               href={selectedRepo.htmlUrl}

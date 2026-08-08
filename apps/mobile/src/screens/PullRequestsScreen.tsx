@@ -4,12 +4,13 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "convex/react";
 import { Check, ChevronRight, GitFork, GitPullRequest, Search } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { webRequest } from "../api/web";
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton, StatusPill } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebMutation, useWebQuery } from "../hooks/useWebQuery";
+import { openExternalUrl } from "../lib/openUrl";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PullRequests">;
@@ -319,9 +320,9 @@ export function PullRequestsScreen({ navigation, route }: Props) {
               disabled={openListedPull.isPending}
               onPress={() => {
                 if (pull.state === "open") openListedPull.mutate(pull);
-                else void Linking.openURL(pull.htmlUrl);
+                else void openExternalUrl(pull.htmlUrl);
               }}
-              onLongPress={() => void Linking.openURL(pull.htmlUrl)}
+              onLongPress={() => void openExternalUrl(pull.htmlUrl)}
               style={({ pressed }) => [
                 styles.row,
                 index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.line },

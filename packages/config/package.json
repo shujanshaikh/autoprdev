@@ -1,5 +1,10 @@
 {
   "name": "@autopr/config",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./sandbox-network-policy": "./sandbox-network-policy.ts"
+  }
 }

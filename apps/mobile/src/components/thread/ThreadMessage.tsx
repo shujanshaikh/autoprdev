@@ -1,5 +1,4 @@
 import * as Clipboard from "expo-clipboard";
-import { Image } from "expo-image";
 import {
   ChevronDown,
   ChevronRight,
@@ -12,7 +11,6 @@ import {
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,8 +23,10 @@ import { useAuth } from "../../auth/AuthProvider";
 import { useAppTheme } from "../../hooks/useAppTheme";
 import { trustedAttachmentImageUrl } from "../../lib/attachmentUrls";
 import { messageParts, type MessagePartView } from "../../lib/messages";
+import { confirmOpenExternalUrl, openExternalUrl } from "../../lib/openUrl";
 import { formatRecordingDuration } from "../../lib/recordingDuration";
 import { exploreGroupSummary, shortDirectory } from "../../lib/toolPresentation";
+import { RemoteImage } from "../RemoteImage";
 import { PulsingDots, Shimmer } from "../Shimmer";
 
 export type ThreadMessageValue = {
@@ -48,20 +48,6 @@ function keyed<T>(items: readonly T[], baseKey: (item: T, index: number) => stri
     seen.set(base, occurrence + 1);
     return { item, key: `${base}:${occurrence}` };
   });
-}
-
-function isExternalUrl(url: string) {
-  try {
-    const protocol = new URL(url).protocol;
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function openExternalUrl(url: string) {
-  if (!isExternalUrl(url)) return;
-  void Linking.openURL(url).catch(() => undefined);
 }
 
 function trustedImageParts(parts: MessagePartView[]) {
@@ -148,7 +134,12 @@ export function AgentWorkingIndicator({ startedAt }: { startedAt?: number }) {
   );
 }
 
-function inlineMarkdown(value: string, color: string, muted: string): ReactNode[] {
+function inlineMarkdown(
+  value: string,
+  color: string,
+  muted: string,
+  onOpenLink: (url: string) => void,
+): ReactNode[] {
   const tokens = value.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\*[^*\n]+\*|\[[^\]\n]+\]\([^)]+\))/g);
   return keyed(tokens, (token) => token).map(({ item: token, key }) => {
     if (token.startsWith("`") && token.endsWith("`")) {
@@ -169,13 +160,11 @@ function inlineMarkdown(value: string, color: string, muted: string): ReactNode[
     }
     const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link) {
-      const url = link[2] ?? "";
-      if (!isExternalUrl(url)) return link[1] ?? "";
       return (
         <Text
           accessibilityRole="link"
           key={key}
-          onPress={() => openExternalUrl(url)}
+          onPress={() => void onOpenLink(link[2] ?? "")}
           style={[styles.link, { color }]}
         >
           {link[1]}
@@ -190,10 +179,16 @@ function RichMessageText({
   value,
   inverted = false,
   compact = false,
+  onOpenLink = confirmOpenExternalUrl,
 }: {
   value: string;
   inverted?: boolean;
   compact?: boolean;
+  /**
+   * Rendered text is agent output by default, so links confirm with the raw
+   * URL before opening. User-authored bubbles pass `openExternalUrl`.
+   */
+  onOpenLink?: (url: string) => void;
 }) {
   const theme = useAppTheme();
   const blocks = useMemo(() => {
@@ -294,7 +289,7 @@ function RichMessageText({
                 block.style === "quote" && { color: inverted ? theme.accentInk : theme.muted },
               ]}
             >
-              {inlineMarkdown(block.value, linkColor, inverted ? "#FFFFFF2B" : theme.surfaceSoft)}
+              {inlineMarkdown(block.value, linkColor, inverted ? "#FFFFFF2B" : theme.surfaceSoft, onOpenLink)}
             </Text>
           </View>
         );
@@ -566,9 +561,8 @@ function RecordingCard({
     setError(undefined);
     try {
       if (recording.url) {
-        if (!isExternalUrl(recording.url)) throw new Error("The recording URL is invalid.");
-        await Linking.openURL(recording.url);
-        return;
+        if (await openExternalUrl(recording.url)) return;
+        throw new Error("The recording link could not be opened.");
       }
       const request = async (forceRefresh = false) => {
         const token = await getAccessToken(forceRefresh);
@@ -584,8 +578,9 @@ function RecordingCard({
       } catch {
         result = await request(true);
       }
-      if (!isExternalUrl(result.url)) throw new Error("The recording URL is invalid.");
-      await Linking.openURL(result.url);
+      if (!(await openExternalUrl(result.url))) {
+        throw new Error("The recording link could not be opened.");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The recording could not be opened.");
     } finally {
@@ -662,21 +657,21 @@ function ThreadMessageView({
       <View style={styles.userMessage}>
         <View style={[styles.userBubble, { backgroundColor: theme.accent }]}>
           {keyed(textParts, (part) => part.kind === "text" ? part.text : part.kind).map(({ item: part, key }) => part.kind === "text"
-            ? <RichMessageText inverted key={`${message.messageId}:text:${key}`} value={part.text} />
+            ? <RichMessageText inverted key={`${message.messageId}:text:${key}`} onOpenLink={openExternalUrl} value={part.text} />
             : null)}
           {keyed(images, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
-            <Image
-              key={`${message.messageId}:image:${key}`}
+            <RemoteImage
               accessibilityLabel={part.filename ?? "Attached image"}
-              source={{ uri: part.url }}
+              key={`${message.messageId}:image:${key}`}
               style={[styles.userImage, { backgroundColor: theme.surface }]}
+              url={part.url}
             />
           ) : null)}
           {keyed(files, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
             <Pressable
               accessibilityRole="link"
               key={`${message.messageId}:file:${key}`}
-              onPress={() => openExternalUrl(part.url)}
+              onPress={() => void openExternalUrl(part.url)}
               style={[styles.fileCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
             >
               <FileText color={theme.muted} size={17} />
@@ -711,18 +706,18 @@ function ThreadMessageView({
         ? <RichMessageText key={`${message.messageId}:text:${key}`} value={part.text} />
         : null)}
       {keyed(images, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
-        <Image
-          key={`${message.messageId}:image:${key}`}
+        <RemoteImage
           accessibilityLabel={part.filename ?? "Attached image"}
-          source={{ uri: part.url }}
+          key={`${message.messageId}:image:${key}`}
           style={[styles.assistantImage, { backgroundColor: theme.surfaceSoft }]}
+          url={part.url}
         />
       ) : null)}
       {keyed(files, (part) => part.kind === "file" ? `${part.url}:${part.filename ?? ""}` : part.kind).map(({ item: part, key }) => part.kind === "file" ? (
         <Pressable
           accessibilityRole="link"
           key={`${message.messageId}:file:${key}`}
-          onPress={() => openExternalUrl(part.url)}
+          onPress={() => confirmOpenExternalUrl(part.url)}
           style={[styles.fileCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
         >
           <FileText color={theme.muted} size={17} />

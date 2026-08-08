@@ -3,7 +3,12 @@ const DEFAULT_SAFE_REDIRECT_URL = "/dashboard";
 export function getSafeRedirectUrl(value: string | null | undefined, fallback = DEFAULT_SAFE_REDIRECT_URL) {
   const candidate = value?.trim();
 
-  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) {
+  if (
+    !candidate
+    || !candidate.startsWith("/")
+    || candidate.startsWith("//")
+    || candidate.includes("\\")
+  ) {
     return fallback;
   }
 
@@ -23,7 +28,7 @@ export function getSafeAbsoluteRedirectUrl(
     return fallbackUrl;
   }
 
-  if (candidate.startsWith("/") && !candidate.startsWith("//")) {
+  if (candidate.startsWith("/") && !candidate.startsWith("//") && !candidate.includes("\\")) {
     return new URL(candidate, requestOrigin).toString();
   }
 

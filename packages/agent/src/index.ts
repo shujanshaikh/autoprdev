@@ -9,7 +9,12 @@ export {
   type CodingHarnessOptions,
   type CodingHarnessPhase,
 } from "./harness";
-export { buildSandboxAgentSystemPrompt } from "./system-prompt";
+export {
+  buildSandboxAgentProjectContext,
+  buildSandboxAgentSystemPrompt,
+  REPOSITORY_SAFETY_POLICY,
+  withSandboxAgentProjectContext,
+} from "./system-prompt";
 export { applyAgenticCache, createCachedSystemMessage } from "./cache";
 export {
   bootstrapRepositorySandbox,

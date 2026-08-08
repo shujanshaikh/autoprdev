@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import { convertToModelMessages, type UIMessage } from "ai";
@@ -8,7 +9,11 @@ import { z } from "zod";
 import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
-import { codexErrorResponse, getCodexAgentModelConfig } from "#/lib/codex-auth-server";
+import {
+  codexErrorResponse,
+  createCodexAgentModelOptions,
+  revokeCodexAgentModelOptions,
+} from "#/lib/codex-auth-server";
 import {
   AGENT_IDEMPOTENCY_KEY_TTL,
   AGENT_TASK_ID,
@@ -172,7 +177,16 @@ async function POST(
       );
     }
 
-    const codex = await getCodexAgentModelConfig(req, parsed.data.model, parsed.data.reasoningEffort).catch((error) =>
+    const requestedAssistantMessageId = nanoid();
+    const codex = await createCodexAgentModelOptions(
+      req,
+      parsed.data.model,
+      parsed.data.reasoningEffort,
+      {
+        taskId: AGENT_TASK_ID,
+        contextId: `${projectId}:${threadId}:${requestedAssistantMessageId}`,
+      },
+    ).catch((error) =>
       error instanceof Error ? error : new Error("Could not load Codex credentials."),
     );
 
@@ -180,89 +194,96 @@ async function POST(
       return codexErrorResponse(codex, "Could not load Codex credentials.");
     }
 
-    const userMessage = parsed.data.message as UIMessage;
-    const requestedAssistantMessageId = nanoid();
-    const persistenceGrant = await createAgentPersistenceGrant();
-    const [assistantMessageId, dbMessages] = await Promise.all([
-      convexMutation(api.messages.createTurn, {
-        projectId,
-        threadId,
-        userMessage: {
-          messageId: userMessage.id,
-          parts: userMessage.parts,
-          metadata: userMessage.metadata,
-        },
-        assistantMessageId: requestedAssistantMessageId,
-        agentPersistenceTokenHash: persistenceGrant.tokenHash,
-      }),
-      convexAction(api.messages.listByThreadHydrated, { threadId }),
-    ]);
-    const uiMessages: UIMessage[] = dbMessages.flatMap((message: StoredMessageRow) => {
-      const uiMessage = toUIMessage(message);
-      return uiMessage.role !== "assistant" || uiMessage.parts.length > 0 || uiMessage.id === assistantMessageId
-        ? [uiMessage]
-        : [];
-    });
-    const modelInputMessages = [
-      ...uiMessages,
-      ...(uiMessages.some((message) => message.id === userMessage.id) ? [] : [userMessage]),
-      ...(uiMessages.some((message) => message.id === assistantMessageId)
-        ? []
-        : [{ id: assistantMessageId, role: "assistant" as const, parts: [] }]),
-    ];
-    const messagesForModel = await Promise.all(modelInputMessages.map(refreshR2FileUrlsForModel));
-    const sanitizedMessagesForModel = [];
-    for (const message of messagesForModel) {
-      const sanitizedMessage = sanitizeMessageForModelConversion(message);
-      if (sanitizedMessage.id !== assistantMessageId || sanitizedMessage.parts.length > 0) {
-        sanitizedMessagesForModel.push(sanitizedMessage);
+    const grantLifecycle = createGrantLifecycle(codex, revokeCodexAgentModelOptions);
+    try {
+      const userMessage = parsed.data.message as UIMessage;
+      const persistenceGrant = await createAgentPersistenceGrant();
+      const [assistantMessageId, dbMessages] = await Promise.all([
+        convexMutation(api.messages.createTurn, {
+          projectId,
+          threadId,
+          userMessage: {
+            messageId: userMessage.id,
+            parts: userMessage.parts,
+            metadata: userMessage.metadata,
+          },
+          assistantMessageId: requestedAssistantMessageId,
+          agentPersistenceTokenHash: persistenceGrant.tokenHash,
+        }),
+        convexAction(api.messages.listByThreadHydrated, { threadId }),
+      ]);
+      const uiMessages: UIMessage[] = dbMessages.flatMap((message: StoredMessageRow) => {
+        const uiMessage = toUIMessage(message);
+        return uiMessage.role !== "assistant" || uiMessage.parts.length > 0 || uiMessage.id === assistantMessageId
+          ? [uiMessage]
+          : [];
+      });
+      const modelInputMessages = [
+        ...uiMessages,
+        ...(uiMessages.some((message) => message.id === userMessage.id) ? [] : [userMessage]),
+        ...(uiMessages.some((message) => message.id === assistantMessageId)
+          ? []
+          : [{ id: assistantMessageId, role: "assistant" as const, parts: [] }]),
+      ];
+      const messagesForModel = await Promise.all(modelInputMessages.map(refreshR2FileUrlsForModel));
+      const sanitizedMessagesForModel = [];
+      for (const message of messagesForModel) {
+        const sanitizedMessage = sanitizeMessageForModelConversion(message);
+        if (sanitizedMessage.id !== assistantMessageId || sanitizedMessage.parts.length > 0) {
+          sanitizedMessagesForModel.push(sanitizedMessage);
+        }
       }
+      const [modelMessages, idempotencyKey] = await Promise.all([
+        convertToModelMessages(sanitizedMessagesForModel),
+        idempotencyKeys.create(
+          ["agent", threadId, assistantMessageId],
+          { scope: "global" },
+        ),
+      ]);
+      const run = await tasks.trigger<typeof agentTask>(
+        AGENT_TASK_ID,
+        {
+          messages: modelMessages,
+          options: {
+            projectId,
+            threadId,
+            sandboxCacheKey: threadSandboxCacheKey(project.sandboxCacheKey, threadId),
+            sandboxId: project.sandboxId,
+            sandboxWorkDir: worktree.worktreePath,
+            repoUrl: project.cloneUrl,
+            repoBranch: worktree.featureBranch,
+            repoName: project.repoName,
+            assistantMessageId,
+            persistenceToken: persistenceGrant.token,
+            demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
+            codex,
+          },
+        },
+        {
+          idempotencyKey,
+          idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
+          tags: requiredRunTags,
+          metadata: {
+            projectId,
+            threadId,
+            userMessageId: userMessage.id,
+            assistantMessageId,
+          },
+        },
+      );
+
+      grantLifecycle.transfer();
+
+      await convexMutation(api.threads.markRunStarted, {
+        threadId,
+        runId: run.id,
+      });
+
+      return acceptedAgentRunResponse(run.id, assistantMessageId);
+    } catch (error) {
+      await grantLifecycle.release().catch(() => undefined);
+      throw error;
     }
-    const [modelMessages, idempotencyKey] = await Promise.all([
-      convertToModelMessages(sanitizedMessagesForModel),
-      idempotencyKeys.create(
-        ["agent", threadId, assistantMessageId],
-        { scope: "global" },
-      ),
-    ]);
-    const run = await tasks.trigger<typeof agentTask>(
-      AGENT_TASK_ID,
-      {
-        messages: modelMessages,
-        options: {
-          projectId,
-          threadId,
-          sandboxCacheKey: threadSandboxCacheKey(project.sandboxCacheKey, threadId),
-          sandboxId: project.sandboxId,
-          sandboxWorkDir: worktree.worktreePath,
-          repoUrl: project.cloneUrl,
-          repoBranch: worktree.featureBranch,
-          repoName: project.repoName,
-          assistantMessageId,
-          persistenceToken: persistenceGrant.token,
-          demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
-          codex,
-        },
-      },
-      {
-        idempotencyKey,
-        idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
-        tags: requiredRunTags,
-        metadata: {
-          projectId,
-          threadId,
-          userMessageId: userMessage.id,
-          assistantMessageId,
-        },
-      },
-    );
-
-    await convexMutation(api.threads.markRunStarted, {
-      threadId,
-      runId: run.id,
-    });
-
-    return acceptedAgentRunResponse(run.id, assistantMessageId);
   });
 }
 

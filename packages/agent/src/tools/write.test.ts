@@ -4,18 +4,53 @@ import { z } from "zod";
 import type { DaytonaSandbox } from "../sandbox";
 
 const mocks = vi.hoisted(() => ({
+  currentFiles: { value: new Map<string, string>() },
+  downloadRemoteFileChunk: vi.fn(),
   ensureRemoteParentDirectory: vi.fn(),
   getSandboxContext: vi.fn(),
+  resolveJailedSandboxPath: vi.fn(),
 }));
 
 vi.mock("../sandbox", () => ({
   getSandboxContext: mocks.getSandboxContext,
 }));
 
-vi.mock("../sandbox/execute", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../sandbox/execute")>()),
-  ensureRemoteParentDirectory: mocks.ensureRemoteParentDirectory,
-}));
+vi.mock("../sandbox/execute", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../sandbox/execute")>();
+
+  mocks.resolveJailedSandboxPath.mockImplementation(
+    async (inputPath: string | undefined, options: { workDir: string }) => {
+      const resolved = original.resolveSandboxPath(inputPath, options.workDir);
+      if (!original.isPathWithinRoot(resolved, options.workDir)) {
+        throw new original.SandboxPathBoundaryError(resolved, options.workDir);
+      }
+      return resolved;
+    },
+  );
+  mocks.downloadRemoteFileChunk.mockImplementation(
+    async (options: { remotePath: string; maxBytes: number }) => {
+      const text = mocks.currentFiles.value.get(options.remotePath);
+      if (text === undefined) {
+        throw new original.RemoteFileNotFoundError(options.remotePath);
+      }
+
+      const buffer = Buffer.from(text, "utf8");
+      return {
+        content: buffer.subarray(0, options.maxBytes),
+        totalBytes: buffer.length,
+        totalLines: undefined,
+        reachedMaxBytes: buffer.length >= options.maxBytes,
+      };
+    },
+  );
+
+  return {
+    ...original,
+    downloadRemoteFileChunk: mocks.downloadRemoteFileChunk,
+    ensureRemoteParentDirectory: mocks.ensureRemoteParentDirectory,
+    resolveJailedSandboxPath: mocks.resolveJailedSandboxPath,
+  };
+});
 
 import { createDaytonaWriteTool } from "./write";
 
@@ -28,6 +63,7 @@ interface WriteResult {
     unchanged: boolean;
     diff: {
       patch: string;
+      patchOmitted?: boolean;
       status: "added" | "modified";
     };
   };
@@ -35,22 +71,16 @@ interface WriteResult {
 
 function createSandboxFiles(initialFiles: Record<string, string> = {}) {
   const files = new Map(Object.entries(initialFiles));
-  const downloadFile = vi.fn(async (remotePath: string) => {
-    const content = files.get(remotePath);
-    if (content === undefined) {
-      throw Object.assign(new Error(`Missing file: ${remotePath}`), { statusCode: 404 });
-    }
-    return Buffer.from(content, "utf8");
-  });
+  mocks.currentFiles.value = files;
   const uploadFile = vi.fn(async (content: Uint8Array, remotePath: string) => {
     files.set(remotePath, Buffer.from(content).toString("utf8"));
   });
   const sandbox = {
     id: "sandbox-1",
-    fs: { downloadFile, uploadFile },
+    fs: { uploadFile },
   } as unknown as DaytonaSandbox;
 
-  return { downloadFile, files, sandbox, uploadFile };
+  return { files, sandbox, uploadFile };
 }
 
 async function executeWrite(input: { path: string; content: string }): Promise<WriteResult> {
@@ -97,6 +127,19 @@ describe("Daytona write tool", () => {
     });
   });
 
+  it("rejects relative and absolute paths outside the workspace jail", async () => {
+    const remote = createSandboxFiles();
+    mocks.getSandboxContext.mockResolvedValue({ sandbox: remote.sandbox, workDir: "/workspace/repo" });
+
+    await expect(executeWrite({ path: "../../etc/passwd", content: "nope" })).rejects.toThrow(
+      /outside the sandbox workspace/,
+    );
+    await expect(executeWrite({ path: "/etc/passwd", content: "nope" })).rejects.toThrow(
+      /outside the sandbox workspace/,
+    );
+    expect(remote.uploadFile).not.toHaveBeenCalled();
+  });
+
   it("fully overwrites an existing file and returns its diff", async () => {
     const remotePath = "/workspace/repo/src/existing.ts";
     const remote = createSandboxFiles({ [remotePath]: "const value = 1;\n" });
@@ -136,12 +179,30 @@ describe("Daytona write tool", () => {
 
   it("does not mistake Daytona read failures for missing files", async () => {
     const remote = createSandboxFiles();
-    remote.downloadFile.mockRejectedValueOnce(Object.assign(new Error("Permission denied"), { statusCode: 403 }));
+    mocks.downloadRemoteFileChunk.mockRejectedValueOnce(new Error("Permission denied"));
     mocks.getSandboxContext.mockResolvedValue({ sandbox: remote.sandbox, workDir: "/workspace/repo" });
 
     await expect(executeWrite({ path: "protected.txt", content: "replacement" })).rejects.toThrow(
       "Permission denied",
     );
     expect(remote.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("overwrites an oversized existing file without storing a patch", async () => {
+    const remotePath = "/workspace/repo/large.txt";
+    const oversized = "x".repeat(2 * 1024 * 1024);
+    const remote = createSandboxFiles({ [remotePath]: oversized });
+    mocks.getSandboxContext.mockResolvedValue({ sandbox: remote.sandbox, workDir: "/workspace/repo" });
+
+    const result = await executeWrite({ path: "large.txt", content: "replacement\n" });
+
+    expect(remote.files.get(remotePath)).toBe("replacement\n");
+    expect(result.details).toMatchObject({
+      path: remotePath,
+      previousExists: true,
+      unchanged: false,
+      diff: { status: "modified", patch: "", patchOmitted: true },
+    });
+    expect(result.content).toContain("no diff was stored");
   });
 });

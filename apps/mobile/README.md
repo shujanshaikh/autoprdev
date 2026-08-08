@@ -20,6 +20,12 @@ Copy `.env.example` to `.env` and set:
   download URLs. With the standard R2 S3 endpoint, this is usually
   `https://<bucket>.<account-id>.r2.cloudflarestorage.com`. Mobile renders
   persisted attachment images only from this origin.
+- `EXPO_PUBLIC_TRUSTED_FILE_HOSTS` (optional) to a comma-separated list of
+  extra hosts whose in-chat images may auto-load — exact hostnames, or suffixes
+  with a leading dot. The configured attachment, web, and Convex origins are
+  trusted automatically; every other remote image stays behind a tap-to-load
+  placeholder so agent-authored content cannot silently phone home. Add your
+  Daytona preview proxy domain here if agent screenshots should render inline.
 
 Add `autopr://auth/callback` to the Redirects list for the same WorkOS
 application used by Convex. The mobile app uses PKCE; the web backend performs

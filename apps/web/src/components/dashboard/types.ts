@@ -16,6 +16,10 @@ export type GithubBranch = {
   protected: boolean;
 };
 
+export type GithubAppInstallation =
+  | { installed: false; installUrl: string; action: "install" | "configure" }
+  | { installed: true; installUrl: string; action: "installed" };
+
 export type SandboxStatus = "creating" | "ready" | "failed";
 export type SandboxRuntimeStatus = "started" | "stopped" | "archived" | "unknown";
 

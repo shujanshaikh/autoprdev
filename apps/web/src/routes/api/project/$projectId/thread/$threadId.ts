@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createSandbox } from "@autopr/agent/sandbox";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubPullRequestForBranch } from "@autopr/backend/convex/lib/github_oauth";
 import type { GithubPullRequestSummary } from "@autopr/backend/convex/lib/gitStatus";
@@ -12,45 +11,27 @@ import { pullProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
 import { generateThreadTitle } from "#/lib/generated-git-metadata";
 import {
   getGithubOAuthToken,
+  getGithubRepositoryToken,
+  getGithubRepositoryTokenForFullName,
   GithubConnectionError,
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
 import {
+  readThreadGitFileDiff,
   readThreadGitStatus,
   SandboxRuntimeNotStartedError,
+  ThreadGitFileNotChangedError,
 } from "#/lib/thread-git-status-server";
 import { runThreadGitWorkflow } from "#/lib/thread-git-workflow-server";
 import {
   ThreadGitMutationConflictError,
   withThreadGitMutation,
 } from "#/lib/thread-git-mutation-server";
-import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
-
-type DaytonaRecording = {
-  fileName?: string;
-  status?: string;
-  endTime?: string;
-  durationSeconds?: number;
-  sizeBytes?: number;
-};
-
-type RecordingService = {
-  get(recordingId: string): Promise<unknown>;
-};
-
-type RecordingPreview = {
-  fileName: string;
-  url: string;
-  contentType: string;
-  sizeBytes?: number;
-  durationSeconds?: number;
-};
-
-const RECORDING_DASHBOARD_PORT = 33333;
-const RECORDING_PREVIEW_EXPIRES_SECONDS = 60 * 60;
-const RECORDING_READY_ATTEMPTS = 10;
-const RECORDING_READY_RETRY_MS = 1_000;
+import {
+  persistedThreadWorkspace,
+  resolveThreadWorkspaceCoordinates,
+} from "#/lib/thread-workspace-server";
 
 const postRequestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -73,98 +54,8 @@ const postRequestSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not load recording.";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function normalizeRecording(value: unknown): DaytonaRecording {
-  if (!isRecord(value)) {
-    return {};
-  }
-
-  return {
-    fileName: typeof value.fileName === "string" ? value.fileName : undefined,
-    status: typeof value.status === "string" ? value.status : undefined,
-    endTime: typeof value.endTime === "string" ? value.endTime : undefined,
-    durationSeconds: typeof value.durationSeconds === "number" ? value.durationSeconds : undefined,
-    sizeBytes: typeof value.sizeBytes === "number" ? value.sizeBytes : undefined,
-  };
-}
-
-function isPlayableRecording(recording: DaytonaRecording) {
-  return Boolean(
-    recording.fileName?.trim() &&
-    (!recording.status || recording.status === "completed") &&
-    (recording.endTime || typeof recording.durationSeconds === "number" || typeof recording.sizeBytes === "number"),
-  );
-}
-
-async function getPlayableRecordingWithRetry(recording: RecordingService, recordingId: string) {
-  let latest: DaytonaRecording = {};
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= RECORDING_READY_ATTEMPTS; attempt++) {
-    try {
-      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Recording readiness checks must be sequential retries with delay.
-      latest = normalizeRecording(await recording.get(recordingId));
-
-      if (isPlayableRecording(latest)) {
-        return latest;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-
-    if (attempt < RECORDING_READY_ATTEMPTS) {
-      await delay(RECORDING_READY_RETRY_MS);
-    }
-  }
-
-  if (lastError && !latest.fileName) {
-    throw lastError;
-  }
-
-  const status = latest.status ? ` Current status: ${latest.status}.` : "";
-  throw new Error(`Recording is not ready for playback yet.${status}`);
-}
-
-function recordingDashboardVideoUrl(baseUrl: string, fileName: string) {
-  const url = new URL(baseUrl);
-  const basePath = url.pathname.replace(/\/+$/, "");
-
-  url.pathname = `${basePath}/videos/${encodeURIComponent(fileName)}`;
-  return url.toString();
-}
-
-async function createRecordingPreview(options: {
-  sandboxId: string;
-  recordingId: string;
-}): Promise<RecordingPreview> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
-  const recording = await getPlayableRecordingWithRetry(sandbox.computerUse.recording, options.recordingId);
-  const fileName = recording.fileName?.trim();
-
-  if (!fileName) {
-    throw new Error("Recording file name is not available yet.");
-  }
-
-  const preview = await sandbox.getSignedPreviewUrl(RECORDING_DASHBOARD_PORT, RECORDING_PREVIEW_EXPIRES_SECONDS);
-
-  return {
-    fileName,
-    url: recordingDashboardVideoUrl(preview.url, fileName),
-    contentType: "video/mp4",
-    sizeBytes: recording.sizeBytes,
-    durationSeconds: recording.durationSeconds,
-  };
 }
 
 async function GET(
@@ -174,8 +65,12 @@ async function GET(
   const { searchParams } = new URL(req.url);
   const recordingId = searchParams.get("recordingId")?.trim();
   const shouldPrepare = searchParams.get("prepare") === "1";
+  const requestedDiffFileParam = searchParams.get("gitDiff");
+  const requestedDiffFile = requestedDiffFileParam && requestedDiffFileParam.length > 0
+    ? requestedDiffFileParam
+    : undefined;
 
-  if (searchParams.get("gitStatus") === "1") {
+  if (searchParams.get("gitStatus") === "1" || requestedDiffFile) {
     const { projectId, threadId } = await params;
     const [project, thread] = await Promise.all([
       convexQuery(api.projects.get, { projectId }),
@@ -200,24 +95,77 @@ async function GET(
         {
           error: {
             code: "SANDBOX_RUNTIME_NOT_STARTED",
-            message: "Start the project workspace before refreshing Git status.",
+            message: requestedDiffFile
+              ? "Start the project workspace before opening this diff."
+              : "Start the project workspace before refreshing Git status.",
           },
         },
         { status: 409 },
       );
     }
 
-    const worktree = persistedThreadWorkspace(project, thread);
-    if (!worktree) {
+    let worktree;
+    try {
+      // Checkout-mode threads deliberately have no persisted workspace: the
+      // branch can be changed from a terminal, so it must be inspected live.
+      // Worktree-mode threads also use this path for first-time provisioning.
+      worktree = await resolveThreadWorkspaceCoordinates(project, thread, () =>
+        convexAction(api.projectActions.resolveThreadWorkspace, {
+          projectId,
+          threadId,
+        }),
+      );
+    } catch (error) {
       return Response.json(
         {
           error: {
             code: "THREAD_WORKSPACE_NOT_READY",
-            message: "The thread workspace is still being prepared.",
+            message: safeErrorMessage(error, "Could not prepare the thread workspace."),
           },
         },
         { status: 409 },
       );
+    }
+
+    if (requestedDiffFile) {
+      if (requestedDiffFile.length > 4_000 || requestedDiffFile.includes("\0")) {
+        return Response.json(
+          { error: { code: "INVALID_GIT_DIFF_FILE", message: "Invalid changed file path." } },
+          { status: 400 },
+        );
+      }
+
+      try {
+        const diff = await readThreadGitFileDiff({
+          sandboxId: project.sandboxId,
+          worktreePath: worktree.worktreePath,
+          file: requestedDiffFile,
+        });
+        return Response.json(
+          { diff },
+          { headers: { "Cache-Control": "private, no-store" } },
+        );
+      } catch (error) {
+        const runtimeStopped = error instanceof SandboxRuntimeNotStartedError;
+        const fileNotChanged = error instanceof ThreadGitFileNotChangedError;
+        return Response.json(
+          {
+            error: {
+              code: runtimeStopped
+                ? error.code
+                : fileNotChanged
+                  ? error.code
+                  : "GIT_DIFF_READ_FAILED",
+              message: runtimeStopped
+                ? "Start the project workspace before opening this diff."
+                : fileNotChanged
+                  ? error.message
+                  : safeErrorMessage(error, "Could not open the file diff."),
+            },
+          },
+          { status: runtimeStopped ? 409 : fileNotChanged ? 404 : 502 },
+        );
+      }
     }
 
     try {
@@ -234,9 +182,9 @@ async function GET(
 
       try {
         const authState = await requireWorkOSAuth();
-        githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+        const oauthToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
         const existing = await fetchGithubPullRequestForBranch(
-          githubToken,
+          oauthToken,
           project.repoOwner,
           project.repoName,
           worktree.featureBranch,
@@ -250,6 +198,7 @@ async function GET(
             draft: existing.draft,
           };
         }
+        githubToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
       } catch (error) {
         if (!(error instanceof GithubConnectionError)) {
           // PR discovery is best-effort and must not hide local Git status.
@@ -306,7 +255,6 @@ async function GET(
   if (project.sandboxStatus !== "ready" || !project.sandboxId) {
     return Response.json({ error: "Project sandbox is not ready." }, { status: 409 });
   }
-  const sandboxId = project.sandboxId;
 
   let recordingMetadata: ReturnType<typeof findDemoRecordingMetadataInParts> = null;
   for (const message of messages) {
@@ -325,19 +273,10 @@ async function GET(
   }
 
   try {
-    const preview = await createRecordingPreview({
-      sandboxId,
-      recordingId,
-    });
     const upload = await convexAction(api.recordingArtifactActions.ensureUploaded, {
       projectId,
       threadId,
       recordingId,
-      sourceUrl: preview.url,
-      sourceFileName: preview.fileName,
-      contentType: preview.contentType,
-      sizeBytes: preview.sizeBytes,
-      durationSeconds: preview.durationSeconds,
     });
 
     if (shouldPrepare) {
@@ -499,7 +438,10 @@ async function POST(
             : convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId }),
           requireWorkOSAuth(),
         ]);
-        const githubToken = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+        await getGithubOAuthToken(authState.user.id, authState.organizationId);
+        const githubToken = thread.githubPullRequestHeadRepository
+          ? await getGithubRepositoryTokenForFullName(thread.githubPullRequestHeadRepository)
+          : await getGithubRepositoryToken(project.repoOwner, project.repoName);
         const result = await pullProjectSandboxBranch({
           sandboxId,
           branch: worktree.featureBranch,

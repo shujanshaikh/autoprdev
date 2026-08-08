@@ -37,8 +37,11 @@ import {
 } from "#/lib/git-workflow-runner";
 import {
   getGithubOAuthToken,
+  getGithubRepositoryToken,
+  getGithubRepositoryTokenForFullName,
   getGithubUserIdentity,
   GithubConnectionError,
+  requireGithubRepositoryWriteAccess,
   requireWorkOSAuth,
   safeErrorMessage,
 } from "#/lib/github-oauth-server";
@@ -64,6 +67,10 @@ function needsGithub(action: GitWorkflowAction) {
 
 function needsPullRequest(action: GitWorkflowAction) {
   return action === "create_pr" || action === "push_create_pr" || action === "commit_push_create_pr";
+}
+
+function needsPush(action: GitWorkflowAction) {
+  return action === "push" || action === "commit_push" || action === "push_create_pr" || action === "commit_push_create_pr";
 }
 
 function phaseError(error: unknown, phase: GitWorkflowPhase) {
@@ -232,14 +239,36 @@ export async function runThreadGitWorkflow(options: {
     username: "x-access-token",
   };
   let token: string | undefined;
+  let sandboxToken: string | undefined;
+  let pushSandboxToken: string | undefined;
   if (needsGithub(options.input.action)) {
     try {
       token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
-      identity = await getGithubUserIdentity(authState.user, token);
-    } catch (error) {
-      if (!(error instanceof GithubConnectionError) || !token) {
-        return failBeforeExecution(error, "validate");
+      try {
+        identity = await getGithubUserIdentity(authState.user, token);
+      } catch (error) {
+        if (!(error instanceof GithubConnectionError) || needsPush(options.input.action)) throw error;
       }
+      if (needsPush(options.input.action)) {
+        const targetFullName = thread.githubPullRequestHeadRepository
+          ?? `${project.repoOwner}/${project.repoName}`;
+        const [targetOwner, targetRepo, ...extra] = targetFullName.split("/");
+        if (!targetOwner || !targetRepo || extra.length > 0) {
+          throw new GithubConnectionError("Invalid GitHub push repository.");
+        }
+        await requireGithubRepositoryWriteAccess(
+          token,
+          targetOwner,
+          targetRepo,
+          identity.username,
+        );
+      }
+      sandboxToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
+      pushSandboxToken = thread.githubPullRequestHeadRepository
+        ? await getGithubRepositoryTokenForFullName(thread.githubPullRequestHeadRepository)
+        : sandboxToken;
+    } catch (error) {
+      return failBeforeExecution(error, "validate");
     }
   }
 
@@ -280,7 +309,7 @@ export async function runThreadGitWorkflow(options: {
         workspace.workspaceMode === "checkout" &&
         inspected.branch === baseBranch
       ) {
-        if (!token) throw new GithubConnectionError("GitHub credentials are required to create a feature branch.");
+        if (!sandboxToken) throw new GithubConnectionError("GitHub credentials are required to create a feature branch.");
         let commitMessage = operation.commitMessage;
         let preferredBranch: string;
         if (inspected.hasChanges) {
@@ -313,7 +342,7 @@ export async function runThreadGitWorkflow(options: {
           sandboxId,
           baseBranch,
           preferredBranch,
-          githubToken: token,
+          githubToken: sandboxToken,
           repoName: project.repoName,
           sandboxWorkDir: workspace.worktreePath,
         });
@@ -407,10 +436,10 @@ export async function runThreadGitWorkflow(options: {
       };
     },
     push: async (checkpoint) => {
-      if (!token) throw new GithubConnectionError("GitHub credentials are required to push changes.");
+      if (!pushSandboxToken) throw new GithubConnectionError("GitHub credentials are required to push changes.");
       const pushResult = await pushProjectSandboxBranchIfNeeded({
         sandboxId,
-        githubToken: token,
+        githubToken: pushSandboxToken,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
         target: thread.githubPullRequestHeadCloneUrl && thread.githubPullRequestHeadBranch
@@ -439,11 +468,11 @@ export async function runThreadGitWorkflow(options: {
       };
     },
     pull_request: async (checkpoint) => {
-      if (!token) throw new GithubConnectionError("GitHub credentials are required to create a pull request.");
+      if (!token || !sandboxToken) throw new GithubConnectionError("GitHub credentials are required to create a pull request.");
       const pullRequestContext = await readProjectSandboxPullRequestContext({
         sandboxId,
         baseBranch: checkpoint.baseBranch ?? baseBranch,
-        githubToken: token,
+        githubToken: sandboxToken,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
       });

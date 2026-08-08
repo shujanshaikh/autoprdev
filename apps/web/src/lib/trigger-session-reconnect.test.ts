@@ -8,19 +8,39 @@ import {
 } from "./trigger-session-reconnect";
 
 describe("Trigger session reconnect", () => {
-  it("selects the durable Session transport for refreshes and new threads", () => {
+  it("selects the durable Session transport for an active session turn", () => {
     expect(
       shouldUseTriggerSessionTransport({
         sessionCreatedAt: Date.now(),
         currentRunId: "run_live_session",
+        currentRunTransport: "session",
       }),
     ).toBe(true);
-    expect(shouldUseTriggerSessionTransport({})).toBe(true);
   });
 
-  it("keeps an already-running legacy task on its run-scoped stream", () => {
+  it("uses the shared run-scoped stream while idle and for task turns", () => {
+    expect(shouldUseTriggerSessionTransport({})).toBe(false);
     expect(
-      shouldUseTriggerSessionTransport({ currentRunId: "run_legacy" }),
+      shouldUseTriggerSessionTransport({ sessionCreatedAt: Date.now() }),
+    ).toBe(false);
+    expect(
+      shouldUseTriggerSessionTransport({
+        sessionCreatedAt: Date.now(),
+        currentRunId: "run_task",
+        currentRunTransport: "task",
+      }),
+    ).toBe(false);
+  });
+
+  it("recognizes active session turns written before transport markers", () => {
+    expect(
+      shouldUseTriggerSessionTransport({
+        sessionCreatedAt: Date.now(),
+        currentRunId: "run_legacy_session",
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseTriggerSessionTransport({ currentRunId: "run_legacy_task" }),
     ).toBe(false);
   });
 

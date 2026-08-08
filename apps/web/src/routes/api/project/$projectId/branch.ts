@@ -9,7 +9,13 @@ import {
   SandboxGitConflictError,
   switchProjectSandboxBranch,
 } from "#/lib/daytona-project-sandbox";
-import { getGithubOAuthToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
+import {
+  getGithubOAuthToken,
+  getGithubRepositoryToken,
+  GithubConnectionError,
+  requireWorkOSAuth,
+  safeErrorMessage,
+} from "#/lib/github-oauth-server";
 
 const requestSchema = z.object({
   branch: z.string().min(1),
@@ -90,6 +96,7 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
     if (!branches.some((entry) => entry.name === branch)) {
       return Response.json({ error: "That branch no longer exists on GitHub." }, { status: 404 });
     }
+    const repositoryToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
 
     await convexMutation(api.projects.markBranchSwitching, { projectId, repoBranch: branch });
 
@@ -99,7 +106,7 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
         branch,
         repoName: project.repoName,
         sandboxWorkDir: project.sandboxWorkDir,
-        githubToken: token,
+        githubToken: repositoryToken,
       });
       await convexMutation(api.projects.markBranchSwitchReady, { projectId, repoBranch: branch });
 

@@ -1,11 +1,21 @@
 import "@tanstack/react-start/server-only";
 
+import { createPrivateKey } from "node:crypto";
 import { getRequestHeader } from "@tanstack/react-start/server";
 import { WorkOS } from "@workos-inc/node";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 
-import { getWorkOSAccessTokenVerificationOptions } from "#/lib/workos-access-token";
+import {
+  buildGithubAppInstallUrl,
+  decodeGithubAppPrivateKey,
+  getTrustedGithubInstallationUrl,
+} from "#/lib/github-app-config";
+import {
+  getWorkOSAccessTokenVerificationOptions,
+  resolveWorkOSRequestAccessToken,
+  WORKOS_ACCESS_TOKEN_HEADER,
+} from "#/lib/workos-access-token";
 
 export class GithubConnectionError extends Error {
   constructor(message = "Connect GitHub to continue.") {
@@ -31,6 +41,11 @@ const mobileAuthCache = new Map<string, {
   expiresAt: number;
   auth: AuthenticatedWorkOSAuth;
 }>();
+const repositoryInstallationTokenCache = new Map<string, {
+  expiresAt: number;
+  token: string;
+}>();
+let githubAppInstallUrlPromise: Promise<string> | undefined;
 
 export function invalidateBearerAuth(accessToken: string) {
   mobileAuthCache.delete(accessToken);
@@ -131,11 +146,11 @@ function getWorkOSApiKey() {
 }
 
 export async function requireWorkOSAuth(): Promise<AuthenticatedWorkOSAuth> {
-  const authorization = getRequestHeader("authorization");
-  if (authorization?.startsWith("Bearer ")) {
-    const accessToken = authorization.slice("Bearer ".length).trim();
-    if (!accessToken) throw new GithubConnectionError("Unauthorized");
-
+  const accessToken = resolveWorkOSRequestAccessToken({
+    dedicatedHeader: getRequestHeader(WORKOS_ACCESS_TOKEN_HEADER),
+    authorization: getRequestHeader("authorization"),
+  });
+  if (accessToken) {
     try {
       return await getBearerAuth(accessToken);
     } catch (error) {
@@ -193,6 +208,201 @@ export async function getGithubOAuthToken(userId: string, organizationId?: strin
   return token;
 }
 
+function getGithubAppConfiguration() {
+  const appId = process.env.GITHUB_APP_ID?.trim();
+  const encodedPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim();
+  if (!appId || !encodedPrivateKey) {
+    throw new GithubConnectionError(
+      "GitHub App sandbox access is not configured. Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY.",
+    );
+  }
+
+  return { appId, privateKey: decodeGithubAppPrivateKey(encodedPrivateKey) };
+}
+
+async function createGithubAppJwt() {
+  const { appId, privateKey } = getGithubAppConfiguration();
+  const now = Math.floor(Date.now() / 1000);
+  let key: ReturnType<typeof createPrivateKey>;
+  try {
+    key = createPrivateKey(privateKey);
+  } catch {
+    throw new GithubConnectionError(
+      "GITHUB_APP_PRIVATE_KEY must contain the complete PEM private key downloaded from the Autopr GitHub App.",
+    );
+  }
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "RS256" })
+    .setIssuedAt(now - 60)
+    .setIssuer(appId)
+    .setExpirationTime(now + 9 * 60)
+    .sign(key);
+}
+
+async function githubAppFetch(url: string, init?: RequestInit) {
+  return fetch(url, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${await createGithubAppJwt()}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...init?.headers,
+    },
+  });
+}
+
+async function githubAppJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await githubAppFetch(url, init);
+  if (!response.ok) {
+    const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
+    throw new GithubConnectionError(
+      response.status === 404
+        ? "Install the Autopr GitHub App on this repository before opening it in a sandbox."
+        : body?.message ?? "Could not authorize the project repository for sandbox Git access.",
+    );
+  }
+  return await response.json() as T;
+}
+
+export async function getGithubAppInstallUrl(): Promise<string> {
+  if (!githubAppInstallUrlPromise) {
+    githubAppInstallUrlPromise = githubAppJson<{ slug?: string }>("https://api.github.com/app")
+      .then(({ slug }) => {
+        if (!slug) {
+          throw new GithubConnectionError("GitHub did not return a valid Autopr App slug.");
+        }
+        return buildGithubAppInstallUrl(slug);
+      })
+      .catch((error: unknown) => {
+        githubAppInstallUrlPromise = undefined;
+        throw error;
+      });
+  }
+
+  return githubAppInstallUrlPromise;
+}
+
+export async function getGithubRepositoryInstallationStatus(owner: string, repo: string) {
+  const normalizedOwner = owner.trim();
+  const normalizedRepo = repo.trim();
+  if (!normalizedOwner || !normalizedRepo || /[\\/]/.test(normalizedOwner) || /[\\/]/.test(normalizedRepo)) {
+    throw new GithubConnectionError("Invalid GitHub repository.");
+  }
+
+  const response = await githubAppFetch(
+    `https://api.github.com/repos/${encodeURIComponent(normalizedOwner)}/${encodeURIComponent(normalizedRepo)}/installation`,
+  );
+
+  if (response.status === 404) {
+    const [newInstallUrl, existingInstallationUrl] = await Promise.all([
+      getGithubAppInstallUrl(),
+      getGithubOwnerInstallationUrl(normalizedOwner),
+    ]);
+    return existingInstallationUrl
+      ? { installed: false, installUrl: existingInstallationUrl, action: "configure" as const }
+      : { installed: false, installUrl: newInstallUrl, action: "install" as const };
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
+    throw new GithubConnectionError(
+      body?.message ?? "Could not check whether the Autopr GitHub App can access this repository.",
+    );
+  }
+
+  const installation = (await response.json()) as {
+    html_url?: string;
+    permissions?: { contents?: string };
+  };
+  if (installation.permissions?.contents !== "write") {
+    return {
+      installed: false,
+      installUrl:
+        getTrustedGithubInstallationUrl(installation.html_url) ??
+        await getGithubAppInstallUrl(),
+      action: "configure" as const,
+    };
+  }
+
+  return {
+    installed: true,
+    installUrl: await getGithubAppInstallUrl(),
+    action: "installed" as const,
+  };
+}
+
+async function getGithubOwnerInstallationUrl(owner: string): Promise<string | undefined> {
+  const encodedOwner = encodeURIComponent(owner);
+  const endpoints = [
+    `https://api.github.com/orgs/${encodedOwner}/installation`,
+    `https://api.github.com/users/${encodedOwner}/installation`,
+  ];
+
+  for (const endpoint of endpoints) {
+    const response = await githubAppFetch(endpoint);
+    if (response.status === 404) continue;
+    if (!response.ok) {
+      const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
+      throw new GithubConnectionError(
+        body?.message ?? "Could not check the Autopr GitHub App installation for this account.",
+      );
+    }
+
+    const installation = (await response.json()) as { html_url?: string };
+    return getTrustedGithubInstallationUrl(installation.html_url);
+  }
+
+  return undefined;
+}
+
+/** Mints a short-lived GitHub App token selected down to one repository. */
+export async function getGithubRepositoryToken(owner: string, repo: string): Promise<string> {
+  const normalizedOwner = owner.trim();
+  const normalizedRepo = repo.trim();
+  if (!normalizedOwner || !normalizedRepo || /[\\/]/.test(normalizedOwner) || /[\\/]/.test(normalizedRepo)) {
+    throw new GithubConnectionError("Invalid GitHub repository.");
+  }
+
+  const cacheKey = `${normalizedOwner}/${normalizedRepo}`.toLowerCase();
+  const cached = repositoryInstallationTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() + 5 * 60_000) return cached.token;
+
+  const installation = await githubAppJson<{ id: number }>(
+    `https://api.github.com/repos/${encodeURIComponent(normalizedOwner)}/${encodeURIComponent(normalizedRepo)}/installation`,
+  );
+  const access = await githubAppJson<{
+    token: string;
+    expires_at: string;
+    repositories?: Array<{ full_name?: string }>;
+  }>(`https://api.github.com/app/installations/${installation.id}/access_tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      repositories: [normalizedRepo],
+      permissions: { contents: "write" },
+    }),
+  });
+  if (!access.token) throw new GithubConnectionError("GitHub did not issue a repository access token.");
+  if (access.repositories && !access.repositories.some((entry) => entry.full_name?.toLowerCase() === cacheKey)) {
+    throw new GithubConnectionError("GitHub issued a token for a different repository.");
+  }
+
+  const expiresAt = Date.parse(access.expires_at);
+  repositoryInstallationTokenCache.set(cacheKey, {
+    token: access.token,
+    expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 50 * 60_000,
+  });
+  return access.token;
+}
+
+export function getGithubRepositoryTokenForFullName(fullName: string) {
+  const [owner, repo, ...extra] = fullName.split("/");
+  if (!owner || !repo || extra.length > 0) {
+    throw new GithubConnectionError("Invalid GitHub repository.");
+  }
+  return getGithubRepositoryToken(owner, repo);
+}
+
 export async function getGithubWidgetToken(userId: string, organizationId?: string) {
   if (!organizationId) {
     throw new GithubConnectionError("Select or create a WorkOS organization before connecting GitHub.");
@@ -241,6 +451,32 @@ export interface GithubUserIdentity {
   username: string;
   name: string;
   email: string;
+}
+
+export async function requireGithubRepositoryWriteAccess(
+  token: string,
+  owner: string,
+  repo: string,
+  username: string,
+) {
+  const response = await fetch(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}` +
+      `/collaborators/${encodeURIComponent(username)}/permission`,
+    { headers: githubHeaders(token), redirect: "error" },
+  );
+  if (!response.ok) {
+    throw new GithubConnectionError(
+      response.status === 404
+        ? `Your GitHub account cannot push to ${owner}/${repo}.`
+        : `Could not verify your GitHub write access to ${owner}/${repo}.`,
+    );
+  }
+  const body = await response.json() as { permission?: string; user?: { permissions?: { push?: boolean } } };
+  const canPush = body.user?.permissions?.push === true ||
+    body.permission === "admin" || body.permission === "maintain" || body.permission === "write";
+  if (!canPush) {
+    throw new GithubConnectionError(`Your GitHub account cannot push to ${owner}/${repo}.`);
+  }
 }
 
 function githubHeaders(token: string) {

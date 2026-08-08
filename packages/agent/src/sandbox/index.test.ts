@@ -21,8 +21,12 @@ describe("sandbox lookup coalescing", () => {
       id: "sandbox-1",
       state: "started",
       autoArchiveInterval: 120,
+      domainAllowList: undefined as string | undefined,
       start: vi.fn(),
       setAutoArchiveInterval: vi.fn(),
+      updateNetworkSettings: vi.fn(async ({ domainAllowList }: { domainAllowList: string }) => {
+        sandbox.domainAllowList = domainAllowList;
+      }),
     };
     mocks.get.mockResolvedValue(sandbox);
     const { createSandbox, getSandboxContext } = await import("./index");
@@ -43,6 +47,9 @@ describe("sandbox lookup coalescing", () => {
     });
 
     expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(sandbox.updateNetworkSettings).toHaveBeenCalledWith({
+      domainAllowList: expect.stringContaining("github.com"),
+    });
   });
 
   it("revalidates and restarts a cached context after its short TTL", async () => {
@@ -52,10 +59,14 @@ describe("sandbox lookup coalescing", () => {
       id: "sandbox-2",
       state: "started",
       autoArchiveInterval: 120,
+      domainAllowList: undefined as string | undefined,
       start: vi.fn(async () => {
         sandbox.state = "started";
       }),
       setAutoArchiveInterval: vi.fn(),
+      updateNetworkSettings: vi.fn(async ({ domainAllowList }: { domainAllowList: string }) => {
+        sandbox.domainAllowList = domainAllowList;
+      }),
     };
     mocks.get.mockImplementation(async () => sandbox);
     const { getSandboxContext } = await import("./index");
@@ -79,5 +90,25 @@ describe("sandbox lookup coalescing", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("refuses to start a stopped sandbox before its network policy is secured", async () => {
+    const sandbox = {
+      id: "sandbox-unsecured",
+      state: "stopped",
+      autoArchiveInterval: 120,
+      domainAllowList: "*",
+      start: vi.fn(),
+      setAutoArchiveInterval: vi.fn(),
+      updateNetworkSettings: vi.fn(),
+    };
+    mocks.get.mockResolvedValue(sandbox);
+    const { createSandbox } = await import("./index");
+
+    await expect(createSandbox({ sandboxId: sandbox.id })).rejects.toThrow(
+      "Refusing to start a sandbox",
+    );
+    expect(sandbox.start).not.toHaveBeenCalled();
+    expect(sandbox.updateNetworkSettings).not.toHaveBeenCalled();
   });
 });

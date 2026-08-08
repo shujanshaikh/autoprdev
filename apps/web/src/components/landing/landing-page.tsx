@@ -79,7 +79,7 @@ function Wordmark() {
   return (
     <a href="#top" className="lp-wordmark" aria-label="AutoPR home">
       <span className="lp-wordmark-tile">
-        <img src="/images/landing/autopr-mark.png" alt="" aria-hidden="true" />
+        <img src="/images/landing/autopr-icon.png" alt="" aria-hidden="true" />
       </span>
       <span className="lp-wordmark-text">AutoPR</span>
     </a>

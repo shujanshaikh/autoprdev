@@ -13,7 +13,13 @@ import { z } from "zod";
 
 import { convexMutation, convexQuery } from "#/lib/convex-server";
 import { materializeGithubPullRequestWorktree } from "#/lib/daytona-project-sandbox";
-import { getGithubOAuthToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
+import {
+  getGithubOAuthToken,
+  getGithubRepositoryTokenForFullName,
+  GithubConnectionError,
+  requireWorkOSAuth,
+  safeErrorMessage,
+} from "#/lib/github-oauth-server";
 
 async function GET(_req: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -114,6 +120,9 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
     if (!thread?.worktreePath || !thread.featureBranch) throw new Error("The thread worktree metadata is incomplete.");
 
     try {
+      const repositoryToken = await getGithubRepositoryTokenForFullName(
+        pullRequest.head.repositoryFullName,
+      );
       const checkout = await materializeGithubPullRequestWorktree({
         sandboxId: project.sandboxId,
         repositoryPath: project.sandboxWorkDir,
@@ -123,7 +132,7 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
         headCloneUrl: pullRequest.head.cloneUrl,
         headBranch: pullRequest.head.branch,
         expectedHeadSha: pullRequest.head.sha,
-        githubToken: token,
+        githubToken: repositoryToken,
       });
       await convexMutation(api.threads.completeGithubPullRequestCheckout, {
         threadId: thread.threadId,

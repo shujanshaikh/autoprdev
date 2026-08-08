@@ -1,4 +1,5 @@
 import { Daytona } from "@daytona/sdk";
+import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 
 import {
   DEFAULT_SANDBOX_WORKDIR,
@@ -12,6 +13,10 @@ export {
   sandboxRepositoryDirectoryName,
   sandboxRepositoryPath,
 } from "./repo-path";
+export {
+  DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST,
+  sandboxDomainAllowList,
+} from "@autopr/config/sandbox-network-policy";
 
 export interface SandboxContext {
   sandbox: DaytonaSandbox;
@@ -25,8 +30,10 @@ export interface DaytonaSandbox {
   state?: string;
   autoArchiveInterval?: number;
   toolboxProxyUrl?: string;
+  domainAllowList?: string;
   start(timeout?: number): Promise<void>;
   setAutoArchiveInterval(interval: number): Promise<void>;
+  updateNetworkSettings(settings: { domainAllowList: string }): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
   getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
   computerUse: {
@@ -115,6 +122,7 @@ export interface DaytonaSandbox {
   fs: {
     downloadFile(path: string): Promise<Uint8Array>;
     uploadFile(file: Uint8Array | Buffer, path: string): Promise<unknown>;
+    deleteFile(path: string, recursive?: boolean): Promise<void>;
     listFiles(path: string): Promise<unknown[]>;
     searchFiles(path: string, pattern: string): Promise<{ files: string[] }>;
   };
@@ -155,6 +163,8 @@ export interface SandboxSessionOptions {
   cacheKey?: string;
   sandboxId?: string;
   snapshot?: string;
+  name?: string;
+  labels?: Record<string, string>;
   repoUrl?: string;
   repoBranch?: string;
   repoName?: string;
@@ -168,7 +178,6 @@ const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000] as const;
 const SANDBOX_LOOKUP_CACHE_MS = 5_000;
-
 const sandboxContextPromises = new Map<string, {
   promise: Promise<SandboxContext>;
   expiresAt: number;
@@ -210,6 +219,8 @@ interface ResolvedSandboxSessionOptions {
   cacheKey: string;
   sandboxId?: string;
   snapshot: string;
+  name?: string;
+  labels?: Record<string, string>;
   repoUrl?: string;
   repoBranch?: string;
   repoName?: string;
@@ -229,6 +240,8 @@ function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSan
     cacheKey,
     sandboxId,
     snapshot,
+    name: options.name,
+    labels: options.labels,
     repoUrl,
     repoBranch,
     repoName,
@@ -294,6 +307,19 @@ function createDaytonaClient() {
   });
 }
 
+async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
+  const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
+  if (sandbox.domainAllowList === domainAllowList) return sandbox;
+  if (sandbox.state && sandbox.state !== "started") {
+    throw new Error(
+      "Refusing to start a sandbox whose network policy is missing or outdated. Recreate the sandbox to apply the configured domain allow-list before startup.",
+    );
+  }
+  await sandbox.updateNetworkSettings({ domainAllowList });
+  sandbox.domainAllowList = domainAllowList;
+  return sandbox;
+}
+
 export async function createSandbox(options: SandboxSessionOptions = {}): Promise<DaytonaSandbox> {
   const resolved = resolveSessionOptions(options);
   const daytona = await createDaytonaClient();
@@ -308,7 +334,9 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
     if (existing) return await existing;
 
     const pending = retryDaytonaRateLimit(async () => ensureSandboxStarted(
-      await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId)),
+      await ensureSandboxNetworkPolicy(
+        await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId)),
+      ),
     ));
     sandboxLookupPromises.set(sandboxId, pending);
     try {
@@ -328,8 +356,11 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
   return ensureSandboxStarted(
     await daytona.create({
       snapshot: resolved.snapshot,
+      name: resolved.name,
+      labels: resolved.labels,
       autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
       autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
+      domainAllowList: sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST),
     }),
   );
 }
@@ -337,7 +368,8 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
 /** Fetches an existing sandbox without changing its runtime state. */
 export async function getSandboxWithoutStarting(sandboxId: string): Promise<DaytonaSandbox> {
   const daytona = createDaytonaClient();
-  return await daytona.get(sandboxId);
+  const sandbox = await daytona.get(sandboxId);
+  return ensureSandboxNetworkPolicy(sandbox);
 }
 
 export async function deleteSandbox(sandboxId: string): Promise<void> {

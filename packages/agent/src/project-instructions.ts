@@ -1,5 +1,5 @@
 import { getSandboxContext, type SandboxSessionOptions } from "./sandbox";
-import { resolveSandboxPath } from "./sandbox/execute";
+import { downloadRemoteFileChunk, resolveSandboxPath } from "./sandbox/execute";
 import type { BuildSystemPromptContextFile } from "./system-prompt";
 
 const DEFAULT_PROJECT_INSTRUCTION_FILENAMES = ["AGENTS.override.md", "AGENTS.md"];
@@ -62,29 +62,32 @@ async function readFirstInstructionFile(
   filenames: string[],
   maxBytes: number,
 ): Promise<LoadedInstructionFile | undefined> {
-  const context = await getSandboxContext(sandboxOptions);
-
   for (const filename of filenames) {
     const path = `${directory.replace(/\/+$/, "")}/${filename}`;
 
     try {
-      const bytes = Buffer.from(await context.sandbox.fs.downloadFile(path));
-      if (bytes.length === 0) {
+      // The byte budget is enforced on the sandbox host, so an oversized
+      // instruction file is never buffered whole into harness memory.
+      const chunk = await downloadRemoteFileChunk({
+        remotePath: path,
+        maxBytes,
+        timeout: 30,
+        sandboxOptions,
+      });
+      if (chunk.content.length === 0) {
         continue;
       }
 
-      const truncated = bytes.length > maxBytes;
-      const visibleBytes = truncated ? bytes.subarray(0, maxBytes) : bytes;
-      const content = visibleBytes.toString("utf8").trim();
+      const content = chunk.content.toString("utf8").trim();
       if (!content) {
         continue;
       }
 
       return {
         path,
-        bytes: visibleBytes.length,
+        bytes: chunk.content.length,
         content,
-        truncated,
+        truncated: chunk.totalBytes > maxBytes,
       };
     } catch {
       continue;

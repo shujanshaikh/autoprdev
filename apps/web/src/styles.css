@@ -30,24 +30,6 @@
   background: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
 }
 
-.workspace-project-rail {
-  scrollbar-color: color-mix(in srgb, var(--sidebar-foreground) 18%, transparent) transparent;
-  scrollbar-width: thin;
-}
-
-.workspace-project-rail::-webkit-scrollbar {
-  height: 3px;
-}
-
-.workspace-project-rail::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--sidebar-foreground) 18%, transparent);
-  border-radius: 999px;
-}
-
-.workspace-project-rail::-webkit-scrollbar-track {
-  background: transparent;
-}
-
 .surface-tabs-scroll {
   scrollbar-width: none;
 }

@@ -9,12 +9,13 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import { Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAppTheme } from "../../hooks/useAppTheme";
 import { useThreadGit } from "../../hooks/useThreadGit";
 import { gitStatusSummary, type ThreadGitAction } from "../../lib/gitActions";
+import { openExternalUrl } from "../../lib/openUrl";
 
 const actionIcons: Record<ThreadGitAction, LucideIcon> = {
   commit: CircleCheckBig,
@@ -133,7 +134,7 @@ function GitMenuBody({
     if (primaryAction === "view_pr") {
       const url = status?.pullRequest?.url;
       onClose();
-      if (url) await Linking.openURL(url);
+      if (url) await openExternalUrl(url);
       return;
     }
 

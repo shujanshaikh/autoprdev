@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import { resolveSandboxPath } from "../sandbox/execute";
+import { resolveJailedSandboxPath } from "../sandbox/execute";
 import { clampLimit, formatSize, MAX_FILE_OUTPUT_CHARS, toTextModelOutput, truncateText } from "./format";
 
 const DEFAULT_LS_LIMIT = 200;
@@ -31,7 +31,10 @@ function formatEntry(entry: FileListEntry): string {
 
 async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOptions) {
   const context = await getSandboxContext(sandboxOptions);
-  const remotePath = resolveSandboxPath(input.path, context.workDir);
+  const remotePath = await resolveJailedSandboxPath(input.path, {
+    workDir: context.workDir,
+    sandboxOptions,
+  });
   const limit = clampLimit(input.limit, DEFAULT_LS_LIMIT, MAX_LS_LIMIT);
   const entries = (await context.sandbox.fs.listFiles(remotePath))
     .map((entry) => entry as FileListEntry)
@@ -65,7 +68,7 @@ export function createDaytonaLsTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "ls",
     description:
-      "List files and directories in the Daytona sandbox. Use for quick directory inspection before broader searches or reads. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
+      "List files and directories in the Daytona sandbox. Use for quick directory inspection before broader searches or reads. Relative paths resolve from the sandbox workdir and paths must stay inside the workspace. Read-only and safe to retry.",
     inputSchema: lsInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaLs(input, sandboxOptions),

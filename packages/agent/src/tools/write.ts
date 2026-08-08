@@ -2,10 +2,20 @@ import { tool } from "ai";
 import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
 
-import { getSandboxContext, type DaytonaSandbox, type SandboxSessionOptions } from "../sandbox";
-import { ensureRemoteParentDirectory, resolveSandboxPath } from "../sandbox/execute";
+import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
+import {
+  downloadRemoteFileChunk,
+  ensureRemoteParentDirectory,
+  RemoteFileNotFoundError,
+  resolveJailedSandboxPath,
+} from "../sandbox/execute";
 import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutation-queue";
-import { toTextModelOutput } from "./format";
+import { formatSize, toTextModelOutput } from "./format";
+
+// Previous content is only fetched to diff and to detect no-op writes, so cap
+// it: larger existing files are overwritten without a stored patch instead of
+// being buffered whole into harness memory.
+const MAX_PREVIOUS_CONTENT_BYTES = 1024 * 1024;
 
 const writeInputSchema = z.object({
   path: z
@@ -16,26 +26,28 @@ const writeInputSchema = z.object({
 
 type WriteInput = z.infer<typeof writeInputSchema>;
 
-type DaytonaFileSystemError = {
-  errorCode?: unknown;
-  statusCode?: unknown;
+type PreviousRemoteText = {
+  text: string;
+  /** False when the existing file exceeded the download cap and was cut off. */
+  complete: boolean;
 };
 
-function getDaytonaFileSystemError(error: unknown): DaytonaFileSystemError | null {
-  return error && typeof error === "object" ? (error as DaytonaFileSystemError) : null;
-}
-
-function isMissingRemoteFileError(error: unknown): boolean {
-  const fileError = getDaytonaFileSystemError(error);
-  return fileError?.statusCode === 404 || fileError?.errorCode === "FILE_NOT_FOUND";
-}
-
-async function readRemoteTextIfPresent(sandbox: DaytonaSandbox, remotePath: string): Promise<string | null> {
+async function readRemoteTextIfPresent(
+  remotePath: string,
+  sandboxOptions: SandboxSessionOptions,
+): Promise<PreviousRemoteText | null> {
   try {
-    const previousBuffer = Buffer.from(await sandbox.fs.downloadFile(remotePath));
-    return previousBuffer.toString("utf8");
+    const chunk = await downloadRemoteFileChunk({
+      remotePath,
+      maxBytes: MAX_PREVIOUS_CONTENT_BYTES,
+      sandboxOptions,
+    });
+    return {
+      text: chunk.content.toString("utf8"),
+      complete: chunk.totalBytes <= MAX_PREVIOUS_CONTENT_BYTES,
+    };
   } catch (error) {
-    if (isMissingRemoteFileError(error)) {
+    if (error instanceof RemoteFileNotFoundError) {
       return null;
     }
 
@@ -45,19 +57,33 @@ async function readRemoteTextIfPresent(sandbox: DaytonaSandbox, remotePath: stri
 
 async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSessionOptions) {
   const context = await getSandboxContext(sandboxOptions);
-  const remotePath = resolveSandboxPath(input.path, context.workDir);
+  const remotePath = await resolveJailedSandboxPath(input.path, {
+    workDir: context.workDir,
+    sandboxOptions,
+  });
 
   return withFileMutationQueue(createFileMutationQueueKey(context.sandbox.id, remotePath), async () => {
-    const previousContent = await readRemoteTextIfPresent(context.sandbox, remotePath);
+    const previous = await readRemoteTextIfPresent(remotePath, sandboxOptions);
     const content = Buffer.from(input.content, "utf8");
-    const diff = {
-      renderer: "pierre" as const,
-      fileName: remotePath,
-      patch: createTwoFilesPatch(remotePath, remotePath, previousContent ?? "", input.content, "before", "after"),
-      status: previousContent === null ? "added" as const : "modified" as const,
-    };
+    const status = previous === null ? "added" as const : "modified" as const;
+    // A previous file beyond the download cap cannot produce a trustworthy
+    // patch or no-op comparison; the UI renders patchOmitted diffs as a notice.
+    const diff = previous !== null && !previous.complete
+      ? {
+          renderer: "pierre" as const,
+          fileName: remotePath,
+          patch: "",
+          patchOmitted: true,
+          status,
+        }
+      : {
+          renderer: "pierre" as const,
+          fileName: remotePath,
+          patch: createTwoFilesPatch(remotePath, remotePath, previous?.text ?? "", input.content, "before", "after"),
+          status,
+        };
 
-    if (previousContent === input.content) {
+    if (previous?.complete && previous.text === input.content) {
       return {
         content: `No changes needed for ${remotePath}; content already matched.`,
         details: {
@@ -75,14 +101,18 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     await ensureRemoteParentDirectory(remotePath, sandboxOptions);
     await context.sandbox.fs.uploadFile(content, remotePath);
 
+    const oversizedNote = previous !== null && !previous.complete
+      ? ` Previous content exceeded ${formatSize(MAX_PREVIOUS_CONTENT_BYTES)}, so no diff was stored.`
+      : "";
+
     return {
-      content: `Successfully wrote ${content.length} bytes to ${remotePath}.`,
+      content: `Successfully wrote ${content.length} bytes to ${remotePath}.${oversizedNote}`,
       details: {
         path: remotePath,
         bytesWritten: content.length,
         contentBytes: content.length,
         fileBytes: content.length,
-        previousExists: previousContent !== null,
+        previousExists: previous !== null,
         unchanged: false,
         diff,
       },
@@ -94,7 +124,7 @@ export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "write",
     description:
-      "Write complete text content to a file in the Daytona sandbox. Creates the file if it does not exist and overwrites it if it does. Automatically creates parent directories and returns a diff. Use write only for new files or complete rewrites; use edit for targeted changes to existing files.",
+      "Write complete text content to a file in the Daytona sandbox. Creates the file if it does not exist and overwrites it if it does. Automatically creates parent directories and returns a diff. Paths must stay inside the sandbox workspace. Use write only for new files or complete rewrites; use edit for targeted changes to existing files.",
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaWrite(input, sandboxOptions),

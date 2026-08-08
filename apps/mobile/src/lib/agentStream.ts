@@ -132,8 +132,10 @@ export async function consumeAgentRunStream({
             chunkIndex += 1;
             if (result.value.value.type === "finish") finished = true;
             yield result.value.value;
+            if (finished) break;
           }
         } finally {
+          await reader.cancel().catch(() => undefined);
           reader.releaseLock();
         }
 

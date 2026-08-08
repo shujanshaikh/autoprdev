@@ -3,10 +3,18 @@ import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import { ensureRemoteParentDirectory, resolveSandboxPath } from "../sandbox/execute";
+import {
+  downloadRemoteFileChunk,
+  ensureRemoteParentDirectory,
+  resolveJailedSandboxPath,
+} from "../sandbox/execute";
 import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutation-queue";
-import { toTextModelOutput } from "./format";
+import { formatSize, toTextModelOutput } from "./format";
 import { requireArray, requireString } from "./validation";
+
+// Exact-match editing needs the whole original file in memory, so refuse
+// files beyond a generous cap instead of buffering unbounded downloads.
+const MAX_EDIT_FILE_BYTES = 5 * 1024 * 1024;
 
 const editInputSchema = z.object({
   path: z
@@ -98,11 +106,24 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
     newText: requireString(edit.newText, `edits[${index}].newText`, "edit", { allowEmpty: true }),
   }));
   const context = await getSandboxContext(sandboxOptions);
-  const remotePath = resolveSandboxPath(path, context.workDir);
+  const remotePath = await resolveJailedSandboxPath(path, {
+    workDir: context.workDir,
+    sandboxOptions,
+  });
 
   return withFileMutationQueue(createFileMutationQueueKey(context.sandbox.id, remotePath), async () => {
-    const originalBuffer = Buffer.from(await context.sandbox.fs.downloadFile(remotePath));
-    const originalText = originalBuffer.toString("utf8");
+    const chunk = await downloadRemoteFileChunk({
+      remotePath,
+      maxBytes: MAX_EDIT_FILE_BYTES,
+      sandboxOptions,
+    });
+    if (chunk.totalBytes > MAX_EDIT_FILE_BYTES) {
+      throw new Error(
+        `Cannot edit ${remotePath}: the file is ${formatSize(chunk.totalBytes)}, over the ` +
+          `${formatSize(MAX_EDIT_FILE_BYTES)} edit limit. Use write to replace it or bash for targeted changes.`,
+      );
+    }
+    const originalText = chunk.content.toString("utf8");
     const { bom, text: withoutBom } = stripBom(originalText);
     const lineEnding = detectLineEnding(withoutBom);
     const normalizedOriginal = normalizeLineEndings(withoutBom);
@@ -138,7 +159,7 @@ export function createDaytonaEditTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "edit",
     description:
-      "Edit one existing text file in the Daytona sandbox using exact text replacements. Use after reading the target file. Each oldText must match exactly once in the original file; combine nearby changes in one replacement and avoid overlapping edits. Mutates files, returns a diff, and should be retried only after inspecting any mismatch error.",
+      "Edit one existing text file in the Daytona sandbox using exact text replacements. Use after reading the target file. Each oldText must match exactly once in the original file; combine nearby changes in one replacement and avoid overlapping edits. Paths must stay inside the sandbox workspace. Mutates files, returns a diff, and should be retried only after inspecting any mismatch error.",
     inputSchema: editInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaEdit(input, sandboxOptions),

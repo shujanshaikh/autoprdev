@@ -1,4 +1,7 @@
-import { buildSandboxAgentSystemPrompt } from "./system-prompt";
+import {
+  buildSandboxAgentProjectContext,
+  buildSandboxAgentSystemPrompt,
+} from "./system-prompt";
 import { loadSandboxProjectInstructions } from "./project-instructions";
 import { createDaytonaTools, type DaytonaComputerToolOptions, type DaytonaTools } from "./tools";
 import { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
@@ -13,6 +16,7 @@ export interface CodingHarnessContext {
   instructionFiles: Array<{ path: string; content: string }>;
   unavailableSelectedTools: string[];
   instructions: string;
+  repositoryContext?: string;
 }
 
 export type CodingHarnessEvent =
@@ -108,6 +112,7 @@ export class CodingHarness {
         contextFiles: instructionFiles,
         appendSystemPrompt: this.options.appendSystemPrompt,
       });
+      const repositoryContext = buildSandboxAgentProjectContext(instructionFiles);
 
       const context = {
         sandbox,
@@ -116,6 +121,7 @@ export class CodingHarness {
         instructionFiles,
         unavailableSelectedTools: toolSelection.unavailableToolNames,
         instructions,
+        repositoryContext,
       };
       this.prepared = context;
       await this.emit({ type: "sandbox_prepared", context });

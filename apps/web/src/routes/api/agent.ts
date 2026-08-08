@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import type { UIMessage } from "ai";
 import { convertToModelMessages } from "ai";
 import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
@@ -6,7 +7,11 @@ import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { codexErrorResponse, getCodexAgentModelConfig } from "#/lib/codex-auth-server";
+import {
+  codexErrorResponse,
+  createCodexAgentModelOptions,
+  revokeCodexAgentModelOptions,
+} from "#/lib/codex-auth-server";
 import {
   AGENT_IDEMPOTENCY_KEY_TTL,
   AGENT_TASK_ID,
@@ -40,49 +45,60 @@ async function POST(req: Request) {
   if (!workOSSession) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const requestId = messages.at(-1)?.id ?? nanoid();
 
-  const [modelMessages, codex] = await Promise.all([
-    convertToModelMessages(messages),
-    getCodexAgentModelConfig(req, model, reasoningEffort).catch((error) =>
-      error instanceof Error ? error : new Error("Could not load Codex credentials."),
-    ),
-  ]);
+  const codex = await createCodexAgentModelOptions(req, model, reasoningEffort, {
+    taskId: AGENT_TASK_ID,
+    contextId: `standalone:${requestId}`,
+  }).catch((error) =>
+    error instanceof Error ? error : new Error("Could not load Codex credentials."),
+  );
 
   if (codex instanceof Error) {
     return codexErrorResponse(codex, "Could not load Codex credentials.");
   }
 
-  const requestId = messages.at(-1)?.id ?? nanoid();
-  const idempotencyKey = await idempotencyKeys.create(
-    ["standalone-agent", workOSSession.user.id, requestId],
-    { scope: "global" },
-  );
-  const run = await tasks.trigger<typeof agentTask>(
-    AGENT_TASK_ID,
-    {
-      messages: modelMessages,
-      options: {
-        sandboxCacheKey: `trigger-agent:${workOSSession.user.id}:${requestId}`,
-        codex,
+  const grantLifecycle = createGrantLifecycle(codex, revokeCodexAgentModelOptions);
+  try {
+    const [modelMessages, idempotencyKey] = await Promise.all([
+      convertToModelMessages(messages),
+      idempotencyKeys.create(
+        ["standalone-agent", workOSSession.user.id, requestId],
+        { scope: "global" },
+      ),
+    ]);
+    const run = await tasks.trigger<typeof agentTask>(
+      AGENT_TASK_ID,
+      {
+        messages: modelMessages,
+        options: {
+          sandboxCacheKey: `trigger-agent:${workOSSession.user.id}:${requestId}`,
+          codex,
+        },
       },
-    },
-    {
-      idempotencyKey,
-      idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
-      tags: [agentUserTag(workOSSession.user.id)],
-      metadata: {
-        userId: workOSSession.user.id,
-        userMessageId: requestId,
+      {
+        idempotencyKey,
+        idempotencyKeyTTL: AGENT_IDEMPOTENCY_KEY_TTL,
+        tags: [agentUserTag(workOSSession.user.id)],
+        metadata: {
+          userId: workOSSession.user.id,
+          userMessageId: requestId,
+        },
       },
-    },
-  );
+    );
 
-  return new Response(null, {
-    status: 202,
-    headers: {
-      "x-trigger-run-id": run.id,
-    },
-  });
+    grantLifecycle.transfer();
+
+    return new Response(null, {
+      status: 202,
+      headers: {
+        "x-trigger-run-id": run.id,
+      },
+    });
+  } catch (error) {
+    await grantLifecycle.release().catch(() => undefined);
+    throw error;
+  }
 }
 
 export const Route = createFileRoute("/api/agent")({

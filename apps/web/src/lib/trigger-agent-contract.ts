@@ -24,12 +24,25 @@ export function threadSandboxCacheKey(projectCacheKey: string, threadId: string)
   return `${projectCacheKey}:thread:${threadId}`;
 }
 
-export interface CodexAgentModelOptions {
+type AgentTaskId = typeof AGENT_TASK_ID | typeof AGENT_CHAT_TASK_ID;
+
+export interface CodexAgentModelOptions<TTaskId extends AgentTaskId = AgentTaskId> {
   provider: "openai-codex";
   modelId: string;
   reasoningEffort: string;
   promptCacheKey?: string;
-  chatgptCookieHeader: string;
+  /**
+   * Opaque reference to the ChatGPT session credentials stored in WorkOS
+   * Vault. The cookie itself must never appear on a Trigger.dev payload
+   * because Trigger retains run payloads and session metadata; the worker
+   * redeems this short-lived grant inside the run instead.
+   */
+  credentialsGrantId: string;
+  credentialsGrantContext: {
+    userId: string;
+    taskId: TTaskId;
+    contextId: string;
+  };
 }
 
 export interface AgentTaskOptions {
@@ -44,7 +57,7 @@ export interface AgentTaskOptions {
   assistantMessageId?: string;
   persistenceToken?: string;
   demoEnabled?: boolean;
-  codex: CodexAgentModelOptions;
+  codex: CodexAgentModelOptions<typeof AGENT_TASK_ID>;
 }
 
 export interface AgentTaskPayload {
@@ -77,5 +90,5 @@ export interface AgentChatClientData extends Record<string, unknown> {
   repoName?: string;
   persistenceToken: string;
   demoEnabled?: boolean;
-  codex: CodexAgentModelOptions;
+  codex: CodexAgentModelOptions<typeof AGENT_CHAT_TASK_ID>;
 }

@@ -1,20 +1,17 @@
 import "@tanstack/react-start/server-only";
 
-import { api } from "@autopr/backend/convex/_generated/api";
-import type { ChatGPTUser } from "@opencoredev/loginwithchatgpt-server";
-
 import {
   chatGPTAuth,
-  CODEX_SESSION_TTL_MS,
   CodexConnectionError,
+  createCodexAgentGrant,
   createCodexResponsesModel,
   type CodexResponsesModel,
   getWorkOSVault,
   isMissingVaultObject,
   isVaultConflict,
+  revokeCodexAgentGrant,
   vaultObjectName,
 } from "#/lib/codex-auth-runtime-server";
-import { convexMutation, convexQuery } from "#/lib/convex-server";
 import {
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_REASONING_EFFORT,
@@ -31,101 +28,68 @@ import {
   resolveCodexSession,
 } from "#/lib/codex-session";
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
+import type { CodexAgentModelOptions } from "#/lib/trigger-agent-contract";
 
 export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
 
 export { CodexConnectionError, createCodexResponsesModel };
 
-async function getCodexCredentialState() {
-  const connection = await convexQuery(api.codexAuth.getConnection, {});
-  if (!connection) {
-    return { connection: undefined, reference: undefined };
-  }
-
-  return {
-    connection,
-    reference: {
-      vaultObjectId: connection.vaultObjectId,
-      vaultVersionId: connection.vaultVersionId,
-    },
-  };
-}
-
-async function readVaultObject(id: string) {
-  return await getWorkOSVault().readObject({ id }).catch((error: unknown) => {
-    if (isMissingVaultObject(error)) {
-      return undefined;
-    }
-    throw error;
-  });
-}
-
 async function loadAccountCodexSessionLink() {
-  const { reference } = await getCodexCredentialState();
-  if (!reference) {
-    return undefined;
-  }
-
-  const object = await readVaultObject(reference.vaultObjectId);
+  const authState = await requireWorkOSAuth();
+  const object = await getWorkOSVault()
+    .readObjectByName(vaultObjectName("account-session", authState.user.id))
+    .catch((error: unknown) => {
+      if (isMissingVaultObject(error)) return undefined;
+      throw error;
+    });
   if (!object?.value) {
     return undefined;
   }
 
   const link = parseStoredCodexSessionLink(object.value);
-  return link ? { link, reference } : undefined;
+  return link ? { link, vaultObjectId: object.id } : undefined;
 }
 
 async function persistAccountCodexSession(options: {
   userId: string;
   sessionCookieHeader: string;
-  user?: ChatGPTUser;
 }) {
   const value = JSON.stringify(createStoredCodexSessionLink(options.sessionCookieHeader));
-  const { connection, reference } = await getCodexCredentialState();
-  const existingObject = reference ? await readVaultObject(reference.vaultObjectId) : undefined;
+  const objectName = vaultObjectName("account-session", options.userId);
+  const existingObject = await getWorkOSVault().readObjectByName(objectName).catch((error: unknown) => {
+    if (isMissingVaultObject(error)) return undefined;
+    throw error;
+  });
   const existingLink = existingObject?.value
     ? parseStoredCodexSessionLink(existingObject.value)
     : undefined;
 
-  if (
-    existingLink?.sessionCookieHeader === options.sessionCookieHeader &&
-    connection &&
-    connection.accountId === options.user?.accountId &&
-    connection.email === options.user?.email
-  ) {
+  if (existingLink?.sessionCookieHeader === options.sessionCookieHeader) {
     return;
   }
 
-  const vaultObject = existingObject
-    ? await getWorkOSVault().updateObject({ id: existingObject.id, value })
-    : await getWorkOSVault()
-        .createObject({
-          name: vaultObjectName("account-session", options.userId),
-          value,
-          context: {
-            app: "autopr",
-            purpose: "login-with-chatgpt-account-session",
-            userId: options.userId,
-          },
-        })
-        .catch(async (error: unknown) => {
-          if (!isVaultConflict(error)) {
-            throw error;
-          }
+  if (existingObject) {
+    await getWorkOSVault().updateObject({ id: existingObject.id, value });
+  } else {
+    await getWorkOSVault()
+      .createObject({
+        name: objectName,
+        value,
+        context: {
+          app: "autopr",
+          purpose: "login-with-chatgpt-account-session",
+          userId: options.userId,
+        },
+      })
+      .catch(async (error: unknown) => {
+        if (!isVaultConflict(error)) {
+          throw error;
+        }
 
-          const latest = await getWorkOSVault().readObjectByName(
-            vaultObjectName("account-session", options.userId),
-          );
-          return await getWorkOSVault().updateObject({ id: latest.id, value });
-        });
-
-  await convexMutation(api.codexAuth.upsert, {
-    vaultObjectId: vaultObject.id,
-    vaultVersionId: vaultObject.metadata?.versionId,
-    accountId: options.user?.accountId,
-    email: options.user?.email,
-    expiresAt: Date.now() + CODEX_SESSION_TTL_MS,
-  });
+        const latest = await getWorkOSVault().readObjectByName(objectName);
+        return await getWorkOSVault().updateObject({ id: latest.id, value });
+      });
+  }
 }
 
 async function resolveAccountCodexSession(request: Request) {
@@ -141,26 +105,23 @@ async function resolveAccountCodexSession(request: Request) {
     await persistAccountCodexSession({
       userId: authState.user.id,
       sessionCookieHeader: resolved.cookieHeader,
-      user: resolved.session.user,
     });
   }
 
-  return resolved;
+  return { authState, resolved };
 }
 
 async function removeAccountCodexSessionLink() {
-  const { reference } = await getCodexCredentialState();
-  if (reference) {
+  const accountLink = await loadAccountCodexSessionLink();
+  if (accountLink) {
     await getWorkOSVault()
-      .deleteObject({ id: reference.vaultObjectId })
+      .deleteObject({ id: accountLink.vaultObjectId })
       .catch((error: unknown) => {
         if (!isMissingVaultObject(error)) {
           throw error;
         }
       });
   }
-
-  await convexMutation(api.codexAuth.remove, {});
 }
 
 export async function handleChatGPTAuthRequest(request: Request) {
@@ -174,7 +135,7 @@ export async function handleChatGPTAuthRequest(request: Request) {
     return chatGPTAuth.handler(request);
   }
 
-  const resolved = await resolveAccountCodexSession(request);
+  const { resolved } = await resolveAccountCodexSession(request);
   const response = await chatGPTAuth.handler(resolved?.request ?? request);
 
   if (route === "/status" && resolved?.session.status === "pending") {
@@ -233,7 +194,7 @@ function normalizeCodexReasoningEffort(modelId: string, reasoningEffort: string 
 }
 
 export async function getCodexConnectionStatus(request: Request) {
-  const resolved = await resolveAccountCodexSession(request);
+  const { resolved } = await resolveAccountCodexSession(request);
 
   if (!resolved || resolved.session.status !== "authenticated") {
     return { connected: false as const };
@@ -294,7 +255,7 @@ export async function createAuthenticatedCodexResponsesModel(options: {
 }
 
 export async function getCodexAgentModelConfig(request: Request, model?: string, reasoningEffort?: string) {
-  const resolved = await resolveAccountCodexSession(request);
+  const { authState, resolved } = await resolveAccountCodexSession(request);
 
   if (!resolved || resolved.session.status !== "authenticated") {
     throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
@@ -309,7 +270,51 @@ export async function getCodexAgentModelConfig(request: Request, model?: string,
     modelId,
     reasoningEffort: selectedReasoningEffort,
     chatgptCookieHeader: resolved.cookieHeader,
+    userId: authState.user.id,
   };
+}
+
+/**
+ * Builds the serializable Codex options for a Trigger.dev agent run. The
+ * session cookie is stored in a short-lived WorkOS Vault grant so only the
+ * opaque grant id is placed on the retained run payload; the worker redeems
+ * it inside the run.
+ */
+export async function createCodexAgentModelOptions<
+  TTaskId extends "autopr-agent" | "autopr-chat-agent",
+>(
+  request: Request,
+  model?: string,
+  reasoningEffort?: string,
+  grantContext?: {
+    taskId: TTaskId;
+    contextId: string;
+  },
+): Promise<CodexAgentModelOptions<TTaskId>> {
+  if (!grantContext) {
+    throw new CodexConnectionError("Codex agent grant context is required.", 500);
+  }
+  const config = await getCodexAgentModelConfig(request, model, reasoningEffort);
+  const credentialsGrantContext = {
+    userId: config.userId,
+    ...grantContext,
+  };
+  const credentialsGrantId = await createCodexAgentGrant({
+    ...credentialsGrantContext,
+    sessionCookieHeader: config.chatgptCookieHeader,
+  });
+
+  return {
+    provider: config.provider,
+    modelId: config.modelId,
+    reasoningEffort: config.reasoningEffort,
+    credentialsGrantId,
+    credentialsGrantContext,
+  };
+}
+
+export function revokeCodexAgentModelOptions(options: CodexAgentModelOptions) {
+  return revokeCodexAgentGrant(options.credentialsGrantId);
 }
 
 export function codexErrorResponse(error: unknown, fallback: string) {

@@ -109,6 +109,7 @@ export default defineSchema({
     settledOverride: v.optional(v.union(v.literal("settled"), v.literal("active"))),
     settledAt: v.optional(v.number()),
     currentRunId: v.optional(v.string()),
+    currentRunTransport: v.optional(v.union(v.literal("task"), v.literal("session"))),
     isLive: v.optional(v.boolean()),
     triggerSessionCreatedAt: v.optional(v.number()),
     triggerSessionLastEventId: v.optional(v.string()),
@@ -279,6 +280,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     uploadedAt: v.optional(v.number()),
+    uploadAttemptId: v.optional(v.string()),
   })
     .index("by_thread_recording", ["threadId", "recordingId"])
     .index("by_project", ["projectId"])

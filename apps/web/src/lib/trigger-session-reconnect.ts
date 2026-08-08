@@ -4,8 +4,20 @@ const MAX_RECONNECT_DELAY_MS = 5_000;
 export function shouldUseTriggerSessionTransport(options: {
   sessionCreatedAt?: number;
   currentRunId?: string;
+  currentRunTransport?: "task" | "session";
 }) {
-  return Boolean(options.sessionCreatedAt) || !options.currentRunId;
+  if (!options.currentRunId) {
+    return false;
+  }
+
+  if (options.currentRunTransport) {
+    return options.currentRunTransport === "session";
+  }
+
+  // Runs started before currentRunTransport was introduced can only be
+  // identified by their durable Session history. New runs always persist an
+  // explicit transport before either client tries to reconnect.
+  return Boolean(options.sessionCreatedAt);
 }
 
 export function triggerSessionHydration(

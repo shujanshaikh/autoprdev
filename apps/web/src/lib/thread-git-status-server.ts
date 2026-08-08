@@ -10,6 +10,7 @@ import {
   type ThreadGitStatus,
 } from "@autopr/backend/convex/lib/gitStatus";
 import { sandboxCommandOutput } from "@autopr/backend/convex/lib/sandboxCommandOutput";
+import { withEphemeralGitAuth } from "#/lib/sandbox-git-auth";
 
 type CommandResult = {
   exitCode: number;
@@ -17,6 +18,7 @@ type CommandResult = {
 };
 
 const MAX_PERSISTED_CHANGED_FILES = 500;
+const MAX_FILE_DIFF_LENGTH = 2_000_000;
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -42,20 +44,6 @@ async function runGit(
   }
 
   return { exitCode, output };
-}
-
-export function createEphemeralGitAuthEnvironment(githubToken?: string) {
-  const env: Record<string, string> = {
-    GIT_TERMINAL_PROMPT: "0",
-  };
-
-  if (githubToken) {
-    env.GIT_CONFIG_COUNT = "1";
-    env.GIT_CONFIG_KEY_0 = "http.extraHeader";
-    env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${Buffer.from(`x-access-token:${githubToken}`).toString("base64")}`;
-  }
-
-  return env;
 }
 
 function safeRemoteError(error: unknown) {
@@ -95,9 +83,71 @@ export class SandboxRuntimeNotStartedError extends Error {
   }
 }
 
+export class ThreadGitFileNotChangedError extends Error {
+  readonly code = "THREAD_GIT_FILE_NOT_CHANGED";
+
+  constructor(file: string) {
+    super(`The file is no longer changed: ${file}`);
+    this.name = "ThreadGitFileNotChangedError";
+  }
+}
+
+export type ThreadGitFileDiff = {
+  file: string;
+  patch: string;
+  patchOmitted: boolean;
+  status: "added" | "deleted" | "modified";
+};
+
+/** Reads a single, currently changed file without allowing arbitrary paths. */
+export async function readThreadGitFileDiff(options: {
+  sandboxId: string;
+  worktreePath: string;
+  file: string;
+}): Promise<ThreadGitFileDiff> {
+  const sandbox = await getSandboxWithoutStarting(options.sandboxId);
+  if (sandbox.state && sandbox.state !== "started" && sandbox.state !== "running") {
+    throw new SandboxRuntimeNotStartedError(sandbox.state);
+  }
+
+  const parsed = await readPorcelainStatus(sandbox, options.worktreePath);
+  const changedFile = parsed.changedFiles.find((candidate) => candidate.path === options.file);
+  if (!changedFile) {
+    throw new ThreadGitFileNotChangedError(options.file);
+  }
+
+  const isUntracked = changedFile.indexStatus === "?" && changedFile.workingTreeStatus === "?";
+  const pathspec = changedFile.originalPath
+    ? `${shellQuote(changedFile.originalPath)} ${shellQuote(changedFile.path)}`
+    : shellQuote(changedFile.path);
+  const result = isUntracked
+    ? await runGit(
+        sandbox,
+        options.worktreePath,
+        `diff --no-index --no-ext-diff --unified=40 -- /dev/null ${shellQuote(changedFile.path)}`,
+        { allowFailure: true },
+      )
+    : await runGit(
+        sandbox,
+        options.worktreePath,
+        `diff --no-ext-diff --unified=40 HEAD -- ${pathspec}`,
+      );
+  const patchOmitted = result.output.length > MAX_FILE_DIFF_LENGTH;
+  const deleted = changedFile.indexStatus === "D" || changedFile.workingTreeStatus === "D";
+  const added = isUntracked || changedFile.indexStatus === "A" || changedFile.workingTreeStatus === "A";
+
+  return {
+    file: changedFile.path,
+    patch: patchOmitted ? "" : result.output,
+    patchOmitted,
+    status: deleted ? "deleted" : added ? "added" : "modified",
+  };
+}
+
 /**
- * Reads one thread's authoritative worktree state. Authentication is injected
- * only into the fetch process environment and is never written to Git config.
+ * Reads one thread's authoritative worktree state. Authentication is exposed
+ * through a short-lived askpass file and is never written to Git config or the
+ * Git process environment.
  */
 export async function readThreadGitStatus(options: ReadThreadGitStatusOptions): Promise<ThreadGitStatus> {
   const checkedAt = Date.now();
@@ -153,9 +203,8 @@ export async function readThreadGitStatus(options: ReadThreadGitStatusOptions): 
           `remote set-url origin ${shellQuote(options.repositoryUrl)}`,
         );
       }
-      await runGit(sandbox, options.worktreePath, `fetch --prune ${shellQuote(remote)}`, {
-        env: createEphemeralGitAuthEnvironment(options.githubToken),
-      });
+      await withEphemeralGitAuth(sandbox, options.githubToken, (env) =>
+        runGit(sandbox, options.worktreePath, `fetch --prune ${shellQuote(remote)}`, { env }));
       remoteStatus = "available";
       remoteCheckedAt = Date.now();
       parsed = await readPorcelainStatus(sandbox, options.worktreePath);

@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Skeleton } from "@autopr/ui/components/skeleton";
 import { cn } from "@autopr/ui/lib/utils";
-import { useQuery as useReactQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   ExternalLink,
@@ -12,45 +11,13 @@ import {
 
 import { useMemo, useState } from "react";
 import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
-
-
-type PullState = "open" | "closed";
-
-type PullRequest = {
-  id: number;
-  number: number;
-  title: string;
-  state: PullState;
-  htmlUrl: string;
-  user: string;
-  updatedAt: string;
-  draft: boolean;
-  headRef: string;
-  baseRef: string;
-};
-
-type PullsResponse = {
-  project: { projectId: string; repoFullName: string; githubUrl: string };
-  pulls: PullRequest[];
-};
+import { type ProjectPullRequest, useProjectPullRequests } from "#/lib/project-pull-requests";
 
 type Variant = "open" | "draft" | "closed";
 
 type FilterKey = "all" | "open" | "draft" | "closed";
 
-async function readJson<T>(response: Response): Promise<T> {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error =
-      data && typeof data === "object" && "error" in data
-        ? String(data.error)
-        : "Request failed.";
-    throw new Error(error);
-  }
-  return data as T;
-}
-
-function variantFor(pull: PullRequest): Variant {
+function variantFor(pull: ProjectPullRequest): Variant {
   if (pull.draft) return "draft";
   if (pull.state === "open") return "open";
   return "closed";
@@ -139,7 +106,7 @@ function MetaDot() {
 }
 
 
-function PullRow({ pull, index, onOpen }: { pull: PullRequest; index: number; onOpen: (pull: PullRequest) => void }) {
+function PullRow({ pull, index, onOpen }: { pull: ProjectPullRequest; index: number; onOpen: (pull: ProjectPullRequest) => void }) {
   const variant = variantFor(pull);
 
   return (
@@ -322,13 +289,7 @@ function PullsPage() {
   const [query, setQuery] = useState("");
   const [openReference, setOpenReference] = useState<string>();
 
-  const { data, error, isLoading } = useReactQuery({
-    queryKey: ["project", projectId, "pulls"],
-    queryFn: async () =>
-      readJson<PullsResponse>(
-        await fetch(`/api/project/${encodeURIComponent(projectId)}/pulls`),
-      ),
-  });
+  const { data, error, isLoading } = useProjectPullRequests(projectId);
 
   const counts = useMemo<Record<FilterKey, number>>(() => {
     const pulls = data?.pulls ?? [];

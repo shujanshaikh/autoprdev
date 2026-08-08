@@ -1,7 +1,12 @@
 import { jwtVerify, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 
-import { getWorkOSAccessTokenVerificationOptions } from "./workos-access-token";
+import {
+  getWorkOSAccessTokenVerificationOptions,
+  resolveWorkOSRequestAccessToken,
+  setWorkOSAccessTokenHeader,
+  WORKOS_ACCESS_TOKEN_HEADER,
+} from "./workos-access-token";
 
 const clientId = "client_test";
 const signingKey = new TextEncoder().encode("test-signing-key-with-enough-entropy");
@@ -44,5 +49,41 @@ describe("WorkOS access token issuer verification", () => {
         getWorkOSAccessTokenVerificationOptions(clientId),
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("WorkOS request token routing", () => {
+  it("keeps the WorkOS token separate from another protocol's bearer token", () => {
+    const headers = setWorkOSAccessTokenHeader(
+      new Headers({ Authorization: "Bearer trigger-session-token" }),
+      "workos-access-token",
+    );
+
+    expect(headers.get("Authorization")).toBe("Bearer trigger-session-token");
+    expect(headers.get(WORKOS_ACCESS_TOKEN_HEADER)).toBe("workos-access-token");
+    expect(
+      resolveWorkOSRequestAccessToken({
+        dedicatedHeader: headers.get(WORKOS_ACCESS_TOKEN_HEADER),
+        authorization: headers.get("Authorization"),
+      }),
+    ).toBe("workos-access-token");
+  });
+
+  it("ignores a foreign Authorization token when the dedicated header is present", () => {
+    expect(
+      resolveWorkOSRequestAccessToken({
+        dedicatedHeader: "",
+        authorization: "Bearer trigger-session-token",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("continues to support WorkOS bearer authentication for mobile routes", () => {
+    expect(
+      resolveWorkOSRequestAccessToken({
+        dedicatedHeader: undefined,
+        authorization: "Bearer mobile-workos-token",
+      }),
+    ).toBe("mobile-workos-token");
   });
 });

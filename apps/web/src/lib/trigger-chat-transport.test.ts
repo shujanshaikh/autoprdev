@@ -20,6 +20,16 @@ function chunkResponse(...chunks: UIMessageChunk[]) {
   });
 }
 
+function hangingChunkResponse(chunk: UIMessageChunk) {
+  return createUIMessageStreamResponse({
+    stream: new ReadableStream<UIMessageChunk>({
+      start(controller) {
+        controller.enqueue(chunk);
+      },
+    }),
+  });
+}
+
 async function collect(stream: ReadableStream<UIMessageChunk>) {
   const chunks: UIMessageChunk[] = [];
   const reader = stream.getReader();
@@ -68,6 +78,31 @@ describe("TriggerChatTransport", () => {
       new URL("http://localhost/api/agent/run_123/stream?startIndex=0"),
       expect.objectContaining({ signal: undefined }),
     );
+  });
+
+  it("completes when finish arrives before the realtime response closes", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, {
+        status: 202,
+        headers: { "x-trigger-run-id": "run_hanging_response" },
+      }))
+      .mockResolvedValueOnce(hangingChunkResponse({ type: "finish" }));
+    const onChatEnd = vi.fn();
+    const transport = new TriggerChatTransport({
+      api: "http://localhost/api/agent",
+      fetch: fetchMock,
+      onChatEnd,
+    });
+
+    const stream = await transport.sendMessages({
+      chatId: "chat_hanging_response",
+      messages: [{ id: "message_hanging", role: "user", parts: [{ type: "text", text: "hi" }] }],
+      trigger: "submit-message",
+    });
+
+    await expect(collect(stream)).resolves.toEqual([{ type: "finish" }]);
+    expect(onChatEnd).toHaveBeenCalledOnce();
   });
 
   it("reconnects from the next chunk index when a realtime request closes", async () => {

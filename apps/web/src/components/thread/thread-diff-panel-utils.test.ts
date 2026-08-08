@@ -5,6 +5,7 @@ import {
   changedFilesForMessage,
   createDiffPromptContext,
   createThreadDiffCodeViewItem,
+  mergeChangedFilesWithWorkspace,
   parseThreadDiffDeepLink,
   type ThreadDiffEntry,
 } from "./thread-diff-panel-utils";
@@ -54,6 +55,49 @@ describe("diff prompt contexts", () => {
       additions: 4,
       deletions: 3,
     }]);
+  });
+
+  it("fills missing stored diff metadata from the final workspace status", () => {
+    expect(mergeChangedFilesWithWorkspace([], [
+      {
+        path: "src/App.tsx",
+        indexStatus: " ",
+        workingTreeStatus: "M",
+        additions: 12,
+        deletions: 4,
+      },
+    ])).toEqual([
+      {
+        file: "src/App.tsx",
+        additions: 12,
+        deletions: 4,
+      },
+    ]);
+  });
+
+  it("keeps stored diffs clickable and de-duplicates absolute tool paths", () => {
+    const changedFile = {
+      entry: { ...entry, file: "/workspace/src/example.ts" },
+      additions: 2,
+      deletions: 1,
+    };
+
+    expect(mergeChangedFilesWithWorkspace([changedFile], [
+      {
+        path: "src/example.ts",
+        indexStatus: "M",
+        workingTreeStatus: " ",
+        additions: 1,
+        deletions: 1,
+      },
+    ])).toEqual([
+      {
+        file: "src/example.ts",
+        additions: 1,
+        deletions: 1,
+        changedFile,
+      },
+    ]);
   });
 
   it("extracts visible selected lines from a patch when full contents are omitted", () => {

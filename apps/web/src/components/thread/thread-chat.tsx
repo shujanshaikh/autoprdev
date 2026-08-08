@@ -53,6 +53,7 @@ import {
   AGENT_CHAT_TASK_ID,
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
+import { setWorkOSAccessTokenHeader } from "#/lib/workos-access-token";
 import {
   runTriggerSessionReconnectAttempt,
   shouldUseTriggerSessionTransport,
@@ -107,6 +108,7 @@ import {
   formatDiffPromptContextLabel,
   type DiffPromptContext,
   type ThreadChangedFile,
+  type ThreadChangedFileSummary,
   type ThreadDiffDeepLink,
   type ThreadDiffEntry,
 } from "#/components/thread/thread-diff-panel-utils";
@@ -119,6 +121,7 @@ import {
   type TokenUsage,
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
+import { fetchThreadGitFileDiff } from "#/lib/thread-git-diff";
 import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 import {
   DEFAULT_THREAD_TITLE,
@@ -636,22 +639,42 @@ function useAgentSessionTokenRequest(agentApi: string) {
       operation: "start-session" | "access-token",
       clientData?: AgentChatClientInput,
     ) => {
-      await getAccessTokenRef.current();
+      const workOSAccessToken = await getAccessTokenRef.current();
+      const headers = setWorkOSAccessTokenHeader(
+        new Headers({ "Content-Type": "application/json" }),
+        workOSAccessToken,
+      );
       const response = await fetch(agentApi, {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           operation,
           ...(operation === "start-session" ? { clientData } : {}),
         }),
       });
-      const result = (await response.json().catch(() => null)) as {
+      type SessionTokenResult = {
         publicAccessToken?: string;
         error?: string;
-      } | null;
+      };
 
-      if (!response.ok || !result?.publicAccessToken) {
+      if (!response.ok) {
+        const errorResult = (await response.json().catch(() => null)) as
+          | SessionTokenResult
+          | null;
+        throw new Error(
+          errorResult?.error ??
+            (operation === "start-session"
+              ? "Could not start the agent chat."
+              : "Could not refresh the agent chat token."),
+        );
+      }
+
+      const result = (await response.json().catch(() => null)) as
+        | SessionTokenResult
+        | null;
+
+      if (!result?.publicAccessToken) {
         throw new Error(
           result?.error ??
             (operation === "start-session"
@@ -732,27 +755,26 @@ function ExistingSessionThreadChat(props: ThreadChatProps) {
 }
 
 export function ThreadChat(props: ThreadChatProps) {
-  // A legacy run that was already active when the page mounted must finish
-  // on its run-scoped stream. New threads and known Sessions use the durable
-  // session transport for the lifetime of this mount.
-  const usingSessionTransportRef = useRef<boolean | null>(null);
-  usingSessionTransportRef.current ??= shouldUseTriggerSessionTransport({
+  // Task runs are the cross-client transport: mobile and web can both consume
+  // their indexed stream. Keep support for an already-active durable Session
+  // turn, then switch back to task transport as soon as that turn settles.
+  const usingSessionTransport = shouldUseTriggerSessionTransport({
     sessionCreatedAt: props.thread?.triggerSessionCreatedAt,
     currentRunId: props.currentRunId,
+    currentRunTransport: props.thread?.currentRunTransport,
   });
-  const existingSessionAtMountRef = useRef(
-    Boolean(props.thread?.triggerSessionCreatedAt),
-  );
 
-  if (!usingSessionTransportRef.current) {
-    return <ThreadChatRuntime {...props} usingSessionTransport={false} />;
+  if (!usingSessionTransport) {
+    return (
+      <ThreadChatRuntime
+        key="task-transport"
+        {...props}
+        usingSessionTransport={false}
+      />
+    );
   }
 
-  if (existingSessionAtMountRef.current) {
-    return <ExistingSessionThreadChat {...props} />;
-  }
-
-  return <ThreadChatRuntime {...props} usingSessionTransport />;
+  return <ExistingSessionThreadChat key="session-transport" {...props} />;
 }
 
 function ThreadChatRuntime({
@@ -771,7 +793,6 @@ function ThreadChatRuntime({
   demoRecordingExperimentEnabled,
   onDiffPanelOpenChange,
   onDiffCountChange,
-  project,
   thread,
   gitStatusEnabled = true,
   usingSessionTransport,
@@ -804,7 +825,11 @@ function ThreadChatRuntime({
   const pendingStopRef = useRef<Promise<void> | null>(null);
   const pendingDemoSaveRef = useRef<Promise<boolean> | null>(null);
   const changedFileRequestRef = useRef(0);
+  const workspaceDiffRequestRef = useRef(0);
   const [diffPromptContexts, setDiffPromptContexts] = useState<DiffPromptContext[]>([]);
+  const [workspaceDiffEntries, setWorkspaceDiffEntries] = useState<ThreadDiffEntry[]>([]);
+  const [workspaceDiffLoadingFile, setWorkspaceDiffLoadingFile] = useState<string>();
+  const [workspaceDiffError, setWorkspaceDiffError] = useState<Error>();
   const [diffPanelMaximized, setDiffPanelMaximized] = useState(false);
   const [selectedDiffLink, setSelectedDiffLink] = useState<ThreadDiffDeepLink | undefined>();
   const composerGitStatusQuery = useThreadGitStatusQuery({
@@ -871,9 +896,10 @@ function ThreadChatRuntime({
         return await globalThis.fetch(url, init);
       }
 
-      await getWorkOSAccessTokenRef.current();
+      const workOSAccessToken = await getWorkOSAccessTokenRef.current();
       const headers = new Headers(init.headers);
       headers.set(AGENT_CHAT_OPERATION_HEADER, "append");
+      setWorkOSAccessTokenHeader(headers, workOSAccessToken);
 
       return await globalThis.fetch(agentApi, {
         ...init,
@@ -1147,8 +1173,14 @@ function ThreadChatRuntime({
   }, [allowPersistedPartRemoval, initialMessages, setMessages]);
   const lastMessage = messages.at(-1);
   const hasPersistedLastAssistantMessage = lastMessage?.role === "assistant" && lastMessage.parts.length > 0;
-  const diffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
-  const handleSelectChangedFile = useCallback((file: ThreadChangedFile) => {
+  const persistedDiffEntries = useMemo(() => extractThreadDiffEntries(messages), [messages]);
+  const diffEntries = useMemo(() => [
+    ...persistedDiffEntries,
+    ...workspaceDiffEntries.filter((workspaceEntry) =>
+      !persistedDiffEntries.some((entry) => entry.file === workspaceEntry.file)
+    ),
+  ], [persistedDiffEntries, workspaceDiffEntries]);
+  const openChangedFile = useCallback((file: ThreadChangedFile) => {
     changedFileRequestRef.current += 1;
     setSelectedDiffLink({
       entryId: file.entry.id,
@@ -1157,6 +1189,61 @@ function ThreadChatRuntime({
     });
     onDiffPanelOpenChange(true);
   }, [onDiffPanelOpenChange]);
+  const handleSelectChangedFile = useCallback(async (file: ThreadChangedFileSummary) => {
+    if (file.changedFile) {
+      workspaceDiffRequestRef.current += 1;
+      setWorkspaceDiffLoadingFile(undefined);
+      openChangedFile(file.changedFile);
+      return;
+    }
+
+    const requestId = workspaceDiffRequestRef.current + 1;
+    workspaceDiffRequestRef.current = requestId;
+    setWorkspaceDiffLoadingFile(file.file);
+    setWorkspaceDiffError(undefined);
+
+    try {
+      const diff = await fetchThreadGitFileDiff({ projectId, threadId, file: file.file });
+      if (workspaceDiffRequestRef.current !== requestId) return;
+
+      const latestAssistantMessage = [...messages]
+        .reverse()
+        .find((message) => message.role === "assistant");
+      const entry: ThreadDiffEntry = {
+        id: `workspace:${diff.file}`,
+        messageId: latestAssistantMessage?.id ?? "workspace",
+        partIndex: -1,
+        turn: messages.length,
+        tool: "edit",
+        file: diff.file,
+        patch: diff.patch,
+        additions: file.additions,
+        deletions: file.deletions,
+        status: diff.status,
+        diff: {
+          renderer: "pierre",
+          patch: diff.patch,
+          patchOmitted: diff.patchOmitted,
+          status: diff.status,
+        },
+      };
+
+      setWorkspaceDiffEntries((current) => [
+        ...current.filter((candidate) => candidate.id !== entry.id),
+        entry,
+      ]);
+      openChangedFile({ entry, additions: file.additions, deletions: file.deletions });
+    } catch (diffError) {
+      if (workspaceDiffRequestRef.current !== requestId) return;
+      setWorkspaceDiffError(diffError instanceof Error
+        ? diffError
+        : new Error("Could not open the file diff."));
+    } finally {
+      if (workspaceDiffRequestRef.current === requestId) {
+        setWorkspaceDiffLoadingFile(undefined);
+      }
+    }
+  }, [messages, openChangedFile, projectId, threadId]);
   useEffect(() => {
     onDiffCountChange(diffEntries.length);
   }, [diffEntries.length, onDiffCountChange]);
@@ -1438,8 +1525,10 @@ function ThreadChatRuntime({
     }
   }, [demoRecordingExperimentEnabled, pendingDemoEnabled, setDemoEnabled, thread?.demoEnabled, threadId]);
   const showingInitialPromptHandoff = Boolean(initialPrompt && messages.length === 0);
-  const awaitingAgentResponse = status === "submitted";
-  const activeAssistantMessageId = busy && lastMessage?.role === "assistant" ? lastMessage.id : undefined;
+  const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
+    ? lastMessage.id
+    : undefined;
+  const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
 
@@ -1588,12 +1677,6 @@ function ThreadChatRuntime({
   const checkedOutBranch = composerGitStatus?.detachedHead
     ? `detached@${composerGitStatus.localHeadSha?.slice(0, 7) ?? "HEAD"}`
     : composerGitStatus?.currentBranch;
-  const displayedBaseBranch = usesWorktree
-    ? thread?.baseBranch
-    : project?.defaultBranch ?? thread?.baseBranch ?? project?.repoBranch;
-  const displayedFeatureBranch = usesWorktree
-    ? thread?.featureBranch
-    : checkedOutBranch ?? project?.currentBranch ?? project?.repoBranch ?? thread?.baseBranch;
   const recordingPlaybackBasePath =
     `/api/project/${encodeURIComponent(projectId)}` +
     `/thread/${encodeURIComponent(threadId)}`;
@@ -1615,7 +1698,7 @@ function ThreadChatRuntime({
           <ThreadMessages
             keyedMessages={keyedMessages}
             ready={ready}
-            error={error}
+            error={error ?? workspaceDiffError}
             showingInitialPromptHandoff={showingInitialPromptHandoff}
             initialPrompt={initialPrompt}
             awaitingAgentResponse={awaitingAgentResponse}
@@ -1625,6 +1708,10 @@ function ThreadChatRuntime({
             recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
             diffEntries={diffEntries}
+            workspaceChangedFiles={composerGitStatus?.hasWorkingTreeChanges
+              ? composerGitStatus.changedFiles
+              : []}
+            workspaceDiffLoadingFile={workspaceDiffLoadingFile}
             onSelectChangedFile={handleSelectChangedFile}
           />
         </div>
@@ -1787,14 +1874,7 @@ function ThreadChatRuntime({
         isLoading={status === "submitted" || status === "streaming"}
         projectId={projectId}
         threadId={threadId}
-        threadTitle={thread?.title}
-        baseBranch={displayedBaseBranch}
-        featureBranch={displayedFeatureBranch}
-        pullRequestStatus={thread?.pullRequestStatus}
-        pullRequestUrl={thread?.pullRequestUrl}
         pullRequestNumber={thread?.pullRequestNumber}
-        pullRequestBranch={thread?.pullRequestBranch}
-        pullRequestError={thread?.pullRequestError}
         maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
         onAddPromptContext={addDiffPromptContext}

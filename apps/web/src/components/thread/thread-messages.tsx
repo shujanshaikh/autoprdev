@@ -1,3 +1,4 @@
+import type { GitChangedFile } from "@autopr/backend/convex/lib/gitStatus";
 import {
   Collapsible,
   CollapsibleContent,
@@ -59,7 +60,8 @@ import {
 import { ThreadChangedFiles } from "./thread-changed-files";
 import {
   changedFilesForMessage,
-  type ThreadChangedFile,
+  mergeChangedFilesWithWorkspace,
+  type ThreadChangedFileSummary,
   type ThreadDiffEntry,
 } from "./thread-diff-panel-utils";
 
@@ -468,6 +470,8 @@ export function ThreadMessages({
   recordingPlaybackBasePath,
   onSubmitMessage,
   diffEntries,
+  workspaceChangedFiles,
+  workspaceDiffLoadingFile,
   onSelectChangedFile,
 }: {
   keyedMessages: KeyedMessage[];
@@ -482,7 +486,9 @@ export function ThreadMessages({
   recordingPlaybackBasePath?: string;
   onSubmitMessage: (text: string) => void;
   diffEntries: ThreadDiffEntry[];
-  onSelectChangedFile: (file: ThreadChangedFile) => void;
+  workspaceChangedFiles: GitChangedFile[];
+  workspaceDiffLoadingFile?: string;
+  onSelectChangedFile: (file: ThreadChangedFileSummary) => void;
 }) {
   const userMessageNavigation: Array<{ id: string; preview: string }> = [];
   for (const { message } of keyedMessages) {
@@ -495,9 +501,14 @@ export function ThreadMessages({
     }
   }
 
+  const latestAssistantMessageId = [...keyedMessages]
+    .reverse()
+    .find(({ message }) => message.role === "assistant")?.message.id;
+
   return (
   <Conversation className="minimal-scrollbar h-full min-h-0">
     <ConversationContent className="pb-[10.5rem]">
+    {keyedMessages.length > 0 ? <div aria-hidden="true" className="min-h-0 flex-1" /> : null}
     {keyedMessages.length === 0 && !showingInitialPromptHandoff ? (
       <ConversationEmptyState className="mx-auto max-w-[680px] items-start px-6 py-10 text-left sm:px-8" icon={<Bot className="size-6 text-muted-foreground" />}>
         <div className="max-w-xl">
@@ -566,9 +577,15 @@ export function ThreadMessages({
       }
   
       const isUser = message.role === "user";
-      const changedFiles = !isUser && message.id !== activeAssistantMessageId
+      const messageChangedFiles = !isUser && message.id !== activeAssistantMessageId
         ? changedFilesForMessage(diffEntries, message.id)
         : [];
+      const changedFiles = mergeChangedFilesWithWorkspace(
+        messageChangedFiles,
+        !isUser && message.id === latestAssistantMessageId && message.id !== activeAssistantMessageId
+          ? workspaceChangedFiles
+          : [],
+      );
       const messageText = isUser ? getTextParts(message.parts) : "";
       const isImageFileItem = (item: GroupedItem) =>
         item.kind === "single" && isFileUIPart(item.part) && item.part.mediaType.startsWith("image/");
@@ -857,7 +874,11 @@ export function ThreadMessages({
                     {!isUser ? recordingItems.map(renderRecordingItem) : null}
                     {mainDisplayGrouped.map((item) => renderGroupedItem(item, "main"))}
                     {!isUser ? (
-                      <ThreadChangedFiles files={changedFiles} onSelect={onSelectChangedFile} />
+                      <ThreadChangedFiles
+                        files={changedFiles}
+                        loadingFile={workspaceDiffLoadingFile}
+                        onSelect={onSelectChangedFile}
+                      />
                     ) : null}
                   </div>
                 ) : null}

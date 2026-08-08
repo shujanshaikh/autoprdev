@@ -9,7 +9,7 @@ export type PersistedThreadWorkspace = {
   upstreamBranch?: string;
 };
 
-type WorkspaceProject = {
+export type WorkspaceProject = {
   cloneUrl: string;
   repoName: string;
   sandboxWorkDir?: string;
@@ -18,7 +18,7 @@ type WorkspaceProject = {
   defaultBranch?: string;
 };
 
-type WorkspaceThread = {
+export type WorkspaceThread = {
   workspaceMode?: "checkout" | "worktree";
   baseBranch?: string;
   featureBranch?: string;
@@ -65,4 +65,17 @@ export function persistedThreadWorkspace(
   // client, so cached Convex metadata is not authoritative. Returning null
   // sends callers through resolveThreadWorkspace's live Git inspection.
   return null;
+}
+
+/**
+ * Uses durable coordinates when they are authoritative and otherwise performs
+ * the explicit live resolution required by checkout and pending-worktree modes.
+ */
+export function resolveThreadWorkspaceCoordinates(
+  project: WorkspaceProject,
+  thread: WorkspaceThread,
+  resolveLive: () => Promise<PersistedThreadWorkspace>,
+) {
+  const persisted = persistedThreadWorkspace(project, thread);
+  return persisted ? Promise.resolve(persisted) : resolveLive();
 }

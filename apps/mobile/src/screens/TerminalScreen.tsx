@@ -1,707 +1,248 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAction } from "convex/react";
-import * as Clipboard from "expo-clipboard";
-import {
-  ArrowUp,
-  Check,
-  Copy,
-  Eraser,
-  Keyboard as KeyboardIcon,
-  RefreshCw,
-} from "lucide-react-native";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink, RefreshCw } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
-  Keyboard,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  type LayoutChangeEvent,
-  type ListRenderItem,
-  type PressableStateCallbackType,
-  useWindowDimensions,
+  TurboModuleRegistry,
   View,
 } from "react-native";
 
-import { ComposerToolbarButton } from "../components/ComposerToolbar";
-import { KeyboardAvoidingScreen } from "../components/KeyboardAvoidingScreen";
 import { useAppTheme } from "../hooks/useAppTheme";
-import { TerminalOutputSanitizer } from "../lib/terminalOutput";
-import type { AppTheme } from "../theme";
+import { openExternalUrl } from "../lib/openUrl";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Terminal">;
-type ConnectionStatus = "connecting" | "connected" | "disconnected";
-type TerminalKey =
-  | "escape"
-  | "ctrl"
-  | "tab"
-  | "clear"
-  | "history-up"
-  | "history-down"
-  | "interrupt"
-  | "insert"
-  | "font-down"
-  | "font-up";
-type TerminalAccessoryKey = {
-  key: string;
-  label: string;
-  action: TerminalKey;
-  value?: string;
-};
 
-const FONT_SIZE_KEY = "autopr.mobile.terminal-font-size";
-const DEFAULT_FONT_SIZE = 12;
-const MIN_FONT_SIZE = 10;
-const MAX_FONT_SIZE = 17;
-const MAX_OUTPUT_LENGTH = 120_000;
+// JavaScript dependencies can update independently from an installed native
+// development client. Avoid evaluating react-native-webview when that binary
+// does not contain its TurboModule; a future rebuilt client will use the
+// embedded view automatically.
+type WebViewComponent = typeof import("react-native-webview")["WebView"];
 
-const accessoryKeys: ReadonlyArray<TerminalAccessoryKey> = [
-  { key: "escape", label: "esc", action: "escape" },
-  { key: "ctrl", label: "ctrl", action: "ctrl" },
-  { key: "tab", label: "tab", action: "tab" },
-  { key: "interrupt", label: "^C", action: "interrupt" },
-  { key: "clear", label: "clear", action: "clear" },
-  { key: "history-up", label: "↑", action: "history-up" },
-  { key: "history-down", label: "↓", action: "history-down" },
-  { key: "tilde", label: "~", action: "insert", value: "~" },
-  { key: "pipe", label: "|", action: "insert", value: "|" },
-  { key: "slash", label: "/", action: "insert", value: "/" },
-  { key: "dash", label: "-", action: "insert", value: "-" },
-  { key: "font-down", label: "A−", action: "font-down" },
-  { key: "font-up", label: "A+", action: "font-up" },
-];
+const WebView = TurboModuleRegistry.get("RNCWebViewModule")
+  ? (require("react-native-webview").WebView as WebViewComponent)
+  : undefined;
 
-const AccessoryKeyButton = memo(function AccessoryKeyButton({
-  item,
-  active,
-  disabled,
-  theme,
-  onPress,
-}: {
-  item: TerminalAccessoryKey;
-  active: boolean;
-  disabled: boolean;
-  theme: AppTheme;
-  onPress: (action: TerminalKey, value?: string) => void;
-}) {
-  const handlePress = useCallback(
-    () => onPress(item.action, item.value),
-    [item.action, item.value, onPress],
-  );
-  const accessibilityState = useMemo(
-    () => ({ disabled, selected: active }),
-    [active, disabled],
-  );
-  const buttonStyle = useCallback(
-    ({ pressed }: PressableStateCallbackType) => [
-      styles.keyButton,
-      {
-        backgroundColor: active ? theme.accentSoft : theme.surfaceSoft,
-        borderColor: active ? theme.accentOn : theme.codeLine,
-        opacity: disabled ? 0.3 : pressed ? 0.62 : 1,
-      },
-    ],
-    [active, disabled, theme.accentOn, theme.accentSoft, theme.codeLine, theme.surfaceSoft],
-  );
-  const textStyle = useMemo(
-    () => [styles.keyText, { color: active ? theme.accentOn : theme.codeInk }],
-    [active, theme.accentOn, theme.codeInk],
-  );
-
-  return (
-    <Pressable
-      accessibilityLabel={`${item.label} terminal key`}
-      accessibilityRole="button"
-      accessibilityState={accessibilityState}
-      disabled={disabled}
-      onPress={handlePress}
-      style={buttonStyle}
-    >
-      <Text style={textStyle}>{item.label}</Text>
-    </Pressable>
-  );
-});
-
-function accessoryKeyExtractor(item: TerminalAccessoryKey) {
-  return item.key;
-}
-
-async function terminalText(data: unknown) {
-  if (typeof data === "string") {
-    try {
-      const message = JSON.parse(data) as { type?: unknown };
-      if (message.type === "control") return "";
-    } catch {
-      // Raw shell output is expected to be plain text.
-    }
-    return data;
-  }
-  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
-  if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data);
-  if (typeof Blob !== "undefined" && data instanceof Blob) return await data.text();
-  return "";
-}
-
-function terminalSize(width: number, height: number, fontSize: number) {
-  const cellWidth = fontSize * 0.62;
-  const cellHeight = fontSize * 1.42;
-  return {
-    cols: Math.max(32, Math.min(200, Math.floor((width - 24) / cellWidth))),
-    rows: Math.max(8, Math.min(100, Math.floor((height - 20) / cellHeight))),
-  };
-}
-
-function applyCtrlModifier(input: string) {
-  const first = input[0];
-  if (!first) return input;
-  const lower = first.toLowerCase();
-  if (lower >= "a" && lower <= "z") {
-    return `${String.fromCharCode(lower.charCodeAt(0) - 96)}${input.slice(1)}`;
-  }
-  if (first === "[") return `\u001b${input.slice(1)}`;
-  if (first === "\\") return `\u001c${input.slice(1)}`;
-  if (first === "]") return `\u001d${input.slice(1)}`;
-  return input;
-}
-
-function clampFontSize(value: number) {
-  return Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(value)));
-}
+const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
+const TERMINAL_OPEN_TIMEOUT_MS = 30_000;
 
 export function TerminalScreen({ route }: Props) {
   const { projectId, threadId, title } = route.params;
   const theme = useAppTheme();
-  const getTerminal = useAction(api.projectActions.getPtyTerminal);
-  const resizeTerminal = useAction(api.projectActions.resizePtyTerminal);
-  const killTerminal = useAction(api.projectActions.killPtyTerminal);
-  const dimensions = useWindowDimensions();
-  const initialSizeRef = useRef<ReturnType<typeof terminalSize> | null>(null);
-  initialSizeRef.current ??= terminalSize(
-    dimensions.width,
-    dimensions.height - 160,
-    DEFAULT_FONT_SIZE,
-  );
-  const initialSize = initialSizeRef.current;
-  const [output, setOutput] = useState("");
-  const [command, setCommand] = useState("");
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
-  const [surfaceSize, setSurfaceSize] = useState<{ width: number; height: number } | null>(null);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [pendingCtrl, setPendingCtrl] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [awayFromLatest, setAwayFromLatest] = useState(false);
-  const socketRef = useRef<WebSocket | null>(null);
-  const sessionRef = useRef<string | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const inputRef = useRef<TextInput>(null);
-  const followOutputRef = useRef(true);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const commandHistoryRef = useRef<string[]>([]);
-  const historyDraftRef = useRef("");
-  const historyIndexRef = useRef<number | null>(null);
-  const outputSanitizerRef = useRef<TerminalOutputSanitizer | null>(null);
-  outputSanitizerRef.current ??= new TerminalOutputSanitizer(MAX_OUTPUT_LENGTH);
-
-  useEffect(() => {
-    let active = true;
-    void AsyncStorage.getItem(FONT_SIZE_KEY).then((stored) => {
-      if (!active || !stored) return;
-      const parsed = Number(stored);
-      if (Number.isFinite(parsed)) setFontSize(clampFontSize(parsed));
-    }).catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-
-  useEffect(() => () => {
-    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    let socket: WebSocket | null = null;
-    let activeSessionId: string | null = null;
-    let wakeTimer: ReturnType<typeof setTimeout> | null = null;
-    let openTimer: ReturnType<typeof setTimeout> | null = null;
-    let openTimedOut = false;
-    let receivedOutput = false;
-
-    const start = async () => {
-      setStatus("connecting");
-      setError(null);
-      outputSanitizerRef.current?.reset();
-      const terminal = await getTerminal({
-        projectId,
-        threadId,
-        ...initialSize,
-      });
-      if (!active) {
-        await killTerminal({ projectId, sessionId: terminal.sessionId }).catch(() => undefined);
-        return;
-      }
-      activeSessionId = terminal.sessionId;
-      sessionRef.current = activeSessionId;
-      socket = new WebSocket(terminal.websocketUrl, "X-Daytona-SDK-Version~");
-      socketRef.current = socket;
-      socket.binaryType = "arraybuffer";
-      openTimer = setTimeout(() => {
-        if (!active || socket?.readyState === WebSocket.OPEN) return;
-        openTimedOut = true;
-        setStatus("disconnected");
-        setError("The terminal did not connect. Reconnect to try again.");
-        socket?.close();
-      }, 15_000);
-      socket.onopen = () => {
-        if (!active || !socket) return;
-        if (openTimer) clearTimeout(openTimer);
-        setStatus("connected");
-        setError(null);
-        wakeTimer = setTimeout(() => {
-          if (!receivedOutput && socket?.readyState === WebSocket.OPEN) {
-            socket.send(new TextEncoder().encode("\r"));
-          }
-        }, 250);
-      };
-      socket.onmessage = (event) => {
-        void terminalText(event.data).then((text) => {
-          if (!active || !text) return;
-          receivedOutput = true;
-          if (wakeTimer) clearTimeout(wakeTimer);
-          setError(null);
-          const snapshot = outputSanitizerRef.current?.push(text) ?? "";
-          setOutput(snapshot);
-          if (followOutputRef.current) {
-            requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
-          }
-        });
-      };
-      socket.onerror = () => {
-        if (openTimer) clearTimeout(openTimer);
-        if (active) setError("Terminal connection failed.");
-      };
-      socket.onclose = () => {
-        if (!active) return;
-        if (openTimer) clearTimeout(openTimer);
-        if (wakeTimer) clearTimeout(wakeTimer);
-        setStatus("disconnected");
-        if (!openTimedOut) setError("Terminal disconnected. Reconnect to continue.");
-      };
-    };
-
-    void start().catch((cause) => {
-      if (!active) return;
-      setStatus("disconnected");
-      setError(cause instanceof Error ? cause.message : "Could not start the terminal.");
-    });
-
-    return () => {
-      active = false;
-      if (openTimer) clearTimeout(openTimer);
-      if (wakeTimer) clearTimeout(wakeTimer);
-      socket?.close();
-      socketRef.current = null;
-      sessionRef.current = null;
-      if (activeSessionId) {
-        void killTerminal({ projectId, sessionId: activeSessionId }).catch(() => undefined);
-      }
-    };
-  }, [attempt, getTerminal, initialSize, killTerminal, projectId, threadId]);
-
-  useEffect(() => {
-    const activeSessionId = sessionRef.current;
-    if (status !== "connected" || !activeSessionId) return;
-    const measured = surfaceSize ?? {
-      width: dimensions.width,
-      height: dimensions.height - 160,
-    };
-    const size = terminalSize(measured.width, measured.height, fontSize);
-    const timer = setTimeout(() => {
-      void resizeTerminal({
-        projectId,
-        sessionId: activeSessionId,
-        ...size,
-      }).catch(() => undefined);
-    }, 160);
-    return () => clearTimeout(timer);
-  }, [
-    dimensions.height,
-    dimensions.width,
-    fontSize,
-    projectId,
-    resizeTerminal,
-    status,
-    surfaceSize,
-  ]);
-
-  const writeInput = useCallback((value: string) => {
-    const socket = socketRef.current;
-    if (!value || socket?.readyState !== WebSocket.OPEN) return false;
-    socket.send(new TextEncoder().encode(value));
-    return true;
-  }, []);
+  const getTerminalPreview = useAction(api.projectActions.getTerminalPreview);
+  const [previewUrl, setPreviewUrl] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [openingBrowser, setOpeningBrowser] = useState(false);
+  const [previewExpiresAt, setPreviewExpiresAt] = useState<number>();
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const previewOrigin = useMemo(() => {
+    if (!previewUrl) return undefined;
+    try {
+      return new URL(previewUrl).origin;
+    } catch {
+      return undefined;
+    }
+  }, [previewUrl]);
 
   const reconnect = useCallback(() => {
-    setPendingCtrl(false);
-    setOutput((current) => current
-      ? `${current.trimEnd()}\n\n── reconnecting ──\n`
-      : current);
-    setAttempt((value) => value + 1);
+    setPreviewUrl(undefined);
+    setLoading(true);
+    setError(undefined);
+    setPreviewExpiresAt(undefined);
+    setConnectionAttempt((attempt) => attempt + 1);
   }, []);
 
-  const clearTerminal = useCallback(() => {
-    outputSanitizerRef.current?.reset();
-    setOutput("");
-    setAwayFromLatest(false);
-    followOutputRef.current = true;
-    writeInput("\u000c");
-  }, [writeInput]);
-
-  const updateFontSize = useCallback((change: number) => {
-    const next = clampFontSize(fontSize + change);
-    setFontSize(next);
-    void AsyncStorage.setItem(FONT_SIZE_KEY, String(next)).catch(() => undefined);
-  }, [fontSize]);
-
-  const moveThroughHistory = useCallback((direction: -1 | 1) => {
-    const history = commandHistoryRef.current;
-    if (history.length === 0) return;
-    const current = historyIndexRef.current;
-    if (current === null) {
-      if (direction === 1) return;
-      historyDraftRef.current = command;
-      const next = history.length - 1;
-      historyIndexRef.current = next;
-      setCommand(history[next] ?? "");
-      return;
+  const clearOpenTimeout = useCallback(() => {
+    if (openTimeoutRef.current) {
+      clearTimeout(openTimeoutRef.current);
+      openTimeoutRef.current = undefined;
     }
-    const next = current + direction;
-    if (next >= history.length) {
-      historyIndexRef.current = null;
-      setCommand(historyDraftRef.current);
-      return;
-    }
-    const bounded = Math.max(0, next);
-    historyIndexRef.current = bounded;
-    setCommand(history[bounded] ?? "");
-  }, [command]);
-
-  const runCommand = useCallback(() => {
-    if (status !== "connected") return;
-    if (!command) {
-      writeInput("\r");
-      return;
-    }
-
-    const value = command;
-    if (pendingCtrl) {
-      writeInput(applyCtrlModifier(value));
-      setPendingCtrl(false);
-    } else {
-      writeInput(`${value}\r`);
-      const previous = commandHistoryRef.current;
-      if (previous[previous.length - 1] !== value) {
-        commandHistoryRef.current = [...previous.slice(-49), value];
-      }
-    }
-    setCommand("");
-    historyIndexRef.current = null;
-    historyDraftRef.current = "";
-  }, [command, pendingCtrl, status, writeInput]);
-
-  const handleAccessoryKey = useCallback((action: TerminalKey, value?: string) => {
-    if (action === "ctrl") {
-      setPendingCtrl((current) => !current);
-      inputRef.current?.focus();
-      return;
-    }
-    if (action === "clear") {
-      setPendingCtrl(false);
-      clearTerminal();
-      return;
-    }
-    if (action === "font-down" || action === "font-up") {
-      updateFontSize(action === "font-up" ? 1 : -1);
-      return;
-    }
-    if (action === "history-up" || action === "history-down") {
-      moveThroughHistory(action === "history-up" ? -1 : 1);
-      inputRef.current?.focus();
-      return;
-    }
-    if (action === "insert") {
-      setCommand((current) => `${current}${value ?? ""}`);
-      inputRef.current?.focus();
-      return;
-    }
-    if (action === "tab") {
-      setCommand((current) => `${current}\t`);
-      inputRef.current?.focus();
-      return;
-    }
-
-    setPendingCtrl(false);
-    if (action === "escape") writeInput("\u001b");
-    if (action === "interrupt") {
-      writeInput("\u0003");
-      setCommand("");
-      historyIndexRef.current = null;
-    }
-  }, [clearTerminal, moveThroughHistory, updateFontSize, writeInput]);
-
-  const copyOutput = useCallback(() => {
-    if (!output) return;
-    void Clipboard.setStringAsync(output);
-    setCopied(true);
-    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    copyTimerRef.current = setTimeout(() => setCopied(false), 1_500);
-  }, [output]);
-
-  const handleSurfaceLayout = useCallback((event: LayoutChangeEvent) => {
-    const { width, height } = event.nativeEvent.layout;
-    setSurfaceSize((current) =>
-      current?.width === width && current.height === height ? current : { width, height });
   }, []);
 
-  const handleOutputScroll = useCallback((event: {
-    nativeEvent: {
-      contentSize: { height: number };
-      layoutMeasurement: { height: number };
-      contentOffset: { y: number };
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(undefined);
+    clearOpenTimeout();
+    openTimeoutRef.current = setTimeout(() => {
+      if (!active) return;
+      active = false;
+      openTimeoutRef.current = undefined;
+      setPreviewUrl(undefined);
+      setLoading(false);
+      setError("The terminal took too long to open. Reconnect to try again.");
+    }, TERMINAL_OPEN_TIMEOUT_MS);
+
+    void getTerminalPreview({ projectId, threadId })
+      .then((preview) => {
+        if (!active) return;
+        setPreviewUrl(preview.url);
+        if (!WebView) {
+          clearOpenTimeout();
+          setLoading(false);
+        }
+        const refreshAfterSeconds = Math.max(
+          1,
+          preview.expiresInSeconds - TERMINAL_URL_REFRESH_SAFETY_SECONDS,
+        );
+        setPreviewExpiresAt(Date.now() + refreshAfterSeconds * 1_000);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        clearOpenTimeout();
+        setLoading(false);
+        setError(cause instanceof Error ? cause.message : "Could not open the terminal.");
+      });
+
+    return () => {
+      active = false;
+      clearOpenTimeout();
     };
-  }) => {
-    const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
-    const away = contentSize.height - layoutMeasurement.height - contentOffset.y > 80;
-    followOutputRef.current = !away;
-    setAwayFromLatest(away);
-  }, []);
+  }, [clearOpenTimeout, connectionAttempt, getTerminalPreview, projectId, threadId]);
 
-  const jumpToLatest = useCallback(() => {
-    followOutputRef.current = true;
-    setAwayFromLatest(false);
-    scrollRef.current?.scrollToEnd({ animated: true });
-  }, []);
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    if (previewExpiresAt !== undefined) {
+      refreshTimer = setTimeout(() => {
+        setLoading(true);
+        setConnectionAttempt((attempt) => attempt + 1);
+      }, Math.max(0, previewExpiresAt - Date.now()));
+    }
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
+  }, [previewExpiresAt]);
 
-  const renderAccessoryKey = useCallback<ListRenderItem<TerminalAccessoryKey>>(
-    ({ item }) => {
-      const active = item.action === "ctrl" && pendingCtrl;
-      const disabled =
-        (item.action === "font-down" && fontSize <= MIN_FONT_SIZE)
-        || (item.action === "font-up" && fontSize >= MAX_FONT_SIZE)
-        || (status !== "connected"
-          && !["font-down", "font-up", "insert"].includes(item.action));
-      return (
-        <AccessoryKeyButton
-          active={active}
-          disabled={disabled}
-          item={item}
-          onPress={handleAccessoryKey}
-          theme={theme}
-        />
+  const openTerminalInBrowser = useCallback(async () => {
+    if (!previewUrl || openingBrowser) return;
+
+    setOpeningBrowser(true);
+    setError(undefined);
+    try {
+      if (!(await openExternalUrl(previewUrl))) {
+        throw new Error("Could not open the terminal in your browser.");
+      }
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not open the terminal in your browser.",
       );
-    },
-    [fontSize, handleAccessoryKey, pendingCtrl, status, theme],
-  );
+    } finally {
+      setOpeningBrowser(false);
+    }
+  }, [openingBrowser, previewUrl]);
 
   return (
-    <KeyboardAvoidingScreen
-      style={[styles.screen, { backgroundColor: theme.code }]}
-    >
+    <View style={[styles.screen, { backgroundColor: theme.code }]}>
       <View style={[styles.sessionBar, { borderBottomColor: theme.codeLine }]}>
-        <View style={styles.sessionCopy}>
-          <Text numberOfLines={1} style={[styles.sessionTitle, { color: theme.codeInk }]}>
-            {title || "Workspace shell"}
-          </Text>
-        </View>
-        {status === "connecting" ? <ActivityIndicator color={theme.accentOn} size="small" /> : null}
+        <Text numberOfLines={1} style={[styles.sessionTitle, { color: theme.codeInk }]}>
+          {title || "Workspace shell"}
+        </Text>
+        {loading ? <ActivityIndicator color={theme.accentOn} size="small" /> : null}
         <Pressable
-          accessibilityLabel={copied ? "Terminal output copied" : "Copy terminal output"}
-          disabled={!output}
-          onPress={copyOutput}
-          style={({ pressed }) => [
-            styles.headerButton,
-            { opacity: !output ? 0.28 : pressed ? 0.55 : 1 },
-          ]}
+          accessibilityLabel="Reconnect terminal"
+          accessibilityRole="button"
+          onPress={reconnect}
+          style={({ pressed }) => [styles.refreshButton, { opacity: pressed ? 0.55 : 1 }]}
         >
-          {copied
-            ? <Check color={theme.success} size={17} />
-            : <Copy color={theme.codeMuted} size={16} />}
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Clear terminal"
-          onPress={clearTerminal}
-          style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.55 : 1 }]}
-        >
-          <Eraser color={theme.codeMuted} size={17} />
+          <RefreshCw color={theme.codeMuted} size={17} />
         </Pressable>
       </View>
 
       {error ? (
         <View
           accessibilityRole="alert"
-          style={[
-            styles.errorBar,
-            { backgroundColor: theme.dangerSoft, borderBottomColor: theme.danger },
-          ]}
+          style={[styles.errorBar, { backgroundColor: theme.dangerSoft, borderBottomColor: theme.danger }]}
         >
           <Text numberOfLines={2} style={[styles.errorText, { color: theme.danger }]}>
             {error}
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={reconnect}
-            style={({ pressed }) => [styles.reconnectButton, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <RefreshCw color={theme.danger} size={13} />
+          <Pressable accessibilityRole="button" onPress={reconnect}>
             <Text style={[styles.reconnectText, { color: theme.danger }]}>Reconnect</Text>
           </Pressable>
         </View>
       ) : null}
 
-      <View onLayout={handleSurfaceLayout} style={styles.surface}>
-        <ScrollView
-          ref={scrollRef}
-          contentContainerStyle={styles.output}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
-          onContentSizeChange={() => {
-            if (followOutputRef.current) scrollRef.current?.scrollToEnd({ animated: false });
+      {previewUrl && previewOrigin && WebView ? (
+        <WebView
+          cacheEnabled={false}
+          incognito
+          key={`${connectionAttempt}:${previewUrl}`}
+          onError={() => {
+            clearOpenTimeout();
+            setLoading(false);
+            setError("Terminal connection failed.");
           }}
-          onScroll={handleOutputScroll}
-          scrollEventThrottle={32}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text
-            selectable
-            style={[
-              styles.outputText,
-              {
-                color: theme.codeInk,
-                fontSize,
-                lineHeight: Math.round(fontSize * 1.42),
-              },
-            ]}
-          >
-            {output || (status === "connected"
-              ? "Shell ready. Enter a command below.\n"
-              : "Opening a shell in this workspace…\n")}
+          onLoadEnd={() => {
+            clearOpenTimeout();
+            setLoading(false);
+          }}
+          onShouldStartLoadWithRequest={({ url }) => {
+            try {
+              if (new URL(url).origin === previewOrigin) return true;
+            } catch {
+              return false;
+            }
+            void openExternalUrl(url);
+            return false;
+          }}
+          originWhitelist={[`${previewOrigin}/*`]}
+          sharedCookiesEnabled={false}
+          source={{ uri: previewUrl }}
+          style={styles.webview}
+          thirdPartyCookiesEnabled={false}
+        />
+      ) : previewUrl ? (
+        <View style={styles.browserSurface}>
+          <Text style={[styles.browserTitle, { color: theme.codeInk }]}>Terminal ready</Text>
+          <Text style={[styles.browserDescription, { color: theme.codeMuted }]}>
+            This development client does not include the embedded browser module. Open the secure
+            terminal in your device browser instead.
           </Text>
-        </ScrollView>
-
-        {awayFromLatest ? (
           <Pressable
-            accessibilityLabel="Jump to latest terminal output"
-            onPress={jumpToLatest}
+            accessibilityLabel="Open terminal in browser"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: openingBrowser }}
+            disabled={openingBrowser}
+            onPress={() => void openTerminalInBrowser()}
             style={({ pressed }) => [
-              styles.latestButton,
+              styles.browserButton,
               {
-                backgroundColor: theme.surfaceRaised,
-                borderColor: theme.codeLine,
-                opacity: pressed ? 0.72 : 1,
+                backgroundColor: theme.accent,
+                opacity: pressed || openingBrowser ? 0.65 : 1,
               },
             ]}
           >
-            <Text style={[styles.latestText, { color: theme.ink }]}>Latest ↓</Text>
+            {openingBrowser ? (
+              <ActivityIndicator color={theme.accentOn} size="small" />
+            ) : (
+              <ExternalLink color={theme.accentOn} size={16} />
+            )}
+            <Text style={[styles.browserButtonText, { color: theme.accentOn }]}>
+              {openingBrowser ? "Opening…" : "Open terminal"}
+            </Text>
           </Pressable>
-        ) : null}
-      </View>
-
-      {keyboardVisible ? (
-        <View style={[styles.accessory, { borderTopColor: theme.codeLine }]}>
-          <FlatList
-            contentContainerStyle={styles.accessoryContent}
-            data={accessoryKeys}
-            horizontal
-            keyboardShouldPersistTaps="always"
-            keyExtractor={accessoryKeyExtractor}
-            renderItem={renderAccessoryKey}
-            showsHorizontalScrollIndicator={false}
-          />
         </View>
-      ) : null}
-
-      <View
-        style={[
-          styles.commandDock,
-          { backgroundColor: theme.code, borderTopColor: theme.codeLine },
-        ]}
-      >
-        <ComposerToolbarButton
-          accessibilityLabel={keyboardVisible ? "Dismiss keyboard" : "Show keyboard"}
-          icon={KeyboardIcon}
-          onPress={() => {
-            if (keyboardVisible) Keyboard.dismiss();
-            else inputRef.current?.focus();
-          }}
-        />
-        <View
-          style={[
-            styles.commandField,
-            {
-              backgroundColor: theme.surfaceSoft,
-              borderColor: pendingCtrl ? theme.accentOn : theme.codeLine,
-            },
-          ]}
-        >
-          <Text style={[styles.promptMark, { color: pendingCtrl ? theme.accentOn : theme.success }]}>
-            {pendingCtrl ? "^" : "$"}
-          </Text>
-          <TextInput
-            ref={inputRef}
-            autoCapitalize="none"
-            autoCorrect={false}
-            blurOnSubmit={false}
-            editable={status === "connected"}
-            keyboardAppearance={theme.mode}
-            onChangeText={(value) => {
-              setCommand(value);
-              historyIndexRef.current = null;
-            }}
-            onSubmitEditing={runCommand}
-            placeholder={status === "connected" ? "Type a command" : "Waiting for terminal"}
-            placeholderTextColor={theme.codeMuted}
-            returnKeyType="send"
-            selectionColor={theme.accent}
-            spellCheck={false}
-            textAlignVertical="center"
-            value={command}
-            style={[styles.input, { color: theme.codeInk }]}
-          />
+      ) : (
+        <View style={styles.loadingSurface}>
+          {loading ? (
+            <Text style={[styles.loadingText, { color: theme.codeMuted }]}>
+              Opening secure terminal…
+            </Text>
+          ) : null}
         </View>
-        <ComposerToolbarButton
-          accessibilityLabel="Run command"
-          disabled={status !== "connected"}
-          icon={ArrowUp}
-          onPress={runCommand}
-          variant="primary"
-        />
-      </View>
-    </KeyboardAvoidingScreen>
+      )}
+    </View>
   );
 }
-
-const mono = Platform.select({ ios: "Menlo", android: "monospace" });
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -713,9 +254,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  sessionCopy: { minWidth: 0, flex: 1 },
-  sessionTitle: { fontFamily: "DMSans_500Medium", fontSize: 14 },
-  headerButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  sessionTitle: { minWidth: 0, flex: 1, fontFamily: "DMSans_500Medium", fontSize: 14 },
+  refreshButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   errorBar: {
     minHeight: 43,
     borderBottomWidth: 1,
@@ -726,75 +266,34 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   errorText: { flex: 1, fontFamily: "DMSans_500Medium", fontSize: 10, lineHeight: 14 },
-  reconnectButton: {
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 7,
-  },
   reconnectText: { fontFamily: "DMSans_700Bold", fontSize: 10 },
-  surface: { flex: 1 },
-  output: { flexGrow: 1, paddingHorizontal: 13, paddingTop: 12, paddingBottom: 28 },
-  outputText: { fontFamily: mono, fontWeight: "500" },
-  latestButton: {
-    position: "absolute",
-    right: 12,
-    bottom: 10,
-    minHeight: 32,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 12,
+  loadingSurface: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  browserSurface: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 10,
   },
-  latestText: { fontFamily: "DMSans_500Medium", fontSize: 10 },
-  accessory: { minHeight: 47, borderTopWidth: 1, justifyContent: "center" },
-  accessoryContent: { paddingHorizontal: 8, paddingVertical: 6, gap: 6 },
-  keyButton: {
-    minWidth: 42,
-    height: 34,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    alignItems: "center",
-    justifyContent: "center",
+  browserTitle: { fontFamily: "DMSans_700Bold", fontSize: 18 },
+  browserDescription: {
+    maxWidth: 360,
+    textAlign: "center",
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
   },
-  keyText: {
-    fontFamily: mono,
-    fontSize: 10,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  commandDock: {
-    minHeight: 68,
-    borderTopWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  browserButton: {
+    minHeight: 44,
+    marginTop: 8,
+    paddingHorizontal: 18,
+    borderRadius: 22,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
-  commandField: {
-    minWidth: 0,
-    flex: 1,
-    height: 46,
-    borderWidth: 1,
-    borderRadius: 23,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-  },
-  promptMark: { fontFamily: mono, fontSize: 14, lineHeight: 20, fontWeight: "700" },
-  input: {
-    minWidth: 0,
-    flex: 1,
-    height: 20,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    fontFamily: mono,
-    fontSize: 13,
-    lineHeight: 20,
-  },
+  browserButtonText: { fontFamily: "DMSans_700Bold", fontSize: 13 },
+  webview: { flex: 1, backgroundColor: "transparent" },
 });

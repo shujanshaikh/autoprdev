@@ -4,7 +4,9 @@ import {
   createCachedSystemMessage,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
+  withSandboxAgentProjectContext,
 } from "@autopr/agent";
+import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
@@ -23,7 +25,10 @@ import {
   type AgentRunIssue,
 } from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
-import { createCodexResponsesModel } from "#/lib/codex-auth-runtime-server";
+import {
+  createCodexResponsesModel,
+  revokeCodexAgentGrant,
+} from "#/lib/codex-auth-runtime-server";
 import { getCodexContextLimit } from "#/lib/codex-models";
 import {
   AGENT_TASK_ID,
@@ -86,6 +91,16 @@ async function markAgentRunFinished({
     { threadId, assistantMessageId, persistenceToken, runId },
     { url: getConvexUrl() },
   );
+}
+
+async function releaseAgentCodexGrant(options: AgentTaskOptions) {
+  const lifecycle = createGrantLifecycle(
+    options.codex.credentialsGrantId,
+    revokeCodexAgentGrant,
+  );
+  await lifecycle.release().catch((error) => {
+    console.error("Failed to revoke the Codex credential grant", error);
+  });
 }
 
 async function recordAgentRunIssue({
@@ -221,7 +236,7 @@ async function runAgentTask(
   }
 
   try {
-    await harness.run(async ({ instructions, tools }) => {
+    await harness.run(async ({ instructions, repositoryContext, tools }) => {
       const model = wrapLanguageModel({
         model: await createCodexResponsesModel(codexOptions),
         middleware: createContextOverflowRecoveryMiddleware(),
@@ -229,7 +244,9 @@ async function runAgentTask(
       const result = streamText({
         model,
         system: createCachedSystemMessage(instructions),
-        messages: applyAgenticCache(inputMessages),
+        messages: applyAgenticCache(
+          withSandboxAgentProjectContext(inputMessages, repositoryContext),
+        ),
         tools,
         toolChoice: "auto",
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
@@ -342,22 +359,34 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
     maxAttempts: 1,
   },
   onFailure: async ({ payload, error, ctx, signal }) => {
-    // Trigger.dev 4.5.2 can reach onFailure after its cancellation signal
-    // aborts task code. A user-requested stop must not become a run issue.
-    if (isCancellation(error, signal)) {
-      return;
-    }
+    try {
+      // Trigger.dev 4.5.2 can reach onFailure after its cancellation signal
+      // aborts task code. A user-requested stop must not become a run issue.
+      if (isCancellation(error, signal)) {
+        return;
+      }
 
-    await reportAgentFailure(payload.options, error, ctx.run.id, ctx.attempt.number);
+      await reportAgentFailure(payload.options, error, ctx.run.id, ctx.attempt.number);
+    } finally {
+      await releaseAgentCodexGrant(payload.options);
+    }
   },
   onCancel: async ({ payload, ctx }) => {
     // Trigger waits for onCancel hooks (within its cancellation timeout),
     // making this more reliable than depending on task finally blocks while
     // the managed worker is being torn down.
-    await finishCancelledAgentRun(payload.options, ctx.run.id);
+    try {
+      await finishCancelledAgentRun(payload.options, ctx.run.id);
+    } finally {
+      await releaseAgentCodexGrant(payload.options);
+    }
   },
   run: async (payload: AgentTaskPayload, { ctx, signal }) => {
-    await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);
-    return { ok: true as const };
+    try {
+      await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);
+      return { ok: true as const };
+    } finally {
+      await releaseAgentCodexGrant(payload.options);
+    }
   },
 });

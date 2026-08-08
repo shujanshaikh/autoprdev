@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { ArrowRight, CheckCheck, Columns2, ExternalLink, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Send, Terminal, TextSearch, TextWrap, X } from "lucide-react";
+import { CheckCheck, Columns2, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Terminal, TextSearch, TextWrap, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
@@ -15,6 +15,7 @@ import { DaytonaTerminalView } from "./daytona-terminal-view";
 import { ThreadDiffCodeView } from "./thread-diff-code-view";
 import { ThreadDiffEmptyState, ThreadDiffLoadingList } from "./thread-diff-panel-states";
 import type { DiffPromptContext, ThreadDiffDeepLink, ThreadDiffEntry } from "./thread-diff-panel-utils";
+import { ThreadPullRequestList } from "./thread-pull-request-list";
 
 export type ThreadDiffPanelProps = {
   entries: ThreadDiffEntry[];
@@ -23,14 +24,7 @@ export type ThreadDiffPanelProps = {
   isLoading?: boolean;
   projectId: string;
   threadId: string;
-  threadTitle?: string;
-  baseBranch?: string;
-  featureBranch?: string;
-  pullRequestStatus?: "idle" | "creating" | "created" | "failed";
-  pullRequestUrl?: string;
   pullRequestNumber?: number;
-  pullRequestBranch?: string;
-  pullRequestError?: string;
   maximized?: boolean;
   onMaximizedChange?: (maximized: boolean) => void;
   onAddPromptContext?: (context: DiffPromptContext) => void;
@@ -114,7 +108,7 @@ const SURFACE_PICKER_ITEMS: Array<{
   { kind: "desktop", title: "Desktop", description: "Open the workspace desktop.", icon: Monitor },
   { kind: "terminal", title: "Terminal", description: "Start a shell in this workspace.", icon: Terminal },
   { kind: "environment", title: "Environment", description: "Mount project secrets in this sandbox.", icon: KeyRound },
-  { kind: "pull-request", title: "Pull request", description: "Create or open a PR for these changes.", icon: GitPullRequest },
+  { kind: "pull-request", title: "Pull request", description: "Browse pull requests for this repository.", icon: GitPullRequest },
 ];
 
 const DIFF_LAYOUT_OPTIONS: Array<{
@@ -143,14 +137,7 @@ export function ThreadDiffPanel({
   isLoading = false,
   projectId,
   threadId,
-  threadTitle,
-  baseBranch,
-  featureBranch,
-  pullRequestStatus,
-  pullRequestUrl,
   pullRequestNumber,
-  pullRequestBranch,
-  pullRequestError,
   maximized = false,
   onMaximizedChange,
   onAddPromptContext,
@@ -164,7 +151,6 @@ export function ThreadDiffPanel({
     : DEFAULT_VISIBLE_TABS);
   const [activeTabId, setActiveTabId] = useState(() => deepLink ? SINGLETON_TAB_IDS.diff : "");
   const [handledDeepLink, setHandledDeepLink] = useState(deepLink);
-  const [title, setTitle] = useState(threadTitle ?? "AutoPR changes");
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [desktopStatusLoading, setDesktopStatusLoading] = useState(false);
@@ -173,10 +159,6 @@ export function ThreadDiffPanel({
   const [desktopError, setDesktopError] = useState<string | undefined>();
   const [desktopFullscreen, setDesktopFullscreen] = useState(false);
   const [hasOpenedDesktop, setHasOpenedDesktop] = useState(false);
-  const [body, setBody] = useState("");
-  const [localStatus, setLocalStatus] = useState<typeof pullRequestStatus>();
-  const [localError, setLocalError] = useState<string | undefined>();
-  const [createdPull, setCreatedPull] = useState<{ url: string; number?: number; branch?: string } | undefined>();
   const { diffStyle, similarChanges, wordWrap, setDiffStyle, setSimilarChanges, setWordWrap } = usePierreDiffPreferences();
   const mobileDiffOnly = useSyncExternalStore(
     subscribeToMobileThreadView,
@@ -187,10 +169,8 @@ export function ThreadDiffPanel({
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
-  const terminalSessionIdsRef = useRef(new Map<string, string>());
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
-  const killPtyTerminal = useAction(api.projectActions.killPtyTerminal);
 
   useEffect(() => {
     try {
@@ -340,14 +320,6 @@ export function ThreadDiffPanel({
 
   const showLoadingList = isLoading && entries.length === 0;
   const showEmpty = !isLoading && entries.length === 0;
-  const effectiveStatus = localStatus ?? pullRequestStatus ?? "idle";
-  const effectiveUrl = createdPull?.url ?? pullRequestUrl;
-  const effectiveNumber = createdPull?.number ?? pullRequestNumber;
-  const effectiveBranch = createdPull?.branch ?? pullRequestBranch;
-  const effectiveError = localError ?? pullRequestError;
-  const creating = effectiveStatus === "creating";
-  const requestedBranch = featureBranch ?? pullRequestBranch ?? "";
-  const canCreatePullRequest = entries.length > 0 && !creating && effectiveStatus !== "created" && title.trim().length > 0 && requestedBranch.length > 0;
   const panelMaximized = open && maximized;
 
   const refreshDesktopStatus = useCallback(async () => {
@@ -405,15 +377,6 @@ export function ThreadDiffPanel({
 
   const removePanelTab = useCallback(
     (tabId: string) => {
-      const tab = visibleTabs.find((candidate) => candidate.id === tabId);
-      if (tab?.kind === "terminal") {
-        const sessionId = terminalSessionIdsRef.current.get(tabId);
-        terminalSessionIdsRef.current.delete(tabId);
-        if (sessionId) {
-          void killPtyTerminal({ projectId, sessionId }).catch(() => undefined);
-        }
-      }
-
       setVisibleTabs((current) => {
         const removedIndex = current.findIndex((tab) => tab.id === tabId);
         const next = current.filter((tab) => tab.id !== tabId);
@@ -423,7 +386,7 @@ export function ThreadDiffPanel({
         return next;
       });
     },
-    [activeTabId, killPtyTerminal, projectId, visibleTabs],
+    [activeTabId],
   );
 
   const loadDesktop = useCallback(async () => {
@@ -443,53 +406,13 @@ export function ThreadDiffPanel({
     }
   }, [getDesktopPreview, projectId, refreshDesktopStatus]);
 
-  const createPullRequest = useCallback(async () => {
-    if (!canCreatePullRequest) return;
-
-    setLocalStatus("creating");
-    setLocalError(undefined);
-
-    try {
-      const response = await fetch(
-        `/api/project/${encodeURIComponent(projectId)}/thread/${encodeURIComponent(threadId)}/pull-request`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operationId: crypto.randomUUID(),
-            action: entries.length > 0 ? "commit_push_create_pr" : "create_pr",
-            title: title.trim() || undefined,
-            body: body.trim() || undefined,
-          }),
-        },
-      );
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data.error === "string"
-            ? data.error
-            : typeof data.error?.message === "string"
-              ? data.error.message
-              : "Could not create pull request.",
-        );
-      }
-
-      setCreatedPull({ url: data.url, number: data.number, branch: data.branch });
-      setLocalStatus("created");
-    } catch (error) {
-      setLocalStatus("failed");
-      setLocalError(error instanceof Error ? error.message : "Could not create pull request.");
-    }
-  }, [body, canCreatePullRequest, entries.length, projectId, requestedBranch, threadId, title]);
-
   return (
     <aside
       ref={setPanelElement}
       id="thread-changes-panel"
       aria-hidden={!open}
       className={cn(
-        "relative h-full max-h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:static lg:z-auto lg:shrink-0 lg:flex-none lg:border-l lg:border-border lg:transition-[width] lg:duration-300 lg:ease-[cubic-bezier(0.22,1,0.36,1)] lg:will-change-[width] motion-reduce:transition-none",
+        "relative h-full max-h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:static lg:z-auto lg:shrink-0 lg:flex-none lg:flex-row lg:border-l lg:border-border lg:transition-[width] lg:duration-300 lg:ease-[cubic-bezier(0.22,1,0.36,1)] lg:will-change-[width] motion-reduce:transition-none",
         isResizingPanel && "transition-none",
         panelMaximized
           ? "w-full lg:w-full"
@@ -498,13 +421,11 @@ export function ThreadDiffPanel({
       )}
       style={{ "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
     >
-        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-px bg-border lg:block" />
-
         <button
           type="button"
           aria-label="Resize changes panel"
           className={cn(
-            "group/resize absolute inset-y-0 left-0 z-10 hidden w-2.5 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none lg:flex",
+            "group/resize relative z-10 hidden w-3 shrink-0 cursor-col-resize touch-none items-center justify-center border-r border-border/70 bg-[color:var(--sidebar)] transition-colors hover:bg-[color:var(--project-panel-soft)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--cohere-form-focus)] lg:flex",
             panelMaximized && "lg:hidden",
           )}
           onPointerDown={startResize}
@@ -512,6 +433,7 @@ export function ThreadDiffPanel({
           <span className="block h-12 w-0.5 rounded-full bg-border transition-all duration-200 group-hover/resize:h-20 group-hover/resize:bg-[color:var(--project-selected-strong)] group-focus-visible/resize:bg-[color:var(--project-selected-strong)]" />
         </button>
 
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="relative hidden shrink-0 flex-col border-b border-border bg-background lg:flex">
           <div className="flex h-11 items-center gap-1 border-b border-border px-2.5">
             <nav aria-label="Open workspace surfaces" className="surface-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -545,7 +467,7 @@ export function ThreadDiffPanel({
                     >
                       <Icon className="size-3.5 shrink-0" aria-hidden="true" />
                       <span className="truncate">{label}</span>
-                      {visibleTab.kind === "pull-request" && effectiveStatus === "created" ? (
+                      {visibleTab.kind === "pull-request" && pullRequestNumber ? (
                         <span className="size-1.5 shrink-0 rounded-full bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
                       ) : null}
                     </button>
@@ -873,13 +795,6 @@ export function ThreadDiffPanel({
                 projectId={projectId}
                 threadId={threadId}
                 active={isActiveTerminal}
-                onSessionChange={(sessionId) => {
-                  if (sessionId) {
-                    terminalSessionIdsRef.current.set(terminalTab.id, sessionId);
-                  } else {
-                    terminalSessionIdsRef.current.delete(terminalTab.id);
-                  }
-                }}
               />
             </div>
           );
@@ -888,191 +803,10 @@ export function ThreadDiffPanel({
         {renderedActiveTab === "environment" ? <DaytonaEnvironmentView projectId={projectId} /> : null}
 
         {renderedActiveTab === "pull-request" ? (
-          <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto bg-background">
-            <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5 px-5 py-6">
-              {effectiveStatus === "created" && effectiveUrl ? (
-                <div className="border border-border bg-card">
-                  <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="inline-block size-1.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
-                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[color:var(--project-selected-strong)]">
-                        pull request · created
-                      </span>
-                    </div>
-                    {effectiveNumber ? (
-                      <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                        #{effectiveNumber}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-4 p-4">
-                    <dl className="space-y-2.5 font-mono text-xs">
-                      <div className="flex items-baseline justify-between gap-2 border-b border-dashed border-border/60 pb-1.5">
-                        <dt className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">title</dt>
-                        <dd className="truncate text-right text-foreground">{title.trim() || "AutoPR changes"}</dd>
-                      </div>
-                      {effectiveBranch ? (
-                        <div className="flex items-baseline justify-between gap-2 border-b border-dashed border-border/60 pb-1.5">
-                          <dt className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">branch</dt>
-                          <dd className="truncate text-right text-foreground">{effectiveBranch}</dd>
-                        </div>
-                      ) : null}
-                      <div className="flex items-baseline justify-between gap-2 border-b border-dashed border-border/60 pb-1.5">
-                        <dt className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">base</dt>
-                        <dd className="truncate text-right text-foreground">{baseBranch ?? "main"}</dd>
-                      </div>
-                    </dl>
-
-                    {effectiveBranch ? (
-                      <div className="flex items-center gap-2 font-mono text-[11px]">
-                        <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/85">
-                          <GitBranch className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-                          <span className="truncate">{effectiveBranch}</span>
-                        </span>
-                        <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/55" aria-hidden="true" />
-                        <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/85">
-                          <GitBranch className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-                          <span className="truncate">{baseBranch ?? "main"}</span>
-                        </span>
-                      </div>
-                    ) : null}
-
-                    <a
-                      href={effectiveUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex h-10 w-full items-center justify-center gap-2 border border-primary bg-primary px-3 font-mono text-[11px] uppercase tracking-[0.22em] text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                    >
-                      open on github
-                      <ExternalLink className="size-3.5" aria-hidden="true" />
-                    </a>
-                  </div>
-                </div>
-              ) : (
-                <div className="border border-border bg-card">
-                  <div className="flex items-center justify-between gap-4 border-b border-border bg-muted/30 px-4 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="inline-block size-1.5 bg-[color:var(--project-selected-strong)]" aria-hidden="true" />
-                      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-foreground">
-                        create pull request
-                      </span>
-                    </div>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/80">
-                      {entries.length > 0 ? `${String(totals.files).padStart(2, "0")} files` : "empty"}
-                    </span>
-                  </div>
-
-                  <div className="space-y-5 p-4">
-                    <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-                      Push all changes in this thread sandbox to GitHub and open a PR against{" "}
-                      <span className="font-mono text-foreground/85">{baseBranch ?? "the base branch"}</span>.
-                    </p>
-
-                    <div className="flex items-center gap-2 font-mono text-[11px]">
-                      <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/80">
-                        <GitBranch className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-                        <span className="truncate">{requestedBranch || "autopr/your-branch"}</span>
-                      </span>
-                      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/55" aria-hidden="true" />
-                      <span className="inline-flex flex-1 items-center gap-1.5 truncate border border-border bg-muted/30 px-2.5 py-1.5 text-foreground/85">
-                        <GitBranch className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-                        <span className="truncate">{baseBranch ?? "main"}</span>
-                      </span>
-                    </div>
-
-                    {entries.length > 0 ? (
-                      <dl className="flex items-center gap-6 border-y border-border py-2.5 font-mono text-[10px] uppercase tracking-[0.22em]">
-                        <div className="inline-flex items-center gap-1.5">
-                          <dt className="text-muted-foreground">files</dt>
-                          <dd className="tabular-nums text-foreground">{String(totals.files).padStart(2, "0")}</dd>
-                        </div>
-                        <div className="inline-flex items-center gap-1.5">
-                          <dt className="text-muted-foreground">added</dt>
-                          <dd className="tabular-nums text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]">+{totals.additions}</dd>
-                        </div>
-                        <div className="inline-flex items-center gap-1.5">
-                          <dt className="text-muted-foreground">removed</dt>
-                          <dd className="tabular-nums text-[color:var(--cohere-coral)]">−{totals.deletions}</dd>
-                        </div>
-                      </dl>
-                    ) : null}
-
-                    <div className="space-y-3.5">
-                      <div className="block space-y-1.5">
-                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">thread branch</span>
-                        <div className="flex h-9 items-center gap-2 border border-border bg-muted/25 px-2.5 font-mono text-[12px] text-foreground/85">
-                          <GitBranch className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                          <span className="truncate">{requestedBranch || "Preparing thread branch…"}</span>
-                        </div>
-                      </div>
-                      <label className="block space-y-1.5">
-                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">title</span>
-                        <input
-                          value={title}
-                          onChange={(event) => setTitle(event.target.value)}
-                          placeholder="AutoPR changes"
-                          className="h-9 w-full border border-border bg-background px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-[color:var(--cohere-form-focus)] focus:ring-1 focus:ring-[color:var(--cohere-form-focus)]"
-                        />
-                      </label>
-                      <label className="block space-y-1.5">
-                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">description</span>
-                        <textarea
-                          value={body}
-                          onChange={(event) => setBody(event.target.value)}
-                          placeholder="Optional PR description…"
-                          rows={4}
-                          className="w-full resize-none border border-border bg-background px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-[color:var(--cohere-form-focus)] focus:ring-1 focus:ring-[color:var(--cohere-form-focus)]"
-                        />
-                      </label>
-                    </div>
-
-                    {effectiveError ? (
-                      <div role="alert" className="border border-destructive/40 bg-destructive/[0.06] px-4 py-3 font-mono text-xs">
-                        <span className="mr-2 uppercase tracking-[0.2em] text-destructive">err</span>
-                        <span className="text-destructive/90">{effectiveError}</span>
-                      </div>
-                    ) : null}
-
-                    <button
-                      type="button"
-                      onClick={() => void createPullRequest()}
-                      disabled={!canCreatePullRequest}
-                      className={cn(
-                        "inline-flex h-10 w-full items-center justify-center gap-2 border px-4 font-mono text-[11px] uppercase leading-none tracking-[0.22em]",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                        "disabled:cursor-not-allowed",
-                        canCreatePullRequest
-                          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-                          : creating
-                            ? "border-[color:var(--project-selected-strong)] bg-[color:var(--project-selected)] text-[color:var(--project-selected-strong)]"
-                            : "border-border bg-[color:var(--project-panel-soft)] text-muted-foreground/60",
-                      )}
-                    >
-                      {creating ? (
-                        <>
-                          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                          creating pull request…
-                        </>
-                      ) : entries.length === 0 ? (
-                        <span>no changes to push</span>
-                      ) : requestedBranch.length === 0 ? (
-                        <span>preparing thread branch</span>
-                      ) : title.trim().length === 0 ? (
-                        <span>add a title to continue</span>
-                      ) : (
-                        <>
-                          <Send className="size-3.5" aria-hidden="true" />
-                          submit pull request
-                          <ArrowRight className="size-3.5" aria-hidden="true" />
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          <ThreadPullRequestList
+            projectId={projectId}
+            currentPullRequestNumber={pullRequestNumber}
+          />
         ) : renderedActiveTab === "diff" ? (
           showEmpty ? (
           <ThreadDiffEmptyState />
@@ -1089,6 +823,7 @@ export function ThreadDiffPanel({
           />
           )
         ) : null}
+        </div>
       </aside>
     );
   }

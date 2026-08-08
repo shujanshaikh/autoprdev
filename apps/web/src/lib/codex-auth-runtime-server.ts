@@ -6,6 +6,7 @@ import {
   type StoredSession,
 } from "@opencoredev/loginwithchatgpt-server";
 import { WorkOS } from "@workos-inc/node";
+import { nanoid } from "nanoid";
 
 import { mergeRateLimitBucket } from "#/lib/codex-rate-limit";
 
@@ -42,8 +43,9 @@ type WorkOSVault = {
 };
 
 type VaultStoreEnvelope<T> = {
-  value: T;
+  value?: T;
   expiresAt?: number;
+  consumedAt?: number;
 };
 
 type VaultConflictMerge<T> = (latest: T, proposed: T) => T;
@@ -169,7 +171,7 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
         const currentEnvelope = current.value
           ? JSON.parse(current.value) as VaultStoreEnvelope<T>
           : undefined;
-        const nextValue = this.mergeConflict && currentEnvelope
+        const nextValue = this.mergeConflict && currentEnvelope?.value !== undefined
           ? this.mergeConflict(currentEnvelope.value, value)
           : value;
         try {
@@ -207,7 +209,7 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
           const latestEnvelope = latest.value
             ? JSON.parse(latest.value) as VaultStoreEnvelope<T>
             : undefined;
-          const nextValue = this.mergeConflict && latestEnvelope
+          const nextValue = this.mergeConflict && latestEnvelope?.value !== undefined
             ? this.mergeConflict(latestEnvelope.value, value)
             : value;
           try {
@@ -238,6 +240,39 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
       await getWorkOSVault().deleteObject({ id: existing.id });
     }
   }
+
+  async take(key: string): Promise<T | undefined> {
+    const name = vaultObjectName(this.scope, key);
+    const vault = getWorkOSVault();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const object = await vault.readObjectByName(name).catch((error: unknown) => {
+        if (isMissingVaultObject(error)) return undefined;
+        throw error;
+      });
+      if (!object?.value) return undefined;
+      const envelope = JSON.parse(object.value) as VaultStoreEnvelope<T>;
+      if (envelope.value === undefined || envelope.expiresAt !== undefined && envelope.expiresAt <= Date.now()) {
+        await vault.deleteObject({ id: object.id }).catch(() => undefined);
+        return undefined;
+      }
+
+      try {
+        await vault.updateObject({
+          id: object.id,
+          value: JSON.stringify({ consumedAt: Date.now() } satisfies VaultStoreEnvelope<T>),
+          versionCheck: object.metadata?.versionId,
+        });
+        await vault.deleteObject({ id: object.id }).catch(() => undefined);
+        return envelope.value;
+      } catch (error) {
+        if (isMissingVaultObject(error)) return undefined;
+        if (!isVaultConflict(error) || attempt === 2) throw error;
+      }
+    }
+
+    return undefined;
+  }
 }
 
 export const chatGPTAuth = createChatGPTHandler({
@@ -263,18 +298,110 @@ function authRequestFromCookieHeader(cookieHeader: string) {
   });
 }
 
+/**
+ * Trigger.dev retains run payloads and session metadata, so the ChatGPT
+ * session cookie must never be placed on a task payload. Instead the web
+ * server stores the cookie in a short-lived Vault grant and only the opaque
+ * grant id travels to Trigger; the worker redeems it here, inside the run.
+ * The TTL covers Trigger's maximum run lifecycle (see AGENT_IDEMPOTENCY_KEY_TTL).
+ * Grants are atomically consumed and deleted on redemption, explicitly revoked
+ * after task completion or failed startup, and stale grants are deleted if read.
+ */
+export const CODEX_AGENT_GRANT_TTL_MS = 2 * 60 * 60 * 1000;
+
+export type CodexAgentGrant = {
+  userId: string;
+  taskId: "autopr-agent" | "autopr-chat-agent";
+  contextId: string;
+  sessionCookieHeader: string;
+};
+
+const codexAgentGrantStore = new WorkOSVaultStore<CodexAgentGrant>("agent-codex-grant");
+
+export async function createCodexAgentGrant(grant: CodexAgentGrant): Promise<string> {
+  const grantId = nanoid(32);
+  await codexAgentGrantStore.set(grantId, grant, { ttlMs: CODEX_AGENT_GRANT_TTL_MS });
+  return grantId;
+}
+
+export function revokeCodexAgentGrant(grantId: string): Promise<void> {
+  return codexAgentGrantStore.delete(grantId);
+}
+
+export async function resolveCodexAgentGrant(
+  grantId: string,
+  expected: Pick<CodexAgentGrant, "userId" | "taskId" | "contextId">,
+): Promise<CodexAgentGrant> {
+  const grant = await codexAgentGrantStore.take(grantId);
+  if (!grant) {
+    throw new CodexConnectionError(
+      "Codex credentials for this run are missing or expired. Send the message again to start a fresh run.",
+      401,
+    );
+  }
+
+  if (
+    grant.userId !== expected.userId ||
+    grant.taskId !== expected.taskId ||
+    grant.contextId !== expected.contextId
+  ) {
+    throw new CodexConnectionError(
+      "Codex credentials do not match this agent run. Send the message again to start a fresh run.",
+      401,
+    );
+  }
+
+  return grant;
+}
+
+export type CodexResponsesModelCredentials =
+  | { chatgptCookieHeader: string; credentialsGrantId?: never }
+  | {
+      credentialsGrantId: string;
+      credentialsGrantContext: Pick<CodexAgentGrant, "userId" | "taskId" | "contextId">;
+      chatgptCookieHeader?: never;
+    };
+
 export async function createCodexResponsesModel(options: {
-  chatgptCookieHeader: string;
   modelId: string;
   reasoningEffort: string;
-}): Promise<CodexResponsesModel> {
-  const authRequest = authRequestFromCookieHeader(options.chatgptCookieHeader);
+} & CodexResponsesModelCredentials): Promise<CodexResponsesModel> {
+  // Resolve the session cookie lazily and cache it per model instance: a grant
+  // is redeemed at most once per turn, and token refreshes within the turn
+  // reuse the cached cookie instead of extra Vault reads.
+  let cookieHeaderPromise: Promise<string> | undefined;
+  const resolveCookieHeader = () => {
+    if (!cookieHeaderPromise) {
+      const pending = (async () => {
+        if (typeof options.chatgptCookieHeader === "string") {
+          return options.chatgptCookieHeader;
+        }
+
+        return (await resolveCodexAgentGrant(
+          options.credentialsGrantId,
+          options.credentialsGrantContext,
+        )).sessionCookieHeader;
+      })();
+      cookieHeaderPromise = pending;
+      // Do not cache failures: a transient Vault error should not poison the
+      // whole model instance.
+      pending.catch(() => {
+        if (cookieHeaderPromise === pending) {
+          cookieHeaderPromise = undefined;
+        }
+      });
+    }
+
+    return cookieHeaderPromise;
+  };
+
   const chatgpt = createChatGPT({
     clientVersion: getCodexClientVersion(),
     defaultModel: options.modelId,
     reasoningEffort: options.reasoningEffort as CreateChatGPTOptions["reasoningEffort"],
     reasoningSummary: "auto",
     credentials: async () => {
+      const authRequest = authRequestFromCookieHeader(await resolveCookieHeader());
       const tokens = await chatGPTAuth.getTokens(authRequest);
       if (!tokens) {
         throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);

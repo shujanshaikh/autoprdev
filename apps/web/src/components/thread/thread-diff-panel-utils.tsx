@@ -1,3 +1,4 @@
+import type { GitChangedFile } from "@autopr/backend/convex/lib/gitStatus";
 import { parseDiffFromFile, parsePatchFiles, type CodeViewItem } from "@pierre/diffs";
 import { parsePatch } from "diff";
 
@@ -23,6 +24,13 @@ export type ThreadChangedFile = {
   deletions: number;
 };
 
+export type ThreadChangedFileSummary = {
+  file: string;
+  additions: number;
+  deletions: number;
+  changedFile?: ThreadChangedFile;
+};
+
 export function changedFilesForMessage(
   entries: ThreadDiffEntry[],
   messageId: string,
@@ -41,6 +49,57 @@ export function changedFilesForMessage(
   }
 
   return [...files.values()];
+}
+
+function normalizedPath(path: string) {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+}
+
+function refersToSameFile(toolPath: string, workspacePath: string) {
+  const normalizedToolPath = normalizedPath(toolPath);
+  const normalizedWorkspacePath = normalizedPath(workspacePath);
+
+  return normalizedToolPath === normalizedWorkspacePath
+    || normalizedToolPath.endsWith(`/${normalizedWorkspacePath}`);
+}
+
+/**
+ * Keeps persisted per-message diffs clickable while filling any gaps from the
+ * current workspace status. Older stored messages may not retain raw tool diff
+ * metadata, but Git status remains authoritative for the completed thread.
+ */
+export function mergeChangedFilesWithWorkspace(
+  changedFiles: ThreadChangedFile[],
+  workspaceFiles: GitChangedFile[],
+): ThreadChangedFileSummary[] {
+  const summaries: ThreadChangedFileSummary[] = changedFiles.map((changedFile) => ({
+    file: changedFile.entry.file,
+    additions: changedFile.additions,
+    deletions: changedFile.deletions,
+    changedFile,
+  }));
+
+  for (const workspaceFile of workspaceFiles) {
+    const matchingSummary = summaries.find((summary) =>
+      refersToSameFile(summary.file, workspaceFile.path)
+    );
+    if (matchingSummary) {
+      // Prefer the repository-relative path and Git's final line counts. Tool
+      // counts can double-count a file that was edited more than once.
+      matchingSummary.file = workspaceFile.path;
+      matchingSummary.additions = workspaceFile.additions ?? matchingSummary.additions;
+      matchingSummary.deletions = workspaceFile.deletions ?? matchingSummary.deletions;
+      continue;
+    }
+
+    summaries.push({
+      file: workspaceFile.path,
+      additions: workspaceFile.additions ?? 0,
+      deletions: workspaceFile.deletions ?? 0,
+    });
+  }
+
+  return summaries;
 }
 
 export type DiffPromptContext = {

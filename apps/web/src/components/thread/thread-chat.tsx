@@ -793,7 +793,6 @@ function ThreadChatRuntime({
   demoRecordingExperimentEnabled,
   onDiffPanelOpenChange,
   onDiffCountChange,
-  project,
   thread,
   gitStatusEnabled = true,
   usingSessionTransport,
@@ -1678,12 +1677,6 @@ function ThreadChatRuntime({
   const checkedOutBranch = composerGitStatus?.detachedHead
     ? `detached@${composerGitStatus.localHeadSha?.slice(0, 7) ?? "HEAD"}`
     : composerGitStatus?.currentBranch;
-  const displayedBaseBranch = usesWorktree
-    ? thread?.baseBranch
-    : project?.defaultBranch ?? thread?.baseBranch ?? project?.repoBranch;
-  const displayedFeatureBranch = usesWorktree
-    ? thread?.featureBranch
-    : checkedOutBranch ?? project?.currentBranch ?? project?.repoBranch ?? thread?.baseBranch;
   const recordingPlaybackBasePath =
     `/api/project/${encodeURIComponent(projectId)}` +
     `/thread/${encodeURIComponent(threadId)}`;
@@ -1881,14 +1874,7 @@ function ThreadChatRuntime({
         isLoading={status === "submitted" || status === "streaming"}
         projectId={projectId}
         threadId={threadId}
-        threadTitle={thread?.title}
-        baseBranch={displayedBaseBranch}
-        featureBranch={displayedFeatureBranch}
-        pullRequestStatus={thread?.pullRequestStatus}
-        pullRequestUrl={thread?.pullRequestUrl}
         pullRequestNumber={thread?.pullRequestNumber}
-        pullRequestBranch={thread?.pullRequestBranch}
-        pullRequestError={thread?.pullRequestError}
         maximized={showMaximizedDiffPanel}
         onMaximizedChange={setDiffPanelMaximized}
         onAddPromptContext={addDiffPromptContext}

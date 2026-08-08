@@ -266,18 +266,19 @@ body:has(.lp) {
   height: 30px;
   place-items: center;
   border-radius: 8px;
-  background: var(--lp-accent);
-  transition: background-color 160ms ease;
+  overflow: hidden;
+  transition: filter 160ms ease;
 }
 
 .lp-wordmark:hover .lp-wordmark-tile {
-  background: color-mix(in srgb, var(--lp-accent) 86%, white);
+  filter: brightness(1.08);
 }
 
 .lp-wordmark-tile img {
-  width: 19px;
-  height: 19px;
-  object-fit: contain;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .lp-wordmark-text {

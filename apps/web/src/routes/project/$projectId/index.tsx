@@ -67,7 +67,6 @@ import {
 } from "#/lib/codex-models";
 import {
   agentModelKey,
-  formatAgentModelLabel,
   getAgentModelOptions,
   getAgentReasoningEfforts,
   selectAgentModel,
@@ -79,7 +78,7 @@ import { deleteThreadWithCleanup } from "#/lib/delete-thread";
 import { useProjectSandboxBranchQuery } from "#/lib/project-sandbox-branch-query";
 import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
 import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
-import { AgentModelSelectItems } from "#/components/agent-model-select-items";
+import { AgentModelPicker } from "#/components/agent-model-picker";
 
 const OPEN_PULL_REQUEST_VALUE = "__open_github_pull_request__";
 
@@ -974,24 +973,14 @@ function ProjectOverviewPage() {
                               >
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
                               </button>
-                              <Select
+                              <AgentModelPicker
+                                models={modelOptions}
                                 value={selectedModel ? agentModelKey(selectedModel) : ""}
                                 onValueChange={(value) => value && setSelectedModelChoice(value)}
-                              >
-                                <SelectTrigger
-                                  size="sm"
-                                  className="h-7 max-w-[10rem] gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5"
-                                  disabled={promptControlsDisabled || modelOptions.length === 0}
-                                  aria-label="Model"
-                                >
-                                  <SelectValue>
-                                    {formatAgentModelLabel(selectedModel)}
-                                  </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-60 min-w-60 rounded-[var(--radius-lg)] p-1">
-                                  <AgentModelSelectItems models={modelOptions} compact />
-                                </SelectContent>
-                              </Select>
+                                compact
+                                triggerClassName="max-w-[11rem]"
+                                disabled={promptControlsDisabled || modelOptions.length === 0}
+                              />
                               {selectedReasoningEfforts.length > 0 ? <Select
                                 value={selectedReasoningEffort}
                                 onValueChange={(value) => value && setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}

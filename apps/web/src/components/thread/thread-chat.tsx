@@ -21,12 +21,6 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@autopr/ui/components/hover-card";
-import {
-  Select,
-  SelectContent,
-  SelectTrigger,
-  SelectValue,
-} from "@autopr/ui/components/select";
 import { cn } from "@autopr/ui/lib/utils";
 import {
   useTriggerChatTransport,
@@ -85,9 +79,7 @@ import {
   CodexPromptConnectionLine,
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
-import { CodexLogo } from "#/components/icons/codex-logo";
-import { GrokLogo } from "#/components/icons/grok-logo";
-import { AgentModelSelectItems } from "#/components/agent-model-select-items";
+import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
@@ -98,7 +90,6 @@ import {
 } from "#/lib/codex-models";
 import {
   agentModelKey,
-  formatAgentModelLabel,
   getAgentContextLimit,
   getAgentModelOptions,
   getAgentReasoningEfforts,
@@ -331,7 +322,7 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 }
 
 const promptControlTriggerClassName =
-  "h-8 min-w-0 max-w-[36vw] gap-1.5 border-none bg-transparent px-1 text-sm font-semibold text-foreground/80 shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-8 dark:bg-transparent dark:hover:bg-transparent lg:max-w-[10rem] [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5";
+  "max-w-[48vw] lg:max-w-[12rem]";
 
 function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1749,33 +1740,13 @@ function ThreadChatRuntime({
                 </PromptInputBody>
                 <PromptInputFooter className="min-w-0 gap-1.5">
                   <PromptInputTools className="min-w-0 flex-1 gap-1">
-                    <Select
+                    <AgentModelPicker
+                      models={modelOptions}
                       value={selectedModel ? agentModelKey(selectedModel) : ""}
                       onValueChange={(value) => value && setSelectedModelChoice(value)}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className={promptControlTriggerClassName}
-                        disabled={!ready || modelOptions.length === 0}
-                        aria-label="Model"
-                      >
-                        {selectedModel?.provider === "xai"
-                          ? <GrokLogo className="size-4 shrink-0" />
-                          : <CodexLogo className="size-4 shrink-0" />}
-                        <SelectValue>
-                          <span className="truncate">{formatAgentModelLabel(selectedModel)}</span>
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent
-                        align="start"
-                        alignItemWithTrigger={false}
-                        side="top"
-                        sideOffset={8}
-                        className="w-[min(18rem,calc(100vw-2rem))] min-w-0 rounded-[var(--radius-xl)] p-1.5 shadow-lg"
-                      >
-                        <AgentModelSelectItems models={modelOptions} />
-                      </SelectContent>
-                    </Select>
+                      triggerClassName={promptControlTriggerClassName}
+                      disabled={!ready || modelOptions.length === 0}
+                    />
 
                     <DropdownMenu>
                       <DropdownMenuTrigger

@@ -1,17 +1,14 @@
+import type { ResolvedConfig } from "../core/config.ts";
 import {
-  type ChatGPTTokens,
-  type ChatGPTUser,
-  type DeviceCode,
-  type KeyValueStore,
-  type LoginStatus,
-  type ResolvedConfig,
-  ChatGPTAuthError,
-  ensureFreshTokens,
   exchangeDeviceAuthorization,
-  parseUser,
   pollDeviceCode,
   requestDeviceCode,
-} from "../core/index.ts";
+} from "../core/device.ts";
+import { ChatGPTAuthError } from "../core/errors.ts";
+import { parseUser } from "../core/jwt.ts";
+import type { KeyValueStore } from "../core/store.ts";
+import { ensureFreshTokens } from "../core/tokens.ts";
+import type { ChatGPTTokens, ChatGPTUser, DeviceCode, LoginStatus } from "../core/types.ts";
 import { decryptJson, encryptJson } from "./crypto.ts";
 
 /**

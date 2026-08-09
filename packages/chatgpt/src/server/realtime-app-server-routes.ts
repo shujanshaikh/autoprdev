@@ -125,9 +125,10 @@ export function createRealtimeAppServerRoutes(options: {
   }
 
   async function closeOwnerUnlocked(ownerSessionId: string): Promise<void> {
-    const owned = [...sessions]
-      .filter(([, managed]) => managed.ownerSessionId === ownerSessionId)
-      .map(([liveSessionId]) => liveSessionId);
+    const owned: string[] = [];
+    for (const [liveSessionId, managed] of sessions) {
+      if (managed.ownerSessionId === ownerSessionId) owned.push(liveSessionId);
+    }
     await Promise.all(owned.map((liveSessionId) => closeSession(liveSessionId, ownerSessionId)));
   }
 

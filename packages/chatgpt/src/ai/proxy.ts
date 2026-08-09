@@ -1,5 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { DEFAULT_MODEL, extractCodexModelSlugs, type FetchLike } from "../core/index.ts";
+import { DEFAULT_MODEL } from "../core/constants.ts";
+import { extractCodexModelSlugs } from "../core/codex-transport.ts";
+import type { FetchLike } from "../core/types.ts";
 import type { ChatGPTProvider } from "./provider.ts";
 import { createChatGPTImagesClient } from "./images.ts";
 

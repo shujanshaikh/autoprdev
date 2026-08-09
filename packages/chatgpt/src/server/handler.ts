@@ -1,25 +1,23 @@
+import { type ChatGPTConfig, resolveConfig } from "../core/config.ts";
+import { DEFAULT_MODEL } from "../core/constants.ts";
 import {
-  type ChatGPTConfig,
-  type ChatGPTTokens,
-  type ChatGPTUser,
-  type CodexServiceTier,
   type CodexResponsesOptions,
-  type KeyValueStore,
-  type LoginStatus,
-  type ChatGPTRealtimeSessionOptions,
-  type ChatGPTRealtimeAuth,
-  type ChatGPTRealtimeVoiceMode,
+  type CodexServiceTier,
   type ReasoningEffort,
-  DEFAULT_MODEL,
-  ChatGPTAuthError,
-  MemoryStore,
   createCodexFetch,
-  createChatGPTRealtimeCall,
   listCodexModels,
+} from "../core/codex-transport.ts";
+import { ChatGPTAuthError } from "../core/errors.ts";
+import { randomToken } from "../core/pkce.ts";
+import {
+  type ChatGPTRealtimeAuth,
+  type ChatGPTRealtimeSessionOptions,
+  type ChatGPTRealtimeVoiceMode,
+  createChatGPTRealtimeCall,
   parseChatGPTRealtimeSessionOptions,
-  randomToken,
-  resolveConfig,
-} from "../core/index.ts";
+} from "../core/realtime.ts";
+import { MemoryStore, type KeyValueStore } from "../core/store.ts";
+import type { ChatGPTTokens, ChatGPTUser, LoginStatus } from "../core/types.ts";
 import { type CookieOptions, readCookie, serializeCookie } from "./cookies.ts";
 import { sign, unsign } from "./crypto.ts";
 import { SessionManager, type StoredSession } from "./session.ts";

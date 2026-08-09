@@ -296,7 +296,12 @@ async function readImageResponse(
       buffer += decoder.decode(value, { stream: !done });
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() ?? "";
-      for (const block of blocks) await consumeBlock(block);
+      // Process each SSE event in wire order because later events can replace
+      // the current final image or error state.
+      await blocks.reduce(
+        (previous, block) => previous.then(() => consumeBlock(block)),
+        Promise.resolve(),
+      );
       if (done) break;
     }
     if (buffer.trim()) await consumeBlock(buffer);

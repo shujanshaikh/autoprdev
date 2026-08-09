@@ -1,17 +1,15 @@
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
+import { type ChatGPTConfig, resolveConfig } from "../core/config.ts";
+import { DEFAULT_MODEL } from "../core/constants.ts";
 import {
-  type ChatGPTConfig,
-  type ChatGPTTokens,
   type CodexAuth,
   type CodexResponsesOptions,
-  ChatGPTAuthError,
-  DEFAULT_MODEL,
   createCodexFetch,
-  ensureFreshTokens,
-  isAccessTokenExpired,
   listCodexModels,
-  resolveConfig,
-} from "../core/index.ts";
+} from "../core/codex-transport.ts";
+import { ChatGPTAuthError } from "../core/errors.ts";
+import { ensureFreshTokens, isAccessTokenExpired } from "../core/tokens.ts";
+import type { ChatGPTTokens } from "../core/types.ts";
 import { createChatGPTImagesClient, type ChatGPTImagesClient } from "./images.ts";
 
 /** A responses-API model created by a {@link ChatGPTProvider}. */

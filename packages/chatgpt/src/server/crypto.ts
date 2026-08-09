@@ -1,4 +1,4 @@
-import { base64UrlDecodeToBytes, base64UrlEncode } from "../core/index.ts";
+import { base64UrlDecodeToBytes, base64UrlEncode } from "../core/internal/base64.ts";
 
 /**
  * Web Crypto helpers for signing session cookies (HMAC-SHA256) and encrypting

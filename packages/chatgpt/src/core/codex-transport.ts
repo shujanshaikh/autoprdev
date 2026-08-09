@@ -122,15 +122,17 @@ export function normalizeResponsesBody(
  * which the stateless Codex API does not accept.
  */
 export function filterCodexInput(input: unknown[]): unknown[] {
-  return input
-    .filter((item) => !(isRecord(item) && item["type"] === "item_reference"))
-    .map((item) => {
-      if (isRecord(item) && "id" in item) {
-        const { id, ...rest } = item;
-        return rest;
-      }
-      return item;
-    });
+  const filtered: unknown[] = [];
+  for (const item of input) {
+    if (isRecord(item) && item["type"] === "item_reference") continue;
+    if (isRecord(item) && "id" in item) {
+      const { id, ...rest } = item;
+      filtered.push(rest);
+    } else {
+      filtered.push(item);
+    }
+  }
+  return filtered;
 }
 
 /**

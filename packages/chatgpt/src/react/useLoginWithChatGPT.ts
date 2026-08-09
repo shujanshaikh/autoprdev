@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatGPTUser, LoginStatus } from "../core/index.ts";
+import type { ChatGPTUser, LoginStatus } from "../core/types.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Client-side status: the server statuses plus transient hydration/connecting phases. */
@@ -88,8 +88,13 @@ export function useLoginWithChatGPT(
 
   // Stable refs so effects and callbacks don't churn on every render.
   const popupRef = useRef<Window | null>(null);
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
+  const onAuthenticatedRef = useRef(options.onAuthenticated);
+  const onErrorRef = useRef(options.onError);
+
+  useEffect(() => {
+    onAuthenticatedRef.current = options.onAuthenticated;
+    onErrorRef.current = options.onError;
+  }, [options.onAuthenticated, options.onError]);
 
   const request = useCallback(
     async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -168,9 +173,12 @@ export function useLoginWithChatGPT(
         copied,
       });
     } catch (error) {
+      if (loginOptions.popup && !loginOptions.popup.closed) {
+        loginOptions.popup.close();
+      }
       const err = error instanceof Error ? error : new Error("Login failed.");
       setState({ status: "error", error: err.message, copied: false });
-      optionsRef.current.onError?.(err);
+      onErrorRef.current?.(err);
     }
   }, [autoCopyCode, openPopup, request]);
 
@@ -206,19 +214,21 @@ export function useLoginWithChatGPT(
 
   // Poll for completion while a login is pending.
   useEffect(() => {
-    if (state.status !== "pending") return;
+    if (state.status !== "pending") return () => {};
+
     let active = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let requestInFlight = false;
 
     const tick = async () => {
-      if (!active) return;
+      if (!active || requestInFlight) return;
+      requestInFlight = true;
       try {
         const data = await request<StatusResponse>("/status");
         if (!active) return;
         if (data.status === "authenticated") {
           popupRef.current?.close();
           setState((prev) => ({ ...prev, status: "authenticated", user: data.user }));
-          optionsRef.current.onAuthenticated?.(data.user);
+          onAuthenticatedRef.current?.(data.user);
           return;
         }
         if (data.status === "expired" || data.status === "error") {
@@ -226,19 +236,24 @@ export function useLoginWithChatGPT(
           setState((prev) => ({ ...prev, status: data.status }));
           return;
         }
-        timer = setTimeout(tick, pollIntervalMs);
       } catch {
-        if (!active) return;
-        timer = setTimeout(tick, pollIntervalMs);
+        // A transient polling failure is retried on the next interval.
+      } finally {
+        requestInFlight = false;
       }
     };
 
-    timer = setTimeout(tick, pollIntervalMs);
+    const timer = setInterval(() => void tick(), pollIntervalMs);
     return () => {
       active = false;
-      if (timer) clearTimeout(timer);
+      clearInterval(timer);
     };
   }, [state.status, pollIntervalMs, request]);
+
+  useEffect(() => () => {
+    const popup = popupRef.current;
+    if (popup && !popup.closed) popup.close();
+  }, []);
 
   return {
     ...state,

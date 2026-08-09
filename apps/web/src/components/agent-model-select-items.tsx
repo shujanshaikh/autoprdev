@@ -4,8 +4,8 @@ import {
   SelectLabel,
 } from "@autopr/ui/components/select";
 
-import { GrokMark } from "#/components/dashboard/grok-connect-panel";
 import { CodexLogo } from "#/components/icons/codex-logo";
+import { GrokLogo } from "#/components/icons/grok-logo";
 import type { AgentModelOption, AgentProvider } from "#/lib/agent-models";
 
 const PROVIDERS: readonly AgentProvider[] = ["openai-codex", "xai"];
@@ -33,7 +33,7 @@ export function AgentModelSelectItems({
               : "rounded-[var(--radius-lg)] py-2.5 pr-8 pl-2.5 text-sm"}
           >
             {model.provider === "xai"
-              ? <GrokMark className="size-4 shrink-0" />
+              ? <GrokLogo className="size-4 shrink-0" />
               : <CodexLogo className="size-4 text-muted-foreground" />}
             <span className="min-w-0 truncate font-medium text-foreground/90">{model.label}</span>
           </SelectItem>

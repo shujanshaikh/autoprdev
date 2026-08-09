@@ -3,6 +3,7 @@ import { cn } from "@autopr/ui/lib/utils";
 import { Check, Copy, ExternalLink, Loader2, Unplug } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { GrokLogo } from "#/components/icons/grok-logo";
 import type { GrokStatus } from "#/lib/grok-status";
 
 type DeviceFlow = {
@@ -144,7 +145,7 @@ export function GrokConnectPanel({
     <div className="p-5 min-[420px]:p-6">
       <div className="space-y-1.5">
         <h2 className="flex items-center gap-2 text-lg font-medium tracking-tight text-foreground">
-          <GrokMark className="size-5" />
+          <GrokLogo className="size-5" />
           {connected ? "SuperGrok connected" : flow ? "Finish in Grok" : "Connect SuperGrok"}
         </h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -184,7 +185,7 @@ export function GrokConnectPanel({
           </>
         ) : (
           <Button type="button" className="w-full" disabled={busy} onClick={() => void startConnection()}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <GrokMark className="size-4" />}
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <GrokLogo className="size-4" />}
             Connect Grok
           </Button>
         )}
@@ -192,14 +193,6 @@ export function GrokConnectPanel({
 
       {error ? <p role="alert" className="mt-3 text-xs leading-relaxed text-destructive">{error}</p> : null}
     </div>
-  );
-}
-
-export function GrokMark({ className }: { className?: string }) {
-  return (
-    <span aria-hidden="true" className={cn("inline-flex items-center justify-center rounded-sm bg-foreground font-mono text-[0.6em] font-black text-background", className)}>
-      G
-    </span>
   );
 }
 

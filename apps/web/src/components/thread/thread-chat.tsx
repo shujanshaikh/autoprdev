@@ -86,7 +86,7 @@ import {
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
 import { CodexLogo } from "#/components/icons/codex-logo";
-import { GrokMark } from "#/components/dashboard/grok-connect-panel";
+import { GrokLogo } from "#/components/icons/grok-logo";
 import { AgentModelSelectItems } from "#/components/agent-model-select-items";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
@@ -1760,7 +1760,7 @@ function ThreadChatRuntime({
                         aria-label="Model"
                       >
                         {selectedModel?.provider === "xai"
-                          ? <GrokMark className="size-4 shrink-0" />
+                          ? <GrokLogo className="size-4 shrink-0" />
                           : <CodexLogo className="size-4 shrink-0" />}
                         <SelectValue>
                           <span className="truncate">{formatAgentModelLabel(selectedModel)}</span>

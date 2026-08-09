@@ -47,6 +47,7 @@ import {
   type WorkspaceThread,
 } from "#/components/workspace-sidebar";
 import { useCodexStatus } from "#/lib/codex-status";
+import { useGrokStatus } from "#/lib/grok-status";
 
 const EMPTY_REPOSITORIES: GithubRepository[] = [];
 const EMPTY_BRANCHES: GithubBranch[] = [];
@@ -293,6 +294,7 @@ export function WorkspaceShell({
   }, []);
 
   const codexStatusQuery = useCodexStatus(isAuthenticated);
+  const grokStatusQuery = useGrokStatus(isAuthenticated);
 
   const projectToDelete = useMemo(
     () => projects?.find((p) => p.projectId === projectIdToDelete),
@@ -389,6 +391,8 @@ export function WorkspaceShell({
           onDemoRecordingExperimentEnabledChange={updateDemoRecordingExperimentEnabled}
           codexStatus={codexStatusQuery.data}
           onCodexStatusChange={() => void codexStatusQuery.refetch()}
+          grokStatus={grokStatusQuery.data}
+          onGrokStatusChange={() => void grokStatusQuery.refetch()}
           onOpenChange={setIsSettingsDialogOpen}
         />
       </SidebarProvider>

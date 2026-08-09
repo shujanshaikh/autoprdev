@@ -14,8 +14,10 @@ import { ThreadChat } from "#/components/thread/thread-chat";
 import { parseThreadDiffDeepLink } from "#/components/thread/thread-diff-panel-utils";
 import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
 import { ThreadGitStatusIndicator } from "#/components/thread/thread-git-status-indicator";
-import { isCodexModelId, isCodexReasoningEffortForModel } from "#/lib/codex-models";
+import { isCodexReasoningEffortForModel } from "#/lib/codex-models";
+import { isAgentProvider } from "#/lib/agent-models";
 import { useCodexStatus } from "#/lib/codex-status";
+import { useGrokStatus } from "#/lib/grok-status";
 
 const EMPTY_STORED_MESSAGES: StoredMessageRow[] = [];
 const EMPTY_PARTS_CACHE: Record<string, StoredMessageRow["parts"]> = {};
@@ -112,14 +114,15 @@ function assistantBlobDescriptor(message: StoredMessageRow): AssistantBlobDescri
 
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
-  const search = useSearch({ strict: false }) as Record<string, unknown> & { prompt?: string; model?: string; reasoningEffort?: string };
+  const search = useSearch({ strict: false }) as Record<string, unknown> & { prompt?: string; provider?: string; model?: string; reasoningEffort?: string };
   const { isAuthenticated } = useConvexAuth();
   const { openMobile: sidebarOpen, setOpenMobile: setSidebarOpen } = useSidebar();
   const initialPrompt = search.prompt?.trim() || undefined;
-  const initialModel = isCodexModelId(search.model) ? search.model : undefined;
-  const initialReasoningEffort = isCodexReasoningEffortForModel(initialModel, search.reasoningEffort)
-    ? search.reasoningEffort
-    : undefined;
+  const initialProvider = isAgentProvider(search.provider) ? search.provider : undefined;
+  const initialModel = typeof search.model === "string" && search.model.trim() ? search.model.trim() : undefined;
+  const initialReasoningEffort = initialProvider === "xai"
+    ? search.reasoningEffort === "low" || search.reasoningEffort === "high" ? search.reasoningEffort : undefined
+    : isCodexReasoningEffortForModel(initialModel, search.reasoningEffort) ? search.reasoningEffort : undefined;
   const diffDeepLink = useMemo(
     () => parseThreadDiffDeepLink(search),
     [search.diff, search.diffFile, search.endSide, search.line, search.lineEnd, search.side],
@@ -130,6 +133,7 @@ function ProjectThreadPageContent() {
   const hydrateAssistantParts = useAction(api.messages.hydrateAssistantParts);
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const codexStatusQuery = useCodexStatus(isAuthenticated);
+  const grokStatusQuery = useGrokStatus(isAuthenticated);
   const [diffPanelOpen, setDiffPanelOpen] = useState(() => Boolean(diffDeepLink));
   const [diffCount, setDiffCount] = useState(0);
   const [{ threadId: hydratedThreadId, partsByCacheKey, messageLoadError }, dispatchMessageLoad] = useReducer(
@@ -202,13 +206,13 @@ function ProjectThreadPageContent() {
   const messageLoadFailed = Boolean(messageLoadError && displayDbMessages === undefined);
   const notFound = !loading && (!project || !thread || thread.projectId !== projectId);
   const projectDisabled = !project || project.sandboxStatus !== "ready";
-  const codexConnected = codexStatusQuery.data?.connected === true;
-  const chatDisabled = projectDisabled || !codexConnected;
+  const modelConnected = codexStatusQuery.data?.connected === true || grokStatusQuery.data?.connected === true;
+  const chatDisabled = projectDisabled || !modelConnected;
   const codexPromptIssue: CodexPromptConnectionIssue | undefined =
-    project?.sandboxStatus === "ready" && codexStatusQuery.data?.connected === false
-      ? "disconnected"
-      : project?.sandboxStatus === "ready" && codexStatusQuery.isError
-        ? "unavailable"
+    project?.sandboxStatus === "ready" && !modelConnected && (codexStatusQuery.isError || grokStatusQuery.isError)
+      ? "unavailable"
+      : project?.sandboxStatus === "ready" && codexStatusQuery.data?.connected === false && grokStatusQuery.data?.connected === false
+        ? "disconnected"
         : undefined;
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
   const gitStatusEnabled = project?.sandboxRuntimeStatus === "started"
@@ -436,9 +440,11 @@ function ProjectThreadPageContent() {
               currentRunId={thread?.currentRunId}
               initialMessages={initialMessages}
               initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
+              initialProvider={initialProvider}
               initialModel={initialModel}
               initialReasoningEffort={initialReasoningEffort}
-              availableModels={codexStatusQuery.data?.models}
+              availableCodexModels={codexStatusQuery.data?.models}
+              availableGrokModels={grokStatusQuery.data?.models}
               disabled={chatDisabled}
               codexPromptIssue={codexPromptIssue}
               diffPanelOpen={diffPanelOpen}

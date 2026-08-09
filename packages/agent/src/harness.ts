@@ -38,6 +38,7 @@ export type CodingHarnessListenerErrorHandler = (failure: CodingHarnessListenerE
 export interface CodingHarnessOptions extends SandboxSessionOptions {
   appendSystemPrompt?: string;
   modelId?: string;
+  modelProviderName?: string;
   selectedTools?: string[];
   includeProjectInstructions?: boolean;
   projectInstructionFilenames?: string[];
@@ -108,6 +109,7 @@ export class CodingHarness {
         sandboxName: sandbox.sandboxName,
         snapshot: sandbox.snapshot,
         modelId: this.options.modelId,
+        modelProviderName: this.options.modelProviderName,
         selectedTools: toolSelection.toolNames,
         contextFiles: instructionFiles,
         appendSystemPrompt: this.options.appendSystemPrompt,

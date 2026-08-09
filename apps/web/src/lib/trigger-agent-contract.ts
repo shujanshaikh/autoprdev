@@ -45,6 +45,23 @@ export interface CodexAgentModelOptions<TTaskId extends AgentTaskId = AgentTaskI
   };
 }
 
+export interface GrokAgentModelOptions<TTaskId extends AgentTaskId = AgentTaskId> {
+  provider: "xai";
+  modelId: string;
+  reasoningEffort?: "low" | "high";
+  promptCacheKey?: string;
+  credentialsGrantId: string;
+  credentialsGrantContext: {
+    userId: string;
+    taskId: TTaskId;
+    contextId: string;
+  };
+}
+
+export type AgentModelOptions<TTaskId extends AgentTaskId = AgentTaskId> =
+  | CodexAgentModelOptions<TTaskId>
+  | GrokAgentModelOptions<TTaskId>;
+
 export interface AgentTaskOptions {
   projectId?: string;
   threadId?: string;
@@ -57,7 +74,7 @@ export interface AgentTaskOptions {
   assistantMessageId?: string;
   persistenceToken?: string;
   demoEnabled?: boolean;
-  codex: CodexAgentModelOptions<typeof AGENT_TASK_ID>;
+  model: AgentModelOptions<typeof AGENT_TASK_ID>;
 }
 
 export interface AgentTaskPayload {
@@ -70,6 +87,7 @@ export interface AgentTaskPayload {
  * chat wire metadata with AgentChatClientData before it reaches Trigger.dev.
  */
 export interface AgentChatClientInput extends Record<string, unknown> {
+  provider?: "openai-codex" | "xai";
   model?: string;
   reasoningEffort?: string;
 }
@@ -90,5 +108,5 @@ export interface AgentChatClientData extends Record<string, unknown> {
   repoName?: string;
   persistenceToken: string;
   demoEnabled?: boolean;
-  codex: CodexAgentModelOptions<typeof AGENT_CHAT_TASK_ID>;
+  model: AgentModelOptions<typeof AGENT_CHAT_TASK_ID>;
 }

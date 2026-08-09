@@ -62,19 +62,24 @@ import {
 import { DaytonaEnvironmentDialog } from "#/components/thread/daytona-environment-view";
 import {
   DEFAULT_CODEX_REASONING_EFFORT,
-  formatCodexModelLabel,
-  getCodexModelOptions,
   getCodexReasoningEffortLabel,
-  getCodexReasoningEfforts,
-  normalizeCodexModelList,
-  selectCodexModel,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
+import {
+  agentModelKey,
+  formatAgentModelLabel,
+  getAgentModelOptions,
+  getAgentReasoningEfforts,
+  selectAgentModel,
+  selectAgentReasoningEffort,
+} from "#/lib/agent-models";
 import { useCodexStatus } from "#/lib/codex-status";
+import { useGrokStatus } from "#/lib/grok-status";
 import { deleteThreadWithCleanup } from "#/lib/delete-thread";
 import { useProjectSandboxBranchQuery } from "#/lib/project-sandbox-branch-query";
 import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
 import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
+import { AgentModelSelectItems } from "#/components/agent-model-select-items";
 
 const OPEN_PULL_REQUEST_VALUE = "__open_github_pull_request__";
 
@@ -278,6 +283,7 @@ function ProjectOverviewPage() {
   const threads = useQuery(api.threads.listByProject, isAuthenticated ? { projectId } : "skip");
   const userSettings = useQuery(api.userSettings.get, isAuthenticated ? {} : "skip");
   const codexStatusQuery = useCodexStatus(isAuthenticated);
+  const grokStatusQuery = useGrokStatus(isAuthenticated);
   const createThread = useMutation(api.threads.create);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
   const startSandbox = useAction(api.projectActions.startSandbox);
@@ -290,27 +296,24 @@ function ProjectOverviewPage() {
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<{ projectId: string; branch: string } | undefined>();
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>();
   const [workspaceMode, setWorkspaceMode] = useState<ThreadWorkspaceMode>("checkout");
-  const availableCodexModels = useMemo(
-    () => normalizeCodexModelList(codexStatusQuery.data?.models),
-    [codexStatusQuery.data?.models],
-  );
-  const selectedModel = useMemo(
-    () => selectCodexModel(availableCodexModels, selectedModelChoice),
-    [availableCodexModels, selectedModelChoice],
-  );
   const modelOptions = useMemo(
-    () => getCodexModelOptions(availableCodexModels, selectedModel),
-    [availableCodexModels, selectedModel],
+    () => getAgentModelOptions({
+      codexModels: codexStatusQuery.data?.models,
+      grokModels: grokStatusQuery.data?.models,
+    }),
+    [codexStatusQuery.data?.models, grokStatusQuery.data?.models],
   );
+  const selectedModel = useMemo(() => {
+    const requested = modelOptions.find((option) => option.key === selectedModelChoice);
+    return selectAgentModel(modelOptions, requested);
+  }, [modelOptions, selectedModelChoice]);
   const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>(
     DEFAULT_CODEX_REASONING_EFFORT,
   );
   const [demoEnabled, setDemoEnabled] = useState(false);
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
-  const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
-  const selectedReasoningEffort = selectedReasoningEfforts.includes(selectedReasoningEffortChoice)
-    ? selectedReasoningEffortChoice
-    : DEFAULT_CODEX_REASONING_EFFORT;
+  const selectedReasoningEfforts = useMemo(() => getAgentReasoningEfforts(selectedModel), [selectedModel]);
+  const selectedReasoningEffort = selectAgentReasoningEffort(selectedModel, selectedReasoningEffortChoice);
   const effectiveDemoEnabled = demoRecordingExperimentEnabled && demoEnabled;
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -439,14 +442,14 @@ function ProjectOverviewPage() {
       : refreshedSandboxRuntimeStatus ?? project?.sandboxRuntimeStatus;
   const isCheckingSandboxRuntime = sandboxRuntimeStatusQuery.isFetching;
   const isSandboxStarted = effectiveSandboxRuntimeStatus === "started";
-  const isCodexConnected = codexStatusQuery.data?.connected === true;
+  const hasConnectedModelProvider = codexStatusQuery.data?.connected === true || grokStatusQuery.data?.connected === true;
   const codexPromptIssue: CodexPromptConnectionIssue | undefined =
-    project?.sandboxStatus === "ready" && codexStatusQuery.data?.connected === false
-      ? "disconnected"
-      : project?.sandboxStatus === "ready" && codexStatusQuery.isError
-        ? "unavailable"
+    project?.sandboxStatus === "ready" && !hasConnectedModelProvider && (codexStatusQuery.isError || grokStatusQuery.isError)
+      ? "unavailable"
+      : project?.sandboxStatus === "ready" && codexStatusQuery.data?.connected === false && grokStatusQuery.data?.connected === false
+        ? "disconnected"
         : undefined;
-  const promptReady = Boolean(project && project.sandboxStatus === "ready" && isCodexConnected);
+  const promptReady = Boolean(project && project.sandboxStatus === "ready" && hasConnectedModelProvider && selectedModel);
   const promptControlsDisabled = !promptReady
     || isCreatingThread
     || !isSandboxStarted
@@ -620,11 +623,12 @@ function ProjectOverviewPage() {
     if (
       selectedModelChoice &&
       codexStatusQuery.data?.models !== undefined &&
-      !availableCodexModels.includes(selectedModelChoice)
+      grokStatusQuery.data?.models !== undefined &&
+      !modelOptions.some((option) => option.key === selectedModelChoice)
     ) {
       setSelectedModelChoice(undefined);
     }
-  }, [availableCodexModels, codexStatusQuery.data?.models, selectedModelChoice]);
+  }, [codexStatusQuery.data?.models, grokStatusQuery.data?.models, modelOptions, selectedModelChoice]);
 
   const startThread = useCallback(async (initialPrompt?: string) => {
     if (!project || !promptReady) return;
@@ -649,7 +653,8 @@ function ProjectOverviewPage() {
         projectId,
         threadId,
         prompt,
-        model: selectedModel,
+        provider: selectedModel?.provider,
+        model: selectedModel?.modelId,
         reasoningEffort: selectedReasoningEffort,
       });
       await router.preloadRoute(navigation);
@@ -970,7 +975,7 @@ function ProjectOverviewPage() {
                                 <ImagePlus className="size-3.5" aria-hidden="true" />
                               </button>
                               <Select
-                                value={selectedModel ?? ""}
+                                value={selectedModel ? agentModelKey(selectedModel) : ""}
                                 onValueChange={(value) => value && setSelectedModelChoice(value)}
                               >
                                 <SelectTrigger
@@ -980,20 +985,14 @@ function ProjectOverviewPage() {
                                   aria-label="Model"
                                 >
                                   <SelectValue>
-                                    {formatCodexModelLabel(selectedModel)}
+                                    {formatAgentModelLabel(selectedModel)}
                                   </SelectValue>
                                 </SelectTrigger>
-                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-52 min-w-52 rounded-[var(--radius-lg)] p-1">
-                                  {modelOptions.map((model) => (
-                                    <SelectItem key={model} value={model} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
-                                      <span className="min-w-0 truncate font-medium">
-                                        {formatCodexModelLabel(model)}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
+                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-60 min-w-60 rounded-[var(--radius-lg)] p-1">
+                                  <AgentModelSelectItems models={modelOptions} compact />
                                 </SelectContent>
                               </Select>
-                              <Select
+                              {selectedReasoningEfforts.length > 0 ? <Select
                                 value={selectedReasoningEffort}
                                 onValueChange={(value) => value && setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
                               >
@@ -1016,7 +1015,7 @@ function ProjectOverviewPage() {
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
-                              </Select>
+                              </Select> : null}
                             {demoRecordingExperimentEnabled ? (
                               <Tooltip>
                                 <TooltipTrigger

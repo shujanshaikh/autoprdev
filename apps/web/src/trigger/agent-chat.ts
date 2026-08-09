@@ -33,10 +33,11 @@ import {
   type StoredMessageRow,
 } from "#/lib/chat-messages";
 import {
-  createCodexResponsesModel,
-  revokeCodexAgentGrant,
-} from "#/lib/codex-auth-runtime-server";
-import { getCodexContextLimit } from "#/lib/codex-models";
+  agentProviderOptions,
+  createAgentResponsesModel,
+  revokeAgentModelGrant,
+} from "#/lib/agent-auth-runtime-server";
+import { getAgentContextLimit } from "#/lib/agent-models";
 import {
   AGENT_CHAT_TASK_ID,
   type AgentChatClientData,
@@ -55,18 +56,32 @@ const agentChatClientDataSchema = z.object({
   repoName: z.string().min(1).optional(),
   persistenceToken: z.string().min(1),
   demoEnabled: z.boolean().optional(),
-  codex: z.object({
-    provider: z.literal("openai-codex"),
-    modelId: z.string().min(1),
-    reasoningEffort: z.string().min(1),
-    promptCacheKey: z.string().min(1).optional(),
-    credentialsGrantId: z.string().min(1),
-    credentialsGrantContext: z.object({
-      userId: z.string().min(1),
-      taskId: z.literal(AGENT_CHAT_TASK_ID),
-      contextId: z.string().min(1),
+  model: z.discriminatedUnion("provider", [
+    z.object({
+      provider: z.literal("openai-codex"),
+      modelId: z.string().min(1),
+      reasoningEffort: z.string().min(1),
+      promptCacheKey: z.string().min(1).optional(),
+      credentialsGrantId: z.string().min(1),
+      credentialsGrantContext: z.object({
+        userId: z.string().min(1),
+        taskId: z.literal(AGENT_CHAT_TASK_ID),
+        contextId: z.string().min(1),
+      }),
     }),
-  }),
+    z.object({
+      provider: z.literal("xai"),
+      modelId: z.string().min(1),
+      reasoningEffort: z.enum(["low", "high"]).optional(),
+      promptCacheKey: z.string().min(1).optional(),
+      credentialsGrantId: z.string().min(1),
+      credentialsGrantContext: z.object({
+        userId: z.string().min(1),
+        taskId: z.literal(AGENT_CHAT_TASK_ID),
+        contextId: z.string().min(1),
+      }),
+    }),
+  ]),
 }) satisfies z.ZodType<AgentChatClientData>;
 
 const turnState = chat.local<{
@@ -103,7 +118,7 @@ function sandboxOptions(clientData: AgentChatClientData): SandboxSessionOptions 
   };
 }
 
-function codexPromptCacheKey(clientData: AgentChatClientData) {
+function modelPromptCacheKey(clientData: AgentChatClientData) {
   const stableSegment = clientData.threadId
     .replace(/[^a-zA-Z0-9_-]/g, "-")
     .slice(0, 120);
@@ -231,8 +246,8 @@ export const agentChatTask = chat.agent({
         { url: getConvexUrl() },
       );
     } finally {
-      await revokeCodexAgentGrant(trusted.codex.credentialsGrantId).catch((revokeError) => {
-        console.error("Failed to revoke the Codex credential grant", revokeError);
+      await revokeAgentModelGrant(trusted.model).catch((revokeError) => {
+        console.error("Failed to revoke the model credential grant", revokeError);
       });
     }
   },
@@ -241,18 +256,19 @@ export const agentChatTask = chat.agent({
     const harness = new CodingHarness({
       ...sandboxOptions(trusted),
       computer: trusted.demoEnabled ? {} : false,
-      modelId: trusted.codex.modelId,
+      modelId: trusted.model.modelId,
+      modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
       appendSystemPrompt: modelInstructions(trusted),
     });
-    const codex = {
-      ...trusted.codex,
+    const selectedModel = {
+      ...trusted.model,
       promptCacheKey:
-        trusted.codex.promptCacheKey ?? codexPromptCacheKey(trusted),
+        trusted.model.promptCacheKey ?? modelPromptCacheKey(trusted),
     };
     const startedAt = Date.now();
     const { instructions, repositoryContext } = await harness.prepare();
     const model = wrapLanguageModel({
-      model: await createCodexResponsesModel(codex),
+      model: await createAgentResponsesModel(selectedModel),
       middleware: createContextOverflowRecoveryMiddleware(),
     });
 
@@ -269,28 +285,18 @@ export const agentChatTask = chat.agent({
       maxRetries: 1,
       abortSignal: signal,
       prepareStep: createAgentContextCompactor({
-        contextWindow: getCodexContextLimit(codex.modelId),
+        contextWindow: getAgentContextLimit(selectedModel),
         systemPrompt: instructions,
         abortSignal: signal,
       }),
       onFinish: ({ steps }) => {
         turnState.usageMetadata = createAssistantUsageMetadata(
           steps,
-          codex.modelId,
+          selectedModel.modelId,
           startedAt,
         );
       },
-      providerOptions: {
-        openai: {
-          store: false,
-          instructions,
-          parallelToolCalls: true,
-          promptCacheKey: codex.promptCacheKey,
-          reasoningEffort: codex.reasoningEffort,
-          reasoningSummary: "auto",
-          include: ["reasoning.encrypted_content"],
-        },
-      },
+      providerOptions: agentProviderOptions(selectedModel, instructions),
     });
   },
 });

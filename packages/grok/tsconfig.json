@@ -1,0 +1,8 @@
+{
+  "extends": "@autopr/config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["src", "test"]
+}

@@ -12,6 +12,8 @@ import { CodexConnectPanel } from "#/components/dashboard/codex-connect-dialog";
 import { CodexLogo } from "#/components/icons/codex-logo";
 import type { SandboxStatus, SandboxRuntimeStatus } from "#/components/dashboard/types";
 import type { CodexStatus } from "#/lib/codex-status";
+import type { GrokStatus } from "#/lib/grok-status";
+import { GrokConnectPanel } from "#/components/dashboard/grok-connect-panel";
 import { SettingsStats } from "./settings-stats";
 import { SettingsProjects } from "./settings-projects";
 import { SettingsBilling } from "./settings-billing";
@@ -46,7 +48,7 @@ export interface WorkspaceUserSettings {
   demoRecordingExperimentEnabled: boolean;
 }
 
-type SettingsTab = "overview" | "codex" | "labs" | "billing";
+type SettingsTab = "overview" | "models" | "labs" | "billing";
 
 const tabs: {
   id: SettingsTab;
@@ -54,7 +56,7 @@ const tabs: {
   icon: typeof LayoutDashboard | typeof CodexLogo;
 }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "codex", label: "Codex", icon: CodexLogo },
+  { id: "models", label: "Models", icon: CodexLogo },
   { id: "labs", label: "Labs", icon: FlaskConical },
   { id: "billing", label: "Billing", icon: Receipt },
 ];
@@ -70,6 +72,8 @@ interface SettingsDialogProps {
   onDemoRecordingExperimentEnabledChange: (enabled: boolean) => void | Promise<void>;
   codexStatus?: CodexStatus;
   onCodexStatusChange: () => void;
+  grokStatus?: GrokStatus;
+  onGrokStatusChange: () => void;
 }
 
 export function SettingsDialog({
@@ -83,6 +87,8 @@ export function SettingsDialog({
   onDemoRecordingExperimentEnabledChange,
   codexStatus,
   onCodexStatusChange,
+  grokStatus,
+  onGrokStatusChange,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
 
@@ -97,7 +103,7 @@ export function SettingsDialog({
             <DialogHeader className="px-4 pb-2 pr-12 pt-3 sm:pb-3 sm:pr-4 sm:pt-4">
               <DialogTitle>Settings</DialogTitle>
               <DialogDescription className="hidden text-xs min-[380px]:block">
-                Projects, Codex, labs &amp; billing.
+                Projects, models, labs &amp; billing.
               </DialogDescription>
             </DialogHeader>
 
@@ -152,17 +158,26 @@ export function SettingsDialog({
                 />
                 <SettingsProjects projects={projects} />
               </div>
-            ) : activeTab === "codex" ? (
+            ) : activeTab === "models" ? (
               <div
-                id="settings-panel-codex"
+                id="settings-panel-models"
                 role="tabpanel"
-                aria-labelledby="settings-tab-codex"
+                aria-labelledby="settings-tab-models"
+                className="grid gap-4 lg:grid-cols-2"
               >
                 <div className="overflow-hidden rounded-sm border border-border bg-background">
                   <CodexConnectPanel
-                    active={open && activeTab === "codex"}
+                    active={open && activeTab === "models"}
+                    autoStart={false}
                     status={codexStatus}
                     onStatusChange={onCodexStatusChange}
+                  />
+                </div>
+                <div className="overflow-hidden rounded-sm border border-border bg-background">
+                  <GrokConnectPanel
+                    active={open && activeTab === "models"}
+                    status={grokStatus}
+                    onStatusChange={onGrokStatusChange}
                   />
                 </div>
               </div>

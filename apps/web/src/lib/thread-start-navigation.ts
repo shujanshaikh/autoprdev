@@ -1,17 +1,20 @@
 import type { CodexReasoningEffort } from "#/lib/codex-models";
+import type { AgentProvider } from "#/lib/agent-models";
 
 type ThreadStartNavigationOptions = {
   projectId: string;
   threadId: string;
   prompt?: string;
+  provider?: AgentProvider;
   model?: string;
-  reasoningEffort: CodexReasoningEffort;
+  reasoningEffort?: CodexReasoningEffort;
 };
 
 export function buildThreadStartNavigation({
   projectId,
   threadId,
   prompt,
+  provider,
   model,
   reasoningEffort,
 }: ThreadStartNavigationOptions) {
@@ -24,8 +27,9 @@ export function buildThreadStartNavigation({
     ...route,
     search: {
       ...(prompt ? { prompt } : {}),
+      ...(provider ? { provider } : {}),
       ...(model ? { model } : {}),
-      reasoningEffort,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
     },
     // Keep one-time handoff data available to the route without exposing it
     // in the URL or navigating again after the first prompt is consumed.

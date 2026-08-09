@@ -20,6 +20,8 @@ import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$pro
 import { Route as ProjectProjectIdPullsRouteImport } from './routes/project/$projectId/pulls'
 import { Route as ApiProjectsFromGithubRouteImport } from './routes/api/projects/from-github'
 import { Route as ApiMobileAuthRouteImport } from './routes/api/mobile/auth'
+import { Route as ApiGrokStatusRouteImport } from './routes/api/grok/status'
+import { Route as ApiGrokDisconnectRouteImport } from './routes/api/grok/disconnect'
 import { Route as ApiGithubRepositoriesRouteImport } from './routes/api/github/repositories'
 import { Route as ApiGithubConnectRouteImport } from './routes/api/github/connect'
 import { Route as ApiCodexStatusRouteImport } from './routes/api/codex/status'
@@ -31,6 +33,8 @@ import { Route as ProjectProjectIdThreadThreadIdRouteImport } from './routes/pro
 import { Route as ApiWorkosWidgetsPipesTokenRouteImport } from './routes/api/workos/widgets/pipes-token'
 import { Route as ApiProjectProjectIdPullsRouteImport } from './routes/api/project/$projectId/pulls'
 import { Route as ApiProjectProjectIdBranchRouteImport } from './routes/api/project/$projectId/branch'
+import { Route as ApiGrokDeviceStartRouteImport } from './routes/api/grok/device/start'
+import { Route as ApiGrokDevicePollRouteImport } from './routes/api/grok/device/poll'
 import { Route as ApiCodexDeviceStartRouteImport } from './routes/api/codex/device/start'
 import { Route as ApiCodexDevicePollRouteImport } from './routes/api/codex/device/poll'
 import { Route as ApiAgentIdStreamRouteImport } from './routes/api/agent/$id/stream'
@@ -96,6 +100,16 @@ const ApiMobileAuthRoute = ApiMobileAuthRouteImport.update({
   path: '/api/mobile/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGrokStatusRoute = ApiGrokStatusRouteImport.update({
+  id: '/api/grok/status',
+  path: '/api/grok/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGrokDisconnectRoute = ApiGrokDisconnectRouteImport.update({
+  id: '/api/grok/disconnect',
+  path: '/api/grok/disconnect',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGithubRepositoriesRoute = ApiGithubRepositoriesRouteImport.update({
   id: '/api/github/repositories',
   path: '/api/github/repositories',
@@ -156,6 +170,16 @@ const ApiProjectProjectIdBranchRoute =
     path: '/api/project/$projectId/branch',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiGrokDeviceStartRoute = ApiGrokDeviceStartRouteImport.update({
+  id: '/api/grok/device/start',
+  path: '/api/grok/device/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGrokDevicePollRoute = ApiGrokDevicePollRouteImport.update({
+  id: '/api/grok/device/poll',
+  path: '/api/grok/device/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCodexDeviceStartRoute = ApiCodexDeviceStartRouteImport.update({
   id: '/api/codex/device/start',
   path: '/api/codex/device/start',
@@ -223,6 +247,8 @@ export interface FileRoutesByFullPath {
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
+  '/api/grok/disconnect': typeof ApiGrokDisconnectRoute
+  '/api/grok/status': typeof ApiGrokStatusRoute
   '/api/mobile/auth': typeof ApiMobileAuthRoute
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -230,6 +256,8 @@ export interface FileRoutesByFullPath {
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
   '/api/codex/device/poll': typeof ApiCodexDevicePollRoute
   '/api/codex/device/start': typeof ApiCodexDeviceStartRoute
+  '/api/grok/device/poll': typeof ApiGrokDevicePollRoute
+  '/api/grok/device/start': typeof ApiGrokDeviceStartRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
   '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
@@ -255,6 +283,8 @@ export interface FileRoutesByTo {
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
+  '/api/grok/disconnect': typeof ApiGrokDisconnectRoute
+  '/api/grok/status': typeof ApiGrokStatusRoute
   '/api/mobile/auth': typeof ApiMobileAuthRoute
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -262,6 +292,8 @@ export interface FileRoutesByTo {
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
   '/api/codex/device/poll': typeof ApiCodexDevicePollRoute
   '/api/codex/device/start': typeof ApiCodexDeviceStartRoute
+  '/api/grok/device/poll': typeof ApiGrokDevicePollRoute
+  '/api/grok/device/start': typeof ApiGrokDeviceStartRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
   '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
@@ -289,6 +321,8 @@ export interface FileRoutesById {
   '/api/codex/status': typeof ApiCodexStatusRoute
   '/api/github/connect': typeof ApiGithubConnectRoute
   '/api/github/repositories': typeof ApiGithubRepositoriesRouteWithChildren
+  '/api/grok/disconnect': typeof ApiGrokDisconnectRoute
+  '/api/grok/status': typeof ApiGrokStatusRoute
   '/api/mobile/auth': typeof ApiMobileAuthRoute
   '/api/projects/from-github': typeof ApiProjectsFromGithubRoute
   '/project/$projectId/pulls': typeof ProjectProjectIdPullsRoute
@@ -296,6 +330,8 @@ export interface FileRoutesById {
   '/api/agent/$id/stream': typeof ApiAgentIdStreamRoute
   '/api/codex/device/poll': typeof ApiCodexDevicePollRoute
   '/api/codex/device/start': typeof ApiCodexDeviceStartRoute
+  '/api/grok/device/poll': typeof ApiGrokDevicePollRoute
+  '/api/grok/device/start': typeof ApiGrokDeviceStartRoute
   '/api/project/$projectId/branch': typeof ApiProjectProjectIdBranchRoute
   '/api/project/$projectId/pulls': typeof ApiProjectProjectIdPullsRoute
   '/api/workos/widgets/pipes-token': typeof ApiWorkosWidgetsPipesTokenRoute
@@ -324,6 +360,8 @@ export interface FileRouteTypes {
     | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
+    | '/api/grok/disconnect'
+    | '/api/grok/status'
     | '/api/mobile/auth'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -331,6 +369,8 @@ export interface FileRouteTypes {
     | '/api/agent/$id/stream'
     | '/api/codex/device/poll'
     | '/api/codex/device/start'
+    | '/api/grok/device/poll'
+    | '/api/grok/device/start'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
     | '/api/workos/widgets/pipes-token'
@@ -356,6 +396,8 @@ export interface FileRouteTypes {
     | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
+    | '/api/grok/disconnect'
+    | '/api/grok/status'
     | '/api/mobile/auth'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -363,6 +405,8 @@ export interface FileRouteTypes {
     | '/api/agent/$id/stream'
     | '/api/codex/device/poll'
     | '/api/codex/device/start'
+    | '/api/grok/device/poll'
+    | '/api/grok/device/start'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
     | '/api/workos/widgets/pipes-token'
@@ -389,6 +433,8 @@ export interface FileRouteTypes {
     | '/api/codex/status'
     | '/api/github/connect'
     | '/api/github/repositories'
+    | '/api/grok/disconnect'
+    | '/api/grok/status'
     | '/api/mobile/auth'
     | '/api/projects/from-github'
     | '/project/$projectId/pulls'
@@ -396,6 +442,8 @@ export interface FileRouteTypes {
     | '/api/agent/$id/stream'
     | '/api/codex/device/poll'
     | '/api/codex/device/start'
+    | '/api/grok/device/poll'
+    | '/api/grok/device/start'
     | '/api/project/$projectId/branch'
     | '/api/project/$projectId/pulls'
     | '/api/workos/widgets/pipes-token'
@@ -422,10 +470,14 @@ export interface RootRouteChildren {
   ApiCodexStatusRoute: typeof ApiCodexStatusRoute
   ApiGithubConnectRoute: typeof ApiGithubConnectRoute
   ApiGithubRepositoriesRoute: typeof ApiGithubRepositoriesRouteWithChildren
+  ApiGrokDisconnectRoute: typeof ApiGrokDisconnectRoute
+  ApiGrokStatusRoute: typeof ApiGrokStatusRoute
   ApiMobileAuthRoute: typeof ApiMobileAuthRoute
   ApiProjectsFromGithubRoute: typeof ApiProjectsFromGithubRoute
   ApiCodexDevicePollRoute: typeof ApiCodexDevicePollRoute
   ApiCodexDeviceStartRoute: typeof ApiCodexDeviceStartRoute
+  ApiGrokDevicePollRoute: typeof ApiGrokDevicePollRoute
+  ApiGrokDeviceStartRoute: typeof ApiGrokDeviceStartRoute
   ApiProjectProjectIdBranchRoute: typeof ApiProjectProjectIdBranchRoute
   ApiProjectProjectIdPullsRoute: typeof ApiProjectProjectIdPullsRoute
   ApiWorkosWidgetsPipesTokenRoute: typeof ApiWorkosWidgetsPipesTokenRoute
@@ -511,6 +563,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/grok/status': {
+      id: '/api/grok/status'
+      path: '/api/grok/status'
+      fullPath: '/api/grok/status'
+      preLoaderRoute: typeof ApiGrokStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/grok/disconnect': {
+      id: '/api/grok/disconnect'
+      path: '/api/grok/disconnect'
+      fullPath: '/api/grok/disconnect'
+      preLoaderRoute: typeof ApiGrokDisconnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/github/repositories': {
       id: '/api/github/repositories'
       path: '/api/github/repositories'
@@ -586,6 +652,20 @@ declare module '@tanstack/react-router' {
       path: '/api/project/$projectId/branch'
       fullPath: '/api/project/$projectId/branch'
       preLoaderRoute: typeof ApiProjectProjectIdBranchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/grok/device/start': {
+      id: '/api/grok/device/start'
+      path: '/api/grok/device/start'
+      fullPath: '/api/grok/device/start'
+      preLoaderRoute: typeof ApiGrokDeviceStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/grok/device/poll': {
+      id: '/api/grok/device/poll'
+      path: '/api/grok/device/poll'
+      fullPath: '/api/grok/device/poll'
+      preLoaderRoute: typeof ApiGrokDevicePollRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/codex/device/start': {
@@ -774,10 +854,14 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCodexStatusRoute: ApiCodexStatusRoute,
   ApiGithubConnectRoute: ApiGithubConnectRoute,
   ApiGithubRepositoriesRoute: ApiGithubRepositoriesRouteWithChildren,
+  ApiGrokDisconnectRoute: ApiGrokDisconnectRoute,
+  ApiGrokStatusRoute: ApiGrokStatusRoute,
   ApiMobileAuthRoute: ApiMobileAuthRoute,
   ApiProjectsFromGithubRoute: ApiProjectsFromGithubRoute,
   ApiCodexDevicePollRoute: ApiCodexDevicePollRoute,
   ApiCodexDeviceStartRoute: ApiCodexDeviceStartRoute,
+  ApiGrokDevicePollRoute: ApiGrokDevicePollRoute,
+  ApiGrokDeviceStartRoute: ApiGrokDeviceStartRoute,
   ApiProjectProjectIdBranchRoute: ApiProjectProjectIdBranchRoute,
   ApiProjectProjectIdPullsRoute: ApiProjectProjectIdPullsRoute,
   ApiWorkosWidgetsPipesTokenRoute: ApiWorkosWidgetsPipesTokenRoute,

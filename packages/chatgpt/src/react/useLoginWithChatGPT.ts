@@ -1,0 +1,298 @@
+"use client";
+
+import type { ChatGPTUser, LoginStatus } from "../core/types.ts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  CHATGPT_LOGIN_POPUP_NAME,
+  CHATGPT_VERIFICATION_POPUP_FEATURES,
+} from "./popup.ts";
+
+/** Client-side status: the server statuses plus transient hydration/connecting phases. */
+export type ClientLoginStatus = LoginStatus | "loading" | "connecting";
+
+export interface UseLoginWithChatGPTOptions {
+  /** Base path of your mounted server handler. Defaults to `/api/chatgpt`. */
+  basePath?: string;
+  /** Custom fetch (defaults to the global). */
+  fetch?: typeof fetch;
+  /** How often to poll `/status` while a login is pending. Defaults to 2500ms. */
+  pollIntervalMs?: number;
+  /** Open the verification page in a popup automatically. Defaults to `true`. */
+  openPopup?: boolean;
+  /** Copy the user code to the clipboard when a login starts. Defaults to `true`. */
+  autoCopyCode?: boolean;
+  onAuthenticated?: (user: ChatGPTUser | undefined) => void;
+  onError?: (error: Error) => void;
+}
+
+export interface LoginWithChatGPTState {
+  status: ClientLoginStatus;
+  user?: ChatGPTUser;
+  /** Short code the user enters on the verification page (while pending). */
+  userCode?: string;
+  /** Verification URL the user opens to enter the code (while pending). */
+  verificationUrl?: string;
+  /** `true` briefly after the code is copied to the clipboard. */
+  copied: boolean;
+  error?: string;
+}
+
+export interface LoginWithChatGPTLoginOptions {
+  /** Existing popup window to navigate to the OpenAI verification page. */
+  popup?: Window | null;
+}
+
+export interface UseLoginWithChatGPTResult extends LoginWithChatGPTState {
+  /** Starts the device-code login: fetches a code, opens the popup, begins polling. */
+  login: (options?: LoginWithChatGPTLoginOptions) => Promise<void>;
+  /** Signs the user out and clears the session. */
+  logout: () => Promise<void>;
+  /** Copies the current user code to the clipboard. */
+  copyCode: () => Promise<void>;
+  /** Re-focuses (or re-opens) the verification popup window — not a new tab. */
+  reopen: () => void;
+  isAuthenticated: boolean;
+  isPending: boolean;
+  isConnecting: boolean;
+}
+
+interface StatusResponse {
+  status: LoginStatus;
+  user?: ChatGPTUser;
+}
+
+interface LoginResponse {
+  status: LoginStatus;
+  userCode: string;
+  verificationUrl: string;
+  interval: number;
+  expiresAt: number;
+}
+
+/**
+ * Drives the Login with ChatGPT device-code flow from the browser against your
+ * backend handler. Owns the popup, clipboard, and status polling, and exposes a
+ * simple state machine you can render however you like.
+ */
+export function useLoginWithChatGPT(
+  options: UseLoginWithChatGPTOptions = {},
+): UseLoginWithChatGPTResult {
+  const {
+    basePath = "/api/chatgpt",
+    pollIntervalMs = 2500,
+    openPopup = true,
+    autoCopyCode = true,
+  } = options;
+  const [state, setState] = useState<LoginWithChatGPTState>({ status: "loading", copied: false });
+
+  // Stable refs so effects and callbacks don't churn on every render.
+  const popupRef = useRef<Window | null>(null);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const fetchRef = useRef(options.fetch);
+  const onAuthenticatedRef = useRef(options.onAuthenticated);
+  const onErrorRef = useRef(options.onError);
+
+  useEffect(() => {
+    fetchRef.current = options.fetch;
+    onAuthenticatedRef.current = options.onAuthenticated;
+    onErrorRef.current = options.onError;
+  }, [options.fetch, options.onAuthenticated, options.onError]);
+
+  const request = useCallback(
+    async <T>(path: string, init?: RequestInit): Promise<T> => {
+      const doFetch = fetchRef.current ?? ((input, requestInit) => globalThis.fetch(input, requestInit));
+      const response = await doFetch(`${basePath}${path}`, {
+        credentials: "same-origin",
+        ...init,
+      });
+      if (!response.ok) throw new Error(`Request to ${path} failed (${response.status}).`);
+      return (await response.json()) as T;
+    },
+    [basePath],
+  );
+
+  const resetCopiedSoon = useCallback(() => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => {
+      setState((prev) => ({ ...prev, copied: false }));
+      copiedTimerRef.current = undefined;
+    }, 2000);
+  }, []);
+
+  const copyCode = useCallback(async () => {
+    const code = state.userCode;
+    if (!code || typeof navigator === "undefined" || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setState((prev) => ({ ...prev, copied: true }));
+      resetCopiedSoon();
+    } catch {
+      // clipboard permission denied — the code is still visible for manual entry
+    }
+  }, [resetCopiedSoon, state.userCode]);
+
+  const reopen = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const existing = popupRef.current;
+    if (existing && !existing.closed) {
+      existing.focus();
+      return;
+    }
+    const url = state.verificationUrl;
+    if (url) {
+      const opened = window.open(
+        url,
+        CHATGPT_LOGIN_POPUP_NAME,
+        CHATGPT_VERIFICATION_POPUP_FEATURES,
+      );
+      // `noopener` may deliberately hide the WindowProxy even when the popup opened.
+      popupRef.current = opened && !opened.closed ? opened : null;
+    }
+  }, [state.verificationUrl]);
+
+  const login = useCallback(async (loginOptions: LoginWithChatGPTLoginOptions = {}) => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    setState({ status: "connecting", copied: false });
+    try {
+      const data = await request<LoginResponse>("/login", { method: "POST" });
+
+      // Copy the code BEFORE opening the popup. Opening a window first steals
+      // focus from this document, and `clipboard.writeText` rejects when the
+      // document isn't focused — which is why auto-copy silently failed.
+      let copied = false;
+      const clipboard = loginOptions.popup && !loginOptions.popup.closed
+        ? loginOptions.popup.navigator.clipboard
+        : typeof navigator !== "undefined"
+          ? navigator.clipboard
+          : undefined;
+      if (autoCopyCode && clipboard?.writeText) {
+        try {
+          await clipboard.writeText(data.userCode);
+          copied = true;
+        } catch {
+          // clipboard denied — the code stays visible with a Copy button
+        }
+      }
+
+      // Open or navigate the popup after copying. A caller can pass a pre-opened
+      // same-window consent popup so the user continues to OpenAI in one place.
+      if (openPopup && typeof window !== "undefined") {
+        const existing = loginOptions.popup;
+        if (existing && !existing.closed) {
+          existing.opener = null;
+          existing.location.href = data.verificationUrl;
+          existing.focus();
+          popupRef.current = existing;
+        } else {
+          const opened = window.open(
+            data.verificationUrl,
+            CHATGPT_LOGIN_POPUP_NAME,
+            CHATGPT_VERIFICATION_POPUP_FEATURES,
+          );
+          popupRef.current = opened && !opened.closed ? opened : null;
+        }
+      }
+
+      setState({
+        status: "pending",
+        userCode: data.userCode,
+        verificationUrl: data.verificationUrl,
+        copied,
+      });
+      if (copied) resetCopiedSoon();
+    } catch (error) {
+      if (loginOptions.popup && !loginOptions.popup.closed) {
+        loginOptions.popup.close();
+      }
+      const err = error instanceof Error ? error : new Error("Login failed.");
+      setState({ status: "error", error: err.message, copied: false });
+      onErrorRef.current?.(err);
+    }
+  }, [autoCopyCode, openPopup, request, resetCopiedSoon]);
+
+  const logout = useCallback(async () => {
+    await request("/logout", { method: "POST" });
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    setState({ status: "unauthenticated", copied: false });
+  }, [request]);
+
+  // Hydrate the current session on mount.
+  useEffect(() => {
+    let active = true;
+    request<StatusResponse>("/session")
+      .then((data) => {
+        if (!active) return;
+        if (data.status === "authenticated") {
+          setState({ status: "authenticated", user: data.user, copied: false });
+        } else {
+          setState({ status: "unauthenticated", copied: false });
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setState({ status: "unauthenticated", copied: false });
+      });
+    return () => {
+      active = false;
+    };
+  }, [request]);
+
+  // Poll for completion while a login is pending.
+  useEffect(() => {
+    if (state.status !== "pending") return () => {};
+
+    let active = true;
+    let requestInFlight = false;
+
+    const tick = async () => {
+      if (!active || requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const data = await request<StatusResponse>("/status");
+        if (!active) return;
+        if (data.status === "authenticated") {
+          popupRef.current?.close();
+          setState((prev) => ({ ...prev, status: "authenticated", user: data.user }));
+          onAuthenticatedRef.current?.(data.user);
+          return;
+        }
+        if (
+          data.status === "unauthenticated" ||
+          data.status === "expired" ||
+          data.status === "error"
+        ) {
+          popupRef.current?.close();
+          setState((prev) => ({ ...prev, status: data.status }));
+          return;
+        }
+      } catch {
+        // A transient polling failure is retried on the next interval.
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    const timer = setInterval(() => void tick(), pollIntervalMs);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [state.status, pollIntervalMs, request]);
+
+  useEffect(() => () => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    const popup = popupRef.current;
+    if (popup && !popup.closed) popup.close();
+  }, []);
+
+  return {
+    ...state,
+    login,
+    logout,
+    copyCode,
+    reopen,
+    isAuthenticated: state.status === "authenticated",
+    isPending: state.status === "pending",
+    isConnecting: state.status === "connecting",
+  };
+}

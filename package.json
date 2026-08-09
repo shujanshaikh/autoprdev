@@ -6,6 +6,9 @@
     "packages/*"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "turbo run dev trigger:dev",
     "build": "turbo build",

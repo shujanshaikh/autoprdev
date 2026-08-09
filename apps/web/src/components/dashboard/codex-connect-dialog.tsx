@@ -11,7 +11,7 @@ import {
   openLoginWithChatGPTConsentPopup,
   useLoginWithChatGPT,
   type ChatGPTUser,
-} from "@opencoredev/loginwithchatgpt-react";
+} from "@autopr/chatgpt/react";
 import { Check, Copy, ExternalLink, Loader2, Unplug } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 

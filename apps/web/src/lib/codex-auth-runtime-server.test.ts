@@ -1,5 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+type ProxyProviderOptions = {
+  basePath?: string;
+  defaultModel?: string;
+  fetch?: typeof fetch;
+  headers?: Record<string, string>;
+};
+
+const { createChatGPTProxyProvider, proxyModel } = vi.hoisted(() => {
+  const model = { modelId: "proxy-model" };
+  const responses = vi.fn(() => model);
+  const provider = Object.assign(vi.fn(() => model), { responses });
+
+  return {
+    createChatGPTProxyProvider: vi.fn((_options: ProxyProviderOptions) => provider),
+    proxyModel: model,
+  };
+});
+
 type StoredVaultObject = {
   id: string;
   name: string;
@@ -75,9 +93,13 @@ vi.mock("@workos-inc/node", () => ({
   },
 }));
 
+vi.mock("@autopr/chatgpt/ai", () => ({ createChatGPTProxyProvider }));
+
 import {
+  chatGPTAuth,
   CodexConnectionError,
   createCodexAgentGrant,
+  createCodexResponsesModel,
   resolveCodexAgentGrant,
 } from "./codex-auth-runtime-server";
 
@@ -120,5 +142,47 @@ describe("Codex agent grants", () => {
       contextId: "project-2:thread-9",
     })).rejects.toBeInstanceOf(CodexConnectionError);
     expect(objectsByName.size).toBe(0);
+  });
+
+  it("runs models through a request-scoped proxy without exporting bearer tokens", async () => {
+    const proxiedFetch = vi.fn(async () => Response.json({ models: [] }));
+    const proxyFetchSpy = vi
+      .spyOn(chatGPTAuth, "proxyFetch")
+      .mockReturnValue(proxiedFetch as typeof fetch);
+    const grantId = await createCodexAgentGrant({
+      ...expectedContext,
+      sessionCookieHeader: "lwc_session=signed-session",
+    });
+
+    const model = await createCodexResponsesModel({
+      modelId: "gpt-test",
+      reasoningEffort: "high",
+      credentialsGrantId: grantId,
+      credentialsGrantContext: expectedContext,
+    });
+
+    expect(model).toBe(proxyModel);
+    expect(createChatGPTProxyProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        basePath: "/api/chatgpt",
+        defaultModel: "gpt-test",
+        headers: {
+          "x-login-with-chatgpt-reasoning-effort": "high",
+        },
+      }),
+    );
+
+    const providerOptions = createChatGPTProxyProvider.mock.calls.at(-1)?.[0];
+    expect(providerOptions?.fetch).toEqual(expect.any(Function));
+    expect(objectsByName.size).toBe(1);
+    await providerOptions?.fetch?.("/api/chatgpt/models");
+
+    expect(objectsByName.size).toBe(0);
+    expect(proxyFetchSpy).toHaveBeenCalledTimes(1);
+    const sessionRequest = proxyFetchSpy.mock.calls[0]?.[0];
+    expect(sessionRequest?.headers.get("cookie")).toBe("lwc_session=signed-session");
+    expect(proxiedFetch).toHaveBeenCalledWith("/api/chatgpt/models", undefined);
+
+    proxyFetchSpy.mockRestore();
   });
 });

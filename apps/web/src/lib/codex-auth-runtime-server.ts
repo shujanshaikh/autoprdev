@@ -1,10 +1,10 @@
-import { createChatGPT, type CreateChatGPTOptions } from "@opencoredev/loginwithchatgpt-ai";
+import { createChatGPTProxyProvider } from "@autopr/chatgpt/ai";
 import {
   createChatGPTHandler,
   type KeyValueStore,
   type RateLimitBucket,
   type StoredSession,
-} from "@opencoredev/loginwithchatgpt-server";
+} from "@autopr/chatgpt/server";
 import { WorkOS } from "@workos-inc/node";
 import { nanoid } from "nanoid";
 
@@ -16,7 +16,9 @@ const DEFAULT_RESPONSES_RATE_LIMIT = 30;
 const DEFAULT_RESPONSES_RATE_WINDOW_MS = 60 * 1000;
 const DEFAULT_CODEX_CLIENT_VERSION = "0.144.0";
 
-export type CodexResponsesModel = ReturnType<ReturnType<typeof createChatGPT>["responses"]>;
+export type CodexResponsesModel = ReturnType<
+  ReturnType<typeof createChatGPTProxyProvider>["responses"]
+>;
 
 export type WorkOSVaultObject = {
   id: string;
@@ -395,19 +397,32 @@ export async function createCodexResponsesModel(options: {
     return cookieHeaderPromise;
   };
 
-  const chatgpt = createChatGPT({
-    clientVersion: getCodexClientVersion(),
-    defaultModel: options.modelId,
-    reasoningEffort: options.reasoningEffort as CreateChatGPTOptions["reasoningEffort"],
-    reasoningSummary: "auto",
-    credentials: async () => {
-      const authRequest = authRequestFromCookieHeader(await resolveCookieHeader());
-      const tokens = await chatGPTAuth.getTokens(authRequest);
-      if (!tokens) {
-        throw new CodexConnectionError("Connect Codex before starting an AI stream.", 401);
-      }
+  let sessionProxyFetchPromise: Promise<typeof fetch> | undefined;
+  const resolveSessionProxyFetch = () => {
+    if (!sessionProxyFetchPromise) {
+      const pending = resolveCookieHeader().then((cookieHeader) =>
+        chatGPTAuth.proxyFetch(authRequestFromCookieHeader(cookieHeader)),
+      );
+      sessionProxyFetchPromise = pending;
+      pending.catch(() => {
+        if (sessionProxyFetchPromise === pending) {
+          sessionProxyFetchPromise = undefined;
+        }
+      });
+    }
 
-      return tokens;
+    return sessionProxyFetchPromise;
+  };
+
+  const proxyFetch = (async (input, init) =>
+    (await resolveSessionProxyFetch())(input, init)) as typeof fetch;
+
+  const chatgpt = createChatGPTProxyProvider({
+    basePath: chatGPTAuth.basePath,
+    defaultModel: options.modelId,
+    fetch: proxyFetch,
+    headers: {
+      "x-login-with-chatgpt-reasoning-effort": options.reasoningEffort,
     },
   });
 

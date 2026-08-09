@@ -1,4 +1,4 @@
-import type { RateLimitBucket } from "@opencoredev/loginwithchatgpt-server";
+import type { RateLimitBucket } from "@autopr/chatgpt/server";
 
 export function mergeRateLimitBucket(latest: RateLimitBucket, proposed: RateLimitBucket) {
   if (latest.resetAt > proposed.resetAt) {

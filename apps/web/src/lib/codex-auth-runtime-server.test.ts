@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type ProxyProviderOptions = {
   basePath?: string;
@@ -112,13 +112,24 @@ const expectedContext = {
   contextId: "project-1:thread-1",
 };
 
-describe("Codex agent grants", () => {
-  beforeEach(() => {
-    process.env.WORKOS_API_KEY = "test-workos-key";
-    vault.reset();
-    vi.clearAllMocks();
-  });
+let previousWorkOSApiKey: string | undefined;
 
+beforeEach(() => {
+  previousWorkOSApiKey = process.env.WORKOS_API_KEY;
+  process.env.WORKOS_API_KEY = "test-workos-key";
+  vault.reset();
+  vi.clearAllMocks();
+});
+
+afterEach(() => {
+  if (previousWorkOSApiKey === undefined) {
+    delete process.env.WORKOS_API_KEY;
+  } else {
+    process.env.WORKOS_API_KEY = previousWorkOSApiKey;
+  }
+});
+
+describe("Codex agent grants", () => {
   it("atomically consumes and deletes a grant so it cannot be replayed", async () => {
     const grantId = await createCodexAgentGrant({
       ...expectedContext,
@@ -191,18 +202,18 @@ describe("Codex agent grants", () => {
 });
 
 describe("WorkOSVaultStore", () => {
-  beforeEach(() => {
-    process.env.WORKOS_API_KEY = "test-workos-key";
-    vault.reset();
-    vi.clearAllMocks();
-  });
-
   it("does not delete a value renewed while expired cleanup is in flight", async () => {
     const store = new WorkOSVaultStore<number>("race-test");
     await store.set("key", 1, { ttlMs: -1 });
     const name = vaultObjectName("race-test", "key");
+    const initial = objectsByName.get(name);
+    if (!initial) throw new Error("Expected the initial Vault object.");
+    const initialId = initial.id;
+    const initialVersion = initial.metadata.versionId;
 
-    vault.deleteObject.mockImplementationOnce(async () => {
+    vault.deleteObject.mockImplementationOnce(async ({ id, versionCheck }) => {
+      expect(id).toBe(initialId);
+      expect(versionCheck).toBe(initialVersion);
       const object = objectsByName.get(name);
       if (!object) throw Object.assign(new Error("Not found"), { status: 404 });
       object.value = JSON.stringify({ value: 2, expiresAt: Date.now() + 60_000 });
@@ -218,8 +229,14 @@ describe("WorkOSVaultStore", () => {
     const store = new WorkOSVaultStore<number>("race-test");
     await store.set("key", 1);
     const name = vaultObjectName("race-test", "key");
+    const initial = objectsByName.get(name);
+    if (!initial) throw new Error("Expected the initial Vault object.");
+    const initialId = initial.id;
+    const initialVersion = initial.metadata.versionId;
 
-    vault.updateObject.mockImplementationOnce(async () => {
+    vault.updateObject.mockImplementationOnce(async ({ id, versionCheck }) => {
+      expect(id).toBe(initialId);
+      expect(versionCheck).toBe(initialVersion);
       objectsByName.delete(name);
       throw Object.assign(new Error("Not found"), { status: 404 });
     });

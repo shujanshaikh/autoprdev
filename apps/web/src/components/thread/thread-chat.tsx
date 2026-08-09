@@ -854,6 +854,7 @@ function ThreadChatRuntime({
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(() =>
     initialProvider && initialModel ? agentModelKey({ provider: initialProvider, modelId: initialModel }) : undefined,
   );
+  const setAgentModelSelection = useMutation(api.threads.setAgentModelSelection);
   const selectedModel = useMemo(() => {
     const requested = modelOptions.find((option) => option.key === selectedModelChoice)
       ?? (initialModel ? { provider: initialProvider ?? "openai-codex" as const, modelId: initialModel } : undefined);
@@ -871,6 +872,20 @@ function ThreadChatRuntime({
   const { getAccessToken: getWorkOSAccessToken } = useAccessToken();
   const getWorkOSAccessTokenRef = useRef(getWorkOSAccessToken);
   getWorkOSAccessTokenRef.current = getWorkOSAccessToken;
+
+  const handleModelSelectionChange = useCallback((value: string) => {
+    const model = modelOptions.find((option) => option.key === value);
+    if (!model) return;
+
+    setSelectedModelChoice(value);
+    void setAgentModelSelection({
+      threadId,
+      provider: model.provider,
+      model: model.modelId,
+    }).catch((selectionError) => {
+      console.error("Could not save the thread model selection", selectionError);
+    });
+  }, [modelOptions, setAgentModelSelection, threadId]);
 
   if (!usingSessionTransport && currentRunId) {
     activeRunIdRef.current = currentRunId;
@@ -1743,7 +1758,7 @@ function ThreadChatRuntime({
                     <AgentModelPicker
                       models={modelOptions}
                       value={selectedModel ? agentModelKey(selectedModel) : ""}
-                      onValueChange={(value) => value && setSelectedModelChoice(value)}
+                      onValueChange={handleModelSelectionChange}
                       triggerClassName={promptControlTriggerClassName}
                       disabled={!ready || modelOptions.length === 0}
                     />

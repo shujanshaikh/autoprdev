@@ -19,6 +19,7 @@ const { objectsByName, vault, oauth } = vi.hoisted(() => {
       requestDeviceCode: vi.fn(),
       pollDeviceToken: vi.fn(),
       fetchModels: vi.fn(),
+      refreshTokens: vi.fn(),
     },
     vault: {
       createObject: vi.fn(async (input: { name: string; value: string }) => {
@@ -72,9 +73,11 @@ vi.mock("@autopr/grok/core", async (importOriginal) => ({
   requestGrokDeviceCode: oauth.requestDeviceCode,
   pollGrokDeviceToken: oauth.pollDeviceToken,
   fetchGrokModels: oauth.fetchModels,
+  refreshGrokTokens: oauth.refreshTokens,
 }));
 
 import {
+  disconnectGrok,
   getGrokConnectionStatus,
   pollGrokDeviceAuthorization,
   startGrokDeviceAuthorization,
@@ -102,6 +105,11 @@ beforeEach(() => {
       expiresAt: Date.now() + 3_600_000,
     },
   });
+  oauth.refreshTokens.mockResolvedValue({
+    accessToken: "access-refreshed",
+    refreshToken: "refresh-refreshed",
+    expiresAt: Date.now() + 3_600_000,
+  });
 });
 
 afterEach(() => {
@@ -122,5 +130,39 @@ describe("Grok connection status", () => {
       models: expect.arrayContaining(["grok-build-0.1", "grok-4.5"]),
     });
     expect(objectsByName.size).toBe(1);
+  });
+
+  it("does not restore credentials when a refresh finishes after disconnect", async () => {
+    let finishRefresh: ((tokens: {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+    }) => void) | undefined;
+    oauth.pollDeviceToken.mockResolvedValue({
+      status: "success",
+      tokens: {
+        accessToken: "access-expiring",
+        refreshToken: "refresh-1",
+        expiresAt: Date.now() + 30_000,
+      },
+    });
+    oauth.refreshTokens.mockImplementation(() => new Promise((resolve) => {
+      finishRefresh = resolve;
+    }));
+    const flow = await startGrokDeviceAuthorization("user-1");
+    await pollGrokDeviceAuthorization("user-1", flow.flowId);
+
+    const status = getGrokConnectionStatus("user-1");
+    await vi.waitFor(() => expect(oauth.refreshTokens).toHaveBeenCalledWith("refresh-1"));
+    await disconnectGrok("user-1");
+    finishRefresh?.({
+      accessToken: "access-refreshed",
+      refreshToken: "refresh-refreshed",
+      expiresAt: Date.now() + 3_600_000,
+    });
+
+    await expect(status).rejects.toThrow("disconnected while refreshing");
+    await expect(getGrokConnectionStatus("user-1")).resolves.toEqual({ connected: false });
+    expect(objectsByName.size).toBe(0);
   });
 });

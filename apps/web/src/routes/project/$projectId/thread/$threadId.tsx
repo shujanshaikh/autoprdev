@@ -440,8 +440,8 @@ function ProjectThreadPageContent() {
               currentRunId={thread?.currentRunId}
               initialMessages={initialMessages}
               initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
-              initialProvider={initialProvider}
-              initialModel={initialModel}
+              initialProvider={initialModel ? initialProvider : thread?.agentProvider}
+              initialModel={initialModel ?? thread?.agentModel}
               initialReasoningEffort={initialReasoningEffort}
               availableCodexModels={codexStatusQuery.data?.models}
               availableGrokModels={grokStatusQuery.data?.models}

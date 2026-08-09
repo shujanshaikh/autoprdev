@@ -46,6 +46,8 @@ export const create = mutation({
     title: v.optional(v.string()),
     demoEnabled: v.optional(v.boolean()),
     workspaceMode: v.optional(v.union(v.literal("checkout"), v.literal("worktree"))),
+    agentProvider: v.optional(v.union(v.literal("openai-codex"), v.literal("xai"))),
+    agentModel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
@@ -69,6 +71,14 @@ export const create = mutation({
     const now = Date.now();
     const threadId = randomUuid();
     const title = args.title?.trim() || "New thread";
+    const agentModel = args.agentModel?.trim();
+    if (
+      (args.agentProvider && !agentModel) ||
+      (!args.agentProvider && agentModel) ||
+      (agentModel?.length ?? 0) > 200
+    ) {
+      throw new ConvexError({ code: "INVALID_AGENT_MODEL_SELECTION" });
+    }
     const workspaceMode = args.workspaceMode ?? "checkout";
     const baseBranch = resolveThreadBaseBranch({}, project);
     const featureBranch = workspaceMode === "worktree"
@@ -83,6 +93,8 @@ export const create = mutation({
       projectId: args.projectId,
       authorId,
       title,
+      agentProvider: args.agentProvider,
+      agentModel,
       createdAt: now,
       updatedAt: now,
       isLive: false,
@@ -608,6 +620,37 @@ export const setSettlement = mutation({
       settledOverride: args.settled ? "settled" : "active",
       settledAt: args.settled ? now : undefined,
       updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const setAgentModelSelection = mutation({
+  args: {
+    threadId: v.string(),
+    provider: v.union(v.literal("openai-codex"), v.literal("xai")),
+    model: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const model = args.model.trim();
+    if (!model || model.length > 200) {
+      throw new ConvexError({ code: "INVALID_AGENT_MODEL_SELECTION" });
+    }
+
+    await ctx.db.patch(thread._id, {
+      agentProvider: args.provider,
+      agentModel: model,
     });
     return null;
   },

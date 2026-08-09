@@ -641,6 +641,8 @@ function ProjectOverviewPage() {
         title: "New thread",
         demoEnabled: effectiveDemoEnabled,
         workspaceMode,
+        agentProvider: selectedModel?.provider,
+        agentModel: selectedModel?.modelId,
       });
       if (uploadedImages.length > 0) {
         window.sessionStorage.setItem(

@@ -237,17 +237,29 @@ async function refreshGrokCredentialsWithLease(userId: string): Promise<GrokStor
       models: leased.models,
       modelsUpdatedAt: leased.modelsUpdatedAt,
     };
-    return await credentialsStore.update(userId, (latest) => ({
-      value: latest?.refreshLease?.id === leaseId
-        ? completeRefresh
-        : latest ?? completeRefresh,
-    }));
+    return await credentialsStore.update(userId, (latest) => {
+      if (!latest) {
+        throw new GrokConnectionError("Grok was disconnected while refreshing credentials.", 401);
+      }
+
+      return {
+        value: latest.refreshLease?.id === leaseId
+          ? completeRefresh
+          : latest,
+      };
+    });
   } catch (error) {
-    await credentialsStore.update(userId, (latest) => ({
-      value: latest?.refreshLease?.id === leaseId
-        ? { ...latest, refreshLease: undefined }
-        : latest ?? leased,
-    })).catch(() => undefined);
+    await credentialsStore.update(userId, (latest) => {
+      if (!latest) {
+        throw new GrokConnectionError("Grok was disconnected while refreshing credentials.", 401);
+      }
+
+      return {
+        value: latest.refreshLease?.id === leaseId
+          ? { ...latest, refreshLease: undefined }
+          : latest,
+      };
+    }).catch(() => undefined);
     throw error;
   }
 }
@@ -262,13 +274,19 @@ async function getAvailableGrokModels(userId: string, credentials: GrokStoredCre
   const models = discovered?.length
     ? discovered
     : cachedModels ?? [...GROK_FALLBACK_MODELS];
-  await credentialsStore.update(userId, (latest) => ({
-    value: {
-      ...(latest ?? credentials),
-      models,
-      modelsUpdatedAt: Date.now(),
-    },
-  })).catch(() => undefined);
+  await credentialsStore.update(userId, (latest) => {
+    if (!latest) {
+      throw new GrokConnectionError("Grok was disconnected while loading models.", 401);
+    }
+
+    return {
+      value: {
+        ...latest,
+        models,
+        modelsUpdatedAt: Date.now(),
+      },
+    };
+  }).catch(() => undefined);
   return models;
 }
 

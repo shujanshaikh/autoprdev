@@ -8,10 +8,11 @@ import { z } from "zod";
 import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import {
-  codexErrorResponse,
-  createCodexAgentModelOptions,
-  revokeCodexAgentModelOptions,
-} from "#/lib/codex-auth-server";
+  agentAuthErrorResponse,
+  createAgentModelOptions,
+  revokeAgentModelOptions,
+} from "#/lib/agent-auth-server";
+import { isAgentProvider } from "#/lib/agent-models";
 import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import { appendToTriggerSession } from "#/lib/trigger-session-append";
 import {
@@ -29,6 +30,7 @@ import type { agentChatTask } from "#/trigger/agent-chat";
 const APPEND_OPERATION = "append";
 
 const browserClientDataSchema = z.object({
+  provider: z.enum(["openai-codex", "xai"]).optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().optional(),
 });
@@ -109,6 +111,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function requestedClientData(metadata: Record<string, unknown> | undefined): AgentChatClientInput {
   return {
+    provider: isAgentProvider(metadata?.provider) ? metadata.provider : undefined,
     model: typeof metadata?.model === "string" ? metadata.model : undefined,
     reasoningEffort:
       typeof metadata?.reasoningEffort === "string"
@@ -158,15 +161,16 @@ async function createTrustedClientData(options: {
   requested: AgentChatClientInput;
 }) {
   const persistedWorkspace = persistedThreadWorkspace(options.project, options.thread);
-  const [worktree, codex, persistenceGrant] = await Promise.all([
+  const [worktree, model, persistenceGrant] = await Promise.all([
     persistedWorkspace
       ? Promise.resolve(persistedWorkspace)
       : convexAction(api.projectActions.resolveThreadWorkspace, {
           projectId: options.project.projectId,
           threadId: options.thread.threadId,
         }),
-    createCodexAgentModelOptions(
+    createAgentModelOptions(
       options.request,
+      options.requested.provider,
       options.requested.model,
       options.requested.reasoningEffort,
       {
@@ -199,7 +203,7 @@ async function createTrustedClientData(options: {
       options.thread.demoEnabled &&
         options.userSettings?.demoRecordingExperimentEnabled,
     ),
-    codex,
+    model,
   };
 
   return clientData;
@@ -252,7 +256,7 @@ async function proxyInputChunk(options: {
   }
 
   let inputChunk = parsed.data;
-  let issuedCodex: AgentChatClientData["codex"] | undefined;
+  let issuedModel: AgentChatClientData["model"] | undefined;
   if (inputChunk.kind === "message") {
     if (inputChunk.payload.chatId !== options.thread.threadId) {
       return Response.json({ error: "Chat session does not match this thread." }, { status: 409 });
@@ -271,15 +275,15 @@ async function proxyInputChunk(options: {
         requested: requestedClientData(inputChunk.payload.metadata),
       });
     } catch (error) {
-      return codexErrorResponse(error, "Could not load Codex credentials.");
+      return agentAuthErrorResponse(error, "Could not load model credentials.");
     }
-    issuedCodex = trustedClientData.codex;
+    issuedModel = trustedClientData.model;
 
     inputChunk = {
       ...inputChunk,
       payload: {
         ...inputChunk.payload,
-        // Identity, project context, persistence grants, and Codex credential
+        // Identity, project context, persistence grants, and model credential
         // grants are server-owned. Never merge browser claims into this object.
         metadata: trustedClientData,
       },
@@ -299,13 +303,13 @@ async function proxyInputChunk(options: {
       body: JSON.stringify(inputChunk),
       signal: options.request.signal,
     });
-    if (!response.ok && issuedCodex) {
-      await revokeCodexAgentModelOptions(issuedCodex).catch(() => undefined);
+    if (!response.ok && issuedModel) {
+      await revokeAgentModelOptions(issuedModel).catch(() => undefined);
     }
     return response;
   } catch (error) {
-    if (issuedCodex) {
-      await revokeCodexAgentModelOptions(issuedCodex).catch(() => undefined);
+    if (issuedModel) {
+      await revokeAgentModelOptions(issuedModel).catch(() => undefined);
     }
     throw error;
   }
@@ -372,7 +376,7 @@ export async function handleAgentChatRequest(options: {
       requested: operation.data.clientData ?? {},
     });
   } catch (error) {
-    return codexErrorResponse(error, "Could not load Codex credentials.");
+    return agentAuthErrorResponse(error, "Could not load model credentials.");
   }
 
   try {
@@ -401,7 +405,7 @@ export async function handleAgentChatRequest(options: {
       publicAccessToken: session.publicAccessToken,
     });
   } catch (error) {
-    await revokeCodexAgentModelOptions(clientData.codex).catch(() => undefined);
+    await revokeAgentModelOptions(clientData.model).catch(() => undefined);
     return Response.json(
       { error: error instanceof Error ? error.message : "Could not start agent chat." },
       { status: 500 },

@@ -8,10 +8,10 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import {
-  codexErrorResponse,
-  createCodexAgentModelOptions,
-  revokeCodexAgentModelOptions,
-} from "#/lib/codex-auth-server";
+  agentAuthErrorResponse,
+  createAgentModelOptions,
+  revokeAgentModelOptions,
+} from "#/lib/agent-auth-server";
 import {
   AGENT_IDEMPOTENCY_KEY_TTL,
   AGENT_TASK_ID,
@@ -29,6 +29,7 @@ const standaloneAgentRequestSchema = z.object({
     }))
     .min(1),
   model: z.string().optional(),
+  provider: z.enum(["openai-codex", "xai"]).optional(),
   reasoningEffort: z.string().optional(),
 });
 
@@ -38,7 +39,7 @@ async function POST(req: Request) {
     return Response.json({ error: "Send at least one UI message." }, { status: 400 });
   }
 
-  const { model, reasoningEffort } = parsed.data;
+  const { provider, model, reasoningEffort } = parsed.data;
   const messages = parsed.data.messages as UIMessage[];
   const authkit = await getAuthkit();
   const workOSSession = await authkit.getSession(req);
@@ -47,18 +48,18 @@ async function POST(req: Request) {
   }
   const requestId = messages.at(-1)?.id ?? nanoid();
 
-  const codex = await createCodexAgentModelOptions(req, model, reasoningEffort, {
+  const selectedModel = await createAgentModelOptions(req, provider, model, reasoningEffort, {
     taskId: AGENT_TASK_ID,
     contextId: `standalone:${requestId}`,
   }).catch((error) =>
-    error instanceof Error ? error : new Error("Could not load Codex credentials."),
+    error instanceof Error ? error : new Error("Could not load model credentials."),
   );
 
-  if (codex instanceof Error) {
-    return codexErrorResponse(codex, "Could not load Codex credentials.");
+  if (selectedModel instanceof Error) {
+    return agentAuthErrorResponse(selectedModel, "Could not load model credentials.");
   }
 
-  const grantLifecycle = createGrantLifecycle(codex, revokeCodexAgentModelOptions);
+  const grantLifecycle = createGrantLifecycle(selectedModel, revokeAgentModelOptions);
   try {
     const [modelMessages, idempotencyKey] = await Promise.all([
       convertToModelMessages(messages),
@@ -73,7 +74,7 @@ async function POST(req: Request) {
         messages: modelMessages,
         options: {
           sandboxCacheKey: `trigger-agent:${workOSSession.user.id}:${requestId}`,
-          codex,
+          model: selectedModel,
         },
       },
       {

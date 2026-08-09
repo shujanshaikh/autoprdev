@@ -26,10 +26,11 @@ import {
 } from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import {
-  createCodexResponsesModel,
-  revokeCodexAgentGrant,
-} from "#/lib/codex-auth-runtime-server";
-import { getCodexContextLimit } from "#/lib/codex-models";
+  agentProviderOptions,
+  createAgentResponsesModel,
+  revokeAgentModelGrant,
+} from "#/lib/agent-auth-runtime-server";
+import { getAgentContextLimit } from "#/lib/agent-models";
 import {
   AGENT_TASK_ID,
   type AgentTaskOptions,
@@ -93,13 +94,13 @@ async function markAgentRunFinished({
   );
 }
 
-async function releaseAgentCodexGrant(options: AgentTaskOptions) {
+async function releaseAgentModelGrant(options: AgentTaskOptions) {
   const lifecycle = createGrantLifecycle(
-    options.codex.credentialsGrantId,
-    revokeCodexAgentGrant,
+    options.model,
+    revokeAgentModelGrant,
   );
   await lifecycle.release().catch((error) => {
-    console.error("Failed to revoke the Codex credential grant", error);
+    console.error("Failed to revoke the model credential grant", error);
   });
 }
 
@@ -130,7 +131,7 @@ function getAssistantPersistenceOptions(options: AgentTaskOptions): AssistantPer
   };
 }
 
-function codexPromptCacheKey(options: AgentTaskOptions) {
+function modelPromptCacheKey(options: AgentTaskOptions) {
   const source = options.threadId ?? options.sandboxCacheKey;
   const stableSegment = source.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 120);
 
@@ -205,7 +206,8 @@ async function runAgentTask(
   const harness = new CodingHarness({
     ...sandboxOptions,
     computer: demoRecordingEnabled ? {} : false,
-    modelId: options.codex.modelId,
+    modelId: options.model.modelId,
+    modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
       "This chat is streamed through a durable Trigger.dev task. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
@@ -220,9 +222,9 @@ async function runAgentTask(
       .filter(Boolean)
       .join("\n"),
   });
-  const codexOptions = {
-    ...options.codex,
-    promptCacheKey: options.codex.promptCacheKey ?? codexPromptCacheKey(options),
+  const selectedModel = {
+    ...options.model,
+    promptCacheKey: options.model.promptCacheKey ?? modelPromptCacheKey(options),
   };
   let persistenceFinished = false;
   let streamFinished = false;
@@ -238,7 +240,7 @@ async function runAgentTask(
   try {
     await harness.run(async ({ instructions, repositoryContext, tools }) => {
       const model = wrapLanguageModel({
-        model: await createCodexResponsesModel(codexOptions),
+        model: await createAgentResponsesModel(selectedModel),
         middleware: createContextOverflowRecoveryMiddleware(),
       });
       const result = streamText({
@@ -253,21 +255,11 @@ async function runAgentTask(
         maxRetries: 1,
         abortSignal: signal,
         prepareStep: createAgentContextCompactor({
-          contextWindow: getCodexContextLimit(codexOptions.modelId),
+          contextWindow: getAgentContextLimit(selectedModel),
           systemPrompt: instructions,
           abortSignal: signal,
         }),
-        providerOptions: {
-          openai: {
-            store: false,
-            instructions,
-            parallelToolCalls: true,
-            promptCacheKey: codexOptions.promptCacheKey,
-            reasoningEffort: codexOptions.reasoningEffort,
-            reasoningSummary: "auto",
-            include: ["reasoning.encrypted_content"],
-          },
-        },
+        providerOptions: agentProviderOptions(selectedModel, instructions),
       });
       const streamed = agentUIStream.pipe(
         result.toUIMessageStream({
@@ -283,7 +275,7 @@ async function runAgentTask(
       const runCompletedAt = Date.now();
       const usageMetadata = createAssistantUsageMetadata(
         steps,
-        codexOptions.modelId,
+        selectedModel.modelId,
         runStartedAt,
         runCompletedAt,
       );
@@ -368,7 +360,7 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
 
       await reportAgentFailure(payload.options, error, ctx.run.id, ctx.attempt.number);
     } finally {
-      await releaseAgentCodexGrant(payload.options);
+      await releaseAgentModelGrant(payload.options);
     }
   },
   onCancel: async ({ payload, ctx }) => {
@@ -378,7 +370,7 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
     try {
       await finishCancelledAgentRun(payload.options, ctx.run.id);
     } finally {
-      await releaseAgentCodexGrant(payload.options);
+      await releaseAgentModelGrant(payload.options);
     }
   },
   run: async (payload: AgentTaskPayload, { ctx, signal }) => {
@@ -386,7 +378,7 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
       await runAgentTask(payload, ctx.run.id, ctx.attempt.number, signal);
       return { ok: true as const };
     } finally {
-      await releaseAgentCodexGrant(payload.options);
+      await releaseAgentModelGrant(payload.options);
     }
   },
 });

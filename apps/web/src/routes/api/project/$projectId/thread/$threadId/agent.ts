@@ -10,10 +10,10 @@ import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
 import {
-  codexErrorResponse,
-  createCodexAgentModelOptions,
-  revokeCodexAgentModelOptions,
-} from "#/lib/codex-auth-server";
+  agentAuthErrorResponse,
+  createAgentModelOptions,
+  revokeAgentModelOptions,
+} from "#/lib/agent-auth-server";
 import {
   AGENT_IDEMPOTENCY_KEY_TTL,
   AGENT_TASK_ID,
@@ -33,6 +33,7 @@ import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import type { agentTask } from "#/trigger/agent";
 
 const agentRequestSchema = z.object({
+  provider: z.enum(["openai-codex", "xai"]).optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().optional(),
   message: z.object({
@@ -178,8 +179,9 @@ async function POST(
     }
 
     const requestedAssistantMessageId = nanoid();
-    const codex = await createCodexAgentModelOptions(
+    const model = await createAgentModelOptions(
       req,
+      parsed.data.provider,
       parsed.data.model,
       parsed.data.reasoningEffort,
       {
@@ -187,14 +189,14 @@ async function POST(
         contextId: `${projectId}:${threadId}:${requestedAssistantMessageId}`,
       },
     ).catch((error) =>
-      error instanceof Error ? error : new Error("Could not load Codex credentials."),
+      error instanceof Error ? error : new Error("Could not load model credentials."),
     );
 
-    if (codex instanceof Error) {
-      return codexErrorResponse(codex, "Could not load Codex credentials.");
+    if (model instanceof Error) {
+      return agentAuthErrorResponse(model, "Could not load model credentials.");
     }
 
-    const grantLifecycle = createGrantLifecycle(codex, revokeCodexAgentModelOptions);
+    const grantLifecycle = createGrantLifecycle(model, revokeAgentModelOptions);
     try {
       const userMessage = parsed.data.message as UIMessage;
       const persistenceGrant = await createAgentPersistenceGrant();
@@ -256,7 +258,7 @@ async function POST(
             assistantMessageId,
             persistenceToken: persistenceGrant.token,
             demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
-            codex,
+            model,
           },
         },
         {

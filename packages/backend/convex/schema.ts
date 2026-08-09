@@ -110,6 +110,8 @@ export default defineSchema({
     settledAt: v.optional(v.number()),
     currentRunId: v.optional(v.string()),
     currentRunTransport: v.optional(v.union(v.literal("task"), v.literal("session"))),
+    agentProvider: v.optional(v.union(v.literal("openai-codex"), v.literal("xai"))),
+    agentModel: v.optional(v.string()),
     isLive: v.optional(v.boolean()),
     triggerSessionCreatedAt: v.optional(v.number()),
     triggerSessionLastEventId: v.optional(v.string()),

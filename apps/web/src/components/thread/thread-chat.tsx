@@ -21,13 +21,6 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@autopr/ui/components/hover-card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@autopr/ui/components/select";
 import { cn } from "@autopr/ui/lib/utils";
 import {
   useTriggerChatTransport,
@@ -86,21 +79,24 @@ import {
   CodexPromptConnectionLine,
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
-import { CodexLogo } from "#/components/icons/codex-logo";
+import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
-  CODEX_MODELS,
   DEFAULT_CODEX_REASONING_EFFORT,
-  formatCodexModelLabel,
-  getCodexModelOptions,
   getCodexReasoningEffortLabel,
-  getCodexReasoningEfforts,
-  normalizeCodexModelList,
-  selectCodexModel,
   type CodexModelId,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
+import {
+  agentModelKey,
+  getAgentContextLimit,
+  getAgentModelOptions,
+  getAgentReasoningEfforts,
+  selectAgentModel,
+  selectAgentReasoningEffort,
+  type AgentProvider,
+} from "#/lib/agent-models";
 export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
 export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
 import {
@@ -138,9 +134,11 @@ type ThreadChatProps = {
   currentRunId?: string;
   initialMessages: UIMessage[];
   initialPrompt?: string;
+  initialProvider?: AgentProvider;
   initialModel?: CodexModelId;
   initialReasoningEffort?: CodexReasoningEffort;
-  availableModels?: string[];
+  availableCodexModels?: string[];
+  availableGrokModels?: string[];
   disabled: boolean;
   codexPromptIssue?: CodexPromptConnectionIssue;
   diffPanelOpen: boolean;
@@ -324,7 +322,7 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 }
 
 const promptControlTriggerClassName =
-  "h-8 min-w-0 max-w-[36vw] gap-1.5 border-none bg-transparent px-1 text-sm font-semibold text-foreground/80 shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-8 dark:bg-transparent dark:hover:bg-transparent lg:max-w-[10rem] [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5";
+  "max-w-[48vw] lg:max-w-[12rem]";
 
 function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -783,9 +781,11 @@ function ThreadChatRuntime({
   currentRunId,
   initialMessages,
   initialPrompt,
+  initialProvider,
   initialModel,
   initialReasoningEffort,
-  availableModels,
+  availableCodexModels,
+  availableGrokModels,
   disabled,
   codexPromptIssue,
   diffPanelOpen,
@@ -847,30 +847,45 @@ function ThreadChatRuntime({
   const removeDiffPromptContext = useCallback((id: string) => {
     setDiffPromptContexts((current) => current.filter((context) => context.id !== id));
   }, []);
-  const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(initialModel);
-  const availableCodexModels = useMemo(
-    () => normalizeCodexModelList(availableModels),
-    [availableModels],
-  );
-  const selectedModel = useMemo(
-    () => selectCodexModel(availableCodexModels, selectedModelChoice),
-    [availableCodexModels, selectedModelChoice],
-  );
   const modelOptions = useMemo(
-    () => getCodexModelOptions(availableCodexModels, selectedModel),
-    [availableCodexModels, selectedModel],
+    () => getAgentModelOptions({ codexModels: availableCodexModels, grokModels: availableGrokModels }),
+    [availableCodexModels, availableGrokModels],
   );
-  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<CodexReasoningEffort>(
+  const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(() =>
+    initialProvider && initialModel ? agentModelKey({ provider: initialProvider, modelId: initialModel }) : undefined,
+  );
+  const setAgentModelSelection = useMutation(api.threads.setAgentModelSelection);
+  const selectedModel = useMemo(() => {
+    const requested = modelOptions.find((option) => option.key === selectedModelChoice)
+      ?? (initialModel ? { provider: initialProvider ?? "openai-codex" as const, modelId: initialModel } : undefined);
+    return selectAgentModel(modelOptions, requested);
+  }, [initialModel, initialProvider, modelOptions, selectedModelChoice]);
+  const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>(
     initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
   );
   const [pendingDemoEnabled, setPendingDemoEnabled] = useState<boolean | undefined>();
   const [demoSaving, setDemoSaving] = useState(false);
   const imageUploads = usePromptImageUploadManager();
-  const selectedReasoningEfforts = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
+  const selectedReasoningEfforts = useMemo(() => getAgentReasoningEfforts(selectedModel), [selectedModel]);
+  const selectedReasoningEffort = selectAgentReasoningEffort(selectedModel, selectedReasoningEffortChoice);
   const setDemoEnabled = useMutation(api.threads.setDemoEnabled);
   const { getAccessToken: getWorkOSAccessToken } = useAccessToken();
   const getWorkOSAccessTokenRef = useRef(getWorkOSAccessToken);
   getWorkOSAccessTokenRef.current = getWorkOSAccessToken;
+
+  const handleModelSelectionChange = useCallback((value: string) => {
+    const model = modelOptions.find((option) => option.key === value);
+    if (!model) return;
+
+    setSelectedModelChoice(value);
+    void setAgentModelSelection({
+      threadId,
+      provider: model.provider,
+      model: model.modelId,
+    }).catch((selectionError) => {
+      console.error("Could not save the thread model selection", selectionError);
+    });
+  }, [modelOptions, setAgentModelSelection, threadId]);
 
   if (!usingSessionTransport && currentRunId) {
     activeRunIdRef.current = currentRunId;
@@ -941,8 +956,8 @@ function ThreadChatRuntime({
 
   const sessionClientData = useMemo<AgentChatClientInput>(
     () => ({
-      ...(selectedModel ? { model: selectedModel } : {}),
-      reasoningEffort: selectedReasoningEffort,
+      ...(selectedModel ? { provider: selectedModel.provider, model: selectedModel.modelId } : {}),
+      ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}),
     }),
     [selectedModel, selectedReasoningEffort],
   );
@@ -1020,8 +1035,8 @@ function ThreadChatRuntime({
             api: options.api,
             body: {
               message: options.messages[options.messages.length - 1],
-              ...(selectedModel ? { model: selectedModel } : {}),
-              reasoningEffort: selectedReasoningEffort,
+              ...(selectedModel ? { provider: selectedModel.provider, model: selectedModel.modelId } : {}),
+              ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}),
             },
             headers: options.headers,
             credentials: options.credentials,
@@ -1564,24 +1579,18 @@ function ThreadChatRuntime({
       return total + (getAssistantRunUsage(message.metadata)?.totalTokens ?? 0);
     }, 0);
   }, [messages]);
-  const selectedModelContextLimit =
-    CODEX_MODELS.find((model) => model.id === selectedModel)?.contextLimit ?? 400_000;
-
-  useEffect(() => {
-    if (!selectedReasoningEfforts.includes(selectedReasoningEffort)) {
-      setSelectedReasoningEffort(DEFAULT_CODEX_REASONING_EFFORT);
-    }
-  }, [selectedReasoningEffort, selectedReasoningEfforts]);
+  const selectedModelContextLimit = getAgentContextLimit(selectedModel);
 
   useEffect(() => {
     if (
       selectedModelChoice &&
-      availableModels !== undefined &&
-      !availableCodexModels.includes(selectedModelChoice)
+      availableCodexModels !== undefined &&
+      availableGrokModels !== undefined &&
+      !modelOptions.some((option) => option.key === selectedModelChoice)
     ) {
       setSelectedModelChoice(undefined);
     }
-  }, [availableCodexModels, availableModels, selectedModelChoice]);
+  }, [availableCodexModels, availableGrokModels, modelOptions, selectedModelChoice]);
 
   const submitMessage = useCallback(async (message: string | PromptInputMessage) => {
     const text = typeof message === "string" ? message : message.text;
@@ -1704,7 +1713,7 @@ function ThreadChatRuntime({
             awaitingAgentResponse={awaitingAgentResponse}
             activeAssistantMessageId={activeAssistantMessageId}
             activeRunStartedAt={activeRunStartedAt}
-            modelId={selectedModel}
+            modelId={selectedModel?.modelId}
             recordingPlaybackBasePath={recordingPlaybackBasePath}
             onSubmitMessage={submitMessage}
             diffEntries={diffEntries}
@@ -1746,42 +1755,13 @@ function ThreadChatRuntime({
                 </PromptInputBody>
                 <PromptInputFooter className="min-w-0 gap-1.5">
                   <PromptInputTools className="min-w-0 flex-1 gap-1">
-                    <Select
-                      value={selectedModel ?? ""}
-                      onValueChange={(value) => value && setSelectedModelChoice(value)}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className={promptControlTriggerClassName}
-                        disabled={!ready || modelOptions.length === 0}
-                        aria-label="Model"
-                      >
-                        <CodexLogo className="size-4 shrink-0" />
-                        <SelectValue>
-                          <span className="truncate">{formatCodexModelLabel(selectedModel)}</span>
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent
-                        align="start"
-                        alignItemWithTrigger={false}
-                        side="top"
-                        sideOffset={8}
-                        className="w-[min(18rem,calc(100vw-2rem))] min-w-0 rounded-[var(--radius-xl)] p-1.5 shadow-lg"
-                      >
-                        {modelOptions.map((model) => (
-                          <SelectItem
-                            key={model}
-                            value={model}
-                            className="rounded-[var(--radius-lg)] py-2.5 pr-8 pl-2.5 text-sm"
-                          >
-                            <CodexLogo className="size-4 text-muted-foreground" />
-                            <span className="min-w-0 truncate font-medium text-foreground/90">
-                              {formatCodexModelLabel(model)}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <AgentModelPicker
+                      models={modelOptions}
+                      value={selectedModel ? agentModelKey(selectedModel) : ""}
+                      onValueChange={handleModelSelectionChange}
+                      triggerClassName={promptControlTriggerClassName}
+                      disabled={!ready || modelOptions.length === 0}
+                    />
 
                     <DropdownMenu>
                       <DropdownMenuTrigger
@@ -1801,26 +1781,26 @@ function ThreadChatRuntime({
                         sideOffset={8}
                         className="w-52 rounded-[var(--radius-xl)] p-1.5 shadow-lg"
                       >
-                        <DropdownMenuGroup>
-                          <DropdownMenuLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
-                            Reasoning
-                          </DropdownMenuLabel>
-                          <DropdownMenuRadioGroup
-                            value={selectedReasoningEffort}
-                            onValueChange={(value) => setSelectedReasoningEffort(value as CodexReasoningEffort)}
-                          >
-                            {selectedReasoningEfforts.map((effort) => (
-                              <DropdownMenuRadioItem
-                                key={effort}
-                                value={effort}
-                                disabled={!ready}
-                                className="rounded-[var(--radius-md)] py-2 text-sm"
-                              >
-                                {getCodexReasoningEffortLabel(effort)}
-                              </DropdownMenuRadioItem>
-                            ))}
-                          </DropdownMenuRadioGroup>
-                        </DropdownMenuGroup>
+                          {selectedReasoningEfforts.length > 0 ? <DropdownMenuGroup>
+                            <DropdownMenuLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
+                              Reasoning
+                            </DropdownMenuLabel>
+                            <DropdownMenuRadioGroup
+                              value={selectedReasoningEffort}
+                              onValueChange={(value) => setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
+                            >
+                              {selectedReasoningEfforts.map((effort) => (
+                                <DropdownMenuRadioItem
+                                  key={effort}
+                                  value={effort}
+                                  disabled={!ready}
+                                  className="rounded-[var(--radius-md)] py-2 text-sm"
+                                >
+                                  {getCodexReasoningEffortLabel(effort)}
+                                </DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuGroup> : null}
                         {demoRecordingExperimentEnabled ? (
                           <>
                             <DropdownMenuSeparator className="my-1" />

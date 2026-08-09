@@ -8,14 +8,14 @@ describe("buildThreadStartNavigation", () => {
       projectId: "project_123",
       threadId: "thread_456",
       prompt: "Fix the first-load refresh",
-      model: "gpt-5.5",
-      reasoningEffort: "medium",
+      provider: "xai",
+      model: "grok-4",
     });
 
     expect(navigation.search).toEqual({
       prompt: "Fix the first-load refresh",
-      model: "gpt-5.5",
-      reasoningEffort: "medium",
+      provider: "xai",
+      model: "grok-4",
     });
     expect(navigation.mask).toEqual({
       to: "/project/$projectId/thread/$threadId",

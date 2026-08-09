@@ -46,11 +46,13 @@ export function CodexConnectDialog({
 
 export function CodexConnectPanel({
   active,
+  autoStart = true,
   asDialogHeader = false,
   status,
   onStatusChange,
 }: {
   active: boolean;
+  autoStart?: boolean;
   asDialogHeader?: boolean;
   status?: CodexStatus;
   onStatusChange: () => void;
@@ -68,10 +70,10 @@ export function CodexConnectPanel({
   });
 
   useEffect(() => {
-    if (!active || auth.status !== "unauthenticated" || loginStartedRef.current) return;
+    if (!active || !autoStart || auth.status !== "unauthenticated" || loginStartedRef.current) return;
     loginStartedRef.current = true;
     void auth.login();
-  }, [active, auth.login, auth.status]);
+  }, [active, auth.login, auth.status, autoStart]);
 
   useEffect(() => {
     if (!active || lastReportedStatusRef.current === auth.status) return;
@@ -121,7 +123,9 @@ export function CodexConnectPanel({
     ? "autopr can use Codex through your ChatGPT plan."
     : auth.isPending
       ? "Open ChatGPT and paste the one-time code."
-      : "Preparing a one-time code for your ChatGPT account.";
+      : auth.status === "unauthenticated"
+        ? "Use the Codex models included with your ChatGPT plan."
+        : "Preparing a one-time code for your ChatGPT account.";
 
   return (
     <div className="p-5 pr-12 min-[420px]:p-6 min-[420px]:pr-12">
@@ -160,6 +164,11 @@ export function CodexConnectPanel({
         ) : error || auth.status === "expired" ? (
           <Button type="button" variant="outline" className="w-full" onClick={retryLogin}>
             Try again
+          </Button>
+        ) : auth.status === "unauthenticated" ? (
+          <Button type="button" className="w-full" onClick={retryLogin}>
+            <ChatGPTMark className="size-4" />
+            Connect ChatGPT
           </Button>
         ) : (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

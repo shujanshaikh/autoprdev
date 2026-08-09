@@ -1,0 +1,25 @@
+{
+  "name": "@autopr/grok",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/core/index.ts",
+    "./core": "./src/core/index.ts",
+    "./ai": "./src/ai/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/xai": "^3.0.102"
+  },
+  "devDependencies": {
+    "@autopr/config": "workspace:*",
+    "@types/node": "^20",
+    "typescript": "catalog:",
+    "vitest": "^4.1.6"
+  }
+}

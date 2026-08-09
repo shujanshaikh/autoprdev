@@ -31,7 +31,7 @@ export {
   type WaitForDeviceTokensOptions,
 } from "./device.ts";
 export { isAccessTokenExpired, ensureFreshTokens, type EnsureFreshOptions } from "./tokens.ts";
-export { type KeyValueStore, MemoryStore } from "./store.ts";
+export { type KeyValueStore, type KeyValueStoreUpdate, MemoryStore } from "./store.ts";
 export {
   type CodexAuth,
   type CodexFetchOptions,

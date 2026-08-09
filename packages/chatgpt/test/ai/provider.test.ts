@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { ChatGPTImageError, ChatGPTProxyError, createChatGPT, createChatGPTProxyProvider } from "../../src/ai/index.ts";
-import { createMockFetch, jsonResponse, makeAccessToken } from "../core/helpers.ts";
+import { createMockFetch, jsonResponse, makeAccessToken, makeIdToken } from "../core/helpers.ts";
 
 describe("createChatGPT", () => {
   test("returns a callable provider with responses + openai accessors", () => {
@@ -24,7 +24,6 @@ describe("createChatGPT", () => {
   });
 
   test("reloads function credentials when an unrefreshable access token expires", async () => {
-    // Refresh-token-less credentials are what the server handler's redacted
     // A loader that returns access-only credentials must be called again
     // instead of reusing the expired access token.
     let loads = 0;
@@ -41,11 +40,35 @@ describe("createChatGPT", () => {
     });
 
     await chatgpt.listModels();
-    expect(loads).toBe(1); // first load is trusted as-is
-    await chatgpt.listModels();
-    expect(loads).toBe(2); // expired + no refresh token -> reloaded
+    expect(loads).toBe(2); // the initial expired credential is immediately reloaded
     await chatgpt.listModels();
     expect(loads).toBe(2); // fresh token -> no reload
+  });
+
+  test("shares one refresh across concurrent requests", async () => {
+    let refreshes = 0;
+    const fetch = createMockFetch((url) => {
+      if (url.endsWith("/oauth/token")) {
+        refreshes += 1;
+        return jsonResponse({
+          access_token: makeAccessToken(3600),
+          refresh_token: "rotated",
+          id_token: makeIdToken({ accountId: "acct_1" }),
+        });
+      }
+      return jsonResponse({ models: [{ slug: "gpt-a" }] });
+    });
+    const chatgpt = createChatGPT({
+      credentials: {
+        accessToken: makeAccessToken(-10),
+        refreshToken: "refresh",
+        accountId: "acct_1",
+      },
+      fetch,
+    });
+
+    await Promise.all([chatgpt.listModels(), chatgpt.listModels()]);
+    expect(refreshes).toBe(1);
   });
 
   test("lists account models", async () => {
@@ -134,6 +157,31 @@ describe("createChatGPT", () => {
         revisedPrompt: "A revised prompt",
       },
     ]);
+  });
+
+  test("rejects a terminal stream error even after receiving an image", async () => {
+    const fetch = createMockFetch(() =>
+      sseResponse([
+        {
+          type: "response.output_item.done",
+          item: { type: "image_generation_call", id: "img_1", result: "ZmluYWw=" },
+        },
+        {
+          type: "response.failed",
+          response: { error: { code: "stream_failed", message: "Generation failed." } },
+        },
+      ]),
+    );
+    const chatgpt = createChatGPT({
+      credentials: { accessToken: "at", accountId: "acct_1" },
+      fetch,
+    });
+
+    await expect(chatgpt.images.generate({ prompt: "image" })).rejects.toMatchObject({
+      name: "ChatGPTImageError",
+      code: "stream_failed",
+      message: "Generation failed.",
+    });
   });
 });
 

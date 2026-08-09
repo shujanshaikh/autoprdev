@@ -1,5 +1,6 @@
 import type { ResolvedConfig } from "./config.ts";
 import { ChatGPTAuthError } from "./errors.ts";
+import { requestSignal } from "./internal/request-signal.ts";
 
 export type ChatGPTRealtimeTransport = "wm" | "vp" | "vps";
 export type ChatGPTRealtimeVoiceMode = "wingman" | "advanced" | "standard";
@@ -176,7 +177,7 @@ export async function exchangeChatGPTRealtimeWebSession(
       origin: options.config.realtimeBaseUrl,
       referer: `${options.config.realtimeBaseUrl}/`,
     },
-    signal: options.signal,
+    signal: requestSignal(options.config, options.signal),
   });
   const body = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
   if (response.status === 403) {
@@ -397,7 +398,7 @@ export async function createChatGPTRealtimeCall(
     method: "POST",
     headers,
     body: form,
-    signal: options.signal,
+    signal: requestSignal(options.config, options.signal),
   });
   const body = await response.text();
   if (!response.ok) {

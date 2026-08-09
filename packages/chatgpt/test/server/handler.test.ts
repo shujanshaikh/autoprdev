@@ -293,10 +293,15 @@ describe("createChatGPTHandler", () => {
     expect(events.status).toBe(200);
     expect(events.headers.get("content-type")).toContain("application/x-ndjson");
     const reader = events.body!.getReader();
-    const first = new TextDecoder().decode((await reader.read()).value);
-    expect(first).toContain('"type":"session.started"');
-    const second = new TextDecoder().decode((await reader.read()).value);
-    expect(second).toContain('"type":"tool.pending_confirmation"');
+    const decoder = new TextDecoder();
+    let buffered = "";
+    while (!buffered.includes('"type":"tool.pending_confirmation"')) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+    }
+    expect(buffered).toContain('"type":"session.started"');
+    expect(buffered).toContain('"type":"tool.pending_confirmation"');
     await reader.cancel();
 
     const confirmed = await handler.handler(
@@ -796,6 +801,36 @@ describe("createChatGPTHandler", () => {
 
     clock += 61_000;
     expect((await send()).status).toBe(200);
+  });
+
+  test("atomically rate limits concurrent /responses requests", async () => {
+    let clock = 1000;
+    const handler = createChatGPTHandler({
+      fetch: createOpenAIMock({ pollsUntilAuthorized: 1 }),
+      secret: "test-secret",
+      now: () => clock,
+      responsesProxy: { rateLimit: { limit: 2, windowMs: 60_000 } },
+    });
+
+    const login = await handler.handler(new Request(`${BASE}/login`, { method: "POST" }));
+    const cookie = cookieFrom(login);
+    clock += 2000;
+    await handler.handler(new Request(`${BASE}/status`, { headers: { cookie } }));
+
+    const statuses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        handler.handler(
+          new Request(`${BASE}/responses`, {
+            method: "POST",
+            headers: { cookie, "content-type": "application/json" },
+            body: JSON.stringify({ input: "hi" }),
+          }),
+        ).then((response) => response.status),
+      ),
+    );
+
+    expect(statuses.filter((status) => status === 200)).toHaveLength(2);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(4);
   });
 
   test("rejects cross-origin POSTs unless the origin is allowlisted", async () => {

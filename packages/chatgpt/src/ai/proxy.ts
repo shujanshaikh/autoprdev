@@ -48,7 +48,7 @@ export class ChatGPTProxyError extends Error {
 export function createChatGPTProxyProvider(options: CreateChatGPTProxyOptions = {}): ChatGPTProvider {
   const basePath = (options.basePath ?? "/api/chatgpt").replace(/\/+$/, "");
   const defaultModel = options.defaultModel ?? DEFAULT_MODEL;
-  const doFetch = options.fetch ?? globalThis.fetch;
+  const doFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
 
   const openai = createOpenAI({
     baseURL: basePath,

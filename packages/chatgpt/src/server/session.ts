@@ -85,6 +85,14 @@ export class SessionManager {
     if (!tokens && stored.tokensCipher && this.secret) {
       tokens = await decryptJson<ChatGPTTokens>(stored.tokensCipher, this.secret);
     }
+    if (!tokens && stored.tokensCipher) {
+      await this.store.delete(sessionId);
+      return {
+        status: "expired",
+        createdAt: stored.createdAt,
+        updatedAt: this.now(),
+      };
+    }
     return {
       status: stored.status,
       device: stored.device,
@@ -133,6 +141,8 @@ export class SessionManager {
     const device = await requestDeviceCode(this.config, this.now);
     const data: SessionData = {
       status: "pending",
+      tokens: existing?.tokens,
+      user: existing?.user,
       device: {
         deviceAuthId: device.deviceAuthId,
         userCode: device.userCode,

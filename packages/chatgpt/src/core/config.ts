@@ -42,6 +42,8 @@ export interface ChatGPTConfig {
   clientVersion?: string;
   /** Custom fetch (for testing, proxies, or non-standard runtimes). */
   fetch?: FetchLike;
+  /** Deadline for outbound OpenAI requests. Defaults to 30 seconds. */
+  requestTimeoutMs?: number;
 }
 
 /** Fully-resolved configuration with all defaults applied and URLs normalized. */
@@ -57,6 +59,7 @@ export interface ResolvedConfig {
   originator: string;
   clientVersion: string;
   fetch: FetchLike;
+  requestTimeoutMs: number;
   /** OAuth token endpoint (`{issuer}/oauth/token`). */
   tokenUrl: string;
   /** OAuth authorization endpoint (`{issuer}/oauth/authorize`). */
@@ -94,6 +97,12 @@ export function resolveConfig(config: ChatGPTConfig = {}): ResolvedConfig {
     originator: config.originator ?? DEFAULT_ORIGINATOR,
     clientVersion: config.clientVersion ?? DEFAULT_CLIENT_VERSION,
     fetch: resolveFetch(config.fetch),
+    requestTimeoutMs:
+      typeof config.requestTimeoutMs === "number" &&
+      Number.isFinite(config.requestTimeoutMs) &&
+      config.requestTimeoutMs > 0
+        ? config.requestTimeoutMs
+        : 30_000,
     tokenUrl: `${issuer}/oauth/token`,
     authorizeUrl: `${issuer}/oauth/authorize`,
     deviceApiBase: `${issuer}/api/accounts`,

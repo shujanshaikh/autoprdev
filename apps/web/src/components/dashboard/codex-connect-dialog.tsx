@@ -96,6 +96,7 @@ export function CodexConnectPanel({
     setFlowError(undefined);
     try {
       await auth.logout();
+      loginStartedRef.current = false;
       onStatusChange();
     } catch (error) {
       setFlowError(error instanceof Error ? error.message : "Could not disconnect ChatGPT.");

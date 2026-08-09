@@ -309,8 +309,8 @@ async function readImageResponse(
     reader.releaseLock();
   }
 
-  if (finalCall) return finalCall;
   if (streamError) throw streamError;
+  if (finalCall) return finalCall;
   throw new ChatGPTImageError("The response completed without an image.", { code: "no_image_generated" });
 }
 

@@ -28,6 +28,15 @@ describe("device flow", () => {
     await expect(requestDeviceCode(config)).rejects.toMatchObject({ code: "device_code_disabled" });
   });
 
+  test("maps malformed device responses to a typed auth error", async () => {
+    const fetch = createMockFetch(() =>
+      new Response("not json", { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const config = resolveConfig({ fetch });
+
+    await expect(requestDeviceCode(config)).rejects.toMatchObject({ code: "device_code_request_failed" });
+  });
+
   test("treats 403/404/429 polls as pending and 200 as authorized", async () => {
     const statuses = [403, 404, 429];
     let call = 0;

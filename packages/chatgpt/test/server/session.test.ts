@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { MemoryStore, resolveConfig } from "../../src/core/index.ts";
 import { SessionManager, type StoredSession } from "../../src/server/session.ts";
-import { createOpenAIMock } from "./helpers.ts";
+import { createOpenAIMock, makeAccessToken } from "./helpers.ts";
 
 function makeManager(now: () => number, fetch: ReturnType<typeof createOpenAIMock>) {
   return new SessionManager({
@@ -90,5 +90,48 @@ describe("SessionManager", () => {
     clock += 31 * 60 * 1000;
     expect(await manager.load("pending-1")).toBeUndefined();
     expect((await manager.load("auth-1"))?.status).toBe("authenticated");
+  });
+
+  test("deletes a session when encrypted tokens cannot be decrypted", async () => {
+    const store = new MemoryStore<StoredSession>();
+    await store.set("sid", {
+      status: "authenticated",
+      tokensCipher: "not-a-valid-ciphertext",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const manager = new SessionManager({
+      config: resolveConfig({ fetch: createOpenAIMock() }),
+      store,
+      sessionTtlMs: 60_000,
+      secret: "s",
+    });
+
+    expect(await manager.load("sid")).toMatchObject({ status: "expired" });
+    expect(await store.get("sid")).toBeUndefined();
+  });
+
+  test("keeps the authenticated session while starting a replacement login", async () => {
+    const now = () => 1_000;
+    const store = new MemoryStore<StoredSession>({ now });
+    const manager = new SessionManager({
+      config: resolveConfig({ fetch: createOpenAIMock() }),
+      store,
+      sessionTtlMs: 60_000,
+      secret: "s",
+      now,
+    });
+    await manager.save("sid", {
+      status: "authenticated",
+      tokens: { accessToken: makeAccessToken(3600), accountId: "acct_1" },
+      user: { accountId: "acct_1", email: "user@example.com", plan: "pro" },
+      createdAt: 500,
+      updatedAt: 500,
+    });
+
+    await manager.startDeviceLogin("sid");
+    const session = await manager.load("sid");
+    expect(session?.tokens?.accountId).toBe("acct_1");
+    expect(session?.user).toMatchObject({ email: "user@example.com", plan: "pro" });
   });
 });

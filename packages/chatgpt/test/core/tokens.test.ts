@@ -43,4 +43,11 @@ describe("token freshness", () => {
       code: "not_authenticated",
     });
   });
+
+  test("never returns an expired access token without a refresh token", async () => {
+    const config = resolveConfig();
+    await expect(
+      ensureFreshTokens(config, { accessToken: makeAccessToken(-10), accountId: "acct_1" }),
+    ).rejects.toMatchObject({ code: "not_authenticated" });
+  });
 });

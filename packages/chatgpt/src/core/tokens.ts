@@ -21,6 +21,8 @@ export interface EnsureFreshOptions {
   onRefresh?: (tokens: ChatGPTTokens) => void | Promise<void>;
   /** Force a refresh even if the current token still looks valid. */
   force?: boolean;
+  /** Abort an in-flight token refresh. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -40,11 +42,10 @@ export async function ensureFreshTokens(
   }
 
   if (!tokens?.refreshToken) {
-    if (tokens?.accessToken) return withAccountId(tokens);
     throw new ChatGPTAuthError("not_authenticated", "No ChatGPT credentials available. The user must sign in.");
   }
 
-  const refreshed = withAccountId(await refreshTokens(config, tokens.refreshToken));
+  const refreshed = withAccountId(await refreshTokens(config, tokens.refreshToken, options.signal));
   await options.onRefresh?.(refreshed);
   return refreshed;
 }

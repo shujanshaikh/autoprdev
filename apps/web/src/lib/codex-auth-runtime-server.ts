@@ -2,13 +2,12 @@ import { createChatGPTProxyProvider } from "@autopr/chatgpt/ai";
 import {
   createChatGPTHandler,
   type KeyValueStore,
+  type KeyValueStoreUpdate,
   type RateLimitBucket,
   type StoredSession,
 } from "@autopr/chatgpt/server";
 import { WorkOS } from "@workos-inc/node";
 import { nanoid } from "nanoid";
-
-import { mergeRateLimitBucket } from "#/lib/codex-rate-limit";
 
 export const CODEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -49,8 +48,6 @@ type VaultStoreEnvelope<T> = {
   expiresAt?: number;
   consumedAt?: number;
 };
-
-type VaultConflictMerge<T> = (latest: T, proposed: T) => T;
 
 export class CodexConnectionError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -120,10 +117,7 @@ export function vaultObjectName(scope: string, key: string) {
 }
 
 class WorkOSVaultStore<T> implements KeyValueStore<T> {
-  constructor(
-    private readonly scope: string,
-    private readonly mergeConflict?: VaultConflictMerge<T>,
-  ) {}
+  constructor(private readonly scope: string) {}
 
   async get(key: string): Promise<T | undefined> {
     const name = vaultObjectName(this.scope, key);
@@ -152,81 +146,58 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
   }
 
   async set(key: string, value: T, options: { ttlMs?: number } = {}): Promise<void> {
+    await this.update(key, () => ({ value, ttlMs: options.ttlMs }));
+  }
+
+  async update(
+    key: string,
+    updater: (current: T | undefined) => KeyValueStoreUpdate<T>,
+  ): Promise<T> {
     const name = vaultObjectName(this.scope, key);
-    const expiresAt = options.ttlMs === undefined ? undefined : Date.now() + options.ttlMs;
-    const serialize = (nextValue: T) => JSON.stringify({
-      value: nextValue,
-      expiresAt,
-    } satisfies VaultStoreEnvelope<T>);
     const vault = getWorkOSVault();
 
-    const existing = await vault.readObjectByName(name).catch((error: unknown) => {
-      if (isMissingVaultObject(error)) {
-        return undefined;
-      }
-      throw error;
-    });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const existing = await vault.readObjectByName(name).catch((error: unknown) => {
+        if (isMissingVaultObject(error)) return undefined;
+        throw error;
+      });
+      const currentEnvelope = existing?.value
+        ? JSON.parse(existing.value) as VaultStoreEnvelope<T>
+        : undefined;
+      const current = currentEnvelope?.expiresAt !== undefined && currentEnvelope.expiresAt <= Date.now()
+        ? undefined
+        : currentEnvelope?.value;
+      const next = updater(current);
+      const serialized = JSON.stringify({
+        value: next.value,
+        expiresAt: next.ttlMs === undefined ? undefined : Date.now() + next.ttlMs,
+      } satisfies VaultStoreEnvelope<T>);
 
-    if (existing) {
-      let current = existing;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const currentEnvelope = current.value
-          ? JSON.parse(current.value) as VaultStoreEnvelope<T>
-          : undefined;
-        const nextValue = this.mergeConflict && currentEnvelope?.value !== undefined
-          ? this.mergeConflict(currentEnvelope.value, value)
-          : value;
-        try {
+      try {
+        if (existing) {
           await vault.updateObject({
-            id: current.id,
-            value: serialize(nextValue),
-            versionCheck: current.metadata?.versionId,
+            id: existing.id,
+            value: serialized,
+            versionCheck: existing.metadata?.versionId,
           });
-          return;
-        } catch (error) {
-          if (!isVaultConflict(error) || attempt === 2) throw error;
-          current = await vault.readObjectByName(name);
+        } else {
+          await vault.createObject({
+            name,
+            value: serialized,
+            context: {
+              app: "autopr",
+              purpose: "login-with-chatgpt",
+              scope: this.scope,
+            },
+          });
         }
+        return next.value;
+      } catch (error) {
+        if (!isVaultConflict(error) || attempt === 3) throw error;
       }
-      return;
     }
 
-    await vault
-      .createObject({
-        name,
-        value: serialize(value),
-        context: {
-          app: "autopr",
-          purpose: "login-with-chatgpt",
-          scope: this.scope,
-        },
-      })
-      .catch(async (error: unknown) => {
-        if (!isVaultConflict(error)) {
-          throw error;
-        }
-
-        let latest = await vault.readObjectByName(name);
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const latestEnvelope = latest.value
-            ? JSON.parse(latest.value) as VaultStoreEnvelope<T>
-            : undefined;
-          const nextValue = this.mergeConflict && latestEnvelope?.value !== undefined
-            ? this.mergeConflict(latestEnvelope.value, value)
-            : value;
-          try {
-            await vault.updateObject({
-              id: latest.id,
-              value: serialize(nextValue),
-              versionCheck: latest.metadata?.versionId,
-            });
-            return;
-          } catch (updateError) {
-            if (!isVaultConflict(updateError) || attempt === 2) throw updateError;
-            latest = await vault.readObjectByName(name);
-          }
-        }
-      });
+    throw new Error("WorkOS Vault atomic update exhausted its retry budget.");
   }
 
   async delete(key: string): Promise<void> {
@@ -289,7 +260,7 @@ export const chatGPTAuth = createChatGPTHandler({
     rateLimit: {
       limit: Number.parseInt(process.env.LWC_RATE_LIMIT_PER_MINUTE ?? "", 10) || DEFAULT_RESPONSES_RATE_LIMIT,
       windowMs: DEFAULT_RESPONSES_RATE_WINDOW_MS,
-      store: new WorkOSVaultStore<RateLimitBucket>("responses-rate", mergeRateLimitBucket),
+      store: new WorkOSVaultStore<RateLimitBucket>("responses-rate"),
     },
   },
 });

@@ -50,6 +50,7 @@ export {
   type ChatGPTTokens,
   type ChatGPTUser,
   type KeyValueStore,
+  type KeyValueStoreUpdate,
   type LoginStatus,
   MemoryStore,
 } from "../core/index.ts";

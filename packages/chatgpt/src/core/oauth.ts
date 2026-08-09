@@ -1,5 +1,7 @@
 import type { ResolvedConfig } from "./config.ts";
 import { ChatGPTAuthError } from "./errors.ts";
+import { parseJson, safeText } from "./internal/http.ts";
+import { requestSignal } from "./internal/request-signal.ts";
 import { deriveAccountId, getTokenExpiry } from "./jwt.ts";
 import type { ChatGPTTokens, PkcePair } from "./types.ts";
 
@@ -54,7 +56,7 @@ export function createAuthorizationUrl(
 /** Exchanges an authorization code (+ PKCE verifier) for tokens. */
 export async function exchangeAuthorizationCode(
   config: ResolvedConfig,
-  params: { code: string; codeVerifier: string; redirectUri: string },
+  params: { code: string; codeVerifier: string; redirectUri: string; signal?: AbortSignal },
 ): Promise<ChatGPTTokens> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -70,6 +72,7 @@ export async function exchangeAuthorizationCode(
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body,
+      signal: requestSignal(config, params.signal),
     });
   } catch (cause) {
     throw new ChatGPTAuthError("network_error", "Failed to reach the token endpoint.", { cause });
@@ -83,7 +86,13 @@ export async function exchangeAuthorizationCode(
     });
   }
 
-  return toTokens((await response.json()) as RawTokenResponse);
+  return toTokens(
+    await parseJson<RawTokenResponse>(
+      response,
+      "token_exchange_failed",
+      "Token endpoint returned an invalid JSON response.",
+    ),
+  );
 }
 
 /** Error codes OpenAI returns when a refresh token can no longer be used. */
@@ -98,6 +107,7 @@ const DEAD_REFRESH_ERRORS = new Set([
 export async function refreshTokens(
   config: ResolvedConfig,
   refreshToken: string,
+  signal?: AbortSignal,
 ): Promise<ChatGPTTokens> {
   let response: Response;
   try {
@@ -110,6 +120,7 @@ export async function refreshTokens(
         client_id: config.clientId,
         scope: config.scope,
       }),
+      signal: requestSignal(config, signal),
     });
   } catch (cause) {
     throw new ChatGPTAuthError("network_error", "Failed to reach the token endpoint.", { cause });
@@ -130,15 +141,14 @@ export async function refreshTokens(
     });
   }
 
-  return toTokens((await response.json()) as RawTokenResponse, refreshToken);
-}
-
-async function safeText(response: Response): Promise<string> {
-  try {
-    return await response.text();
-  } catch {
-    return "";
-  }
+  return toTokens(
+    await parseJson<RawTokenResponse>(
+      response,
+      "token_refresh_failed",
+      "Token endpoint returned an invalid JSON response.",
+    ),
+    refreshToken,
+  );
 }
 
 function extractErrorCode(body: string): string | undefined {

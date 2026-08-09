@@ -7,6 +7,7 @@ import {
   type UseLoginWithChatGPTResult,
   useLoginWithChatGPT,
 } from "./useLoginWithChatGPT.ts";
+import { CHATGPT_LOGIN_POPUP_FEATURES, CHATGPT_LOGIN_POPUP_NAME } from "./popup.ts";
 
 export interface LoginWithChatGPTProps extends UseLoginWithChatGPTOptions {
   /** Button label. Defaults to "Login with ChatGPT". */
@@ -40,7 +41,6 @@ export interface LoginWithChatGPTConsentOptions {
 
 const STYLE_ID = "lwc-styles";
 const OPENAI_ACTIVE_SESSIONS_HELP_URL = "https://help.openai.com/en/articles/20001257-managing-active-sessions-in-chatgpt";
-const POPUP_FEATURES = "popup=yes,width=520,height=680,menubar=no,toolbar=no,location=yes";
 
 const STYLESHEET = `
 .lwc-root{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:inline-flex;flex-direction:column;gap:12px;align-items:stretch;min-width:260px}
@@ -158,6 +158,7 @@ function InlineConsent({
   onCancel: () => void;
 }) {
   const appName = options.appName ?? "this app";
+  const securityHref = safeHref(options.securityHref);
   return (
     <div className="lwc-card lwc-consent">
       <span className="lwc-consent-title">Authorize {appName} to use ChatGPT?</span>
@@ -166,8 +167,8 @@ function InlineConsent({
           <li key={bullet}>{bullet}</li>
         ))}
       </ul>
-      {options.securityHref ? (
-        <a className="lwc-link" href={options.securityHref} target="_blank" rel="noreferrer">
+      {securityHref ? (
+        <a className="lwc-link" href={securityHref} target="_blank" rel="noreferrer">
           Security details ↗
         </a>
       ) : null}
@@ -197,7 +198,7 @@ export interface OpenLoginWithChatGPTConsentPopupOptions extends LoginWithChatGP
 
 export function openLoginWithChatGPTConsentPopup(options: OpenLoginWithChatGPTConsentPopupOptions): Window | null {
   if (typeof window === "undefined") return null;
-  const popup = window.open("", "login-with-chatgpt", POPUP_FEATURES);
+  const popup = window.open("", CHATGPT_LOGIN_POPUP_NAME, CHATGPT_LOGIN_POPUP_FEATURES);
   if (!popup) return null;
 
   const appName = options.appName ?? "this app";
@@ -232,7 +233,8 @@ function renderConsentPopupHtml({
 }) {
   const safeAppName = escapeHtml(appName);
   const safeContinueLabel = escapeHtml(continueLabel);
-  const safeSecurityHref = securityHref ? escapeAttribute(securityHref) : undefined;
+  const validatedSecurityHref = safeHref(securityHref);
+  const safeSecurityHref = validatedSecurityHref ? escapeAttribute(validatedSecurityHref) : undefined;
   return `<!doctype html>
 <html>
 <head>
@@ -279,6 +281,17 @@ function renderConsentPopupHtml({
   </main>
 </body>
 </html>`;
+}
+
+function safeHref(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const base = typeof window === "undefined" ? "https://localhost" : window.location.href;
+    const url = new URL(value, base);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function escapeHtml(value: string) {

@@ -1,6 +1,8 @@
 import type { ResolvedConfig } from "./config.ts";
 import { DEVICE_CODE_TTL_MS } from "./constants.ts";
 import { ChatGPTAuthError } from "./errors.ts";
+import { parseJson, safeText } from "./internal/http.ts";
+import { requestSignal } from "./internal/request-signal.ts";
 import { exchangeAuthorizationCode } from "./oauth.ts";
 import type { ChatGPTTokens, DeviceCode, DevicePollResult } from "./types.ts";
 
@@ -34,6 +36,7 @@ interface RawTokenPollResponse {
 export async function requestDeviceCode(
   config: ResolvedConfig,
   now: () => number = Date.now,
+  signal?: AbortSignal,
 ): Promise<DeviceCode> {
   const url = `${config.deviceApiBase}/deviceauth/usercode`;
   let response: Response;
@@ -42,6 +45,7 @@ export async function requestDeviceCode(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ client_id: config.clientId }),
+      signal: requestSignal(config, signal),
     });
   } catch (cause) {
     throw new ChatGPTAuthError("network_error", "Failed to reach the device authorization endpoint.", { cause });
@@ -57,7 +61,11 @@ export async function requestDeviceCode(
     });
   }
 
-  const raw = (await response.json()) as RawUserCodeResponse;
+  const raw = await parseJson<RawUserCodeResponse>(
+    response,
+    "device_code_request_failed",
+    "Device authorization endpoint returned an invalid JSON response.",
+  );
   const userCode = raw.user_code ?? raw.usercode;
   if (!raw.device_auth_id || !userCode) {
     throw new ChatGPTAuthError("device_code_request_failed", "Device code response was missing required fields.");
@@ -82,6 +90,7 @@ export async function requestDeviceCode(
 export async function pollDeviceCode(
   config: ResolvedConfig,
   device: Pick<DeviceCode, "deviceAuthId" | "userCode">,
+  signal?: AbortSignal,
 ): Promise<DevicePollResult> {
   const url = `${config.deviceApiBase}/deviceauth/token`;
   let response: Response;
@@ -90,6 +99,7 @@ export async function pollDeviceCode(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ device_auth_id: device.deviceAuthId, user_code: device.userCode }),
+      signal: requestSignal(config, signal),
     });
   } catch (cause) {
     throw new ChatGPTAuthError("network_error", "Failed to reach the device token endpoint.", { cause });
@@ -107,7 +117,11 @@ export async function pollDeviceCode(
     });
   }
 
-  const raw = (await response.json()) as RawTokenPollResponse;
+  const raw = await parseJson<RawTokenPollResponse>(
+    response,
+    "token_exchange_failed",
+    "Device token endpoint returned an invalid JSON response.",
+  );
   if (!raw.authorization_code || !raw.code_verifier || !raw.code_challenge) {
     // A 200 without a code means it is still binding — treat as pending.
     return { status: "pending" };
@@ -124,11 +138,13 @@ export async function pollDeviceCode(
 export function exchangeDeviceAuthorization(
   config: ResolvedConfig,
   poll: Extract<DevicePollResult, { status: "authorized" }>,
+  signal?: AbortSignal,
 ): Promise<ChatGPTTokens> {
   return exchangeAuthorizationCode(config, {
     code: poll.authorizationCode,
     codeVerifier: poll.codeVerifier,
     redirectUri: config.deviceRedirectUri,
+    signal,
   });
 }
 
@@ -164,9 +180,9 @@ export async function waitForDeviceTokens(
       throw new ChatGPTAuthError("authorization_expired", "Device authorization was aborted.");
     }
     options.onPoll?.(++attempt);
-    const result = await pollDeviceCode(config, device);
+    const result = await pollDeviceCode(config, device, options.signal);
     if (result.status === "authorized") {
-      return exchangeDeviceAuthorization(config, result);
+      return exchangeDeviceAuthorization(config, result, options.signal);
     }
     await sleep(intervalMs, options.signal);
   }
@@ -199,12 +215,4 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
   });
-}
-
-async function safeText(response: Response): Promise<string> {
-  try {
-    return await response.text();
-  } catch {
-    return "";
-  }
 }

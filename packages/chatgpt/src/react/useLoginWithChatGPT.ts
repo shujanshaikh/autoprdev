@@ -2,6 +2,7 @@
 
 import type { ChatGPTUser, LoginStatus } from "../core/types.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CHATGPT_LOGIN_POPUP_FEATURES, CHATGPT_LOGIN_POPUP_NAME } from "./popup.ts";
 
 /** Client-side status: the server statuses plus transient hydration/connecting phases. */
 export type ClientLoginStatus = LoginStatus | "loading" | "connecting";
@@ -52,9 +53,6 @@ export interface UseLoginWithChatGPTResult extends LoginWithChatGPTState {
   isConnecting: boolean;
 }
 
-/** Window features that make `window.open` produce a popup window, not a tab. */
-const POPUP_FEATURES = "popup=yes,width=520,height=680,menubar=no,toolbar=no,location=yes";
-
 interface StatusResponse {
   status: LoginStatus;
   user?: ChatGPTUser;
@@ -82,22 +80,24 @@ export function useLoginWithChatGPT(
     openPopup = true,
     autoCopyCode = true,
   } = options;
-  const doFetch = options.fetch ?? globalThis.fetch;
-
   const [state, setState] = useState<LoginWithChatGPTState>({ status: "loading", copied: false });
 
   // Stable refs so effects and callbacks don't churn on every render.
   const popupRef = useRef<Window | null>(null);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const fetchRef = useRef(options.fetch);
   const onAuthenticatedRef = useRef(options.onAuthenticated);
   const onErrorRef = useRef(options.onError);
 
   useEffect(() => {
+    fetchRef.current = options.fetch;
     onAuthenticatedRef.current = options.onAuthenticated;
     onErrorRef.current = options.onError;
-  }, [options.onAuthenticated, options.onError]);
+  }, [options.fetch, options.onAuthenticated, options.onError]);
 
   const request = useCallback(
     async <T>(path: string, init?: RequestInit): Promise<T> => {
+      const doFetch = fetchRef.current ?? ((input, requestInit) => globalThis.fetch(input, requestInit));
       const response = await doFetch(`${basePath}${path}`, {
         credentials: "same-origin",
         ...init,
@@ -105,8 +105,16 @@ export function useLoginWithChatGPT(
       if (!response.ok) throw new Error(`Request to ${path} failed (${response.status}).`);
       return (await response.json()) as T;
     },
-    [basePath, doFetch],
+    [basePath],
   );
+
+  const resetCopiedSoon = useCallback(() => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => {
+      setState((prev) => ({ ...prev, copied: false }));
+      copiedTimerRef.current = undefined;
+    }, 2000);
+  }, []);
 
   const copyCode = useCallback(async () => {
     const code = state.userCode;
@@ -114,10 +122,11 @@ export function useLoginWithChatGPT(
     try {
       await navigator.clipboard.writeText(code);
       setState((prev) => ({ ...prev, copied: true }));
+      resetCopiedSoon();
     } catch {
       // clipboard permission denied — the code is still visible for manual entry
     }
-  }, [state.userCode]);
+  }, [resetCopiedSoon, state.userCode]);
 
   const reopen = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -127,10 +136,17 @@ export function useLoginWithChatGPT(
       return;
     }
     const url = state.verificationUrl;
-    if (url) popupRef.current = window.open(url, "login-with-chatgpt", POPUP_FEATURES);
+    if (url) {
+      popupRef.current = window.open(
+        url,
+        CHATGPT_LOGIN_POPUP_NAME,
+        CHATGPT_LOGIN_POPUP_FEATURES,
+      );
+    }
   }, [state.verificationUrl]);
 
   const login = useCallback(async (loginOptions: LoginWithChatGPTLoginOptions = {}) => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     setState({ status: "connecting", copied: false });
     try {
       const data = await request<LoginResponse>("/login", { method: "POST" });
@@ -162,7 +178,11 @@ export function useLoginWithChatGPT(
           existing.focus();
           popupRef.current = existing;
         } else {
-          popupRef.current = window.open(data.verificationUrl, "login-with-chatgpt", POPUP_FEATURES);
+          popupRef.current = window.open(
+            data.verificationUrl,
+            CHATGPT_LOGIN_POPUP_NAME,
+            CHATGPT_LOGIN_POPUP_FEATURES,
+          );
         }
       }
 
@@ -172,6 +192,7 @@ export function useLoginWithChatGPT(
         verificationUrl: data.verificationUrl,
         copied,
       });
+      if (copied) resetCopiedSoon();
     } catch (error) {
       if (loginOptions.popup && !loginOptions.popup.closed) {
         loginOptions.popup.close();
@@ -180,14 +201,11 @@ export function useLoginWithChatGPT(
       setState({ status: "error", error: err.message, copied: false });
       onErrorRef.current?.(err);
     }
-  }, [autoCopyCode, openPopup, request]);
+  }, [autoCopyCode, openPopup, request, resetCopiedSoon]);
 
   const logout = useCallback(async () => {
-    try {
-      await request("/logout", { method: "POST" });
-    } catch {
-      // best-effort — clear locally regardless
-    }
+    await request("/logout", { method: "POST" });
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     setState({ status: "unauthenticated", copied: false });
   }, [request]);
 
@@ -231,7 +249,11 @@ export function useLoginWithChatGPT(
           onAuthenticatedRef.current?.(data.user);
           return;
         }
-        if (data.status === "expired" || data.status === "error") {
+        if (
+          data.status === "unauthenticated" ||
+          data.status === "expired" ||
+          data.status === "error"
+        ) {
           popupRef.current?.close();
           setState((prev) => ({ ...prev, status: data.status }));
           return;
@@ -251,6 +273,7 @@ export function useLoginWithChatGPT(
   }, [state.status, pollIntervalMs, request]);
 
   useEffect(() => () => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     const popup = popupRef.current;
     if (popup && !popup.closed) popup.close();
   }, []);

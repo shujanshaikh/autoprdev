@@ -324,18 +324,20 @@ export function createChatGPTHandler(options: CreateChatGPTHandlerOptions = {}):
   async function checkRateLimit(sessionId: string): Promise<Response | undefined> {
     if (!rateLimit) return undefined;
     const nowMs = now();
-    const bucket = await rateLimit.store.get(sessionId);
-    if (!bucket || bucket.resetAt <= nowMs) {
-      await rateLimit.store.set(sessionId, { count: 1, resetAt: nowMs + rateLimit.windowMs }, { ttlMs: rateLimit.windowMs });
-      return undefined;
-    }
-    if (bucket.count >= rateLimit.limit) {
+    const bucket = await rateLimit.store.update(sessionId, (current) => {
+      const next = !current || current.resetAt <= nowMs
+        ? { count: 1, resetAt: nowMs + rateLimit.windowMs }
+        : { ...current, count: current.count + 1 };
+      return {
+        value: next,
+        ttlMs: Math.max(1, next.resetAt - nowMs),
+      };
+    });
+    if (bucket.count > rateLimit.limit) {
       const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - nowMs) / 1000));
       const headers = new Headers({ "retry-after": String(retryAfterSeconds) });
       return json({ error: "rate_limited", retryAfterSeconds }, { status: 429, headers });
     }
-    bucket.count += 1;
-    await rateLimit.store.set(sessionId, bucket, { ttlMs: bucket.resetAt - nowMs });
     return undefined;
   }
 
@@ -474,7 +476,9 @@ export function createChatGPTHandler(options: CreateChatGPTHandlerOptions = {}):
           }
           errorBody = await upstream.text();
         }
-        console.error(`[login-with-chatgpt] Codex /responses ${upstream.status}: ${errorBody.slice(0, 2000)}`);
+        console.error(
+          `[login-with-chatgpt] responses_request_failed (upstream status ${upstream.status}).`,
+        );
         return json({ error: "responses_request_failed", status: upstream.status, detail: errorBody.slice(0, 2000) }, { status: upstream.status });
       }
       const headers = new Headers();

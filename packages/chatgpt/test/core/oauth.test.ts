@@ -69,4 +69,25 @@ describe("oauth", () => {
     const config = resolveConfig({ fetch });
     await expect(refreshTokens(config, "x")).rejects.toMatchObject({ code: "token_refresh_failed" });
   });
+
+  test("maps malformed token responses to a typed auth error", async () => {
+    const fetch = createMockFetch(() =>
+      new Response("not json", { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const config = resolveConfig({ fetch });
+
+    await expect(refreshTokens(config, "x")).rejects.toMatchObject({ code: "token_refresh_failed" });
+  });
+
+  test("applies the configured request deadline", async () => {
+    let signal: AbortSignal | null | undefined;
+    const fetch = createMockFetch((_url, init) => {
+      signal = init?.signal;
+      return jsonResponse({ access_token: "at", refresh_token: "rt", id_token: makeIdToken() });
+    });
+    const config = resolveConfig({ fetch, requestTimeoutMs: 1234 });
+
+    await refreshTokens(config, "x");
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
 });

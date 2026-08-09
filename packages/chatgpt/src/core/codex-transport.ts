@@ -1,4 +1,5 @@
 import type { ResolvedConfig } from "./config.ts";
+import { requestSignal } from "./internal/request-signal.ts";
 import { DEFAULT_CODEX_INSTRUCTIONS, REASONING_ENCRYPTED_CONTENT } from "./constants.ts";
 import { ChatGPTAuthError } from "./errors.ts";
 import type { FetchLike } from "./types.ts";
@@ -162,7 +163,7 @@ export function createCodexFetch(options: CodexFetchOptions): FetchLike {
       method: request.method,
       headers,
       body,
-      signal: request.signal ?? undefined,
+      signal: requestSignal(config, request.signal),
     });
   }) as FetchLike;
 

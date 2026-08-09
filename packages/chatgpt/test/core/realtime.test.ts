@@ -169,7 +169,7 @@ describe("ChatGPT Realtime", () => {
   test("distinguishes a ChatGPT edge rejection from an expired web session", async () => {
     const fetch = createMockFetch(() => new Response("challenge", { status: 403 }));
 
-    expect(
+    await expect(
       exchangeChatGPTRealtimeWebSession({
         config: resolveConfig({ fetch }),
         sessionToken: "opaque-session-secret",

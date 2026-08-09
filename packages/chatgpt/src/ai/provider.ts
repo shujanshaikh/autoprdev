@@ -68,14 +68,19 @@ export function createChatGPT(options: CreateChatGPTOptions): ChatGPTProvider {
   const loadCredentials = typeof credentials === "function" ? credentials : () => credentials;
 
   let current: ChatGPTTokens | undefined;
+  let authInFlight: Promise<CodexAuth> | undefined;
 
-  const getAuth = async (): Promise<CodexAuth> => {
+  const resolveAuth = async (): Promise<CodexAuth> => {
     // Credentials without a refresh token cannot be refreshed here. Re-ask the
     // credentials function for a fresh access token when the current one
     // expires.
+    if (!current) {
+      current = await loadCredentials();
+    }
     if (
-      !current ||
-      (typeof credentials === "function" && !current.refreshToken && isAccessTokenExpired(current))
+      typeof credentials === "function" &&
+      !current.refreshToken &&
+      isAccessTokenExpired(current)
     ) {
       current = await loadCredentials();
     }
@@ -90,6 +95,15 @@ export function createChatGPT(options: CreateChatGPTOptions): ChatGPTProvider {
       throw new ChatGPTAuthError("invalid_token", "ChatGPT tokens are missing an account id; sign in again.");
     }
     return { accessToken: fresh.accessToken, accountId: fresh.accountId };
+  };
+
+  const getAuth = (): Promise<CodexAuth> => {
+    if (authInFlight) return authInFlight;
+    const pending = resolveAuth().finally(() => {
+      if (authInFlight === pending) authInFlight = undefined;
+    });
+    authInFlight = pending;
+    return pending;
   };
 
   const codexFetch = createCodexFetch({

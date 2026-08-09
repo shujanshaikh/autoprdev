@@ -48,7 +48,11 @@ export function createMockFetch(
 ): typeof fetch & { calls: Array<{ url: string; init?: RequestInit }> } {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
+    const url = typeof input === "string"
+      ? input
+      : input instanceof Request
+        ? input.url
+        : input.toString();
     calls.push({ url, init });
     return handler(url, init);
   }) as typeof fetch & { calls: typeof calls };

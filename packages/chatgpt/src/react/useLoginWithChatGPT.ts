@@ -2,7 +2,10 @@
 
 import type { ChatGPTUser, LoginStatus } from "../core/types.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CHATGPT_LOGIN_POPUP_FEATURES, CHATGPT_LOGIN_POPUP_NAME } from "./popup.ts";
+import {
+  CHATGPT_LOGIN_POPUP_NAME,
+  CHATGPT_VERIFICATION_POPUP_FEATURES,
+} from "./popup.ts";
 
 /** Client-side status: the server statuses plus transient hydration/connecting phases. */
 export type ClientLoginStatus = LoginStatus | "loading" | "connecting";
@@ -137,11 +140,13 @@ export function useLoginWithChatGPT(
     }
     const url = state.verificationUrl;
     if (url) {
-      popupRef.current = window.open(
+      const opened = window.open(
         url,
         CHATGPT_LOGIN_POPUP_NAME,
-        CHATGPT_LOGIN_POPUP_FEATURES,
+        CHATGPT_VERIFICATION_POPUP_FEATURES,
       );
+      // `noopener` may deliberately hide the WindowProxy even when the popup opened.
+      popupRef.current = opened && !opened.closed ? opened : null;
     }
   }, [state.verificationUrl]);
 
@@ -174,15 +179,17 @@ export function useLoginWithChatGPT(
       if (openPopup && typeof window !== "undefined") {
         const existing = loginOptions.popup;
         if (existing && !existing.closed) {
+          existing.opener = null;
           existing.location.href = data.verificationUrl;
           existing.focus();
           popupRef.current = existing;
         } else {
-          popupRef.current = window.open(
+          const opened = window.open(
             data.verificationUrl,
             CHATGPT_LOGIN_POPUP_NAME,
-            CHATGPT_LOGIN_POPUP_FEATURES,
+            CHATGPT_VERIFICATION_POPUP_FEATURES,
           );
+          popupRef.current = opened && !opened.closed ? opened : null;
         }
       }
 

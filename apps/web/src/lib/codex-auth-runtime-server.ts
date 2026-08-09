@@ -40,7 +40,7 @@ type WorkOSVault = {
     value: string;
     versionCheck?: string;
   }): Promise<WorkOSVaultObject>;
-  deleteObject(input: { id: string }): Promise<void>;
+  deleteObject(input: { id: string; versionCheck?: string }): Promise<void>;
 };
 
 type VaultStoreEnvelope<T> = {
@@ -116,7 +116,7 @@ export function vaultObjectName(scope: string, key: string) {
   return `autopr-lwc-${scope}-${encodedKey}`;
 }
 
-class WorkOSVaultStore<T> implements KeyValueStore<T> {
+export class WorkOSVaultStore<T> implements KeyValueStore<T> {
   constructor(private readonly scope: string) {}
 
   async get(key: string): Promise<T | undefined> {
@@ -138,8 +138,17 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
 
     const envelope = JSON.parse(object.value) as VaultStoreEnvelope<T>;
     if (envelope.expiresAt !== undefined && envelope.expiresAt <= Date.now()) {
-      await getWorkOSVault().deleteObject({ id: object.id }).catch(() => undefined);
-      return undefined;
+      try {
+        await getWorkOSVault().deleteObject({
+          id: object.id,
+          versionCheck: object.metadata?.versionId,
+        });
+        return undefined;
+      } catch (error) {
+        if (isMissingVaultObject(error)) return undefined;
+        if (isVaultConflict(error)) return this.get(key);
+        throw error;
+      }
     }
 
     return envelope.value;
@@ -193,7 +202,8 @@ class WorkOSVaultStore<T> implements KeyValueStore<T> {
         }
         return next.value;
       } catch (error) {
-        if (!isVaultConflict(error) || attempt === 3) throw error;
+        const retryable = isVaultConflict(error) || isMissingVaultObject(error);
+        if (!retryable || attempt === 3) throw error;
       }
     }
 

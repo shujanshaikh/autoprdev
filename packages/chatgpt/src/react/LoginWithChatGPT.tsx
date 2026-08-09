@@ -203,20 +203,17 @@ export function openLoginWithChatGPTConsentPopup(options: OpenLoginWithChatGPTCo
 
   const appName = options.appName ?? "this app";
   const continueLabel = options.continueLabel ?? "I trust this app, continue";
-  const openerWithCallbacks = window as Window & {
-    __loginWithChatGPTContinue?: (target: Window) => void;
-    __loginWithChatGPTCancel?: () => void;
-  };
-  openerWithCallbacks.__loginWithChatGPTContinue = (target) => {
-    const continueButton = popup.document.getElementById("continue");
-    continueButton?.setAttribute("disabled", "true");
-    if (continueButton) continueButton.textContent = "Opening OpenAI...";
-    void options.login({ popup: target });
-  };
-  openerWithCallbacks.__loginWithChatGPTCancel = () => popup.close();
   popup.document.open();
   popup.document.write(renderConsentPopupHtml({ appName, continueLabel, securityHref: options.securityHref }));
   popup.document.close();
+  const continueButton = popup.document.getElementById("continue");
+  continueButton?.addEventListener("click", () => {
+    const continueButton = popup.document.getElementById("continue");
+    continueButton?.setAttribute("disabled", "true");
+    if (continueButton) continueButton.textContent = "Opening OpenAI...";
+    void options.login({ popup });
+  });
+  popup.document.getElementById("close")?.addEventListener("click", () => popup.close());
   popup.focus();
 
   return popup;
@@ -275,8 +272,8 @@ function renderConsentPopupHtml({
       <a href="${OPENAI_ACTIVE_SESSIONS_HELP_URL}" target="_blank" rel="noreferrer">OpenAI sessions help</a>
     </div>
     <div class="actions">
-      <button id="continue" type="button" onclick="window.opener && window.opener.__loginWithChatGPTContinue && window.opener.__loginWithChatGPTContinue(window)">${safeContinueLabel}</button>
-      <button id="close" type="button" onclick="window.opener && window.opener.__loginWithChatGPTCancel ? window.opener.__loginWithChatGPTCancel() : window.close()">Cancel</button>
+      <button id="continue" type="button">${safeContinueLabel}</button>
+      <button id="close" type="button">Cancel</button>
     </div>
   </main>
 </body>

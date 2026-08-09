@@ -74,9 +74,10 @@ const { objectsByName, vault } = vi.hoisted(() => {
         object.metadata.versionId = String(Number(object.metadata.versionId) + 1);
         return object;
       }),
-      deleteObject: vi.fn(async ({ id }: { id: string }) => {
+      deleteObject: vi.fn(async ({ id, versionCheck }: { id: string; versionCheck?: string }) => {
         const object = findById(id);
         if (!object) throw missing();
+        if (versionCheck !== undefined && versionCheck !== object.metadata.versionId) throw conflict();
         stored.delete(object.name);
       }),
       reset() {
@@ -101,6 +102,8 @@ import {
   createCodexAgentGrant,
   createCodexResponsesModel,
   resolveCodexAgentGrant,
+  vaultObjectName,
+  WorkOSVaultStore,
 } from "./codex-auth-runtime-server";
 
 const expectedContext = {
@@ -184,5 +187,46 @@ describe("Codex agent grants", () => {
     expect(proxiedFetch).toHaveBeenCalledWith("/api/chatgpt/models", undefined);
 
     proxyFetchSpy.mockRestore();
+  });
+});
+
+describe("WorkOSVaultStore", () => {
+  beforeEach(() => {
+    process.env.WORKOS_API_KEY = "test-workos-key";
+    vault.reset();
+    vi.clearAllMocks();
+  });
+
+  it("does not delete a value renewed while expired cleanup is in flight", async () => {
+    const store = new WorkOSVaultStore<number>("race-test");
+    await store.set("key", 1, { ttlMs: -1 });
+    const name = vaultObjectName("race-test", "key");
+
+    vault.deleteObject.mockImplementationOnce(async () => {
+      const object = objectsByName.get(name);
+      if (!object) throw Object.assign(new Error("Not found"), { status: 404 });
+      object.value = JSON.stringify({ value: 2, expiresAt: Date.now() + 60_000 });
+      object.metadata.versionId = "2";
+      throw Object.assign(new Error("Conflict"), { status: 409 });
+    });
+
+    await expect(store.get("key")).resolves.toBe(2);
+    expect(objectsByName.get(name)).toBeDefined();
+  });
+
+  it("retries an update when a stale object is deleted before the write", async () => {
+    const store = new WorkOSVaultStore<number>("race-test");
+    await store.set("key", 1);
+    const name = vaultObjectName("race-test", "key");
+
+    vault.updateObject.mockImplementationOnce(async () => {
+      objectsByName.delete(name);
+      throw Object.assign(new Error("Not found"), { status: 404 });
+    });
+
+    await expect(
+      store.update("key", (current) => ({ value: (current ?? 0) + 1 })),
+    ).resolves.toBe(1);
+    await expect(store.get("key")).resolves.toBe(1);
   });
 });

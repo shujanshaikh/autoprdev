@@ -4,6 +4,20 @@ export const GROK_DEVICE_AUTHORIZATION_URL = "https://auth.x.ai/oauth2/device/co
 export const GROK_API_BASE_URL = "https://api.x.ai/v1";
 export const GROK_OAUTH_SCOPE = "openid profile email offline_access grok-cli:access api:access";
 export const GROK_DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+// OpenCode keeps provider availability separate from OAuth and sources its
+// xAI catalog from models.opencode.ai. Keep a local, harness-compatible
+// snapshot so a successful login never appears disconnected merely because
+// xAI's API-key-oriented /models endpoint rejects a subscription token.
+export const GROK_FALLBACK_MODELS = [
+  "grok-build-0.1",
+  "grok-4.20-0309-reasoning",
+  "grok-4.20-0309-non-reasoning",
+  "grok-4.5",
+  "grok-4.3",
+  "grok-4",
+  "grok-code-fast-1",
+  "grok-3-mini",
+] as const;
 
 export type GrokOAuthTokens = {
   accessToken: string;
@@ -146,11 +160,22 @@ export async function fetchGrokModels(
   }
 
   const models = Array.isArray(body.data) ? body.data : [];
-  return [...new Set(models.flatMap((model) => {
+  return normalizeGrokHarnessModels(models.flatMap((model) => {
     if (typeof model !== "object" || model === null || !("id" in model)) return [];
     const id = optionalString(model.id);
     return id ? [id] : [];
-  }))];
+  }));
+}
+
+export function normalizeGrokHarnessModels(models: readonly string[]) {
+  return [...new Set(models
+    .map((model) => model.trim())
+    .filter((model) =>
+      model.length > 0
+      && model.startsWith("grok-")
+      && !model.startsWith("grok-imagine-")
+      && !model.includes("multi-agent"),
+    ))];
 }
 
 export function grokAccessTokenIsExpiring(

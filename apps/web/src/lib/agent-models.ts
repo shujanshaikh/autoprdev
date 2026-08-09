@@ -80,7 +80,12 @@ export function getAgentContextLimit(selection: AgentModelSelection | undefined)
 }
 
 export function normalizeGrokModelList(models: readonly string[] | undefined) {
-  return [...new Set((models ?? []).map((model) => model.trim()).filter((model) => model.length > 0))];
+  const normalized = new Set<string>();
+  for (const model of models ?? []) {
+    const modelId = model.trim();
+    if (modelId) normalized.add(modelId);
+  }
+  return [...normalized];
 }
 
 export function formatAgentModelLabel(selection: AgentModelSelection | undefined) {
@@ -106,7 +111,8 @@ function selectProviderModel(options: readonly AgentModelOption[], provider: Age
   if (providerOptions.length === 0) return undefined;
   const selectedModel = provider === "openai-codex"
     ? selectCodexModel(providerOptions.map((option) => option.modelId))
-    : providerOptions.find((option) => option.modelId === "grok-code-fast-1")?.modelId
+    : providerOptions.find((option) => option.modelId === "grok-build-0.1")?.modelId
+      ?? providerOptions.find((option) => option.modelId === "grok-code-fast-1")?.modelId
       ?? providerOptions.find((option) => option.modelId === "grok-4")?.modelId
       ?? providerOptions[0]?.modelId;
   return selectedModel ? { provider, modelId: selectedModel } : undefined;

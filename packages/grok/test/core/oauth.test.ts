@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   fetchGrokModels,
+  normalizeGrokHarnessModels,
   GROK_DEVICE_CODE_GRANT_TYPE,
   GROK_OAUTH_CLIENT_ID,
   pollGrokDeviceToken,
@@ -58,6 +59,16 @@ describe("Grok OAuth", () => {
     await expect(fetchGrokModels("access", {
       fetch: viRequest({ data: [{ id: "grok-4" }, { id: "grok-code-fast-1" }, { id: "grok-4" }] }),
     })).resolves.toEqual(["grok-4", "grok-code-fast-1"]);
+  });
+
+  it("keeps harness-compatible Grok models out of mixed xAI catalogs", () => {
+    expect(normalizeGrokHarnessModels([
+      "grok-4.5",
+      "grok-imagine-image",
+      "grok-4.20-multi-agent-0309",
+      "grok-build-0.1",
+      "grok-4.5",
+    ])).toEqual(["grok-4.5", "grok-build-0.1"]);
   });
 });
 

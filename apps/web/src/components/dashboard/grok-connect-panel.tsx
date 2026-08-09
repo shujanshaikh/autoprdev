@@ -14,6 +14,15 @@ type DeviceFlow = {
   intervalMs: number;
 };
 
+const GROK_DEVICE_FLOW_STORAGE_KEY = "autopr:grok-device-flow";
+
+class GrokRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "GrokRequestError";
+  }
+}
+
 export function GrokConnectPanel({
   active,
   status,
@@ -27,6 +36,24 @@ export function GrokConnectPanel({
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [optimisticConnected, setOptimisticConnected] = useState(false);
+  const connected = status?.connected === true || optimisticConnected;
+
+  const clearFlow = useCallback(() => {
+    clearStoredDeviceFlow();
+    setFlow(undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!active || connected || flow) return;
+    const stored = readStoredDeviceFlow();
+    if (!stored) return;
+    if (stored.expiresAt <= Date.now()) {
+      clearStoredDeviceFlow();
+      return;
+    }
+    setFlow(stored);
+  }, [active, connected, flow]);
 
   const poll = useCallback(async (current: DeviceFlow) => {
     const response = await fetch("/api/grok/device/poll", {
@@ -36,43 +63,51 @@ export function GrokConnectPanel({
     });
     const result = await readJson<{ status: "pending" | "connected" | "denied" | "expired"; intervalMs?: number }>(response);
     if (result.status === "connected") {
-      setFlow(undefined);
+      clearFlow();
+      setOptimisticConnected(true);
       onStatusChange();
       return;
     }
     if (result.status === "denied" || result.status === "expired") {
-      setFlow(undefined);
+      clearFlow();
       setError(result.status === "denied" ? "Grok authorization was denied." : "The Grok connection code expired.");
       return;
     }
     setFlow((latest) => latest?.flowId === current.flowId
       ? { ...latest, intervalMs: result.intervalMs ?? latest.intervalMs }
       : latest);
-  }, [onStatusChange]);
+  }, [clearFlow, onStatusChange]);
 
   useEffect(() => {
-    if (!active || !flow) return;
+    if (!active || connected || !flow) return;
     const remaining = flow.expiresAt - Date.now();
     if (remaining <= 0) {
-      setFlow(undefined);
+      clearFlow();
       setError("The Grok connection code expired.");
       return;
     }
     const timer = window.setTimeout(() => {
       void poll(flow).catch((pollError) => {
+        if (pollError instanceof GrokRequestError && pollError.status === 404) {
+          clearFlow();
+          onStatusChange();
+          return;
+        }
         setError(pollError instanceof Error ? pollError.message : "Could not check Grok authorization.");
         setFlow((latest) => latest?.flowId === flow.flowId ? { ...latest } : latest);
       });
     }, Math.min(flow.intervalMs, remaining));
     return () => window.clearTimeout(timer);
-  }, [active, flow, poll]);
+  }, [active, clearFlow, connected, flow, onStatusChange, poll]);
 
   async function startConnection() {
     setBusy(true);
     setError(undefined);
     setCopied(false);
+    setOptimisticConnected(false);
     try {
       const next = await readJson<DeviceFlow>(await fetch("/api/grok/device/start", { method: "POST" }));
+      storeDeviceFlow(next);
       setFlow(next);
       window.open(next.verificationUrl, "connect-supergrok", "noopener,noreferrer");
     } catch (startError) {
@@ -93,7 +128,8 @@ export function GrokConnectPanel({
     setError(undefined);
     try {
       await readJson(await fetch("/api/grok/disconnect", { method: "POST" }));
-      setFlow(undefined);
+      clearFlow();
+      setOptimisticConnected(false);
       onStatusChange();
     } catch (disconnectError) {
       setError(disconnectError instanceof Error ? disconnectError.message : "Could not disconnect Grok.");
@@ -102,7 +138,6 @@ export function GrokConnectPanel({
     }
   }
 
-  const connected = status?.connected === true;
   const identity = status?.email ?? status?.name ?? status?.subject;
 
   return (
@@ -125,7 +160,7 @@ export function GrokConnectPanel({
         {connected ? (
           <>
             {identity ? <p className="truncate text-sm text-foreground">{identity}</p> : null}
-            {status.models?.length ? (
+            {status?.models?.length ? (
               <p className="text-xs text-muted-foreground">{status.models.length} Grok models available</p>
             ) : null}
             <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => void disconnect()}>
@@ -171,7 +206,49 @@ export function GrokMark({ className }: { className?: string }) {
 async function readJson<T = unknown>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.");
+    throw new GrokRequestError(
+      data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.",
+      response.status,
+    );
   }
   return data as T;
+}
+
+function storeDeviceFlow(flow: DeviceFlow) {
+  try {
+    window.localStorage.setItem(GROK_DEVICE_FLOW_STORAGE_KEY, JSON.stringify(flow));
+  } catch {
+    // Polling still works in memory when storage is unavailable.
+  }
+}
+
+function clearStoredDeviceFlow() {
+  try {
+    window.localStorage.removeItem(GROK_DEVICE_FLOW_STORAGE_KEY);
+  } catch {
+    // Storage may be unavailable in hardened browser contexts.
+  }
+}
+
+function readStoredDeviceFlow(): DeviceFlow | undefined {
+  try {
+    const value = window.localStorage.getItem(GROK_DEVICE_FLOW_STORAGE_KEY);
+    if (!value) return undefined;
+    const parsed = JSON.parse(value) as Partial<DeviceFlow>;
+    if (
+      typeof parsed.flowId !== "string"
+      || typeof parsed.userCode !== "string"
+      || typeof parsed.verificationUrl !== "string"
+      || typeof parsed.verificationUri !== "string"
+      || typeof parsed.expiresAt !== "number"
+      || typeof parsed.intervalMs !== "number"
+    ) {
+      clearStoredDeviceFlow();
+      return undefined;
+    }
+    return parsed as DeviceFlow;
+  } catch {
+    clearStoredDeviceFlow();
+    return undefined;
+  }
 }

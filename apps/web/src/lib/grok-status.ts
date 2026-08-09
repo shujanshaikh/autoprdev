@@ -13,11 +13,11 @@ const grokStatusQueryKey = ["grok", "status"] as const;
 
 async function fetchGrokStatus(): Promise<GrokStatus> {
   const response = await fetch("/api/grok/status");
-  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
     throw new Error(data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.");
   }
-  return data as GrokStatus;
+  return await response.json() as GrokStatus;
 }
 
 export function useGrokStatus(enabled: boolean) {

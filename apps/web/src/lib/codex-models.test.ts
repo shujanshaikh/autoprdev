@@ -16,9 +16,9 @@ import {
 describe("Codex model cost helpers", () => {
   it("matches the current user-selectable Codex model catalog", () => {
     expect(CODEX_MODELS.map(({ id, label, contextLimit }) => ({ id, label, contextLimit }))).toEqual([
-      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 1_050_000 },
-      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 1_050_000 },
-      { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 1_050_000 },
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 272_000 },
+      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 272_000 },
+      { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 272_000 },
       { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 272_000 },
       { id: "gpt-5.4", label: "GPT-5.4", contextLimit: 272_000 },
       { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", contextLimit: 272_000 },
@@ -53,7 +53,7 @@ describe("Codex model cost helpers", () => {
   });
 
   it("uses a conservative context limit for dynamically discovered models", () => {
-    expect(getCodexContextLimit("gpt-5.6-sol")).toBe(1_050_000);
+    expect(getCodexContextLimit("gpt-5.6-sol")).toBe(272_000);
     expect(getCodexContextLimit("gpt-account-only")).toBe(128_000);
   });
 

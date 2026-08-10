@@ -72,6 +72,9 @@ importers:
       '@autopr/backend':
         specifier: workspace:*
         version: link:../../packages/backend
+      '@autopr/chatgpt':
+        specifier: workspace:*
+        version: link:../../packages/chatgpt
       '@convex-dev/r2':
         specifier: ^0.10.1
         version: 0.10.1(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.3))(hono@4.12.14)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@6.0.3)(zod@4.4.3)

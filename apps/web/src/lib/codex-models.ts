@@ -1,3 +1,5 @@
+import { CHATGPT_CODEX_MODEL_LIMITS } from "@autopr/chatgpt/codex-model-limits";
+
 const STANDARD_CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 const MAX_CODEX_REASONING_EFFORTS = [...STANDARD_CODEX_REASONING_EFFORTS, "max"] as const;
 const ULTRA_CODEX_REASONING_EFFORTS = [...MAX_CODEX_REASONING_EFFORTS, "ultra"] as const;
@@ -25,19 +27,19 @@ export const CODEX_MODELS: readonly CodexModel[] = [
   {
     id: PREFERRED_CODEX_MODEL,
     label: "GPT-5.6-Sol",
-    contextLimit: 1_050_000,
+    contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-sol"].contextWindowTokens,
     reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
   },
   {
     id: "gpt-5.6-terra",
     label: "GPT-5.6-Terra",
-    contextLimit: 1_050_000,
+    contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-terra"].contextWindowTokens,
     reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
   },
   {
     id: "gpt-5.6-luna",
     label: "GPT-5.6-Luna",
-    contextLimit: 1_050_000,
+    contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-luna"].contextWindowTokens,
     reasoningEfforts: MAX_CODEX_REASONING_EFFORTS,
   },
   {

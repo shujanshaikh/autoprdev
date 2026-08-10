@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import {
+  fetchGithubPullRequestDetail,
+  fetchGithubPullRequestFiles,
+  fetchGithubPullRequestTimeline,
   fetchGithubPullRequests,
   GithubApiError,
   resolveGithubPullRequest,
@@ -32,6 +35,31 @@ async function GET(_req: Request, { params }: { params: Promise<{ projectId: str
   try {
     const authState = await requireWorkOSAuth();
     const token = await getGithubOAuthToken(authState.user.id, authState.organizationId);
+    const url = new URL(_req.url);
+    const rawNumber = url.searchParams.get("number");
+    if (rawNumber !== null) {
+      const number = Number.parseInt(rawNumber, 10);
+      if (!Number.isSafeInteger(number) || number < 1 || String(number) !== rawNumber) {
+        return Response.json({ error: "Enter a valid pull request number." }, { status: 400 });
+      }
+
+      const view = url.searchParams.get("view") ?? "detail";
+      if (view === "files") {
+        const files = await fetchGithubPullRequestFiles(token, project.repoOwner, project.repoName, number);
+        return Response.json({ files });
+      }
+      if (view === "timeline") {
+        const timeline = await fetchGithubPullRequestTimeline(token, project.repoOwner, project.repoName, number);
+        return Response.json({ timeline });
+      }
+      if (view !== "detail") {
+        return Response.json({ error: "Unknown pull request view." }, { status: 400 });
+      }
+
+      const pullRequest = await fetchGithubPullRequestDetail(token, project.repoOwner, project.repoName, number);
+      return Response.json({ pullRequest });
+    }
+
     const pulls = await fetchGithubPullRequests(token, project.repoOwner, project.repoName);
 
     return Response.json({
@@ -45,6 +73,16 @@ async function GET(_req: Request, { params }: { params: Promise<{ projectId: str
   } catch (error) {
     if (error instanceof GithubConnectionError) {
       return Response.json({ code: "GITHUB_NOT_CONNECTED", error: error.message }, { status: 401 });
+    }
+
+    if (error instanceof GithubApiError) {
+      const status = error.status === 404 ? 404 : error.status === 403 ? 403 : 502;
+      const message = error.status === 404
+        ? "The pull request was not found or your GitHub account cannot access it."
+        : error.status === 403
+          ? "Your GitHub account does not have permission to read this pull request."
+          : error.message;
+      return Response.json({ code: "GITHUB_PULL_REQUEST_UNAVAILABLE", error: message }, { status });
     }
 
     return Response.json({ error: safeErrorMessage(error, "Could not load pull requests.") }, { status: 502 });

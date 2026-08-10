@@ -30,6 +30,60 @@ export interface GithubOAuthPullRequest {
   baseRef: string;
 }
 
+export interface GithubPullRequestActor {
+  login: string;
+  avatarUrl?: string;
+}
+
+export interface GithubPullRequestDetail extends GithubOAuthPullRequest {
+  body: string;
+  author: GithubPullRequestActor;
+  mergedAt?: string;
+  closedAt?: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  commits: number;
+  comments: number;
+  reviewComments: number;
+  mergeable: boolean | null;
+  mergeableState: string;
+  requestedReviewers: GithubPullRequestActor[];
+  labels: Array<{ name: string; color: string }>;
+}
+
+export interface GithubPullRequestFile {
+  filename: string;
+  previousFilename?: string;
+  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  blobUrl: string;
+}
+
+export type GithubPullRequestTimelineItem =
+  | {
+      id: string;
+      kind: "commit";
+      createdAt: string;
+      actor: GithubPullRequestActor;
+      title: string;
+      message: string;
+      sha: string;
+      url: string;
+    }
+  | {
+      id: string;
+      kind: "comment" | "review";
+      createdAt: string;
+      actor: GithubPullRequestActor;
+      body: string;
+      url: string;
+      state?: string;
+    };
+
 export interface ResolvedGithubPullRequest {
   number: number;
   title: string;
@@ -340,6 +394,176 @@ export async function fetchGithubPullRequests(token: string, owner: string, repo
     headRef: pull.head.ref,
     baseRef: pull.base.ref,
   }));
+}
+
+function githubActor(actor: { login: string; avatar_url?: string } | null): GithubPullRequestActor {
+  return {
+    login: actor?.login ?? "ghost",
+    ...(actor?.avatar_url ? { avatarUrl: actor.avatar_url } : {}),
+  };
+}
+
+export async function fetchGithubPullRequestDetail(
+  token: string,
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<GithubPullRequestDetail> {
+  const response = await githubJson<{
+    id: number;
+    number: number;
+    title: string;
+    body: string | null;
+    state: "open" | "closed";
+    html_url: string;
+    user: { login: string; avatar_url?: string } | null;
+    created_at: string;
+    updated_at: string;
+    closed_at: string | null;
+    merged_at: string | null;
+    draft?: boolean;
+    head: { ref: string };
+    base: { ref: string };
+    additions: number;
+    deletions: number;
+    changed_files: number;
+    commits: number;
+    comments: number;
+    review_comments: number;
+    mergeable: boolean | null;
+    mergeable_state: string;
+    requested_reviewers?: Array<{ login: string; avatar_url?: string }>;
+    labels?: Array<{ name: string; color: string }>;
+  }>(token, `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`);
+  const pull = response.data;
+
+  return {
+    id: pull.id,
+    number: pull.number,
+    title: pull.title,
+    body: pull.body ?? "",
+    state: pull.state,
+    htmlUrl: pull.html_url,
+    user: pull.user?.login ?? "ghost",
+    author: githubActor(pull.user),
+    createdAt: pull.created_at,
+    updatedAt: pull.updated_at,
+    ...(pull.closed_at ? { closedAt: pull.closed_at } : {}),
+    ...(pull.merged_at ? { mergedAt: pull.merged_at } : {}),
+    draft: Boolean(pull.draft),
+    headRef: pull.head.ref,
+    baseRef: pull.base.ref,
+    additions: pull.additions,
+    deletions: pull.deletions,
+    changedFiles: pull.changed_files,
+    commits: pull.commits,
+    comments: pull.comments,
+    reviewComments: pull.review_comments,
+    mergeable: pull.mergeable,
+    mergeableState: pull.mergeable_state,
+    requestedReviewers: (pull.requested_reviewers ?? []).map(githubActor),
+    labels: (pull.labels ?? []).map((label) => ({ name: label.name, color: label.color })),
+  };
+}
+
+export async function fetchGithubPullRequestFiles(
+  token: string,
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<GithubPullRequestFile[]> {
+  const files = await paginatedGithubJson<{
+    filename: string;
+    previous_filename?: string;
+    status: GithubPullRequestFile["status"];
+    additions: number;
+    deletions: number;
+    changes: number;
+    patch?: string;
+    blob_url: string;
+  }>(
+    token,
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}/files?per_page=100`,
+  );
+
+  return files.map((file) => ({
+    filename: file.filename,
+    ...(file.previous_filename ? { previousFilename: file.previous_filename } : {}),
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    changes: file.changes,
+    ...(file.patch ? { patch: file.patch } : {}),
+    blobUrl: file.blob_url,
+  }));
+}
+
+export async function fetchGithubPullRequestTimeline(
+  token: string,
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<GithubPullRequestTimelineItem[]> {
+  const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const [commits, comments, reviews] = await Promise.all([
+    paginatedGithubJson<{
+      sha: string;
+      html_url: string;
+      author: { login: string; avatar_url?: string } | null;
+      commit: {
+        message: string;
+        author: { name: string; date: string } | null;
+      };
+    }>(token, `${baseUrl}/pulls/${number}/commits?per_page=100`),
+    paginatedGithubJson<{
+      id: number;
+      html_url: string;
+      body: string;
+      created_at: string;
+      user: { login: string; avatar_url?: string } | null;
+    }>(token, `${baseUrl}/issues/${number}/comments?per_page=100`),
+    paginatedGithubJson<{
+      id: number;
+      html_url: string;
+      body: string;
+      state: string;
+      submitted_at: string | null;
+      user: { login: string; avatar_url?: string } | null;
+    }>(token, `${baseUrl}/pulls/${number}/reviews?per_page=100`),
+  ]);
+
+  return [
+    ...commits.map((commit): GithubPullRequestTimelineItem => {
+      const [title = "Commit", ...bodyLines] = commit.commit.message.split("\n");
+      return {
+        id: `commit:${commit.sha}`,
+        kind: "commit",
+        createdAt: commit.commit.author?.date ?? "",
+        actor: commit.author ? githubActor(commit.author) : { login: commit.commit.author?.name ?? "ghost" },
+        title,
+        message: bodyLines.join("\n").trim(),
+        sha: commit.sha,
+        url: commit.html_url,
+      };
+    }),
+    ...comments.map((comment): GithubPullRequestTimelineItem => ({
+      id: `comment:${comment.id}`,
+      kind: "comment",
+      createdAt: comment.created_at,
+      actor: githubActor(comment.user),
+      body: comment.body,
+      url: comment.html_url,
+    })),
+    ...reviews.map((review): GithubPullRequestTimelineItem => ({
+      id: `review:${review.id}`,
+      kind: "review",
+      createdAt: review.submitted_at ?? "",
+      actor: githubActor(review.user),
+      body: review.body,
+      url: review.html_url,
+      state: review.state.toLowerCase(),
+    })),
+  ].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
 export async function fetchGithubPullRequestForBranch(

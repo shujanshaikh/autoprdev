@@ -8,7 +8,10 @@ import {
   resolveGithubPullRequestHead,
 } from "@autopr/backend/convex/lib/githubPullRequest";
 import {
+  fetchGithubPullRequestDetail,
+  fetchGithubPullRequestFiles,
   fetchGithubPullRequestForBranch,
+  fetchGithubPullRequestTimeline,
   GithubApiError,
   resolveGithubPullRequest,
 } from "@autopr/backend/convex/lib/github_oauth";
@@ -177,5 +180,95 @@ describe("resolveGithubPullRequest", () => {
     });
 
     expect(fetchMock.mock.calls[0]?.[0]).toContain("head=contributor%3Aretry-fix");
+  });
+});
+
+describe("pull request review data", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("normalizes the summary fields used by the review header", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response({
+      ...basePull,
+      id: 9001,
+      body: "## Summary\nSafer retries.",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+      closed_at: null,
+      additions: 17,
+      deletions: 4,
+      changed_files: 3,
+      commits: 2,
+      comments: 1,
+      review_comments: 2,
+      mergeable: true,
+      mergeable_state: "clean",
+      requested_reviewers: [{ login: "reviewer", avatar_url: "https://avatars.example/reviewer" }],
+      labels: [{ name: "reliability", color: "2da44e" }],
+    })));
+
+    await expect(fetchGithubPullRequestDetail("token", "acme", "widget", 42)).resolves.toMatchObject({
+      id: 9001,
+      body: "## Summary\nSafer retries.",
+      additions: 17,
+      deletions: 4,
+      changedFiles: 3,
+      requestedReviewers: [{ login: "reviewer" }],
+      labels: [{ name: "reliability" }],
+    });
+  });
+
+  it("normalizes changed files and preserves omitted binary patches", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response([
+      {
+        filename: "src/retry.ts",
+        status: "modified",
+        additions: 4,
+        deletions: 1,
+        changes: 5,
+        patch: "@@ -1 +1 @@\n-old\n+new",
+        blob_url: "https://github.com/acme/widget/blob/a/src/retry.ts",
+      },
+      {
+        filename: "assets/logo.png",
+        status: "modified",
+        additions: 0,
+        deletions: 0,
+        changes: 0,
+        blob_url: "https://github.com/acme/widget/blob/a/assets/logo.png",
+      },
+    ])));
+
+    const files = await fetchGithubPullRequestFiles("token", "acme", "widget", 42);
+    expect(files[0]).toMatchObject({ filename: "src/retry.ts", patch: expect.stringContaining("@@") });
+    expect(files[1]).not.toHaveProperty("patch");
+  });
+
+  it("combines commits, comments, and reviews in chronological order", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response([{
+        sha: "a".repeat(40),
+        html_url: "https://github.com/acme/widget/commit/a",
+        author: { login: "octocat" },
+        commit: { message: "Fix retries\n\nKeep backoff bounded.", author: { name: "Octo Cat", date: "2026-01-02T00:00:00Z" } },
+      }]))
+      .mockResolvedValueOnce(response([{
+        id: 1,
+        html_url: "https://github.com/acme/widget/pull/42#issuecomment-1",
+        body: "Can we cover the timeout?",
+        created_at: "2026-01-01T00:00:00Z",
+        user: { login: "reviewer" },
+      }]))
+      .mockResolvedValueOnce(response([{
+        id: 2,
+        html_url: "https://github.com/acme/widget/pull/42#pullrequestreview-2",
+        body: "Looks good.",
+        state: "APPROVED",
+        submitted_at: "2026-01-03T00:00:00Z",
+        user: { login: "maintainer" },
+      }])));
+
+    const timeline = await fetchGithubPullRequestTimeline("token", "acme", "widget", 42);
+    expect(timeline.map((item) => item.kind)).toEqual(["comment", "commit", "review"]);
+    expect(timeline[2]).toMatchObject({ state: "approved" });
   });
 });

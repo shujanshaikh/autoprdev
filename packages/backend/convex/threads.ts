@@ -846,12 +846,13 @@ async function applyRunIssue(
   ctx: MutationCtx,
   thread: Doc<"threads">,
   issue: RunIssue,
+  options: { replaceSameRun?: boolean } = {},
 ) {
   if (thread.currentRunId && thread.currentRunId !== issue.runId) {
     return null;
   }
 
-  if (thread.agentRunIssue?.runId === issue.runId) {
+  if (thread.agentRunIssue?.runId === issue.runId && !options.replaceSameRun) {
     return null;
   }
 
@@ -935,7 +936,13 @@ export const recordAgentRunIssueFromAgentInternal = internalMutation({
   },
   handler: async (ctx, args) => {
     const { thread, assistant } = await requireAgentPersistenceGrant(ctx, args);
-    const result = await applyRunIssue(ctx, thread, args.issue);
+    // Realtime reconciliation can observe Trigger's generic failure wrapper
+    // before this task-level persistence call arrives. The task owns the root
+    // exception, so let it replace a same-run generic issue without allowing
+    // older or unrelated runs to overwrite current state.
+    const result = await applyRunIssue(ctx, thread, args.issue, {
+      replaceSameRun: true,
+    });
     await ctx.db.patch(assistant._id, { agentPersistenceTokenHash: undefined });
     return result;
   },

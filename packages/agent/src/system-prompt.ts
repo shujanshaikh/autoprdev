@@ -24,6 +24,7 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   ],
   grep: [
     "Use grep for code and text search before making assumptions about existing behavior. It is backed by FFF indexed grep with smart-case search.",
+    "Give grep a concrete substring, identifier, or intentional regex and constrain path/glob when useful. Never use wildcard-only patterns such as .* to read a whole file; use read for that.",
   ],
   edit: [
     "Use edit for precise changes. Each edits[].oldText must match exactly once.",

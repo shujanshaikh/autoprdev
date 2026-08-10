@@ -67,6 +67,26 @@ describe("Daytona search tools", () => {
     await expect(execute("grep", { pattern: "agent" })).rejects.toThrow("fff runtime missing");
   });
 
+  it("bounds native grep work and rejects match-everything patterns", async () => {
+    mocks.executeAutoprFff.mockResolvedValue({
+      ok: true,
+      exitCode: 0,
+      value: { items: [], totalMatched: 0 },
+    });
+
+    await execute("grep", { pattern: "createAgent" });
+    expect(mocks.executeAutoprFff).toHaveBeenCalledWith(
+      "grep",
+      expect.objectContaining({ "time-budget-ms": 10_000 }),
+      { cacheKey: "search-test" },
+    );
+
+    await expect(execute("grep", { pattern: ".*" })).rejects.toThrow(
+      "requires a concrete substring",
+    );
+    expect(mocks.executeAutoprFff).toHaveBeenCalledTimes(1);
+  });
+
   it("withholds pagination cursors when output truncation would skip unseen find results", async () => {
     mocks.executeAutoprFff.mockResolvedValue({
       ok: true,

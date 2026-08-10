@@ -9,11 +9,12 @@ import { requireString } from "./validation";
 
 const DEFAULT_GREP_LIMIT = 100;
 const MAX_GREP_LIMIT = 500;
+const FFF_GREP_TIME_BUDGET_MS = 10_000;
 const MAX_LINE_CHARS = 800;
 const searchFilterSchema = z.string().max(4_096);
 
 const grepInputSchema = z.object({
-  pattern: z.string().max(8_192).optional().describe("Required. Search pattern to look for. Auto-detects regex syntax; plain literal search is used otherwise."),
+  pattern: z.string().max(8_192).optional().describe("Required concrete substring, identifier, or regex. Auto-detects regex syntax; wildcard-only match-everything patterns are rejected."),
   path: z
     .string()
     .max(4_096)
@@ -70,6 +71,11 @@ interface FffGrepResult {
 
 async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessionOptions) {
   const pattern = requireString(input.pattern, "pattern", "grep");
+  if (isWildcardOnlyPattern(pattern)) {
+    throw new Error(
+      `Pattern "${pattern}" matches everything. grep requires a concrete substring or identifier; use read for a known file or find for file discovery.`,
+    );
+  }
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = context.workDir;
   const scopePath = input.path
@@ -91,6 +97,7 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
     limit,
     cursor: input.cursor,
     "max-matches-per-file": Math.min(limit, 50),
+    "time-budget-ms": FFF_GREP_TIME_BUDGET_MS,
   }, sandboxOptions);
 
   if (!result.ok) {
@@ -133,6 +140,18 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
       truncated: body.truncated,
     },
   };
+}
+
+function isWildcardOnlyPattern(pattern: string): boolean {
+  const trimmed = pattern.trim();
+  const hasRegexSyntax = /[.*+?^${}()|[\]\\]/.test(trimmed);
+  if (!trimmed || !hasRegexSyntax) {
+    return false;
+  }
+
+  return /^(?:[.^$]*(?:[.][*+?]|\*|\+)[.^$]*|[.^$\s]*|\.\*\??|\.\*[+?]?|\.\+\??|\.|\*|\?)$/.test(
+    trimmed,
+  );
 }
 
 function formatFffGrepOutput(result: FffGrepResult): string {
@@ -229,7 +248,7 @@ export function createDaytonaGrepTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "grep",
     description:
-      "Search workspace file contents using FFF indexed grep with bounded line/context output. Use to locate symbols, behavior, errors, and existing patterns before editing. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
+      "Search workspace file contents using FFF indexed grep with bounded line/context output. Use a concrete substring, identifier, or intentional regex to locate behavior before editing; use read instead of wildcard-only patterns to inspect a known file. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
     inputSchema: grepInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaGrep(input, sandboxOptions),

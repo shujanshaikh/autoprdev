@@ -355,8 +355,8 @@ export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true
   },
   onFailure: async ({ payload, error, ctx, signal }) => {
     try {
-      // Trigger.dev 4.5.2 can reach onFailure after its cancellation signal
-      // aborts task code. A user-requested stop must not become a run issue.
+      // Trigger.dev can reach onFailure after its cancellation signal aborts
+      // task code. A user-requested stop must not become a run issue.
       if (isCancellation(error, signal)) {
         return;
       }

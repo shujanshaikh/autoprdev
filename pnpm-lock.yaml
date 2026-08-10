@@ -245,8 +245,8 @@ importers:
         specifier: latest
         version: 1.167.65(crossws@0.4.5(srvx@0.11.15))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(vite@8.0.12(@types/node@22.19.19)(esbuild@0.27.0)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
       '@trigger.dev/sdk':
-        specifier: 4.5.2
-        version: 4.5.2(ai@6.0.168(zod@4.3.6))(react@19.2.5)(zod@4.3.6)
+        specifier: 4.5.10
+        version: 4.5.10(ai@6.0.168(zod@4.3.6))(react@19.2.5)(zod@4.3.6)
       '@workos-inc/node':
         specifier: ^9.3.0
         version: 9.3.0
@@ -3321,8 +3321,8 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  '@s2-dev/streamstore@0.22.10':
-    resolution: {integrity: sha512-dtm+oFHVE8szINwOUoNQdx9xpGSJOrcAEvsxspPFvomjYKGnmhIRmU4OX8o6kxcPoiK76S1tPeU0smjZdmOngA==}
+  '@s2-dev/streamstore@0.25.0':
+    resolution: {integrity: sha512-oB8OJObT/s2Q68Tr01NLfDnQPFJp/Kn2pP3seWybgP7VrjQ+j1efXReOsyVCDsUBVMxkyPlzt75o/+GuL5Q3vg==}
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
@@ -4016,12 +4016,12 @@ packages:
   '@tokenizer/token@0.3.0':
     resolution: {integrity: sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A==}
 
-  '@trigger.dev/core@4.5.2':
-    resolution: {integrity: sha512-j2HplCNckq8s/B/qHpcHKj9f2Crkz8Ei7uc4CLzlO9v7VxiBrJVRr5/M+1KnUjYrQ1njeXHQyf/nQY+lL6478w==}
+  '@trigger.dev/core@4.5.10':
+    resolution: {integrity: sha512-3EubsNMrT82VcTDP6+jP72BGNVutbaZzsg5Trm4kf3fmjpd4PrfNpUFTw+c61SpUWKuAFW1mLwQ+i7MKK3TWLA==}
     engines: {node: '>=18.20.0'}
 
-  '@trigger.dev/sdk@4.5.2':
-    resolution: {integrity: sha512-wd4RdYqNgs5YWcoURNpr8YTcmYsOGt5ST+RpXQ2EBpUEYsq8Voxx8VSHrc3KLgTmSi975yJpH6M17OiIGlunYQ==}
+  '@trigger.dev/sdk@4.5.10':
+    resolution: {integrity: sha512-cXCSAf97ixIkxjLFafOAv+AWRkHuWOn+vwi6ndofJu1sPXd9K1AX+ClacSW5FYSI5Ruf9iAZdmGXEsEmjzduZQ==}
     engines: {node: '>=18.20.0'}
     peerDependencies:
       '@ai-sdk/otel': '>=1.0.0-0 <2'
@@ -12283,7 +12283,7 @@ snapshots:
   '@rollup/rollup-darwin-arm64@4.62.2':
     optional: true
 
-  '@s2-dev/streamstore@0.22.10':
+  '@s2-dev/streamstore@0.25.0':
     dependencies:
       '@protobuf-ts/runtime': 2.11.1
       debug: 4.4.3
@@ -13218,7 +13218,7 @@ snapshots:
 
   '@tokenizer/token@0.3.0': {}
 
-  '@trigger.dev/core@4.5.2':
+  '@trigger.dev/core@4.5.10':
     dependencies:
       '@bugsnag/cuid': 3.2.2
       '@electric-sql/client': 1.0.14
@@ -13238,7 +13238,7 @@ snapshots:
       '@opentelemetry/sdk-trace-base': 2.7.1(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-node': 2.7.1(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.41.1
-      '@s2-dev/streamstore': 0.22.10
+      '@s2-dev/streamstore': 0.25.0
       dequal: 2.0.3
       eventsource: 3.0.7
       eventsource-parser: 3.0.8
@@ -13260,11 +13260,11 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@trigger.dev/sdk@4.5.2(ai@6.0.168(zod@4.3.6))(react@19.2.5)(zod@4.3.6)':
+  '@trigger.dev/sdk@4.5.10(ai@6.0.168(zod@4.3.6))(react@19.2.5)(zod@4.3.6)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/semantic-conventions': 1.41.1
-      '@trigger.dev/core': 4.5.2
+      '@trigger.dev/core': 4.5.10
       chalk: 5.6.2
       cronstrue: 2.59.0
       debug: 4.4.3

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { defineConfig } from "@trigger.dev/sdk";
 
-const project = process.env.TRIGGER_PROJECT_REF ?? "proj_utowwgzauraxgrxhwxie";;
+const project = process.env.TRIGGER_PROJECT_REF ?? "proj_utowwgzauraxgrxhwxie";
 
 if (!project) {
   throw new Error("Set TRIGGER_PROJECT_REF before running or deploying Trigger.dev tasks.");

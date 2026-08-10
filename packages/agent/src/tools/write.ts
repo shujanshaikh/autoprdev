@@ -1,5 +1,4 @@
 import { tool } from "ai";
-import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
@@ -10,18 +9,27 @@ import {
   resolveJailedSandboxPath,
 } from "../sandbox/execute";
 import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutation-queue";
-import { formatSize, toTextModelOutput } from "./format";
+import { createBoundedToolDiff } from "./diff";
+import { toTextModelOutput } from "./format";
 
 // Previous content is only fetched to diff and to detect no-op writes, so cap
 // it: larger existing files are overwritten without a stored patch instead of
 // being buffered whole into harness memory.
 const MAX_PREVIOUS_CONTENT_BYTES = 1024 * 1024;
+const MAX_WRITE_CONTENT_BYTES = 10 * 1024 * 1024;
+const FILE_MUTATION_WAIT_TIMEOUT_MS = 30_000;
+const FILE_MUTATION_RUN_TIMEOUT_MS = 120_000;
 
 const writeInputSchema = z.object({
   path: z
     .string()
+    .min(1)
+    .max(4_096)
     .describe("Path to the file to write. Relative paths resolve from the Daytona sandbox workdir."),
-  content: z.string().describe("Complete text content to write to the file."),
+  content: z.string().refine(
+    (content) => Buffer.byteLength(content, "utf8") <= MAX_WRITE_CONTENT_BYTES,
+    "File content must be at most 10 MiB.",
+  ).describe("Complete text content to write to the file, up to 10 MiB."),
 });
 
 type WriteInput = z.infer<typeof writeInputSchema>;
@@ -74,14 +82,15 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
           fileName: remotePath,
           patch: "",
           patchOmitted: true,
+          patchOmittedReason: "source_too_large" as const,
           status,
         }
-      : {
-          renderer: "pierre" as const,
-          fileName: remotePath,
-          patch: createTwoFilesPatch(remotePath, remotePath, previous?.text ?? "", input.content, "before", "after"),
+      : createBoundedToolDiff({
+          path: remotePath,
+          before: previous?.text ?? "",
+          after: input.content,
           status,
-        };
+        });
 
     if (previous?.complete && previous.text === input.content) {
       return {
@@ -101,8 +110,8 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     await ensureRemoteParentDirectory(remotePath, sandboxOptions);
     await context.sandbox.fs.uploadFile(content, remotePath);
 
-    const oversizedNote = previous !== null && !previous.complete
-      ? ` Previous content exceeded ${formatSize(MAX_PREVIOUS_CONTENT_BYTES)}, so no diff was stored.`
+    const oversizedNote = diff.patchOmitted
+      ? ` The change was too large for a safe stored diff, so the diff preview was omitted.`
       : "";
 
     return {
@@ -117,6 +126,11 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
         diff,
       },
     };
+  }, {
+    waitTimeoutMs: FILE_MUTATION_WAIT_TIMEOUT_MS,
+    runTimeoutMs: FILE_MUTATION_RUN_TIMEOUT_MS,
+    createWaitTimeoutError: () => new Error(`Timed out waiting to write ${remotePath}; another edit is still running.`),
+    createRunTimeoutError: () => new Error(`Timed out writing ${remotePath} in Daytona.`),
   });
 }
 
@@ -124,7 +138,7 @@ export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "write",
     description:
-      "Write complete text content to a file in the Daytona sandbox. Creates the file if it does not exist and overwrites it if it does. Automatically creates parent directories and returns a diff. Paths must stay inside the sandbox workspace. Use write only for new files or complete rewrites; use edit for targeted changes to existing files.",
+      "Write complete text content to a Daytona file, creating parents or overwriting as needed. Canonicalizes paths inside the workspace jail, skips identical writes, serializes same-file mutations, and omits oversized diff previews safely. Use for new files or intentional rewrites; use edit for targeted changes.",
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaWrite(input, sandboxOptions),

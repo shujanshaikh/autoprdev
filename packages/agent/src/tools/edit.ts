@@ -1,5 +1,4 @@
 import { tool } from "ai";
-import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
@@ -9,16 +8,21 @@ import {
   resolveJailedSandboxPath,
 } from "../sandbox/execute";
 import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutation-queue";
-import { formatSize, toTextModelOutput } from "./format";
+import { createBoundedToolDiff } from "./diff";
+import { formatSize, isProbablyBinary, toTextModelOutput } from "./format";
 import { requireArray, requireString } from "./validation";
 
 // Exact-match editing needs the whole original file in memory, so refuse
 // files beyond a generous cap instead of buffering unbounded downloads.
 const MAX_EDIT_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_EDIT_INPUT_BYTES = 10 * 1024 * 1024;
+const FILE_MUTATION_WAIT_TIMEOUT_MS = 30_000;
+const FILE_MUTATION_RUN_TIMEOUT_MS = 120_000;
 
 const editInputSchema = z.object({
   path: z
     .string()
+    .max(4_096)
     .optional()
     .describe("Required. Path to the file to edit. Relative paths resolve from the sandbox workdir."),
   edits: z
@@ -32,6 +36,14 @@ const editInputSchema = z.object({
       }),
     )
     .min(1)
+    .max(50)
+    .refine(
+      (edits) => edits.reduce(
+        (bytes, edit) => bytes + Buffer.byteLength(edit.oldText ?? "") + Buffer.byteLength(edit.newText ?? ""),
+        0,
+      ) <= MAX_EDIT_INPUT_BYTES,
+      "Edit text must total at most 10 MiB.",
+    )
     .optional()
     .describe("Required. One or more exact text replacements. All matches are applied against the original file."),
 });
@@ -60,15 +72,22 @@ function applyExactEdits(
   displayPath: string,
 ): string {
   const matches = edits.map((edit, index) => {
+    if (edit.oldText === edit.newText) {
+      throw new Error(`Edit ${index + 1} would not change ${displayPath}; oldText and newText are identical.`);
+    }
     const firstIndex = originalText.indexOf(edit.oldText);
 
     if (firstIndex === -1) {
-      throw new Error(`Edit ${index + 1} did not match any text in ${displayPath}.`);
+      throw new Error(
+        `Edit ${index + 1} did not match ${displayPath}. Re-read the relevant lines and retry with exact current text, including whitespace.`,
+      );
     }
 
     const secondIndex = originalText.indexOf(edit.oldText, firstIndex + edit.oldText.length);
     if (secondIndex !== -1) {
-      throw new Error(`Edit ${index + 1} matched more than once in ${displayPath}.`);
+      throw new Error(
+        `Edit ${index + 1} matched more than once in ${displayPath}. Include more surrounding lines so oldText is unique.`,
+      );
     }
 
     return {
@@ -124,6 +143,9 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
       );
     }
     const originalText = chunk.content.toString("utf8");
+    if (isProbablyBinary(chunk.content)) {
+      throw new Error(`Cannot edit ${remotePath} as text because it appears to be binary.`);
+    }
     const { bom, text: withoutBom } = stripBom(originalText);
     const lineEnding = detectLineEnding(withoutBom);
     const normalizedOriginal = normalizeLineEndings(withoutBom);
@@ -132,6 +154,9 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
       newText: normalizeLineEndings(edit.newText),
     }));
     const normalizedNext = applyExactEdits(normalizedOriginal, normalizedEdits, remotePath);
+    if (normalizedNext === normalizedOriginal) {
+      throw new Error(`The requested replacements did not change ${remotePath}.`);
+    }
     const nextText = bom + restoreLineEndings(normalizedNext, lineEnding);
     const nextBuffer = Buffer.from(nextText, "utf8");
 
@@ -144,14 +169,19 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
         path: remotePath,
         replacements: edits.length,
         bytesWritten: nextBuffer.length,
-        diff: {
-          renderer: "pierre" as const,
-          fileName: remotePath,
-          patch: createTwoFilesPatch(remotePath, remotePath, originalText, nextText, "before", "after"),
-          status: "modified" as const,
-        },
+        diff: createBoundedToolDiff({
+          path: remotePath,
+          before: originalText,
+          after: nextText,
+          status: "modified",
+        }),
       },
     };
+  }, {
+    waitTimeoutMs: FILE_MUTATION_WAIT_TIMEOUT_MS,
+    runTimeoutMs: FILE_MUTATION_RUN_TIMEOUT_MS,
+    createWaitTimeoutError: () => new Error(`Timed out waiting to edit ${remotePath}; another mutation is still running.`),
+    createRunTimeoutError: () => new Error(`Timed out editing ${remotePath} in Daytona.`),
   });
 }
 
@@ -159,7 +189,7 @@ export function createDaytonaEditTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "edit",
     description:
-      "Edit one existing text file in the Daytona sandbox using exact text replacements. Use after reading the target file. Each oldText must match exactly once in the original file; combine nearby changes in one replacement and avoid overlapping edits. Paths must stay inside the sandbox workspace. Mutates files, returns a diff, and should be retried only after inspecting any mismatch error.",
+      "Edit one existing non-binary file using up to 50 exact replacements matched against the same original content. Each oldText must be unique and change the file; combine nearby or overlapping changes. Preserves BOM/line endings, canonicalizes paths inside the workspace jail, serializes same-file mutations, and bounds stored diffs. Re-read after mismatch errors before retrying.",
     inputSchema: editInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaEdit(input, sandboxOptions),

@@ -203,6 +203,6 @@ describe("Daytona write tool", () => {
       unchanged: false,
       diff: { status: "modified", patch: "", patchOmitted: true },
     });
-    expect(result.content).toContain("no diff was stored");
+    expect(result.content).toContain("diff preview was omitted");
   });
 });

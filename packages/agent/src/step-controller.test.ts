@@ -41,6 +41,19 @@ describe("agent step controller", () => {
     ])).toBeUndefined();
   });
 
+  it("treats structured tool detail errors as failures", () => {
+    const repeated = Array.from({ length: 3 }, () => toolStep({
+      toolName: "find",
+      input: { pattern: "agent" },
+      output: { content: "search failed", details: { error: "fff unavailable" } },
+    }));
+
+    expect(detectRepeatedToolLoop(repeated)).toMatchObject({
+      kind: "repeated_failure",
+      toolNames: ["find"],
+    });
+  });
+
   it("detects unchanged successful results only after the larger threshold", () => {
     const repeated = Array.from({ length: 5 }, () => toolStep({
       toolName: "process",

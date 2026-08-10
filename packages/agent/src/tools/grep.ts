@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import { resolveSandboxPath } from "../sandbox/execute";
+import { resolveJailedSandboxPath } from "../sandbox/execute";
 import { executeAutoprFff } from "./fff";
 import { clampLimit, MAX_FILE_OUTPUT_CHARS, toTextModelOutput, truncateText } from "./format";
 import { requireString } from "./validation";
@@ -10,26 +10,31 @@ import { requireString } from "./validation";
 const DEFAULT_GREP_LIMIT = 100;
 const MAX_GREP_LIMIT = 500;
 const MAX_LINE_CHARS = 800;
+const searchFilterSchema = z.string().max(4_096);
 
 const grepInputSchema = z.object({
-  pattern: z.string().optional().describe("Required. Search pattern to look for. Auto-detects regex syntax; plain literal search is used otherwise."),
+  pattern: z.string().max(8_192).optional().describe("Required. Search pattern to look for. Auto-detects regex syntax; plain literal search is used otherwise."),
   path: z
     .string()
+    .max(4_096)
     .optional()
     .describe("Optional file, directory, or glob constraint. Relative paths resolve from the sandbox workdir."),
-  glob: z.string().optional().describe("Optional glob filter for files, such as '*.ts'."),
+  glob: searchFilterSchema.optional().describe("Optional glob filter for files, such as '*.ts'."),
   exclude: z
-    .union([z.string(), z.array(z.string())])
+    .union([searchFilterSchema, z.array(searchFilterSchema).max(100)])
     .optional()
     .describe("Optional path exclusions, such as 'test/,*.min.js' or ['test/', '*.min.js']."),
   mode: z.enum(["auto", "plain", "regex", "fuzzy"]).optional().describe("FFF grep mode. auto uses regex only when the pattern contains valid regex syntax."),
   ignoreCase: z.boolean().optional().describe("Force case-insensitive matching."),
   caseSensitive: z.boolean().optional().describe("Force case-sensitive matching. By default FFF smart-case is used."),
   literal: z.boolean().optional().describe("Deprecated alias for mode='plain'."),
-  context: z.number().min(0).optional().describe("Number of context lines to include around each match."),
-  limit: z.number().min(1).optional().describe("Maximum number of matches to return."),
-  cursor: z.string().optional().describe("Opaque pagination cursor returned by a previous grep result."),
-});
+  context: z.number().int().min(0).max(10).optional().describe("Number of context lines to include around each match, up to 10."),
+  limit: z.number().int().min(1).max(MAX_GREP_LIMIT).optional().describe("Maximum number of matches to return."),
+  cursor: z.string().max(16_384).optional().describe("Opaque pagination cursor returned by a previous grep result."),
+}).refine(
+  (input) => !(input.ignoreCase && input.caseSensitive),
+  { message: "ignoreCase and caseSensitive cannot both be true." },
+);
 
 type GrepInput = z.infer<typeof grepInputSchema>;
 
@@ -67,7 +72,9 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
   const pattern = requireString(input.pattern, "pattern", "grep");
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = context.workDir;
-  const scopePath = input.path ? resolveSandboxPath(input.path, context.workDir) : undefined;
+  const scopePath = input.path
+    ? await resolveJailedSandboxPath(input.path, { workDir: context.workDir, sandboxOptions })
+    : undefined;
   const limit = clampLimit(input.limit, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
   const contextLines = Math.max(0, input.context ?? 0);
   const mode = input.mode ?? (input.literal ? "plain" : "auto");
@@ -87,31 +94,13 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
   }, sandboxOptions);
 
   if (!result.ok) {
-    return {
-      content:
-        `Search engine: fff\n` +
-        `Search root: ${remotePath}\n` +
-        (scopePath ? `Scope: ${scopePath}\n` : "") +
-        `Pattern: ${pattern}\n` +
-        `Mode: ${mode}\n` +
-        `Exit code: ${result.exitCode ?? "unknown"}\n\n` +
-        result.error,
-      details: {
-        engine: "fff",
-        path: remotePath,
-        scope: scopePath,
-        pattern,
-        mode,
-        exitCode: result.exitCode,
-        error: result.error,
-        truncated: false,
-      },
-    };
+    throw new Error(`${result.error}\nExit code: ${result.exitCode ?? "unknown"}`);
   }
 
   const output = formatFffGrepOutput(result.value);
   const body = truncateText(output || "No matches found.", MAX_FILE_OUTPUT_CHARS);
-  const notices = formatGrepNotices(result.value);
+  const notices = formatGrepNotices(result.value, body.truncated);
+  const cursorWithheld = body.truncated && Boolean(result.value.nextCursor);
 
   return {
     content:
@@ -131,12 +120,13 @@ async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessi
       query: result.value.query,
       glob: input.glob,
       mode: result.value.mode ?? mode,
+      matches: result.value.items?.length ?? 0,
       totalMatched: result.value.totalMatched ?? result.value.items?.length ?? 0,
       totalFiles: result.value.totalFiles,
       totalFilesSearched: result.value.totalFilesSearched,
       filteredFileCount: result.value.filteredFileCount,
-      hasMore: Boolean(result.value.nextCursor),
-      nextCursor: result.value.nextCursor,
+      hasMore: body.truncated || Boolean(result.value.nextCursor),
+      nextCursor: cursorWithheld ? null : result.value.nextCursor,
       fallback: result.value.fallback,
       regexFallbackError: result.value.regexFallbackError,
       exitCode: result.exitCode,
@@ -195,7 +185,7 @@ function truncateLine(line: string): string {
   return `${line.slice(0, MAX_LINE_CHARS)} ...`;
 }
 
-function formatGrepNotices(result: FffGrepResult): string {
+function formatGrepNotices(result: FffGrepResult, outputTruncated: boolean): string {
   const notices: string[] = [];
 
   if (result.regexFallbackError) {
@@ -210,7 +200,9 @@ function formatGrepNotices(result: FffGrepResult): string {
     notices.push(`0 exact matches for "${result.fallback.from}"; fff returned fuzzy matches for "${result.fallback.to}".`);
   }
 
-  if (result.nextCursor) {
+  if (outputTruncated) {
+    notices.push("Output was truncated before every fetched match was visible. Refine pattern/path; the cursor was withheld to avoid skipping unseen matches.");
+  } else if (result.nextCursor) {
     notices.push(`More matches are available. Continue with cursor="${result.nextCursor}".`);
   }
 
@@ -237,7 +229,7 @@ export function createDaytonaGrepTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "grep",
     description:
-      "Search file contents in the Daytona sandbox using fff indexed grep. Use to locate symbols, behavior, errors, and existing patterns before editing. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
+      "Search workspace file contents using FFF indexed grep with bounded line/context output. Use to locate symbols, behavior, errors, and existing patterns before editing. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
     inputSchema: grepInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaGrep(input, sandboxOptions),

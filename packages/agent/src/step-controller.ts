@@ -117,7 +117,8 @@ function isFailedToolOutput(output: unknown): boolean {
   if (typeof output.error === "string" && output.error.trim()) return true;
 
   const details = isRecord(output.details) ? output.details : output;
-  return details.timedOut === true
+  return typeof details.error === "string" && details.error.trim().length > 0
+    || details.timedOut === true
     || typeof details.exitCode === "number" && details.exitCode !== 0;
 }
 

@@ -73,6 +73,7 @@ const DAYTONA_TIMEOUT_ERROR_NAME = "DaytonaTimeoutError";
 const COMMAND_TIMEOUT_EXIT_CODE = 124;
 const COMMAND_TIMEOUT_GRACE_SECONDS = 5;
 const BACKGROUND_COMMAND_START_TIMEOUT_SECONDS = 15;
+const SESSION_CLEANUP_TIMEOUT_MS = 10_000;
 
 export interface SandboxCommandResult {
   cwd: string;
@@ -115,6 +116,22 @@ function formatTimeoutMessage(timeout: number | undefined): string {
   }
 
   return "Daytona timed out while waiting for the command to finish.";
+}
+
+async function cleanupCommandSession(
+  deleteSession: () => Promise<unknown>,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      deleteSession().catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, SESSION_CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 export function resolveSandboxPath(inputPath: string | undefined, sandboxWorkDir: string): string {
@@ -162,8 +179,8 @@ export function isPathWithinRoot(candidatePath: string, root: string): boolean {
 
 /**
  * Canonicalizes paths on the sandbox host (symlinks resolved) without
- * requiring the paths to exist. Falls back to lexical normalization when the
- * sandbox image has no canonicalization tool.
+ * requiring the paths to exist. A sandbox without a canonicalization utility
+ * fails closed because lexical checks cannot detect a symlink escape.
  */
 async function canonicalizeRemotePaths(
   paths: string[],
@@ -174,7 +191,7 @@ async function canonicalizeRemotePaths(
     `for p in ${quotedPaths}; do ` +
     `if command -v realpath >/dev/null 2>&1; then realpath -m -- "$p"; ` +
     `elif command -v readlink >/dev/null 2>&1; then readlink -m -- "$p"; ` +
-    `else printf '%s\\n' "$p"; fi; done`;
+    `else printf '%s\\n' 'realpath/readlink is required for workspace path safety' >&2; exit 127; fi; done`;
   const result = await executeSandboxCommand(command, {
     cwd: "/",
     timeout: 30,
@@ -274,7 +291,10 @@ export async function resolveJailedSandboxPath(
     throw new SandboxPathBoundaryError(candidate, options.workDir);
   }
 
-  return candidate;
+  // Operate on the canonical target, not the user-supplied symlink alias. This
+  // closes the check/use gap for existing symlinks and gives mutation queues a
+  // stable key when multiple workspace paths point at the same file.
+  return canonicalCandidate;
 }
 
 export function shellQuote(value: string): string {
@@ -365,7 +385,7 @@ export async function executeSandboxCommand(
     };
   } finally {
     if (!isBackground) {
-      await sandbox.process.deleteSession(sessionId).catch(() => undefined);
+      await cleanupCommandSession(() => sandbox.process.deleteSession(sessionId));
     }
   }
 }

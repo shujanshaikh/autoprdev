@@ -63,6 +63,18 @@ describe("Daytona process tool", () => {
     expect(result.content).not.toContain("user-terminal");
   });
 
+  it("bounds command metadata returned by session listings", async () => {
+    process.listSessions.mockResolvedValue([{
+      sessionId: "autopr-large",
+      commands: [{ id: "cmd-large", command: "x".repeat(10_000), exitCode: undefined }],
+    }]);
+
+    const result = await executeProcess({ action: "list" });
+    const sessions = result.details.sessions as Array<{ commands: Array<{ command: string }> }>;
+    expect(sessions[0]?.commands[0]?.command.length).toBeLessThan(4_100);
+    expect(result.content.length).toBeLessThan(5_000);
+  });
+
   it("polls command status and combines logs", async () => {
     process.getSessionCommand.mockResolvedValue({
       id: "cmd-1",
@@ -84,6 +96,31 @@ describe("Daytona process tool", () => {
     expect(result.content).toContain("Exit code: 0");
     expect(result.content).toContain("tests passed\none warning");
     expect(process.getSessionCommand).toHaveBeenCalledWith("autopr-1", "cmd-1");
+  });
+
+  it("keeps the latest diagnostics when background logs are oversized", async () => {
+    process.getSessionCommand.mockResolvedValue({
+      id: "cmd-1",
+      command: "pnpm test",
+      exitCode: 1,
+    });
+    process.getSessionCommandLogs.mockResolvedValue({
+      stdout: `${Array.from({ length: 2_100 }, (_, index) => `progress ${index}`).join("\n")}\nFAIL final diagnostic`,
+      stderr: "",
+    });
+
+    const result = await executeProcess({
+      action: "poll",
+      sessionId: "autopr-1",
+      commandId: "cmd-1",
+    });
+
+    expect(result.content).toContain("FAIL final diagnostic");
+    expect(result.content).toContain("showing tail");
+    expect(result.details).toMatchObject({
+      truncated: true,
+      outputStats: { truncatedBy: "lines" },
+    });
   });
 
   it("sends input and terminates an owned session", async () => {

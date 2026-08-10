@@ -2,33 +2,36 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import { resolveSandboxPath } from "../sandbox/execute";
+import { resolveJailedSandboxPath } from "../sandbox/execute";
 import { executeAutoprFff } from "./fff";
 import { clampLimit, MAX_FILE_OUTPUT_CHARS, toTextModelOutput, truncateText } from "./format";
 import { requireString } from "./validation";
 
 const DEFAULT_FIND_LIMIT = 200;
 const MAX_FIND_LIMIT = 1000;
+const searchFilterSchema = z.string().max(4_096);
 
 const findInputSchema = z.object({
   pattern: z
     .string()
+    .max(4_096)
     .optional()
     .describe("Required unless cursor is provided. Fuzzy file query or glob/path constraint, such as 'thread chat', '*.ts', or '**/*.json'."),
   path: z
     .string()
+    .max(4_096)
     .optional()
     .describe("Optional file, directory, or glob constraint. Relative paths resolve from the sandbox workdir."),
   exclude: z
-    .union([z.string(), z.array(z.string())])
+    .union([searchFilterSchema, z.array(searchFilterSchema).max(100)])
     .optional()
     .describe("Optional path exclusions, such as 'test/,*.min.js' or ['test/', '*.min.js']."),
   mode: z
     .enum(["auto", "fuzzy", "glob", "directory", "directories", "mixed"])
     .optional()
     .describe("fff search mode. auto uses FFF fuzzy path search with native glob/path constraints."),
-  limit: z.number().min(1).optional().describe("Maximum number of matches to return."),
-  cursor: z.string().optional().describe("Opaque pagination cursor returned by a previous find result."),
+  limit: z.number().int().min(1).max(MAX_FIND_LIMIT).optional().describe("Maximum number of matches to return."),
+  cursor: z.string().max(16_384).optional().describe("Opaque pagination cursor returned by a previous find result."),
 });
 
 type FindInput = z.infer<typeof findInputSchema>;
@@ -69,7 +72,9 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
   const pattern = cursor ? (input.pattern?.trim() ?? "") : requireString(input.pattern, "pattern", "find");
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = context.workDir;
-  const scopePath = input.path ? resolveSandboxPath(input.path, context.workDir) : undefined;
+  const scopePath = input.path
+    ? await resolveJailedSandboxPath(input.path, { workDir: context.workDir, sandboxOptions })
+    : undefined;
   const limit = clampLimit(input.limit, DEFAULT_FIND_LIMIT, MAX_FIND_LIMIT);
   const result = await executeAutoprFff<FffFindResult>(
     "find",
@@ -86,25 +91,7 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
   );
 
   if (!result.ok) {
-    return {
-      content:
-        `Search engine: fff\n` +
-        `Search root: ${remotePath}\n` +
-        (scopePath ? `Scope: ${scopePath}\n` : "") +
-        `Pattern: ${pattern}\n` +
-        `Exit code: ${result.exitCode ?? "unknown"}\n\n` +
-        result.error,
-      details: {
-        engine: "fff",
-        path: remotePath,
-        scope: scopePath,
-        pattern,
-        matches: 0,
-        exitCode: result.exitCode,
-        error: result.error,
-        truncated: false,
-      },
-    };
+    throw new Error(`${result.error}\nExit code: ${result.exitCode ?? "unknown"}`);
   }
 
   const effectivePattern = result.value.pattern ?? pattern;
@@ -134,6 +121,10 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
 
   const output = formatFffFindOutput(relativeMatches, result.value, effectivePattern);
   const body = truncateText(output, MAX_FILE_OUTPUT_CHARS);
+  const cursorWithheld = body.truncated && Boolean(result.value.nextCursor);
+  const continuation = cursorWithheld
+    ? "\n\n[Output was truncated before every fetched match was visible. Refine pattern/path; the cursor was withheld to avoid skipping unseen matches.]"
+    : "";
 
   return {
     content:
@@ -143,7 +134,7 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
       `Pattern: ${effectivePattern}\n` +
       `Mode: ${result.value.mode ?? input.mode ?? "auto"}\n` +
       `Matches shown: ${relativeMatches.length}\n\n` +
-      body.text,
+      body.text + continuation,
     details: {
       engine: "fff",
       path: remotePath,
@@ -156,8 +147,8 @@ async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessi
       totalFiles: result.value.totalFiles,
       totalDirs: result.value.totalDirs,
       pageIndex: result.value.pageIndex,
-      hasMore: Boolean(result.value.nextCursor),
-      nextCursor: result.value.nextCursor,
+      hasMore: body.truncated || Boolean(result.value.nextCursor),
+      nextCursor: cursorWithheld ? null : result.value.nextCursor,
       weak: result.value.weak,
       exitCode: result.exitCode,
       truncated: body.truncated,
@@ -243,7 +234,7 @@ export function createDaytonaFindTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "find",
     description:
-      "Find files in the Daytona sandbox using fff fuzzy search or glob filtering. Use for filename discovery, locating config/docs/tests, or narrowing a work area before reading. Relative paths resolve from the sandbox workdir. Read-only and safe to retry.",
+      "Find files in the Daytona workspace using FFF fuzzy search or glob filtering. Use for filename discovery, locating config/docs/tests, or narrowing a work area before reading. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
     inputSchema: findInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaFind(input, sandboxOptions),

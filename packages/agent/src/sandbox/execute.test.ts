@@ -151,6 +151,21 @@ describe("executeSandboxCommand lifecycle", () => {
     );
     expect(fakeSandbox.process.deleteSession).toHaveBeenCalledWith(result.sessionId);
   });
+
+  it("does not hang a completed command when Daytona session cleanup stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-cleanup-timeout", exitCode: 0 });
+      fakeSandbox.process.deleteSession.mockImplementationOnce(() => new Promise(() => undefined));
+
+      const pending = executeSandboxCommand("pnpm test", { sandboxOptions: {} });
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await expect(pending).resolves.toMatchObject({ cmdId: "cmd-cleanup-timeout", exitCode: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("isPathWithinRoot", () => {
@@ -219,6 +234,16 @@ describe("resolveJailedSandboxPath", () => {
         extraAllowedRoots: ["/data"],
       }),
     ).resolves.toBe("/data/cache/blob");
+  });
+
+  it("returns the canonical in-workspace target for symlink aliases", async () => {
+    mocks.executeSessionCommand.mockImplementation(
+      emulateRemote({ symlinks: { [`${WORK_DIR}/alias.ts`]: `${WORK_DIR}/src/target.ts` } }),
+    );
+
+    await expect(
+      resolveJailedSandboxPath("alias.ts", { workDir: WORK_DIR, sandboxOptions: {} }),
+    ).resolves.toBe(`${WORK_DIR}/src/target.ts`);
   });
 
   it("caches canonical roots per sandbox while rechecking each candidate", async () => {

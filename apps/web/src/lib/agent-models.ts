@@ -60,7 +60,15 @@ export function selectAgentModel(
 export function getAgentReasoningEfforts(selection: AgentModelSelection | undefined): readonly CodexReasoningEffort[] {
   if (!selection) return [];
   if (selection.provider === "openai-codex") return getCodexReasoningEfforts(selection.modelId);
-  return selection.modelId.toLowerCase().includes("grok-3-mini") ? ["low", "high"] : [];
+  const modelId = selection.modelId.toLowerCase();
+  if (modelId.includes("grok-4.20") && modelId.includes("multi-agent")) {
+    return ["low", "medium", "high", "xhigh"];
+  }
+  if (modelId.includes("non-reasoning")) return [];
+  if (modelId.includes("grok-4.5") || modelId.includes("grok-4.3") || modelId.includes("grok-4.20")) {
+    return ["low", "medium", "high"];
+  }
+  return modelId.includes("grok-3-mini") ? ["low", "high"] : [];
 }
 
 export function selectAgentReasoningEffort(
@@ -69,13 +77,17 @@ export function selectAgentReasoningEffort(
 ) {
   const efforts = getAgentReasoningEfforts(selection);
   if (requested && efforts.includes(requested)) return requested;
+  if (selection?.provider === "xai" && efforts.includes("high")) return "high";
   return efforts.includes(DEFAULT_CODEX_REASONING_EFFORT) ? DEFAULT_CODEX_REASONING_EFFORT : efforts[0];
 }
 
 export function getAgentContextLimit(selection: AgentModelSelection | undefined) {
   if (!selection) return 128_000;
   if (selection.provider === "openai-codex") return getCodexContextLimit(selection.modelId);
-  if (/grok-4(?:\.20)?|grok-code/i.test(selection.modelId)) return 256_000;
+  if (/grok-4\.(?:20|3)/i.test(selection.modelId)) return 1_000_000;
+  if (/grok-4\.5/i.test(selection.modelId)) return 500_000;
+  if (/grok-4(?:$|-)/i.test(selection.modelId)) return 256_000;
+  if (/grok-(?:build|code)/i.test(selection.modelId)) return 256_000;
   return 128_000;
 }
 
@@ -111,7 +123,8 @@ function selectProviderModel(options: readonly AgentModelOption[], provider: Age
   if (providerOptions.length === 0) return undefined;
   const selectedModel = provider === "openai-codex"
     ? selectCodexModel(providerOptions.map((option) => option.modelId))
-    : providerOptions.find((option) => option.modelId === "grok-build-0.1")?.modelId
+    : providerOptions.find((option) => option.modelId === "grok-4.5")?.modelId
+      ?? providerOptions.find((option) => option.modelId === "grok-build-0.1")?.modelId
       ?? providerOptions.find((option) => option.modelId === "grok-code-fast-1")?.modelId
       ?? providerOptions.find((option) => option.modelId === "grok-4")?.modelId
       ?? providerOptions[0]?.modelId;

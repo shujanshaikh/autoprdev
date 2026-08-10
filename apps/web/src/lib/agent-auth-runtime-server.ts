@@ -26,8 +26,10 @@ export function agentProviderOptions(
   if (options.provider === "xai") {
     return {
       xai: {
-        promptCacheKey: options.promptCacheKey,
-        reasoningEffort: options.reasoningEffort,
+        // The current AI SDK schema stops at `high`; the OAuth transport
+        // injects xAI's multi-agent-only `xhigh` value directly.
+        reasoningEffort: options.reasoningEffort === "xhigh" ? undefined : options.reasoningEffort,
+        store: false,
       },
     };
   }
@@ -42,4 +44,9 @@ export function agentProviderOptions(
       include: ["reasoning.encrypted_content"],
     },
   };
+}
+
+/** OpenAI receives this through Responses `instructions`; xAI uses a system message. */
+export function agentSystemPrompt(options: AgentModelOptions, instructions: string) {
+  return options.provider === "xai" ? instructions : undefined;
 }

@@ -27,4 +27,43 @@ describe("Grok OAuth provider", () => {
     expect(headers.get("user-agent")).toBe("autopr/test");
     expect(headers.get("x-request-id")).toBe("request-1");
   });
+
+  it("injects the stable conversation cache key into Responses requests", async () => {
+    const requestFetch = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+      Response.json({ ok: true }));
+    const oauthFetch = createGrokOAuthFetch({
+      accessToken: () => "subscription-token",
+      fetch: requestFetch as typeof fetch,
+      promptCacheKey: "thread-123",
+    });
+
+    await oauthFetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({ model: "grok-4.5", input: [] }),
+    });
+
+    expect(JSON.parse(String(requestFetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      model: "grok-4.5",
+      prompt_cache_key: "thread-123",
+    });
+  });
+
+  it("injects xhigh reasoning for Grok multi-agent models beyond the SDK schema", async () => {
+    const requestFetch = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+      Response.json({ ok: true }));
+    const oauthFetch = createGrokOAuthFetch({
+      accessToken: () => "subscription-token",
+      fetch: requestFetch as typeof fetch,
+      reasoningEffort: "xhigh",
+    });
+
+    await oauthFetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({ model: "grok-4.20-multi-agent-0309", input: [] }),
+    });
+
+    expect(JSON.parse(String(requestFetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      reasoning: { effort: "xhigh" },
+    });
+  });
 });

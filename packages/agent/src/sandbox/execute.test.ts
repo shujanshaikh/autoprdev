@@ -11,6 +11,7 @@ vi.mock("./index", () => ({
 
 import {
   downloadRemoteFileChunk,
+  executeSandboxCommand,
   isPathWithinRoot,
   RemoteFileNotFoundError,
   resolveJailedSandboxPath,
@@ -118,6 +119,38 @@ function emulateRemote(
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getSandboxContext.mockResolvedValue({ sandbox: fakeSandbox, workDir: WORK_DIR });
+});
+
+describe("executeSandboxCommand lifecycle", () => {
+  it("keeps background sessions alive for the process tool", async () => {
+    mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-background" });
+
+    const result = await executeSandboxCommand("pnpm dev", {
+      isBackground: true,
+      sandboxOptions: {},
+    });
+
+    expect(result.cmdId).toBe("cmd-background");
+    expect(mocks.executeSessionCommand).toHaveBeenCalledWith(
+      result.sessionId,
+      expect.objectContaining({ runAsync: true, suppressInputEcho: true }),
+      15,
+    );
+    expect(fakeSandbox.process.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("cleans up foreground sessions after command completion", async () => {
+    mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-foreground", exitCode: 0 });
+
+    const result = await executeSandboxCommand("pnpm test", { sandboxOptions: {} });
+
+    expect(mocks.executeSessionCommand).toHaveBeenCalledWith(
+      result.sessionId,
+      expect.objectContaining({ runAsync: false, suppressInputEcho: true }),
+      undefined,
+    );
+    expect(fakeSandbox.process.deleteSession).toHaveBeenCalledWith(result.sessionId);
+  });
 });
 
 describe("isPathWithinRoot", () => {

@@ -1,7 +1,7 @@
 import {
   applyAgenticCache,
   CodingHarness,
-  createCachedSystemMessage,
+  createAgentStepController,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
   withSandboxAgentProjectContext,
@@ -27,6 +27,7 @@ import {
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import {
   agentProviderOptions,
+  agentSystemPrompt,
   createAgentResponsesModel,
   revokeAgentModelGrant,
 } from "#/lib/agent-auth-runtime-server";
@@ -245,19 +246,21 @@ async function runAgentTask(
       });
       const result = streamText({
         model,
-        system: createCachedSystemMessage(instructions),
+        system: agentSystemPrompt(selectedModel, instructions),
         messages: applyAgenticCache(
           withSandboxAgentProjectContext(inputMessages, repositoryContext),
         ),
         tools,
         toolChoice: "auto",
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
-        maxRetries: 1,
+        maxRetries: 2,
         abortSignal: signal,
-        prepareStep: createAgentContextCompactor({
-          contextWindow: getAgentContextLimit(selectedModel),
-          systemPrompt: instructions,
-          abortSignal: signal,
+        prepareStep: createAgentStepController({
+          prepareStep: createAgentContextCompactor({
+            contextWindow: getAgentContextLimit(selectedModel),
+            systemPrompt: instructions,
+            abortSignal: signal,
+          }),
         }),
         providerOptions: agentProviderOptions(selectedModel, instructions),
       });

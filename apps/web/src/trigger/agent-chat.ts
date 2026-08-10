@@ -1,7 +1,7 @@
 import {
   applyAgenticCache,
   CodingHarness,
-  createCachedSystemMessage,
+  createAgentStepController,
   createDaytonaTools,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
@@ -34,6 +34,7 @@ import {
 } from "#/lib/chat-messages";
 import {
   agentProviderOptions,
+  agentSystemPrompt,
   createAgentResponsesModel,
   revokeAgentModelGrant,
 } from "#/lib/agent-auth-runtime-server";
@@ -72,7 +73,7 @@ const agentChatClientDataSchema = z.object({
     z.object({
       provider: z.literal("xai"),
       modelId: z.string().min(1),
-      reasoningEffort: z.enum(["low", "high"]).optional(),
+      reasoningEffort: z.enum(["low", "medium", "high", "xhigh"]).optional(),
       promptCacheKey: z.string().min(1).optional(),
       credentialsGrantId: z.string().min(1),
       credentialsGrantContext: z.object({
@@ -275,19 +276,21 @@ export const agentChatTask = chat.agent({
     return streamText({
       ...chat.toStreamTextOptions({ tools }),
       model,
-      system: createCachedSystemMessage(instructions),
+      system: agentSystemPrompt(selectedModel, instructions),
       messages: applyAgenticCache(
         withSandboxAgentProjectContext(messages, repositoryContext),
       ),
       tools,
       toolChoice: "auto",
       stopWhen: stepCountIs(MAX_AGENT_STEPS),
-      maxRetries: 1,
+      maxRetries: 2,
       abortSignal: signal,
-      prepareStep: createAgentContextCompactor({
-        contextWindow: getAgentContextLimit(selectedModel),
-        systemPrompt: instructions,
-        abortSignal: signal,
+      prepareStep: createAgentStepController({
+        prepareStep: createAgentContextCompactor({
+          contextWindow: getAgentContextLimit(selectedModel),
+          systemPrompt: instructions,
+          abortSignal: signal,
+        }),
       }),
       onFinish: ({ steps }) => {
         turnState.usageMetadata = createAssistantUsageMetadata(

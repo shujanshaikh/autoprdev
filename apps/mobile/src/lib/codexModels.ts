@@ -13,9 +13,9 @@ type ModelDefinition = {
 };
 
 const MODELS: readonly ModelDefinition[] = [
-  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 372_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
-  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 372_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
-  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 372_000, reasoningEfforts: MAX_REASONING_EFFORTS },
+  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 1_050_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 1_050_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 1_050_000, reasoningEfforts: MAX_REASONING_EFFORTS },
   { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
   { id: "gpt-5.4", label: "GPT-5.4", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
   { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },

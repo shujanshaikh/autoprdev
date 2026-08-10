@@ -16,15 +16,20 @@ const config = defineConfig({
       ignored: ['**/.trigger/**'],
     },
   },
-  plugins: [
-    devtools(),
-    nitro({
-      traceDeps: ["react", "react-dom", "scheduler"],
-    }) as PluginOption,
-    tailwindcss(),
-    tanstackStart(),
-    viteReact(),
-  ],
+  // Vitest needs JSX transformation and path resolution, not the application
+  // server stack. Loading Nitro/TanStack Start in tests inlines React's CJS
+  // entry as ESM and leaves a Vite server handle open after the suite exits.
+  plugins: process.env.VITEST === "true"
+    ? [viteReact()]
+    : [
+        devtools(),
+        nitro({
+          traceDeps: ["react", "react-dom", "scheduler"],
+        }) as PluginOption,
+        tailwindcss(),
+        tanstackStart(),
+        viteReact(),
+      ],
 })
 
 export default config

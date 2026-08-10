@@ -140,3 +140,16 @@ autopr-fff grep --cwd "$REPO_DIR" --path src/ --pattern createDaytonaTools --lim
 The CLI is both the smoke-test surface and the harness boundary. AutoPR's `find` and `grep` tools call `autopr-fff` inside Daytona and parse its JSON output, which keeps fff indexing the sandbox checkout instead of the host app checkout. File discovery and content search should stay on this FFF path: do not add ripgrep, grep, or shell-search fallback behavior to the agent tools. A persistent daemon can still be added later if we want one warm fff index across repeated tool calls.
 
 When a response includes `nextCursor`, pass that value back with the same command to continue pagination. Cursors are encoded in the token itself, so they work across separate `autopr-fff` processes.
+
+## Agent command lifecycle
+
+Foreground `bash` commands use disposable Daytona sessions and are cleaned up after completion or timeout. Long-running commands use `isBackground: true`; the harness keeps their `autopr-*` session alive and returns both the session ID and command ID.
+
+The agent's `process` tool owns the rest of that lifecycle:
+
+- `list` discovers only harness-created `autopr-*` sessions, leaving user terminal sessions private.
+- `poll` returns current logs, status, and exit code with the same bounded-output policy as foreground commands.
+- `input` sends stdin to an interactive background command.
+- `terminate` stops and removes a background session when it is no longer needed.
+
+Agents should poll only when output or completion is expected and must terminate temporary servers and watchers after validation. Repeated identical failures or unchanged polls are detected by the step controller, which forces a tool-free status response instead of spending the remaining step budget in a loop.

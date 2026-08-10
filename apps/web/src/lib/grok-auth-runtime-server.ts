@@ -175,6 +175,8 @@ export async function resolveGrokAgentGrant(grantId: string, expected: GrokAgent
 
 export async function createGrokResponsesModel(options: {
   modelId: string;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+  promptCacheKey?: string;
   credentialsGrantId: string;
   credentialsGrantContext: GrokAgentGrantContext;
 }): Promise<GrokResponsesModel> {
@@ -191,6 +193,8 @@ export async function createGrokResponsesModel(options: {
   };
   const provider = createGrokOAuthProvider({
     accessToken: async () => (await getFreshGrokCredentials(await resolveUserId())).accessToken,
+    promptCacheKey: options.promptCacheKey,
+    reasoningEffort: options.reasoningEffort === "xhigh" ? "xhigh" : undefined,
   });
   return provider.responses(options.modelId);
 }

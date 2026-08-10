@@ -7,6 +7,8 @@ export function createGrokOAuthProvider(options: {
   fetch?: typeof fetch;
   baseURL?: string;
   userAgent?: string;
+  promptCacheKey?: string;
+  reasoningEffort?: "xhigh";
 }) {
   return createXai({
     apiKey: GROK_OAUTH_DUMMY_API_KEY,
@@ -19,6 +21,8 @@ export function createGrokOAuthFetch(options: {
   accessToken: () => string | Promise<string>;
   fetch?: typeof fetch;
   userAgent?: string;
+  promptCacheKey?: string;
+  reasoningEffort?: "xhigh";
 }) {
   const requestFetch = options.fetch ?? fetch;
   return async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -28,8 +32,48 @@ export function createGrokOAuthFetch(options: {
     }
     headers.set("Authorization", `Bearer ${await options.accessToken()}`);
     headers.set("User-Agent", options.userAgent?.trim() || "autopr/0.0.0");
-    return requestFetch(input, { ...init, headers });
+    return requestFetch(input, {
+      ...init,
+      headers,
+      body: withResponsesOverrides(input, init?.body, {
+        promptCacheKey: options.promptCacheKey,
+        reasoningEffort: options.reasoningEffort,
+      }),
+    });
   };
+}
+
+function withResponsesOverrides(
+  input: Parameters<typeof fetch>[0],
+  body: RequestInit["body"],
+  options: {
+    promptCacheKey?: string;
+    reasoningEffort?: "xhigh";
+  },
+) {
+  const key = options.promptCacheKey?.trim();
+  const url = input instanceof Request ? input.url : String(input);
+  if ((!key && !options.reasoningEffort) || !/\/responses(?:\?|$)/.test(url) || typeof body !== "string") {
+    return body;
+  }
+
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return body;
+    const request = parsed as Record<string, unknown>;
+    const reasoning = typeof request.reasoning === "object" && request.reasoning !== null && !Array.isArray(request.reasoning)
+      ? request.reasoning as Record<string, unknown>
+      : {};
+    return JSON.stringify({
+      ...request,
+      ...(key ? { prompt_cache_key: key } : {}),
+      ...(options.reasoningEffort
+        ? { reasoning: { ...reasoning, effort: options.reasoningEffort } }
+        : {}),
+    });
+  } catch {
+    return body;
+  }
 }
 
 export type GrokResponsesModel = ReturnType<ReturnType<typeof createGrokOAuthProvider>["responses"]>;

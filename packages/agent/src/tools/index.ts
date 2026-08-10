@@ -4,6 +4,7 @@ import { createDaytonaEditTool } from "./edit";
 import { createDaytonaFindTool } from "./find";
 import { createDaytonaGrepTool } from "./grep";
 import { createDaytonaLsTool } from "./ls";
+import { createDaytonaProcessTool } from "./process";
 import { createDaytonaReadTool } from "./read";
 import { createDaytonaSandboxInfoTool } from "./sandbox-info";
 import { createDaytonaWriteTool } from "./write";
@@ -27,6 +28,7 @@ export function createDaytonaTools(
     edit: createDaytonaEditTool(sandboxOptions),
     write: createDaytonaWriteTool(sandboxOptions),
     bash: createDaytonaBashTool(sandboxOptions),
+    process: createDaytonaProcessTool(sandboxOptions),
   };
 
   if (!options.computer) {

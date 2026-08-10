@@ -155,6 +155,25 @@ export interface DaytonaSandbox {
       stderr?: string;
       output?: string;
     }>;
+    getSessionCommand(sessionId: string, commandId: string): Promise<{
+      command: string;
+      exitCode?: number;
+      id: string;
+    }>;
+    getSessionCommandLogs(sessionId: string, commandId: string): Promise<{
+      output?: string;
+      stdout?: string;
+      stderr?: string;
+    }>;
+    sendSessionCommandInput(sessionId: string, commandId: string, data: string): Promise<void>;
+    listSessions(): Promise<Array<{
+      sessionId: string;
+      commands: Array<{
+        command: string;
+        exitCode?: number;
+        id: string;
+      }> | null;
+    }>>;
     deleteSession(sessionId: string): Promise<unknown>;
   };
 }

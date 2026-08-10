@@ -25,19 +25,19 @@ export const CODEX_MODELS: readonly CodexModel[] = [
   {
     id: PREFERRED_CODEX_MODEL,
     label: "GPT-5.6-Sol",
-    contextLimit: 372_000,
+    contextLimit: 1_050_000,
     reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
   },
   {
     id: "gpt-5.6-terra",
     label: "GPT-5.6-Terra",
-    contextLimit: 372_000,
+    contextLimit: 1_050_000,
     reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
   },
   {
     id: "gpt-5.6-luna",
     label: "GPT-5.6-Luna",
-    contextLimit: 372_000,
+    contextLimit: 1_050_000,
     reasoningEfforts: MAX_CODEX_REASONING_EFFORTS,
   },
   {

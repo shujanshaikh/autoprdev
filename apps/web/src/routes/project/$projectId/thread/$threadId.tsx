@@ -14,8 +14,8 @@ import { ThreadChat } from "#/components/thread/thread-chat";
 import { parseThreadDiffDeepLink } from "#/components/thread/thread-diff-panel-utils";
 import { ThreadCommitButton } from "#/components/thread/thread-commit-button";
 import { ThreadGitStatusIndicator } from "#/components/thread/thread-git-status-indicator";
-import { isCodexReasoningEffortForModel } from "#/lib/codex-models";
-import { isAgentProvider } from "#/lib/agent-models";
+import { isCodexReasoningEffortForModel, type CodexReasoningEffort } from "#/lib/codex-models";
+import { getAgentReasoningEfforts, isAgentProvider } from "#/lib/agent-models";
 import { useCodexStatus } from "#/lib/codex-status";
 import { useGrokStatus } from "#/lib/grok-status";
 
@@ -121,7 +121,10 @@ function ProjectThreadPageContent() {
   const initialProvider = isAgentProvider(search.provider) ? search.provider : undefined;
   const initialModel = typeof search.model === "string" && search.model.trim() ? search.model.trim() : undefined;
   const initialReasoningEffort = initialProvider === "xai"
-    ? search.reasoningEffort === "low" || search.reasoningEffort === "high" ? search.reasoningEffort : undefined
+    ? getAgentReasoningEfforts({ provider: "xai", modelId: initialModel ?? "" })
+        .includes(search.reasoningEffort as CodexReasoningEffort)
+      ? search.reasoningEffort as CodexReasoningEffort
+      : undefined
     : isCodexReasoningEffortForModel(initialModel, search.reasoningEffort) ? search.reasoningEffort : undefined;
   const diffDeepLink = useMemo(
     () => parseThreadDiffDeepLink(search),

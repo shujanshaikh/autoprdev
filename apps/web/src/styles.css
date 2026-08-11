@@ -199,6 +199,16 @@
   border-color: var(--sidebar-border);
 }
 
+/* Inset layout: the shell ground takes the sidebar tone so the sidebar melts
+   into it, and the main pane is the single raised card sitting on top. */
+.project-shell:has([data-slot="sidebar"][data-variant="inset"]) {
+  background: var(--sidebar);
+}
+
+.project-shell [data-slot="sidebar"][data-variant="inset"] [data-slot="sidebar-inner"] {
+  border-color: transparent;
+}
+
 /* A dense glass working surface, adapted from t3code's composer shell. The
    tint stays intentionally high so messages never show through as readable
    content; the backdrop filter only lends depth while the timeline scrolls. */

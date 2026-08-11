@@ -541,13 +541,15 @@ export function WorkspaceSidebar({
 
   return (
     <>
-      <Sidebar collapsible="icon" variant="sidebar">
-        <SidebarHeader className="h-12 shrink-0 justify-center gap-0 border-b border-sidebar-border/80 px-3 py-0">
-          <div className="flex min-w-0 items-center gap-2">
+      <Sidebar collapsible="icon" variant="inset">
+        <SidebarHeader className="h-12 shrink-0 justify-center gap-0 border-b border-sidebar-border/80 px-3 py-0 group-data-[collapsible=icon]:px-0">
+          <div className="flex min-w-0 items-center justify-between gap-2 group-data-[collapsible=icon]:justify-center">
+            <img
+              src="/images/landing/autopr-icon.png"
+              alt="AutoPR"
+              className="size-6 shrink-0 rounded-[5px] group-data-[collapsible=icon]:hidden"
+            />
             <SidebarTrigger className="text-sidebar-foreground/70 hover:text-sidebar-foreground" />
-            <span className="min-w-0 truncate font-display text-base font-medium tracking-[-0.02em] text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-              AUTOPR
-            </span>
           </div>
         </SidebarHeader>
 
@@ -830,7 +832,7 @@ export function WorkspaceSidebar({
         <SidebarFooter className="border-t border-sidebar-border/70 p-2">
           <SidebarMenu>
             <SidebarMenuItem>
-              <div className="flex h-9 items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center">
+              <div className="flex h-9 items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
                 <button
                   type="button"
                   onClick={onOpenSettings}

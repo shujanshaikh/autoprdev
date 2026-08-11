@@ -1730,7 +1730,7 @@ function ThreadChatRuntime({
             <AgentRunIssuePanel issue={thread?.agentRunIssue ?? thread?.workflowIssue} />
             <PromptInputProvider>
               <PromptInput
-                className="min-w-0 max-w-full border-[color:var(--project-line)] bg-[color:var(--project-panel-soft)] shadow-[0_18px_40px_-24px_rgb(0_0_0_/_0.75)] has-[[data-slot=input-group-control]:focus-visible]:border-[color:var(--project-strong-line)] has-[[data-slot=input-group-control]:focus-visible]:bg-[color:var(--project-panel-soft)] dark:bg-[color:var(--project-panel-soft)] dark:has-[[data-slot=input-group-control]:focus-visible]:bg-[color:var(--project-panel-soft)]"
+                className="autopr-chat-composer min-w-0 max-w-full"
                 accept="image/*"
                 clearOnSubmit="submit"
                 multiple

@@ -5,8 +5,8 @@ import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { combineCommandOutput, toTextModelOutput, truncateText, truncateToolOutput } from "./format";
 import { raceWithTimeout } from "./timeout";
 import { requireString } from "./validation";
+import type { BackgroundProcessScope } from "./background-process-scope";
 
-const OWNED_SESSION_PREFIX = "autopr-";
 const PROCESS_OPERATION_TIMEOUT_MS = 30_000;
 const MAX_LISTED_SESSIONS = 25;
 const MAX_LISTED_COMMANDS_PER_SESSION = 20;
@@ -36,27 +36,37 @@ const processInputSchema = z.discriminatedUnion("action", [
 
 type ProcessInput = z.infer<typeof processInputSchema>;
 
-function requireOwnedSessionId(value: string | undefined) {
+function requireOwnedSessionId(
+  value: string | undefined,
+  backgroundProcesses: BackgroundProcessScope,
+) {
   const sessionId = requireString(value, "sessionId", "process");
-  if (!sessionId.startsWith(OWNED_SESSION_PREFIX)) {
-    throw new Error("process can only access background sessions created by AutoPR bash commands.");
+  if (!backgroundProcesses.ownsSession(sessionId)) {
+    throw new Error("process can only access background sessions created by this agent run.");
   }
   return sessionId;
 }
 
-async function executeDaytonaProcess(input: ProcessInput, sandboxOptions: SandboxSessionOptions) {
+async function executeDaytonaProcess(
+  input: ProcessInput,
+  sandboxOptions: SandboxSessionOptions,
+  backgroundProcesses: BackgroundProcessScope,
+) {
   const { sandbox } = await getSandboxContext(sandboxOptions);
 
   if (input.action === "list") {
     const ownedSessions = (await runProcessOperation("list sessions", () => sandbox.process.listSessions()))
-      .filter((session) => session.sessionId.startsWith(OWNED_SESSION_PREFIX));
+      .filter((session) => backgroundProcesses.ownsSession(session.sessionId));
     const sessions = ownedSessions
       .slice(0, MAX_LISTED_SESSIONS)
       .map((session) => ({
         sessionId: session.sessionId,
         commands: (session.commands ?? []).slice(0, MAX_LISTED_COMMANDS_PER_SESSION).map((command) => ({
           commandId: command.id,
-          command: truncateText(command.command, MAX_LIST_COMMAND_SUMMARY_CHARS).text,
+          command: truncateText(
+            backgroundProcesses.getCommand(session.sessionId, command.id) ?? "(command metadata unavailable)",
+            MAX_LIST_COMMAND_SUMMARY_CHARS,
+          ).text,
           exitCode: command.exitCode ?? null,
           status: command.exitCode === undefined ? "running" as const : "finished" as const,
         })),
@@ -71,7 +81,7 @@ async function executeDaytonaProcess(input: ProcessInput, sandboxOptions: Sandbo
               `- ${command.commandId} [${command.status}${command.exitCode === null ? "" : `, exit ${command.exitCode}`}]: ${command.command}`),
             ...(session.commandsTruncated ? [`- [Showing first ${MAX_LISTED_COMMANDS_PER_SESSION} commands.]`] : []),
           ]).join("\n") + (sessionsTruncated ? `\n[Showing first ${MAX_LISTED_SESSIONS} sessions.]` : "")
-      : "No AutoPR background sessions are active.";
+      : "No background sessions from this agent run are active.";
     const listingPreview = truncateToolOutput(listing, { direction: "head" });
 
     return {
@@ -85,10 +95,11 @@ async function executeDaytonaProcess(input: ProcessInput, sandboxOptions: Sandbo
     };
   }
 
-  const sessionId = requireOwnedSessionId(input.sessionId);
+  const sessionId = requireOwnedSessionId(input.sessionId, backgroundProcesses);
 
   if (input.action === "terminate") {
     await runProcessOperation(`terminate session ${sessionId}`, () => sandbox.process.deleteSession(sessionId));
+    backgroundProcesses.forgetSession(sessionId);
     return {
       content: `Terminated background session ${sessionId}.`,
       details: { action: input.action, sessionId, terminated: true },
@@ -113,11 +124,20 @@ async function executeDaytonaProcess(input: ProcessInput, sandboxOptions: Sandbo
     sandbox.process.getSessionCommand(sessionId, commandId),
     sandbox.process.getSessionCommandLogs(sessionId, commandId),
   ]));
-  const combined = logs.output || combineCommandOutput(logs.stdout, logs.stderr);
+  const redactedStdout = backgroundProcesses.redactOutput(sessionId, commandId, logs.stdout ?? "");
+  const redactedStderr = backgroundProcesses.redactOutput(sessionId, commandId, logs.stderr ?? "");
+  const combined = backgroundProcesses.redactOutput(
+    sessionId,
+    commandId,
+    logs.output || combineCommandOutput(redactedStdout, redactedStderr),
+  );
   const output = truncateToolOutput(combined, { direction: "tail" });
-  const stdout = truncateToolOutput(logs.stdout ?? "", { direction: "tail" });
-  const stderr = truncateToolOutput(logs.stderr ?? "", { direction: "tail" });
-  const commandPreview = truncateText(command.command, MAX_COMMAND_SUMMARY_CHARS);
+  const stdout = truncateToolOutput(redactedStdout, { direction: "tail" });
+  const stderr = truncateToolOutput(redactedStderr, { direction: "tail" });
+  const commandPreview = truncateText(
+    backgroundProcesses.getCommand(sessionId, commandId) ?? "(command metadata unavailable)",
+    MAX_COMMAND_SUMMARY_CHARS,
+  );
   const status = command.exitCode === undefined ? "running" as const : "finished" as const;
 
   return {
@@ -158,13 +178,16 @@ function runProcessOperation<T>(label: string, operation: () => Promise<T>) {
   );
 }
 
-export function createDaytonaProcessTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaProcessTool(
+  sandboxOptions: SandboxSessionOptions,
+  backgroundProcesses: BackgroundProcessScope,
+) {
   return tool({
     title: "process",
     description:
-      "Manage long-running commands started by bash with isBackground=true. Use list to discover only AutoPR-owned sessions, poll for tail-preserving bounded logs and exit status, input to send stdin, and terminate to clean up. Each Daytona operation has a bounded wait. Poll only when new output or completion is expected.",
+      "Manage long-running commands started by bash with isBackground=true in the current agent run. Use list to discover this run's sessions, poll for tail-preserving bounded logs and exit status, input to send stdin, and terminate to clean up. Each Daytona operation has a bounded wait. Poll only when new output or completion is expected.",
     inputSchema: processInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaProcess(input, sandboxOptions),
+    execute: (input) => executeDaytonaProcess(input, sandboxOptions, backgroundProcesses),
   });
 }

@@ -38,7 +38,7 @@ import {
   createAgentResponsesModel,
   revokeAgentModelGrant,
 } from "#/lib/agent-auth-runtime-server";
-import { getAgentContextLimit } from "#/lib/agent-models";
+import { getAgentContextLimit, isAgentReasoningEffortSupported } from "#/lib/agent-models";
 import {
   AGENT_CHAT_TASK_ID,
   type AgentChatClientData,
@@ -81,6 +81,14 @@ const agentChatClientDataSchema = z.object({
         taskId: z.literal(AGENT_CHAT_TASK_ID),
         contextId: z.string().min(1),
       }),
+    }).superRefine((model, context) => {
+      if (model.reasoningEffort && !isAgentReasoningEffortSupported(model, model.reasoningEffort)) {
+        context.addIssue({
+          code: "custom",
+          path: ["reasoningEffort"],
+          message: `${model.reasoningEffort} reasoning is not supported by ${model.modelId}.`,
+        });
+      }
     }),
   ]),
 }) satisfies z.ZodType<AgentChatClientData>;

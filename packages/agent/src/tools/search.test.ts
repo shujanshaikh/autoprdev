@@ -12,10 +12,7 @@ vi.mock("./fff", () => ({ executeAutoprFff: mocks.executeAutoprFff }));
 
 import { createDaytonaFindTool } from "./find";
 import { createDaytonaGrepTool } from "./grep";
-
-function safeParse(schema: unknown, value: unknown): { success: boolean } {
-  return (schema as { safeParse(input: unknown): { success: boolean } }).safeParse(value);
-}
+import { safeParse } from "../test/schema";
 
 async function execute(toolName: "find" | "grep", input: Record<string, unknown>) {
   const instance = toolName === "find"

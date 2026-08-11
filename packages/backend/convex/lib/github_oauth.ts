@@ -128,6 +128,7 @@ export interface CreatedGithubPullRequest {
 
 const GITHUB_API_VERSION = "2022-11-28";
 const MAX_ITEMS = 500;
+const MAX_PULL_REQUEST_DATA_PAGES = 5;
 
 function parseNextLink(linkHeader: string | null): string | undefined {
   if (!linkHeader) return undefined;
@@ -243,13 +244,19 @@ export async function resolveGithubPullRequest(
   };
 }
 
-async function paginatedGithubJson<T>(token: string, initialUrl: string): Promise<T[]> {
+async function paginatedGithubJson<T>(
+  token: string,
+  initialUrl: string,
+  options: { maxPages?: number } = {},
+): Promise<T[]> {
   const items: T[] = [];
   let next: string | undefined = initialUrl;
+  let pages = 0;
 
-  while (next) {
+  while (next && (options.maxPages === undefined || pages < options.maxPages)) {
     const page: { data: T[]; next?: string } = await githubJson<T[]>(token, next);
     items.push(...page.data);
+    pages += 1;
 
     if (items.length > MAX_ITEMS) {
       throw new Error(`GitHub returned more than ${MAX_ITEMS} items. Narrow the selection and try again.`);
@@ -484,6 +491,7 @@ export async function fetchGithubPullRequestFiles(
   }>(
     token,
     `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}/files?per_page=100`,
+    { maxPages: MAX_PULL_REQUEST_DATA_PAGES },
   );
 
   return files.map((file) => ({
@@ -514,22 +522,22 @@ export async function fetchGithubPullRequestTimeline(
         message: string;
         author: { name: string; date: string } | null;
       };
-    }>(token, `${baseUrl}/pulls/${number}/commits?per_page=100`),
+    }>(token, `${baseUrl}/pulls/${number}/commits?per_page=100`, { maxPages: MAX_PULL_REQUEST_DATA_PAGES }),
     paginatedGithubJson<{
       id: number;
       html_url: string;
       body: string;
       created_at: string;
       user: { login: string; avatar_url?: string } | null;
-    }>(token, `${baseUrl}/issues/${number}/comments?per_page=100`),
+    }>(token, `${baseUrl}/issues/${number}/comments?per_page=100`, { maxPages: MAX_PULL_REQUEST_DATA_PAGES }),
     paginatedGithubJson<{
       id: number;
       html_url: string;
-      body: string;
+      body: string | null;
       state: string;
       submitted_at: string | null;
       user: { login: string; avatar_url?: string } | null;
-    }>(token, `${baseUrl}/pulls/${number}/reviews?per_page=100`),
+    }>(token, `${baseUrl}/pulls/${number}/reviews?per_page=100`, { maxPages: MAX_PULL_REQUEST_DATA_PAGES }),
   ]);
 
   return [
@@ -554,12 +562,12 @@ export async function fetchGithubPullRequestTimeline(
       body: comment.body,
       url: comment.html_url,
     })),
-    ...reviews.map((review): GithubPullRequestTimelineItem => ({
+    ...reviews.filter((review) => review.submitted_at !== null).map((review): GithubPullRequestTimelineItem => ({
       id: `review:${review.id}`,
       kind: "review",
-      createdAt: review.submitted_at ?? "",
+      createdAt: review.submitted_at!,
       actor: githubActor(review.user),
-      body: review.body,
+      body: review.body ?? "",
       url: review.html_url,
       state: review.state.toLowerCase(),
     })),

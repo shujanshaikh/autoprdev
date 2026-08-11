@@ -81,11 +81,19 @@ export function selectAgentReasoningEffort(
   return efforts.includes(DEFAULT_CODEX_REASONING_EFFORT) ? DEFAULT_CODEX_REASONING_EFFORT : efforts[0];
 }
 
+export function isAgentReasoningEffortSupported(
+  selection: AgentModelSelection | undefined,
+  requested: unknown,
+): requested is CodexReasoningEffort {
+  return typeof requested === "string"
+    && getAgentReasoningEfforts(selection).includes(requested as CodexReasoningEffort);
+}
+
 export function getAgentContextLimit(selection: AgentModelSelection | undefined) {
   if (!selection) return 128_000;
   if (selection.provider === "openai-codex") return getCodexContextLimit(selection.modelId);
   if (/grok-4\.(?:20|3)/i.test(selection.modelId)) return 1_000_000;
-  if (/grok-4\.5/i.test(selection.modelId)) return 500_000;
+  if (/grok-4\.5/i.test(selection.modelId) || selection.modelId.toLowerCase() === "grok-build-latest") return 500_000;
   if (/grok-4(?:$|-)/i.test(selection.modelId)) return 256_000;
   if (/grok-(?:build|code)/i.test(selection.modelId)) return 256_000;
   return 128_000;

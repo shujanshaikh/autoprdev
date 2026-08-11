@@ -5,6 +5,8 @@ import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand, resolveSandboxPath } from "../sandbox/execute";
 import { combineCommandOutput, toTextModelOutput, truncateText, truncateToolOutput } from "./format";
 import { requireString } from "./validation";
+import type { BackgroundProcessScope } from "./background-process-scope";
+import { environmentSecretValues, redactSensitiveValues } from "./redaction";
 
 const DEFAULT_BASH_TIMEOUT_SECONDS = 120;
 const MAX_BASH_TIMEOUT_SECONDS = 3_600;
@@ -41,7 +43,11 @@ const bashInputSchema = z.object({
 
 type BashInput = z.infer<typeof bashInputSchema>;
 
-async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessionOptions) {
+async function executeDaytonaBash(
+  input: BashInput,
+  sandboxOptions: SandboxSessionOptions,
+  backgroundProcesses: BackgroundProcessScope,
+) {
   const command = requireString(input.command, "command", "bash");
   const context = await getSandboxContext(sandboxOptions);
   const result = await executeSandboxCommand(command, {
@@ -49,12 +55,18 @@ async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessi
     timeout: input.isBackground ? input.timeout : input.timeout ?? DEFAULT_BASH_TIMEOUT_SECONDS,
     env: input.env,
     isBackground: input.isBackground,
+    sessionOwnerId: input.isBackground ? backgroundProcesses.ownerId : undefined,
     sandboxOptions,
   });
 
-  const stdout = result.stdout ?? "";
-  const stderr = result.stderr ?? "";
-  const output = result.output ?? "";
+  if (input.isBackground && result.cmdId) {
+    backgroundProcesses.registerCommand(result.sessionId, result.cmdId, command, input.env);
+  }
+
+  const environmentSecrets = environmentSecretValues(input.env);
+  const stdout = redactSensitiveValues(result.stdout ?? "", environmentSecrets);
+  const stderr = redactSensitiveValues(result.stderr ?? "", environmentSecrets);
+  const output = redactSensitiveValues(result.output ?? "", environmentSecrets);
   const combined = output || combineCommandOutput(stdout, stderr);
   const truncatedOutput = truncateToolOutput(combined, { direction: "tail" });
   const stdoutPreview = truncateToolOutput(stdout, { direction: "tail" });
@@ -105,13 +117,16 @@ async function executeDaytonaBash(input: BashInput, sandboxOptions: SandboxSessi
   };
 }
 
-export function createDaytonaBashTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaBashTool(
+  sandboxOptions: SandboxSessionOptions,
+  backgroundProcesses: BackgroundProcessScope,
+) {
   return tool({
     title: "bash",
     description:
       "Run shell commands inside Daytona with a 120-second default foreground timeout and tail-preserving bounded output. Use for package scripts, tests, type checks, installs, and Git inspection. Commands mutate state when the command does; use isBackground=true for servers/watchers and manage them with process. Environment values are never echoed. Do not retry a failed command unchanged without using the final diagnostic.",
     inputSchema: bashInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaBash(input, sandboxOptions),
+    execute: (input) => executeDaytonaBash(input, sandboxOptions, backgroundProcesses),
   });
 }

@@ -20,6 +20,9 @@ describe("ChatGPT Codex model limits", () => {
       maxOutputTokens: 128_000,
     });
     expect(getChatGPTCodexModelLimits("gpt-account-only")).toBeUndefined();
+    expect(getChatGPTCodexModelLimits("toString")).toBeUndefined();
+    expect(getChatGPTCodexModelLimits("constructor")).toBeUndefined();
+    expect(getChatGPTCodexModelLimits("__proto__")).toBeUndefined();
     expect(getChatGPTCodexModelLimits(undefined)).toBeUndefined();
   });
 });

@@ -344,7 +344,21 @@ function workspaceHash(cwd) {
 }
 
 function canonicalizeCwd(cwd) {
-  return fs.realpathSync(path.resolve(cwd));
+  const resolved = path.resolve(cwd);
+  let canonical;
+  try {
+    canonical = fs.realpathSync(resolved);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(`FFF workspace does not exist: ${resolved}`);
+    }
+    throw error;
+  }
+
+  if (!fs.statSync(canonical).isDirectory()) {
+    throw new Error(`FFF workspace is not a directory: ${canonical}`);
+  }
+  return canonical;
 }
 
 function workspaceDatabasePath(configuredPath, cwd) {
@@ -700,6 +714,9 @@ function requestDaemon(socketPath, args) {
       finish(new Error("Timed out waiting for the fff daemon."));
     });
     socket.on("error", (error) => finish(error));
+    socket.on("close", () => {
+      finish(new Error("The fff daemon closed the connection before it returned a response."));
+    });
     socket.on("connect", () => {
       socket.write(`${JSON.stringify({ args })}\n`);
     });

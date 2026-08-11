@@ -127,10 +127,12 @@ describe("executeSandboxCommand lifecycle", () => {
 
     const result = await executeSandboxCommand("pnpm dev", {
       isBackground: true,
+      sessionOwnerId: "agent-run-owner",
       sandboxOptions: {},
     });
 
     expect(result.cmdId).toBe("cmd-background");
+    expect(result.sessionId).toMatch(/^autopr-agent-run-owner-/);
     expect(mocks.executeSessionCommand).toHaveBeenCalledWith(
       result.sessionId,
       expect.objectContaining({ runAsync: true, suppressInputEcho: true }),

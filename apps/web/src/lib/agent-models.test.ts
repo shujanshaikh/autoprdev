@@ -59,6 +59,7 @@ describe("agent model selection", () => {
     expect(getAgentContextLimit({ provider: "openai-codex", modelId: "gpt-5.6-terra" })).toBe(272_000);
     expect(getAgentContextLimit({ provider: "openai-codex", modelId: "gpt-5.6-luna" })).toBe(272_000);
     expect(getAgentContextLimit({ provider: "xai", modelId: "grok-4.5" })).toBe(500_000);
+    expect(getAgentContextLimit({ provider: "xai", modelId: "grok-build-latest" })).toBe(500_000);
     expect(getAgentContextLimit({ provider: "xai", modelId: "grok-4.20-multi-agent-beta" })).toBe(1_000_000);
     expect(getAgentContextLimit({ provider: "xai", modelId: "grok-4.3" })).toBe(1_000_000);
     expect(getAgentContextLimit({ provider: "xai", modelId: "grok-build-0.1" })).toBe(256_000);

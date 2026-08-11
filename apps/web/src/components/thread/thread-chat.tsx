@@ -83,7 +83,6 @@ import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
-  DEFAULT_CODEX_REASONING_EFFORT,
   getCodexReasoningEffortLabel,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -860,8 +859,8 @@ function ThreadChatRuntime({
       ?? (initialModel ? { provider: initialProvider ?? "openai-codex" as const, modelId: initialModel } : undefined);
     return selectAgentModel(modelOptions, requested);
   }, [initialModel, initialProvider, modelOptions, selectedModelChoice]);
-  const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>(
-    initialReasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
+  const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort | undefined>(
+    initialReasoningEffort,
   );
   const [pendingDemoEnabled, setPendingDemoEnabled] = useState<boolean | undefined>();
   const [demoSaving, setDemoSaving] = useState(false);

@@ -124,12 +124,18 @@ function PullList({
   onQuery: (query: string) => void;
   onSelect: (pull: ProjectPullRequest) => void;
 }) {
-  const counts = useMemo(() => ({
-    all: pulls.length,
-    open: pulls.filter((pull) => pull.state === "open" && !pull.draft).length,
-    draft: pulls.filter((pull) => pull.draft).length,
-    closed: pulls.filter((pull) => pull.state === "closed").length,
-  }), [pulls]);
+  const counts = useMemo(() => {
+    const tally: Record<Filter, number> = {
+      all: pulls.length,
+      open: 0,
+      draft: 0,
+      closed: 0,
+    };
+    for (const pull of pulls) {
+      tally[pullVariant(pull)] += 1;
+    }
+    return tally;
+  }, [pulls]);
   const visible = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return pulls.filter((pull) => {

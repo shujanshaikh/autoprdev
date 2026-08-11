@@ -10,7 +10,8 @@ vi.mock("#/lib/grok-auth-runtime-server", () => ({
   revokeGrokAgentGrant: vi.fn(),
 }));
 
-import { agentProviderOptions, agentSystemPrompt } from "./agent-auth-runtime-server";
+import { createGrokResponsesModel } from "#/lib/grok-auth-runtime-server";
+import { agentProviderOptions, agentSystemPrompt, createAgentResponsesModel } from "./agent-auth-runtime-server";
 import type { AgentModelOptions } from "./trigger-agent-contract";
 
 const grantContext = {
@@ -68,5 +69,20 @@ describe("agent provider prompt routing", () => {
     expect(agentProviderOptions(model, "system instructions")).toEqual({
       xai: { reasoningEffort: undefined, store: false },
     });
+    void createAgentResponsesModel(model);
+    expect(createGrokResponsesModel).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: "xhigh" }));
+  });
+
+  it("removes xhigh from Grok models that do not support it", () => {
+    const model: AgentModelOptions = {
+      provider: "xai",
+      modelId: "grok-4.5",
+      reasoningEffort: "xhigh",
+      credentialsGrantId: "grant-1",
+      credentialsGrantContext: grantContext,
+    };
+
+    void createAgentResponsesModel(model);
+    expect(createGrokResponsesModel).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: undefined }));
   });
 });

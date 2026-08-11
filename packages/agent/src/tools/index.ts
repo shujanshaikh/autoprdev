@@ -8,6 +8,7 @@ import { createDaytonaProcessTool } from "./process";
 import { createDaytonaReadTool } from "./read";
 import { createDaytonaSandboxInfoTool } from "./sandbox-info";
 import { createDaytonaWriteTool } from "./write";
+import { createBackgroundProcessScope } from "./background-process-scope";
 import type { ToolSet } from "ai";
 import type { SandboxSessionOptions } from "../sandbox";
 
@@ -19,6 +20,7 @@ export function createDaytonaTools(
   sandboxOptions: SandboxSessionOptions,
   options: DaytonaToolsOptions = {},
 ): DaytonaTools {
+  const backgroundProcesses = createBackgroundProcessScope();
   const tools: DaytonaTools = {
     sandboxInfo: createDaytonaSandboxInfoTool(sandboxOptions),
     read: createDaytonaReadTool(sandboxOptions),
@@ -27,8 +29,8 @@ export function createDaytonaTools(
     grep: createDaytonaGrepTool(sandboxOptions),
     edit: createDaytonaEditTool(sandboxOptions),
     write: createDaytonaWriteTool(sandboxOptions),
-    bash: createDaytonaBashTool(sandboxOptions),
-    process: createDaytonaProcessTool(sandboxOptions),
+    bash: createDaytonaBashTool(sandboxOptions, backgroundProcesses),
+    process: createDaytonaProcessTool(sandboxOptions, backgroundProcesses),
   };
 
   if (!options.computer) {

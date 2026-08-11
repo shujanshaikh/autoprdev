@@ -65,8 +65,9 @@ function posixDirname(path: string): string {
   return normalized.slice(0, slashIndex) || "/";
 }
 
-function createCommandSessionId(): string {
-  return `autopr-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function createCommandSessionId(ownerId?: string): string {
+  const ownerSegment = ownerId ? `${ownerId}-` : "";
+  return `autopr-${ownerSegment}${crypto.randomUUID()}`;
 }
 
 const DAYTONA_TIMEOUT_ERROR_NAME = "DaytonaTimeoutError";
@@ -325,12 +326,13 @@ export async function executeSandboxCommand(
     timeout?: number;
     env?: Record<string, string>;
     isBackground?: boolean;
+    sessionOwnerId?: string;
     sandboxOptions?: SandboxSessionOptions;
   } = {},
 ): Promise<SandboxCommandResult> {
   const { sandbox, workDir } = await getSandboxContext(options.sandboxOptions);
   const cwd = options.cwd ?? workDir;
-  const sessionId = createCommandSessionId();
+  const sessionId = createCommandSessionId(options.sessionOwnerId);
   const requestedTimeout = normalizeCommandTimeout(options.timeout);
   const isBackground = Boolean(options.isBackground);
   const commandTimeout = isBackground ? undefined : requestedTimeout;

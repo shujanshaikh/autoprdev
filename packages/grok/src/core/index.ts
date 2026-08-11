@@ -10,7 +10,6 @@ export const GROK_DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:dev
 // xAI's API-key-oriented /models endpoint rejects a subscription token.
 export const GROK_FALLBACK_MODELS = [
   "grok-4.5",
-  "grok-4.20-multi-agent",
   "grok-build-0.1",
   "grok-4.20-0309-reasoning",
   "grok-4.20-0309-non-reasoning",

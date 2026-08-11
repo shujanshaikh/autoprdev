@@ -19,6 +19,46 @@ const MAX_COMPUTER_METADATA_CHARS = 8_000;
 const MAX_RECORDINGS_RETURNED = 25;
 const COMPUTER_ACTION_TIMEOUT_MS = 120_000;
 const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
+const computerOperationTails = new WeakMap<object, Promise<void>>();
+
+type TrackComputerOperation = (operation: Promise<unknown>) => void;
+
+async function serializeComputerOperations<T>(
+  computerUse: object,
+  operation: (track: TrackComputerOperation) => Promise<T>,
+): Promise<T> {
+  const previous = computerOperationTails.get(computerUse) ?? Promise.resolve();
+  let lastSdkOperation: Promise<unknown> = Promise.resolve();
+  const execution = previous
+    .catch(() => undefined)
+    .then(() => operation((pending) => {
+      lastSdkOperation = pending;
+    }));
+  const tail = execution
+    .then(() => lastSdkOperation, () => lastSdkOperation)
+    .then(() => undefined, () => undefined);
+  computerOperationTails.set(computerUse, tail);
+  void tail.finally(() => {
+    if (computerOperationTails.get(computerUse) === tail) {
+      computerOperationTails.delete(computerUse);
+    }
+  });
+  return execution;
+}
+
+function runBoundedComputerOperation<T>(
+  track: TrackComputerOperation,
+  operation: () => Promise<T>,
+  timeoutError: () => Error,
+): Promise<T> {
+  const pending = Promise.resolve().then(operation);
+  track(pending);
+  return raceWithTimeout(
+    () => pending,
+    COMPUTER_ACTION_TIMEOUT_MS,
+    timeoutError,
+  );
+}
 
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["ctrl", "alt", "meta", "cmd", "shift"]);
@@ -1065,6 +1105,21 @@ async function executeDaytonaComputer(
 ) {
   const context = await getSandboxContext(sandboxOptions);
   const { computerUse } = context.sandbox;
+  return serializeComputerOperations(computerUse, (track) => executeDaytonaComputerActions(
+    input,
+    context,
+    computerOptions,
+    track,
+  ));
+}
+
+async function executeDaytonaComputerActions(
+  input: ComputerInput,
+  context: Awaited<ReturnType<typeof getSandboxContext>>,
+  computerOptions: DaytonaComputerToolOptions,
+  track: TrackComputerOperation,
+) {
+  const { computerUse } = context.sandbox;
   const summaries = input.actions.map(summarizeAction);
   const details: ComputerOutputDetails = {
     action: input.actions.length === 1 ? input.actions[0]?.type : undefined,
@@ -1073,17 +1128,17 @@ async function executeDaytonaComputer(
   const recordings: Array<ReturnType<typeof compactRecording>> = [];
 
   if (input.actions.some(requiresDesktop)) {
-    await raceWithTimeout(
+    await runBoundedComputerOperation(
+      track,
       () => ensureComputerReady(computerUse),
-      COMPUTER_ACTION_TIMEOUT_MS,
       () => new Error("Timed out waiting for the Daytona desktop to become ready."),
     );
   }
 
   for (const action of input.actions) {
-    const partial = await raceWithTimeout(
+    const partial = await runBoundedComputerOperation(
+      track,
       () => runOneAction(action, context, computerOptions),
-      COMPUTER_ACTION_TIMEOUT_MS,
       () => new Error(`Timed out running Daytona computer action ${action.type}.`),
     );
 
@@ -1118,9 +1173,9 @@ async function executeDaytonaComputer(
     (action): action is Extract<ComputerAction, { type: "screenshot" }> => action.type === "screenshot",
   );
   if (shouldCaptureAfter(input.actions)) {
-    const captured = await raceWithTimeout(
+    const captured = await runBoundedComputerOperation(
+      track,
       () => captureScreenshot(computerUse, requestedScreenshot),
-      COMPUTER_ACTION_TIMEOUT_MS,
       () => new Error("Timed out capturing the Daytona desktop screenshot."),
     );
     details.screenshot = captured.screenshot;

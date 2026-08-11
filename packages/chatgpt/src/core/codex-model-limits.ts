@@ -23,7 +23,7 @@ export const CHATGPT_CODEX_MODEL_LIMITS = {
 export type ChatGPTCodexModelWithKnownLimits = keyof typeof CHATGPT_CODEX_MODEL_LIMITS;
 
 export function getChatGPTCodexModelLimits(modelId: string | undefined) {
-  if (!modelId || !(modelId in CHATGPT_CODEX_MODEL_LIMITS)) {
+  if (!modelId || !Object.hasOwn(CHATGPT_CODEX_MODEL_LIMITS, modelId)) {
     return undefined;
   }
 

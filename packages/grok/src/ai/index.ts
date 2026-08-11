@@ -32,15 +32,24 @@ export function createGrokOAuthFetch(options: {
     }
     headers.set("Authorization", `Bearer ${await options.accessToken()}`);
     headers.set("User-Agent", options.userAgent?.trim() || "autopr/0.0.0");
+    let body = init?.body;
+    if (body === undefined && input instanceof Request && isJsonRequest(input)) {
+      body = await input.clone().text();
+    }
     return requestFetch(input, {
       ...init,
       headers,
-      body: withResponsesOverrides(input, init?.body, {
+      body: withResponsesOverrides(input, body, {
         promptCacheKey: options.promptCacheKey,
         reasoningEffort: options.reasoningEffort,
       }),
     });
   };
+}
+
+function isJsonRequest(request: Request) {
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+  return contentType.includes("application/json") || contentType.includes("+json");
 }
 
 function withResponsesOverrides(

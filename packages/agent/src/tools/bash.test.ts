@@ -12,10 +12,8 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
 });
 
 import { createDaytonaBashTool } from "./bash";
-
-function safeParse(schema: unknown, value: unknown): { success: boolean } {
-  return (schema as { safeParse(input: unknown): { success: boolean } }).safeParse(value);
-}
+import { createBackgroundProcessScope } from "./background-process-scope";
+import { safeParse } from "../test/schema";
 
 async function executeBash(input: {
   command: string;
@@ -23,7 +21,10 @@ async function executeBash(input: {
   isBackground?: boolean;
   env?: Record<string, string>;
 }) {
-  const bash = createDaytonaBashTool({ cacheKey: "bash-test" });
+  const bash = createDaytonaBashTool(
+    { cacheKey: "bash-test" },
+    createBackgroundProcessScope("bash-test-owner"),
+  );
   if (!bash.execute) throw new Error("bash tool is not executable");
   return await bash.execute(input, { toolCallId: "bash-1", messages: [] }) as {
     content: string;
@@ -40,7 +41,7 @@ describe("Daytona bash tool", () => {
     });
     mocks.executeSandboxCommand.mockResolvedValue({
       cwd: "/workspace/repo",
-      sessionId: "autopr-session",
+      sessionId: "autopr-bash-test-owner-session",
       cmdId: "cmd-1",
       exitCode: 0,
       stdout: "done\n",
@@ -77,17 +78,51 @@ describe("Daytona bash tool", () => {
     await executeBash({ command: "pnpm dev", isBackground: true });
     expect(mocks.executeSandboxCommand).toHaveBeenCalledWith("pnpm dev", expect.objectContaining({
       isBackground: true,
+      sessionOwnerId: "bash-test-owner",
       timeout: undefined,
     }));
   });
 
+  it("registers redacted background command metadata for the process tool", async () => {
+    const backgroundProcesses = createBackgroundProcessScope("shared-test-owner");
+    mocks.executeSandboxCommand.mockResolvedValue({
+      cwd: "/workspace/repo",
+      sessionId: "autopr-shared-test-owner-session",
+      cmdId: "cmd-secret",
+    });
+    const bash = createDaytonaBashTool({ cacheKey: "bash-test" }, backgroundProcesses);
+    if (!bash.execute) throw new Error("bash tool is not executable");
+
+    await bash.execute({
+      command: "node script.js",
+      env: { API_TOKEN: "top-secret-value" },
+      isBackground: true,
+    }, { toolCallId: "bash-secret", messages: [] });
+
+    expect(backgroundProcesses.getCommand(
+      "autopr-shared-test-owner-session",
+      "cmd-secret",
+    )).toBe("node script.js");
+  });
+
   it("never echoes environment override values into persisted tool output", async () => {
+    mocks.executeSandboxCommand.mockResolvedValue({
+      cwd: "/workspace/repo",
+      sessionId: "autopr-bash-test-owner-session",
+      cmdId: "cmd-secret-output",
+      exitCode: 0,
+      stdout: "API_TOKEN=top-secret-value\n",
+      stderr: "failed with top-secret-value\n",
+      output: "API_TOKEN=top-secret-value\nfailed with top-secret-value\n",
+    });
     const result = await executeBash({
       command: "node script.js",
       env: { API_TOKEN: "top-secret-value" },
     });
+    const serializedResult = JSON.stringify(result);
     expect(result.content).toContain("Environment overrides: API_TOKEN (values hidden)");
-    expect(result.content).not.toContain("top-secret-value");
+    expect(serializedResult).not.toContain("top-secret-value");
+    expect(serializedResult).toContain("[REDACTED]");
   });
 
   it("bounds oversized command metadata as well as command output", async () => {
@@ -98,7 +133,10 @@ describe("Daytona bash tool", () => {
   });
 
   it("rejects excessive timeout values in the input schema", () => {
-    const bash = createDaytonaBashTool({ cacheKey: "bash-schema" });
+    const bash = createDaytonaBashTool(
+      { cacheKey: "bash-schema" },
+      createBackgroundProcessScope("bash-schema-owner"),
+    );
     expect(safeParse(bash.inputSchema, { command: "sleep 1", timeout: 3_601 }).success).toBe(false);
   });
 });

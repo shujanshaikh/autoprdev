@@ -79,10 +79,10 @@ describe("parseGithubPullRequestReference", () => {
   });
 });
 
-function response(data: unknown, status = 200) {
+function response(data: unknown, status = 200, headers?: Record<string, string>) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -243,6 +243,27 @@ describe("pull request review data", () => {
     expect(files[1]).not.toHaveProperty("patch");
   });
 
+  it("bounds changed-file pagination", async () => {
+    const next = '<https://api.github.com/next>; rel="next"';
+    const fetchMock = vi.fn();
+    for (let page = 0; page < 6; page += 1) {
+      fetchMock.mockResolvedValueOnce(response([{
+        filename: `src/page-${page}.ts`,
+        status: "modified",
+        additions: 1,
+        deletions: 0,
+        changes: 1,
+        blob_url: `https://github.com/acme/widget/blob/a/src/page-${page}.ts`,
+      }], 200, { Link: next }));
+    }
+    vi.stubGlobal("fetch", fetchMock);
+
+    const files = await fetchGithubPullRequestFiles("token", "acme", "widget", 42);
+
+    expect(files).toHaveLength(5);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
   it("combines commits, comments, and reviews in chronological order", async () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(response([{
@@ -258,17 +279,28 @@ describe("pull request review data", () => {
         created_at: "2026-01-01T00:00:00Z",
         user: { login: "reviewer" },
       }]))
-      .mockResolvedValueOnce(response([{
-        id: 2,
-        html_url: "https://github.com/acme/widget/pull/42#pullrequestreview-2",
-        body: "Looks good.",
-        state: "APPROVED",
-        submitted_at: "2026-01-03T00:00:00Z",
-        user: { login: "maintainer" },
-      }])));
+      .mockResolvedValueOnce(response([
+        {
+          id: 2,
+          html_url: "https://github.com/acme/widget/pull/42#pullrequestreview-2",
+          body: null,
+          state: "APPROVED",
+          submitted_at: "2026-01-03T00:00:00Z",
+          user: { login: "maintainer" },
+        },
+        {
+          id: 3,
+          html_url: "https://github.com/acme/widget/pull/42#pullrequestreview-3",
+          body: null,
+          state: "PENDING",
+          submitted_at: null,
+          user: { login: "reviewer" },
+        },
+      ])));
 
     const timeline = await fetchGithubPullRequestTimeline("token", "acme", "widget", 42);
     expect(timeline.map((item) => item.kind)).toEqual(["comment", "commit", "review"]);
-    expect(timeline[2]).toMatchObject({ state: "approved" });
+    expect(timeline[2]).toMatchObject({ state: "approved", body: "" });
+    expect(timeline).not.toContainEqual(expect.objectContaining({ id: "review:3" }));
   });
 });

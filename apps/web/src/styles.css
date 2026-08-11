@@ -199,6 +199,67 @@
   border-color: var(--sidebar-border);
 }
 
+/* Inset layout: the shell ground takes the sidebar tone so the sidebar melts
+   into it, and the main pane is the single raised card sitting on top. */
+.project-shell:has([data-slot="sidebar"][data-variant="inset"]) {
+  background: var(--sidebar);
+}
+
+.project-shell [data-slot="sidebar"][data-variant="inset"] [data-slot="sidebar-inner"] {
+  border-color: transparent;
+}
+
+/* A dense glass working surface, adapted from t3code's composer shell. The
+   tint stays intentionally high so messages never show through as readable
+   content; the backdrop filter only lends depth while the timeline scrolls. */
+.autopr-chat-composer {
+  --autopr-composer-surface: var(--project-panel-soft, var(--card));
+
+  isolation: isolate;
+  border-color: color-mix(in srgb, var(--project-strong-line, var(--border)) 76%, transparent);
+  background: color-mix(in srgb, var(--autopr-composer-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.12);
+  backdrop-filter: blur(16px) saturate(1.12);
+  box-shadow:
+    inset 0 1px color-mix(in srgb, white 22%, transparent),
+    0 18px 42px -26px rgb(0 0 0 / 58%);
+}
+
+.autopr-chat-composer:has([data-slot="input-group-control"]:focus-visible) {
+  border-color: var(--project-strong-line, var(--border));
+  background: color-mix(in srgb, var(--autopr-composer-surface) 94%, transparent);
+  box-shadow:
+    inset 0 1px color-mix(in srgb, white 26%, transparent),
+    0 18px 44px -25px rgb(0 0 0 / 64%),
+    0 0 0 1px color-mix(in srgb, var(--project-selected-strong, var(--ring)) 14%, transparent);
+}
+
+.dark .autopr-chat-composer {
+  --autopr-composer-surface: color-mix(in srgb, var(--project-panel-soft, var(--card)) 96%, white);
+
+  border-color: color-mix(in srgb, white 8%, transparent);
+  background: color-mix(in srgb, var(--autopr-composer-surface) 90%, transparent);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 4%),
+    0 20px 46px -26px rgb(0 0 0 / 86%);
+}
+
+.dark .autopr-chat-composer:has([data-slot="input-group-control"]:focus-visible) {
+  border-color: color-mix(in srgb, white 13%, transparent);
+  background: color-mix(in srgb, var(--autopr-composer-surface) 95%, transparent);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 6%),
+    0 20px 48px -26px rgb(0 0 0 / 90%),
+    0 0 0 1px color-mix(in srgb, var(--project-selected-strong, var(--ring)) 18%, transparent);
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .autopr-chat-composer,
+  .autopr-chat-composer:has([data-slot="input-group-control"]:focus-visible) {
+    background: var(--autopr-composer-surface);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .project-route-enter {
     animation: none;

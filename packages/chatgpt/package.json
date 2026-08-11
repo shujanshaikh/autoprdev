@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/core/index.ts",
     "./core": "./src/core/index.ts",
+    "./codex-model-limits": "./src/core/codex-model-limits.ts",
     "./server": "./src/server/index.ts",
     "./server/realtime-app-server": "./src/server/realtime-app-server.ts",
     "./react": "./src/react/index.ts",

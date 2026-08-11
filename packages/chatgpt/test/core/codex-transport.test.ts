@@ -99,6 +99,76 @@ describe("codex transport", () => {
     expect(fetch.calls[0]?.url).toContain("client_version=9.9.9");
   });
 
+  test("request timeout only bounds response headers, not a healthy streaming body", async () => {
+    let requestSignal: AbortSignal | null | undefined;
+    const fetch = createMockFetch((_url, init) => {
+      requestSignal = init?.signal;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            if (requestSignal?.aborted) {
+              controller.error(requestSignal.reason);
+              return;
+            }
+            controller.enqueue(new TextEncoder().encode("stream complete"));
+            controller.close();
+          }, 40);
+        },
+      }));
+    });
+    const config = resolveConfig({ fetch, requestTimeoutMs: 10 });
+    const codexFetch = createCodexFetch({
+      config,
+      getAuth: () => ({ accessToken: "at", accountId: "acct_1" }),
+    });
+
+    const response = await codexFetch("/responses", { method: "POST" });
+
+    await expect(response.text()).resolves.toBe("stream complete");
+    expect(requestSignal?.aborted).toBe(false);
+  });
+
+  test("request timeout still aborts while waiting for response headers", async () => {
+    const fetch = createMockFetch((_url, init) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+    const config = resolveConfig({ fetch, requestTimeoutMs: 10 });
+    const codexFetch = createCodexFetch({
+      config,
+      getAuth: () => ({ accessToken: "at", accountId: "acct_1" }),
+    });
+
+    await expect(codexFetch("/responses", { method: "POST" })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  test("caller cancellation remains active after response headers", async () => {
+    const caller = new AbortController();
+    const fetch = createMockFetch((_url, init) => {
+      const signal = init?.signal;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          signal?.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+        },
+      }));
+    });
+    const config = resolveConfig({ fetch, requestTimeoutMs: 10_000 });
+    const codexFetch = createCodexFetch({
+      config,
+      getAuth: () => ({ accessToken: "at", accountId: "acct_1" }),
+    });
+    const response = await codexFetch("/responses", {
+      method: "POST",
+      signal: caller.signal,
+    });
+
+    caller.abort(new DOMException("Stopped by user", "AbortError"));
+
+    await expect(response.text()).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   test("extractCodexModelSlugs supports known model-list wrappers", () => {
     expect(
       extractCodexModelSlugs({

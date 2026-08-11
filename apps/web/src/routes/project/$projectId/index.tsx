@@ -61,7 +61,6 @@ import {
 } from "#/components/codex-prompt-connection-line";
 import { DaytonaEnvironmentDialog } from "#/components/thread/daytona-environment-view";
 import {
-  DEFAULT_CODEX_REASONING_EFFORT,
   getCodexReasoningEffortLabel,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
@@ -306,9 +305,7 @@ function ProjectOverviewPage() {
     const requested = modelOptions.find((option) => option.key === selectedModelChoice);
     return selectAgentModel(modelOptions, requested);
   }, [modelOptions, selectedModelChoice]);
-  const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>(
-    DEFAULT_CODEX_REASONING_EFFORT,
-  );
+  const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>();
   const [demoEnabled, setDemoEnabled] = useState(false);
   const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
   const selectedReasoningEfforts = useMemo(() => getAgentReasoningEfforts(selectedModel), [selectedModel]);

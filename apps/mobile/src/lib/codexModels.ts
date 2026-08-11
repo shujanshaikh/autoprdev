@@ -1,3 +1,5 @@
+import { CHATGPT_CODEX_MODEL_LIMITS } from "@autopr/chatgpt/codex-model-limits";
+
 const STANDARD_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 const MAX_REASONING_EFFORTS = [...STANDARD_REASONING_EFFORTS, "max"] as const;
 const ULTRA_REASONING_EFFORTS = [...MAX_REASONING_EFFORTS, "ultra"] as const;
@@ -13,9 +15,9 @@ type ModelDefinition = {
 };
 
 const MODELS: readonly ModelDefinition[] = [
-  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 372_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
-  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 372_000, reasoningEfforts: ULTRA_REASONING_EFFORTS },
-  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 372_000, reasoningEfforts: MAX_REASONING_EFFORTS },
+  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-sol"].contextWindowTokens, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-terra"].contextWindowTokens, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-luna"].contextWindowTokens, reasoningEfforts: MAX_REASONING_EFFORTS },
   { id: "gpt-5.5", label: "GPT-5.5", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
   { id: "gpt-5.4", label: "GPT-5.4", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
   { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", contextLimit: 272_000, reasoningEfforts: STANDARD_REASONING_EFFORTS },
@@ -86,7 +88,7 @@ export function describeReasoningEffort(value: CodexReasoningEffort) {
   return REASONING_EFFORT_DESCRIPTIONS[value];
 }
 
-/** Short context-window label for the model picker, for example "372K context". */
+/** Short context-window label for the model picker, for example "272K context". */
 export function formatCodexContextLimit(modelId: string | undefined) {
   const contextLimit = MODELS.find((model) => model.id === modelId)?.contextLimit;
   if (!contextLimit) return undefined;

@@ -17,6 +17,12 @@ export {
 } from "./system-prompt";
 export { applyAgenticCache, createCachedSystemMessage } from "./cache";
 export {
+  createAgentStepController,
+  detectRepeatedToolLoop,
+  type AgentStepControllerOptions,
+  type AgentToolLoopDetection,
+} from "./step-controller";
+export {
   bootstrapRepositorySandbox,
   createSandboxCacheKey,
   type BootstrappedRepositorySandbox,

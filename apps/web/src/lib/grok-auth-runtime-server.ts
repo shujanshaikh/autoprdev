@@ -13,6 +13,7 @@ import {
 import { createGrokOAuthProvider, type GrokResponsesModel } from "@autopr/grok/ai";
 import { nanoid } from "nanoid";
 
+import { isAgentReasoningEffortSupported } from "#/lib/agent-models";
 import { WorkOSVaultStore } from "#/lib/codex-auth-runtime-server";
 
 const TOKEN_REFRESH_SKEW_MS = 120_000;
@@ -175,9 +176,15 @@ export async function resolveGrokAgentGrant(grantId: string, expected: GrokAgent
 
 export async function createGrokResponsesModel(options: {
   modelId: string;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+  promptCacheKey?: string;
   credentialsGrantId: string;
   credentialsGrantContext: GrokAgentGrantContext;
 }): Promise<GrokResponsesModel> {
+  const reasoningEffort = isAgentReasoningEffortSupported(
+    { provider: "xai", modelId: options.modelId },
+    options.reasoningEffort,
+  ) ? options.reasoningEffort : undefined;
   let userIdPromise: Promise<string> | undefined;
   const resolveUserId = () => {
     userIdPromise ??= resolveGrokAgentGrant(
@@ -191,6 +198,8 @@ export async function createGrokResponsesModel(options: {
   };
   const provider = createGrokOAuthProvider({
     accessToken: async () => (await getFreshGrokCredentials(await resolveUserId())).accessToken,
+    promptCacheKey: options.promptCacheKey,
+    reasoningEffort: reasoningEffort === "xhigh" ? "xhigh" : undefined,
   });
   return provider.responses(options.modelId);
 }

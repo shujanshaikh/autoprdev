@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand } from "../sandbox/execute";
+import { raceWithTimeout } from "./timeout";
 
 export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
 
@@ -14,16 +15,68 @@ const DEFAULT_DISPLAY = ":1";
 const DEFAULT_SCREENSHOT_FORMAT = "png";
 const DEFAULT_SCREENSHOT_QUALITY = 100;
 const DEFAULT_SCREENSHOT_SCALE = 1;
+const MAX_COMPUTER_METADATA_CHARS = 8_000;
+const MAX_RECORDINGS_RETURNED = 25;
+const COMPUTER_ACTION_TIMEOUT_MS = 120_000;
 const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
+const computerOperationTails = new WeakMap<object, Promise<void>>();
+
+type TrackComputerOperation = (operation: Promise<unknown>) => void;
+
+async function serializeComputerOperations<T>(
+  computerUse: object,
+  operation: (track: TrackComputerOperation) => Promise<T>,
+): Promise<T> {
+  const previous = computerOperationTails.get(computerUse) ?? Promise.resolve();
+  let lastSdkOperation: Promise<unknown> = Promise.resolve();
+  const execution = previous
+    .catch(() => undefined)
+    .then(() => operation((pending) => {
+      lastSdkOperation = pending;
+    }));
+  const tail = execution
+    .then(() => lastSdkOperation, () => lastSdkOperation)
+    .then(() => undefined, () => undefined);
+  computerOperationTails.set(computerUse, tail);
+  void tail.finally(() => {
+    if (computerOperationTails.get(computerUse) === tail) {
+      computerOperationTails.delete(computerUse);
+    }
+  });
+  return execution;
+}
+
+function runBoundedComputerOperation<T>(
+  track: TrackComputerOperation,
+  operation: () => Promise<T>,
+  timeoutError: () => Error,
+): Promise<T> {
+  const pending = Promise.resolve().then(operation);
+  track(pending);
+  return raceWithTimeout(
+    () => pending,
+    COMPUTER_ACTION_TIMEOUT_MS,
+    timeoutError,
+  );
+}
 
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["ctrl", "alt", "meta", "cmd", "shift"]);
+const screenCoordinateSchema = z.number().int().min(0).max(100_000);
+const browserUrlSchema = z.string().min(1).max(4_096).refine((value) => {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}, "URL must be an absolute http:// or https:// URL.");
 
 const screenshotRegionSchema = z.object({
-  x: z.number().int().min(0),
-  y: z.number().int().min(0),
-  width: z.number().int().min(1),
-  height: z.number().int().min(1),
+  x: screenCoordinateSchema,
+  y: screenCoordinateSchema,
+  width: z.number().int().min(1).max(10_000),
+  height: z.number().int().min(1).max(10_000),
 });
 
 const screenshotOptionsSchema = {
@@ -74,7 +127,7 @@ const computerActionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("open_url").describe("Open a URL in the sandbox desktop browser."),
-    url: z.string().min(1).describe("URL to open, usually a localhost preview URL chosen after inspecting the app."),
+    url: browserUrlSchema.describe("Absolute HTTP(S) URL to open, usually a localhost preview chosen after inspecting the app."),
   }),
   z.object({
     type: z.literal("screenshot").describe("Capture the current desktop state."),
@@ -87,49 +140,49 @@ const computerActionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("move").describe("Move the mouse cursor to absolute screen coordinates."),
-    x: z.number().int().min(0),
-    y: z.number().int().min(0),
+    x: screenCoordinateSchema,
+    y: screenCoordinateSchema,
   }),
   z.object({
     type: z.literal("click").describe("Click absolute screen coordinates."),
-    x: z.number().int().min(0),
-    y: z.number().int().min(0),
+    x: screenCoordinateSchema,
+    y: screenCoordinateSchema,
     button: mouseButtonSchema.optional(),
   }),
   z.object({
     type: z.literal("double_click").describe("Double-click absolute screen coordinates."),
-    x: z.number().int().min(0),
-    y: z.number().int().min(0),
+    x: screenCoordinateSchema,
+    y: screenCoordinateSchema,
     button: mouseButtonSchema.optional(),
   }),
   z.object({
     type: z.literal("drag").describe("Drag from one absolute screen coordinate to another."),
-    startX: z.number().int().min(0),
-    startY: z.number().int().min(0),
-    endX: z.number().int().min(0),
-    endY: z.number().int().min(0),
+    startX: screenCoordinateSchema,
+    startY: screenCoordinateSchema,
+    endX: screenCoordinateSchema,
+    endY: screenCoordinateSchema,
     button: mouseButtonSchema.optional(),
   }),
   z.object({
     type: z.literal("scroll").describe("Scroll at absolute screen coordinates."),
-    x: z.number().int().min(0),
-    y: z.number().int().min(0),
+    x: screenCoordinateSchema,
+    y: screenCoordinateSchema,
     direction: z.enum(["up", "down"]),
     amount: z.number().int().min(1).max(20).optional(),
   }),
   z.object({
     type: z.literal("type").describe("Type text into the focused desktop app."),
-    text: z.string().min(1),
+    text: z.string().min(1).max(64 * 1024),
     delayMs: z.number().int().min(0).max(1000).optional(),
   }),
   z.object({
     type: z.literal("keypress").describe("Press one key with optional modifiers."),
-    key: z.string().min(1),
-    modifiers: z.array(modifierSchema).optional(),
+    key: z.string().min(1).max(128),
+    modifiers: z.array(modifierSchema).max(8).optional(),
   }),
   z.object({
     type: z.literal("hotkey").describe("Press a single atomic hotkey chord such as ctrl+l or alt+tab."),
-    keys: z.string().min(1),
+    keys: z.string().min(1).max(256),
   }),
   z.object({
     type: z.literal("start_recording").describe("Start a desktop recording."),
@@ -137,12 +190,12 @@ const computerActionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("stop_recording").describe("Stop a desktop recording by ID."),
-    recordingId: z.string().min(1),
+    recordingId: z.string().min(1).max(256),
     title: z.string().trim().min(3).max(120).describe("Required concise title for the completed recording, shown above the embedded playback UI."),
   }),
   z.object({
     type: z.literal("get_recording").describe("Get metadata for one desktop recording."),
-    recordingId: z.string().min(1),
+    recordingId: z.string().min(1).max(256),
   }),
   z.object({
     type: z.literal("list_recordings").describe("List desktop recordings."),
@@ -154,29 +207,29 @@ const legacyActionSchema = z.object({
   type: legacyActionNameSchema
     .optional()
     .describe("Legacy alias for action. Prefer actions[].type with canonical action names for new calls."),
-  url: z.string().min(1).optional(),
+  url: browserUrlSchema.optional(),
   region: screenshotRegionSchema.optional(),
   ...screenshotOptionsSchema,
-  x: z.number().int().min(0).optional(),
-  y: z.number().int().min(0).optional(),
+  x: screenCoordinateSchema.optional(),
+  y: screenCoordinateSchema.optional(),
   button: mouseButtonSchema.optional(),
   double: z.boolean().optional(),
-  startX: z.number().int().min(0).optional(),
-  startY: z.number().int().min(0).optional(),
-  endX: z.number().int().min(0).optional(),
-  endY: z.number().int().min(0).optional(),
+  startX: screenCoordinateSchema.optional(),
+  startY: screenCoordinateSchema.optional(),
+  endX: screenCoordinateSchema.optional(),
+  endY: screenCoordinateSchema.optional(),
   direction: z.enum(["up", "down"]).optional(),
   amount: z.number().int().min(1).max(20).optional(),
   ms: z.number().int().min(100).max(10_000).optional(),
-  text: z.string().optional(),
+  text: z.string().max(64 * 1024).optional(),
   delay: z.number().int().min(0).max(1000).optional(),
   delayMs: z.number().int().min(0).max(1000).optional(),
-  key: z.string().min(1).optional(),
-  modifiers: z.array(modifierSchema).optional(),
-  keys: z.string().min(1).optional(),
-  label: z.string().optional(),
-  title: z.string().optional(),
-  recordingId: z.string().min(1).optional(),
+  key: z.string().min(1).max(128).optional(),
+  modifiers: z.array(modifierSchema).max(8).optional(),
+  keys: z.string().min(1).max(256).optional(),
+  label: z.string().max(120).optional(),
+  title: z.string().max(120).optional(),
+  recordingId: z.string().min(1).max(256).optional(),
 });
 
 function legacyActionToCanonical(input: z.infer<typeof legacyActionSchema>, ctx: z.RefinementCtx): ComputerAction {
@@ -268,6 +321,7 @@ type ComputerOutputDetails = {
   screenshot?: ScreenshotForModel | ScreenshotMetadata;
   recording?: ReturnType<typeof compactRecording>;
   recordings?: Array<ReturnType<typeof compactRecording>>;
+  recordingsTruncated?: boolean;
 };
 
 type ComputerUseProcessName = (typeof COMPUTER_USE_PROCESS_NAMES)[number];
@@ -340,6 +394,20 @@ function compactDiagnostic(value: unknown): string | undefined {
   return normalized.length > MAX_COMPUTER_DIAGNOSTIC_LENGTH
     ? `${normalized.slice(0, MAX_COMPUTER_DIAGNOSTIC_LENGTH)}...`
     : normalized;
+}
+
+function compactMetadataValue(value: unknown): unknown {
+  if (value === undefined || value === null) return value;
+  try {
+    const serialized = typeof value === "string" ? value : JSON.stringify(value);
+    if (!serialized || serialized.length <= MAX_COMPUTER_METADATA_CHARS) return value;
+    return {
+      truncated: true,
+      preview: `${serialized.slice(0, MAX_COMPUTER_METADATA_CHARS)}...`,
+    };
+  } catch {
+    return { truncated: true, preview: String(value).slice(0, MAX_COMPUTER_METADATA_CHARS) };
+  }
 }
 
 function responseField(value: unknown, field: string): unknown {
@@ -914,11 +982,11 @@ async function runOneAction(
   switch (action.type) {
     case "start": {
       await ensureComputerReady(computerUse);
-      const status = await computerUse.getStatus();
+      const status = compactMetadataValue(await computerUse.getStatus());
       return { status };
     }
     case "status": {
-      const status = await computerUse.getStatus();
+      const status = compactMetadataValue(await computerUse.getStatus());
       return { status };
     }
     case "display": {
@@ -926,7 +994,7 @@ async function runOneAction(
       return { display };
     }
     case "windows": {
-      return { windows: await computerUse.display.getWindows() };
+      return { windows: compactMetadataValue(await computerUse.display.getWindows()) };
     }
     case "open_url": {
       const result = await executeSandboxCommand(openUrlCommand(), {
@@ -948,12 +1016,12 @@ async function runOneAction(
 
       await sleep(2_000);
       return {
-        windows: await computerUse.display.getWindows().catch(() => undefined),
+        windows: compactMetadataValue(await computerUse.display.getWindows().catch(() => undefined)),
         command: {
           cwd: result.cwd,
           exitCode: result.exitCode ?? null,
-          stdout: result.stdout ?? result.output ?? "",
-          stderr: result.stderr ?? "",
+          stdout: compactDiagnostic(result.stdout ?? result.output ?? ""),
+          stderr: compactDiagnostic(result.stderr ?? ""),
         },
       };
     }
@@ -1017,10 +1085,15 @@ async function runOneAction(
     }
     case "list_recordings": {
       const result = await computerUse.recording.list();
-      const recordings = isRecord(result) && Array.isArray(result.recordings)
-        ? result.recordings.map((recording) => compactRecording(recording as DaytonaRecording))
+      const allRecordings = isRecord(result) && Array.isArray(result.recordings)
+        ? result.recordings
         : [];
-      return { recordings };
+      return {
+        recordings: allRecordings
+          .slice(0, MAX_RECORDINGS_RETURNED)
+          .map((recording) => compactRecording(recording as DaytonaRecording)),
+        recordingsTruncated: allRecordings.length > MAX_RECORDINGS_RETURNED,
+      };
     }
   }
 }
@@ -1032,6 +1105,21 @@ async function executeDaytonaComputer(
 ) {
   const context = await getSandboxContext(sandboxOptions);
   const { computerUse } = context.sandbox;
+  return serializeComputerOperations(computerUse, (track) => executeDaytonaComputerActions(
+    input,
+    context,
+    computerOptions,
+    track,
+  ));
+}
+
+async function executeDaytonaComputerActions(
+  input: ComputerInput,
+  context: Awaited<ReturnType<typeof getSandboxContext>>,
+  computerOptions: DaytonaComputerToolOptions,
+  track: TrackComputerOperation,
+) {
+  const { computerUse } = context.sandbox;
   const summaries = input.actions.map(summarizeAction);
   const details: ComputerOutputDetails = {
     action: input.actions.length === 1 ? input.actions[0]?.type : undefined,
@@ -1040,11 +1128,19 @@ async function executeDaytonaComputer(
   const recordings: Array<ReturnType<typeof compactRecording>> = [];
 
   if (input.actions.some(requiresDesktop)) {
-    await ensureComputerReady(computerUse);
+    await runBoundedComputerOperation(
+      track,
+      () => ensureComputerReady(computerUse),
+      () => new Error("Timed out waiting for the Daytona desktop to become ready."),
+    );
   }
 
   for (const action of input.actions) {
-    const partial = await runOneAction(action, context, computerOptions);
+    const partial = await runBoundedComputerOperation(
+      track,
+      () => runOneAction(action, context, computerOptions),
+      () => new Error(`Timed out running Daytona computer action ${action.type}.`),
+    );
 
     if (partial.status !== undefined) {
       details.status = partial.status;
@@ -1064,6 +1160,9 @@ async function executeDaytonaComputer(
     if (partial.recordings?.length) {
       recordings.push(...partial.recordings);
     }
+    if (partial.recordingsTruncated) {
+      details.recordingsTruncated = true;
+    }
   }
 
   if (recordings.length > 0) {
@@ -1074,7 +1173,11 @@ async function executeDaytonaComputer(
     (action): action is Extract<ComputerAction, { type: "screenshot" }> => action.type === "screenshot",
   );
   if (shouldCaptureAfter(input.actions)) {
-    const captured = await captureScreenshot(computerUse, requestedScreenshot);
+    const captured = await runBoundedComputerOperation(
+      track,
+      () => captureScreenshot(computerUse, requestedScreenshot),
+      () => new Error("Timed out capturing the Daytona desktop screenshot."),
+    );
     details.screenshot = captured.screenshot;
     details.display = details.display ?? captured.display;
   }
@@ -1089,7 +1192,8 @@ async function executeDaytonaComputer(
       : undefined,
     details.recording ? recordingSummary(details.recording) : undefined,
     !details.recording && details.recordings
-      ? `Found ${details.recordings.length} demo recording${details.recordings.length === 1 ? "" : "s"}`
+      ? `Found ${details.recordings.length} demo recording${details.recordings.length === 1 ? "" : "s"}` +
+        (details.recordingsTruncated ? ` (showing first ${MAX_RECORDINGS_RETURNED})` : "")
       : undefined,
     statusValue(details.status) ? `Status: ${statusValue(details.status)}` : undefined,
   ].filter(Boolean);
@@ -1104,7 +1208,7 @@ export function createDaytonaComputerTool(
   return tool<ComputerInput, Awaited<ReturnType<typeof executeDaytonaComputer>>>({
     title: "computer",
     description:
-      "Inspect and operate the Daytona sandbox desktop for browser previews, screenshots, GUI interaction, and demo recordings. Use after choosing a relevant app URL or desktop target. Accepts one or more GUI actions and returns a fresh screenshot as image content when screen state is relevant. Mutates GUI/recording state; keep action batches small and re-check screenshots before coordinate-sensitive actions.",
+      "Inspect and operate the Daytona desktop for HTTP(S) browser previews, screenshots, GUI interaction, and demo recordings. Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh screenshot when screen state matters. Mutates GUI/recording state; keep batches small and re-check before coordinate-sensitive actions.",
     inputSchema: computerInputSchema,
     toModelOutput: ({ output }) => output,
     execute: (input) => executeDaytonaComputer(input, sandboxOptions, computerOptions),

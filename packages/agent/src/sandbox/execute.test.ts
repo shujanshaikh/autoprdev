@@ -11,6 +11,7 @@ vi.mock("./index", () => ({
 
 import {
   downloadRemoteFileChunk,
+  executeSandboxCommand,
   isPathWithinRoot,
   RemoteFileNotFoundError,
   resolveJailedSandboxPath,
@@ -120,6 +121,55 @@ beforeEach(() => {
   mocks.getSandboxContext.mockResolvedValue({ sandbox: fakeSandbox, workDir: WORK_DIR });
 });
 
+describe("executeSandboxCommand lifecycle", () => {
+  it("keeps background sessions alive for the process tool", async () => {
+    mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-background" });
+
+    const result = await executeSandboxCommand("pnpm dev", {
+      isBackground: true,
+      sessionOwnerId: "agent-run-owner",
+      sandboxOptions: {},
+    });
+
+    expect(result.cmdId).toBe("cmd-background");
+    expect(result.sessionId).toMatch(/^autopr-agent-run-owner-/);
+    expect(mocks.executeSessionCommand).toHaveBeenCalledWith(
+      result.sessionId,
+      expect.objectContaining({ runAsync: true, suppressInputEcho: true }),
+      15,
+    );
+    expect(fakeSandbox.process.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("cleans up foreground sessions after command completion", async () => {
+    mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-foreground", exitCode: 0 });
+
+    const result = await executeSandboxCommand("pnpm test", { sandboxOptions: {} });
+
+    expect(mocks.executeSessionCommand).toHaveBeenCalledWith(
+      result.sessionId,
+      expect.objectContaining({ runAsync: false, suppressInputEcho: true }),
+      undefined,
+    );
+    expect(fakeSandbox.process.deleteSession).toHaveBeenCalledWith(result.sessionId);
+  });
+
+  it("does not hang a completed command when Daytona session cleanup stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-cleanup-timeout", exitCode: 0 });
+      fakeSandbox.process.deleteSession.mockImplementationOnce(() => new Promise(() => undefined));
+
+      const pending = executeSandboxCommand("pnpm test", { sandboxOptions: {} });
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await expect(pending).resolves.toMatchObject({ cmdId: "cmd-cleanup-timeout", exitCode: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("isPathWithinRoot", () => {
   it("accepts the root itself and nested paths", () => {
     expect(isPathWithinRoot("/work/repo", "/work/repo")).toBe(true);
@@ -186,6 +236,16 @@ describe("resolveJailedSandboxPath", () => {
         extraAllowedRoots: ["/data"],
       }),
     ).resolves.toBe("/data/cache/blob");
+  });
+
+  it("returns the canonical in-workspace target for symlink aliases", async () => {
+    mocks.executeSessionCommand.mockImplementation(
+      emulateRemote({ symlinks: { [`${WORK_DIR}/alias.ts`]: `${WORK_DIR}/src/target.ts` } }),
+    );
+
+    await expect(
+      resolveJailedSandboxPath("alias.ts", { workDir: WORK_DIR, sandboxOptions: {} }),
+    ).resolves.toBe(`${WORK_DIR}/src/target.ts`);
   });
 
   it("caches canonical roots per sandbox while rechecking each candidate", async () => {

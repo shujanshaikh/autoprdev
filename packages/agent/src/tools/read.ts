@@ -5,6 +5,7 @@ import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { downloadRemoteFileChunk, resolveJailedSandboxPath } from "../sandbox/execute";
 import {
   clampLimit,
+  completeUtf8PrefixLength,
   formatNumberedLines,
   formatSize,
   isProbablyBinary,
@@ -12,20 +13,23 @@ import {
 } from "./format";
 import { requireString } from "./validation";
 
-const DEFAULT_READ_LIMIT = 200;
-const MAX_READ_LIMIT = 400;
+const DEFAULT_READ_LIMIT = 2_000;
+const MAX_READ_LIMIT = 2_000;
 // Hard cap on bytes transferred per read, enforced on the sandbox host before
-// anything reaches harness memory. 400 average-length lines need ~40 KB, so
-// this only binds on pathological inputs (minified bundles, huge logs).
-const MAX_READ_WINDOW_BYTES = 1024 * 1024;
+// anything reaches harness memory. This mirrors the proven OpenCode/pi prompt
+// budget while byteOffset still lets the model continue a minified long line.
+const MAX_READ_WINDOW_BYTES = 64 * 1024;
 
 const readInputSchema = z.object({
   path: z
     .string()
+    .max(4_096)
     .optional()
     .describe("Required. Path to the file to read. Relative paths resolve from the sandbox workdir."),
-  offset: z.number().min(1).optional().describe("Line number to start reading from. Uses 1-based indexing."),
-  limit: z.number().min(1).optional().describe("Maximum number of lines to return."),
+  offset: z.number().int().min(1).optional().describe("Line number to start reading from. Uses 1-based indexing."),
+  limit: z.number().int().min(1).max(MAX_READ_LIMIT).optional().describe(
+    `Maximum number of lines to return, up to ${MAX_READ_LIMIT}.`,
+  ),
   byteOffset: z.number().int().min(0).optional().describe(
     "Byte offset within the requested line. Use only when a previous read says a single oversized line is incomplete.",
   ),
@@ -78,7 +82,11 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
     throw new Error(`Offset ${offset} is beyond the end of ${remotePath} (${totalLines} lines).`);
   }
 
-  const windowText = chunk.content.toString("utf8");
+  const utf8PrefixBytes = completeUtf8PrefixLength(chunk.content);
+  const displayBuffer = utf8PrefixBytes >= 0
+    ? chunk.content.subarray(0, utf8PrefixBytes)
+    : chunk.content;
+  const windowText = displayBuffer.toString("utf8");
   const windowLines = windowText.split(/\r?\n/);
   // sed terminates every printed line, so a window ending in "\n" splits into
   // one extra empty element that is not a real file line.
@@ -111,7 +119,7 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
   const lineEnd = offset + windowLines.length - 1;
   const truncated = lineEnd < totalLines || droppedPartialLine || partialLineKept;
   const continuation = partialLineKept
-    ? `\n\n[The final line is incomplete. Use offset=${lineEnd} byteOffset=${byteOffset + chunk.content.length} to continue that line.]`
+    ? `\n\n[The final line is incomplete. Use offset=${lineEnd} byteOffset=${byteOffset + displayBuffer.length} to continue that line.]`
     : truncated
       ? `\n\n[Use offset=${lineEnd + 1} to continue.]`
       : "";
@@ -144,7 +152,7 @@ export function createDaytonaReadTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "read",
     description:
-      "Read a UTF-8 text file from the Daytona sandbox with optional line offset and limit. Use before editing or explaining code. Relative paths resolve from the sandbox workdir and paths must stay inside the workspace. Read-only and safe to retry; binary files are reported instead of displayed.",
+      "Read a UTF-8 text file from the Daytona sandbox with 1-based line pagination. Returns up to 2,000 lines / 64 KiB and an exact offset (plus byteOffset for a single oversized line) when more remains. Use before editing or explaining code. Paths are canonicalized inside the workspace jail; binary files are reported instead of displayed. Read-only and safe to retry.",
     inputSchema: readInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaRead(input, sandboxOptions),

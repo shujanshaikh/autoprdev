@@ -2,12 +2,24 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
+import crypto from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { FileFinder, findBinary } from "@ff-labs/fff-node";
 
 const DEFAULT_HOME = "/home";
 const DEFAULT_LIMIT = 50;
 const DEFAULT_INDEX_TIMEOUT_MS = 10_000;
+const DEFAULT_GREP_TIME_BUDGET_MS = 10_000;
+const DEFAULT_DAEMON_IDLE_TIMEOUT_MS = 5 * 60_000;
+const DAEMON_START_TIMEOUT_MS = 5_000;
+const DAEMON_REQUEST_TIMEOUT_MS = 40_000;
+const MAX_DAEMON_REQUEST_BYTES = 1024 * 1024;
+const MAX_DAEMON_RESPONSE_BYTES = 16 * 1024 * 1024;
 const FIND_WEAK_SAMPLE_SIZE = 5;
+const CLI_PATH = fileURLToPath(import.meta.url);
 
 function parseArgs(argv) {
   const args = argv.slice(2);
@@ -149,6 +161,17 @@ function resolveGrepMode(mode, pattern) {
   return hasRegexSyntax(pattern) && isValidRegex(pattern) ? "regex" : "plain";
 }
 
+function isWildcardOnlyPattern(pattern) {
+  const trimmed = pattern.trim();
+  if (!trimmed || !hasRegexSyntax(trimmed)) {
+    return false;
+  }
+
+  return /^(?:[.^$]*(?:[.][*+?]|\*|\+)[.^$]*|[.^$\s]*|\.\*\??|\.\*[+?]?|\.\+\??|\.|\*|\?)$/.test(
+    trimmed,
+  );
+}
+
 function cleanupFuzzyQuery(value) {
   let output = "";
   for (const char of value) {
@@ -181,6 +204,10 @@ function normalizePathConstraint(pathConstraint, cwd = process.cwd()) {
   }
   if (trimmed.startsWith("./")) {
     trimmed = trimmed.slice(2);
+  }
+
+  if (trimmed === "**" || trimmed === "**/" || trimmed === "**/*") {
+    return null;
   }
 
   const recursiveDir = trimmed.match(/^(.*)\/\*\*(?:\/\*)?$/);
@@ -312,19 +339,54 @@ async function waitForIndex(finder, timeoutMs) {
   return ready.value === true;
 }
 
-async function withFinder(cwd, parsed, callback) {
+function workspaceHash(cwd) {
+  return crypto.createHash("sha256").update(cwd).digest("hex").slice(0, 16);
+}
+
+function canonicalizeCwd(cwd) {
+  const resolved = path.resolve(cwd);
+  let canonical;
+  try {
+    canonical = fs.realpathSync(resolved);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(`FFF workspace does not exist: ${resolved}`);
+    }
+    throw error;
+  }
+
+  if (!fs.statSync(canonical).isDirectory()) {
+    throw new Error(`FFF workspace is not a directory: ${canonical}`);
+  }
+  return canonical;
+}
+
+function workspaceDatabasePath(configuredPath, cwd) {
+  if (!configuredPath) {
+    return undefined;
+  }
+
+  const parsed = path.parse(configuredPath);
+  return path.join(parsed.dir, `${parsed.name}-${workspaceHash(cwd)}${parsed.ext}`);
+}
+
+function createFinder(cwd) {
   const created = FileFinder.create({
     basePath: cwd,
     aiMode: true,
-    frecencyDbPath: process.env.FFF_FRECENCY_DB,
-    historyDbPath: process.env.FFF_HISTORY_DB,
+    frecencyDbPath: workspaceDatabasePath(process.env.FFF_FRECENCY_DB, cwd),
+    historyDbPath: workspaceDatabasePath(process.env.FFF_HISTORY_DB, cwd),
   });
 
   if (!created.ok) {
     throw new Error(created.error);
   }
 
-  const finder = created.value;
+  return created.value;
+}
+
+async function withFinder(cwd, parsed, callback, providedFinder) {
+  const finder = providedFinder ?? createFinder(cwd);
 
   try {
     const timeoutMs = readNumberFlag(parsed, "--index-timeout-ms", DEFAULT_INDEX_TIMEOUT_MS);
@@ -332,14 +394,17 @@ async function withFinder(cwd, parsed, callback) {
 
     return await callback(finder);
   } finally {
-    finder.destroy();
+    if (!providedFinder) {
+      finder.destroy();
+    }
   }
 }
 
-async function main() {
-  const parsed = parseArgs(process.argv);
+async function runCommand(parsed, providedFinder) {
   const { command, positionals } = parsed;
-  const cwd = readFlag(parsed, "--cwd", process.cwd() === "/" ? defaultCwd() : process.cwd());
+  const cwd = canonicalizeCwd(
+    readFlag(parsed, "--cwd", process.cwd() === "/" ? defaultCwd() : process.cwd()),
+  );
 
   if (command === "health") {
     const binary = findBinary();
@@ -354,10 +419,9 @@ async function main() {
         health: health.ok ? health.value : { error: health.error },
         progress: progress.ok ? progress.value : { error: progress.error },
       };
-    });
+    }, providedFinder);
 
-    printJson(result);
-    return;
+    return result;
   }
 
   if (command === "find") {
@@ -446,16 +510,20 @@ async function main() {
         weak: quality.weak,
         ...cursorResult,
       };
-    });
+    }, providedFinder);
 
-    printJson(result);
-    return;
+    return result;
   }
 
   if (command === "grep") {
     const pattern = readFlag(parsed, "--pattern", positionals[0]);
     if (!pattern) {
       throw new Error("Missing --pattern for grep");
+    }
+    if (isWildcardOnlyPattern(pattern)) {
+      throw new Error(
+        `Pattern '${pattern}' matches everything. grep requires a concrete substring or identifier; use read for a known file or find for file discovery.`,
+      );
     }
 
     const limit = readNumberFlag(parsed, "--limit", DEFAULT_LIMIT);
@@ -467,6 +535,11 @@ async function main() {
     const ignoreCase = readBooleanFlag(parsed, "--ignore-case", false);
     const caseSensitive = readBooleanFlag(parsed, "--case-sensitive", false);
     const maxMatchesPerFile = readNumberFlag(parsed, "--max-matches-per-file", Math.min(limit, 50));
+    const timeBudgetMs = readNumberFlag(
+      parsed,
+      "--time-budget-ms",
+      DEFAULT_GREP_TIME_BUDGET_MS,
+    );
     const cursor = decodeCursor(readFlag(parsed, "--cursor", ""), "grep");
     const result = await withFinder(cwd, parsed, async (finder) => {
       const effectiveMode = resolveGrepMode(requestedMode, pattern);
@@ -496,6 +569,7 @@ async function main() {
         afterContext,
         pageSize: limit,
         classifyDefinitions: true,
+        timeBudgetMs,
       });
       if (!search.ok) {
         throw new Error(search.error);
@@ -506,7 +580,7 @@ async function main() {
       let fallback;
 
       const words = pattern.split(/\s+/).filter(Boolean);
-      if (value.items.length === 0 && !cursor && words.length >= 2) {
+      if (value.items.length === 0 && !value.nextCursor && !cursor && words.length >= 2) {
         const restPattern = words.slice(1).join(" ");
         const retryPattern =
           forceIgnoreCase && effectiveMode === "regex"
@@ -530,6 +604,7 @@ async function main() {
           afterContext,
           pageSize: limit,
           classifyDefinitions: true,
+          timeBudgetMs,
         });
 
         if (retry.ok && retry.value.items.length > 0 && retry.value.items.length <= 10) {
@@ -543,11 +618,18 @@ async function main() {
         }
       }
 
-      if (value.items.length === 0 && !cursor && effectiveMode === "plain") {
+      if (
+        value.items.length === 0 &&
+        !value.nextCursor &&
+        !cursor &&
+        effectiveMode === "plain"
+      ) {
         const fuzzyPattern = cleanupFuzzyQuery(pattern);
+        const lastPathSegment = pathConstraint.split(/[\\/]/).pop() ?? "";
+        const pathTargetsFile = /\.[a-zA-Z][a-zA-Z0-9]{0,9}$/.test(lastPathSegment);
         const fuzzyQuery = buildQuery({
           cwd,
-          path: pathConstraint,
+          path: pathTargetsFile ? "" : pathConstraint,
           glob,
           pattern: fuzzyPattern,
           exclude,
@@ -560,6 +642,7 @@ async function main() {
           afterContext: 0,
           pageSize: Math.min(limit, 10),
           classifyDefinitions: true,
+          timeBudgetMs,
         });
 
         if (fuzzy.ok && fuzzy.value.items.length > 0) {
@@ -585,17 +668,375 @@ async function main() {
         fallback,
         ...withGrepCursor(value),
       };
-    });
+    }, providedFinder);
 
-    printJson(result);
-    return;
+    return result;
   }
 
   throw new Error(`Unknown command: ${command}`);
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  printJson({ ok: false, error: message });
-  process.exitCode = 1;
-});
+function daemonPaths(cwd) {
+  const runtimeDirectory = path.join(os.tmpdir(), `autopr-fff-${process.getuid?.() ?? "user"}`);
+  const id = workspaceHash(cwd);
+  return {
+    runtimeDirectory,
+    socketPath: path.join(runtimeDirectory, `${id}.sock`),
+    lockPath: path.join(runtimeDirectory, `${id}.lock`),
+  };
+}
+
+function ensurePrivateRuntimeDirectory(runtimeDirectory) {
+  fs.mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(runtimeDirectory, 0o700);
+}
+
+function requestDaemon(socketPath, args) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let response = "";
+    let settled = false;
+
+    const finish = (error, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      if (error) {
+        reject(error);
+      } else {
+        resolve(value);
+      }
+    };
+
+    socket.setTimeout(DAEMON_REQUEST_TIMEOUT_MS, () => {
+      finish(new Error("Timed out waiting for the fff daemon."));
+    });
+    socket.on("error", (error) => finish(error));
+    socket.on("close", () => {
+      finish(new Error("The fff daemon closed the connection before it returned a response."));
+    });
+    socket.on("connect", () => {
+      socket.write(`${JSON.stringify({ args })}\n`);
+    });
+    socket.on("data", (chunk) => {
+      response += chunk.toString("utf8");
+      if (response.length > MAX_DAEMON_RESPONSE_BYTES) {
+        finish(new Error("fff daemon response exceeded the safety limit."));
+        return;
+      }
+
+      const newline = response.indexOf("\n");
+      if (newline === -1) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(response.slice(0, newline));
+        if (payload && payload.ok === true && payload.result) {
+          finish(undefined, payload.result);
+          return;
+        }
+        const error = new Error(payload?.error || "fff daemon returned an invalid response.");
+        error.code = "AUTOPR_FFF_COMMAND_ERROR";
+        finish(error);
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  });
+}
+
+function removeStaleLock(lockPath) {
+  try {
+    const recordedPid = Number(fs.readFileSync(lockPath, "utf8").trim());
+    if (Number.isInteger(recordedPid) && recordedPid > 0) {
+      try {
+        process.kill(recordedPid, 0);
+        return false;
+      } catch (error) {
+        if (error?.code === "EPERM") {
+          return false;
+        }
+      }
+    }
+
+    const ageMs = Date.now() - fs.statSync(lockPath).mtimeMs;
+    if (ageMs > DAEMON_START_TIMEOUT_MS * 2) {
+      fs.unlinkSync(lockPath);
+      return true;
+    }
+  } catch {
+    return true;
+  }
+
+  return false;
+}
+
+function startDaemon(cwd, paths) {
+  ensurePrivateRuntimeDirectory(paths.runtimeDirectory);
+
+  let ownsLock = false;
+  try {
+    const descriptor = fs.openSync(paths.lockPath, "wx", 0o600);
+    fs.closeSync(descriptor);
+    ownsLock = true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  if (!ownsLock) {
+    return false;
+  }
+
+  try {
+    const child = spawn(
+      process.execPath,
+      [
+        CLI_PATH,
+        "daemon",
+        "--cwd",
+        cwd,
+        "--socket",
+        paths.socketPath,
+        "--idle-timeout-ms",
+        String(DEFAULT_DAEMON_IDLE_TIMEOUT_MS),
+      ],
+      {
+        detached: true,
+        env: { ...process.env, AUTOPR_FFF_DAEMON: "0" },
+        stdio: "ignore",
+      },
+    );
+    child.unref();
+    return true;
+  } catch (error) {
+    try {
+      fs.unlinkSync(paths.lockPath);
+    } catch {
+      // Another process may have already recovered this startup lock.
+    }
+    throw error;
+  }
+}
+
+async function runViaDaemon(cwd, args) {
+  const paths = daemonPaths(cwd);
+
+  try {
+    return await requestDaemon(paths.socketPath, args);
+  } catch (error) {
+    if (error?.code === "AUTOPR_FFF_COMMAND_ERROR") {
+      throw error;
+    }
+    if (!startDaemon(cwd, paths) && removeStaleLock(paths.lockPath)) {
+      startDaemon(cwd, paths);
+    }
+  }
+
+  const deadline = Date.now() + DAEMON_START_TIMEOUT_MS;
+  let lastError = new Error("fff daemon did not start.");
+  while (Date.now() < deadline) {
+    try {
+      return await requestDaemon(paths.socketPath, args);
+    } catch (error) {
+      if (error?.code === "AUTOPR_FFF_COMMAND_ERROR") {
+        throw error;
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  throw lastError;
+}
+
+async function serveDaemon(parsed) {
+  const cwd = canonicalizeCwd(readFlag(parsed, "--cwd", defaultCwd()));
+  const expectedPaths = daemonPaths(cwd);
+  const socketPath = readFlag(parsed, "--socket", expectedPaths.socketPath);
+  if (socketPath !== expectedPaths.socketPath) {
+    throw new Error("Invalid fff daemon socket path.");
+  }
+
+  ensurePrivateRuntimeDirectory(expectedPaths.runtimeDirectory);
+  try {
+    fs.unlinkSync(socketPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const finder = createFinder(cwd);
+  const server = net.createServer();
+  const idleTimeoutMs = readNumberFlag(
+    parsed,
+    "--idle-timeout-ms",
+    DEFAULT_DAEMON_IDLE_TIMEOUT_MS,
+  );
+  let idleTimer;
+  let commandQueue = Promise.resolve();
+  let closing = false;
+
+  const cleanup = () => {
+    if (closing) {
+      return;
+    }
+    closing = true;
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+    server.close();
+    finder.destroy();
+    try {
+      fs.unlinkSync(socketPath);
+    } catch {
+      // The socket can already be gone during shutdown.
+    }
+    try {
+      fs.unlinkSync(expectedPaths.lockPath);
+    } catch {
+      // The startup lock can already be gone during shutdown.
+    }
+  };
+  const resetIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+    idleTimer = setTimeout(() => {
+      cleanup();
+      process.exit(0);
+    }, idleTimeoutMs);
+    idleTimer.unref();
+  };
+
+  server.on("connection", (socket) => {
+    resetIdleTimer();
+    let request = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      request += chunk;
+      if (request.length > MAX_DAEMON_REQUEST_BYTES) {
+        socket.end(`${JSON.stringify({ ok: false, error: "fff daemon request exceeded the safety limit." })}\n`);
+        return;
+      }
+
+      const newline = request.indexOf("\n");
+      if (newline === -1) {
+        return;
+      }
+
+      const rawRequest = request.slice(0, newline);
+      request = "";
+      commandQueue = commandQueue
+        .then(async () => {
+          resetIdleTimer();
+          const payload = JSON.parse(rawRequest);
+          if (!Array.isArray(payload?.args) || payload.args.some((arg) => typeof arg !== "string")) {
+            throw new Error("Invalid fff daemon request.");
+          }
+          const requestParsed = parseArgs([process.execPath, CLI_PATH, ...payload.args]);
+          if (requestParsed.command === "daemon") {
+            throw new Error("Nested daemon commands are not allowed.");
+          }
+          const requestCwd = canonicalizeCwd(readFlag(requestParsed, "--cwd", cwd));
+          if (requestCwd !== cwd) {
+            throw new Error("fff daemon request does not match its workspace root.");
+          }
+          return runCommand(requestParsed, finder);
+        })
+        .then(
+          (result) => socket.end(`${JSON.stringify({ ok: true, result })}\n`),
+          (error) =>
+            socket.end(
+              `${JSON.stringify({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+              })}\n`,
+            ),
+        );
+    });
+    socket.on("error", () => {
+      socket.destroy();
+    });
+  });
+
+  const shutdown = () => {
+    cleanup();
+    process.exit(0);
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      fs.chmodSync(socketPath, 0o600);
+      fs.writeFileSync(expectedPaths.lockPath, `${process.pid}\n`, { mode: 0o600 });
+      resetIdleTimer();
+      resolve();
+    });
+  });
+}
+
+async function main() {
+  const parsed = parseArgs(process.argv);
+  if (parsed.command === "daemon") {
+    try {
+      await serveDaemon(parsed);
+    } catch (error) {
+      const cwd = canonicalizeCwd(readFlag(parsed, "--cwd", defaultCwd()));
+      try {
+        fs.unlinkSync(daemonPaths(cwd).lockPath);
+      } catch {
+        // A failed daemon startup may not have created the lock yet.
+      }
+      throw error;
+    }
+    return;
+  }
+
+  const cwd = canonicalizeCwd(
+    readFlag(parsed, "--cwd", process.cwd() === "/" ? defaultCwd() : process.cwd()),
+  );
+  const useDaemon =
+    process.env.AUTOPR_FFF_DAEMON !== "0" &&
+    !readBooleanFlag(parsed, "--no-daemon", false);
+  let result;
+  if (useDaemon) {
+    try {
+      result = await runViaDaemon(cwd, [...process.argv.slice(2), "--cwd", cwd]);
+    } catch (error) {
+      if (error?.code === "AUTOPR_FFF_COMMAND_ERROR") {
+        throw error;
+      }
+      result = await runCommand(parsed);
+    }
+  } else {
+    result = await runCommand(parsed);
+  }
+  printJson(result);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === CLI_PATH) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    printJson({ ok: false, error: message });
+    process.exitCode = 1;
+  });
+}
+
+export {
+  buildQuery,
+  daemonPaths,
+  decodeCursor,
+  encodeCursor,
+  isWildcardOnlyPattern,
+  normalizeExcludes,
+  normalizePathConstraint,
+  workspaceDatabasePath,
+};

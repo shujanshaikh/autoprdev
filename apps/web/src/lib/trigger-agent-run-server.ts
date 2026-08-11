@@ -5,6 +5,7 @@ import { runs, type AnyRetrieveRunResult } from "@trigger.dev/sdk";
 
 import { convexMutation } from "#/lib/convex-server";
 import { AGENT_TASK_ID } from "#/lib/trigger-agent-contract";
+import { triggerRunFailureMessage } from "#/lib/trigger-run-error";
 
 export type TriggerAgentRun = AnyRetrieveRunResult;
 
@@ -68,7 +69,7 @@ export async function reconcileThreadWithTriggerRun(
         runId,
         attempt: run.attemptCount > 0 ? run.attemptCount : undefined,
         retryCount: run.attemptCount > 0 ? Math.max(0, run.attemptCount - 1) : undefined,
-        message: run.error?.message ?? "Trigger.dev reported that the agent run failed.",
+        message: triggerRunFailureMessage(run.error),
         errorStack: run.error?.stackTrace,
         occurredAt: run.finishedAt?.getTime() ?? Date.now(),
       },

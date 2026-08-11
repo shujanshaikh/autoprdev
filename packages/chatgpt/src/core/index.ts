@@ -8,6 +8,7 @@
  */
 
 export * from "./constants.ts";
+export * from "./codex-model-limits.ts";
 export * from "./types.ts";
 export * from "./errors.ts";
 export { type ChatGPTConfig, type ResolvedConfig, resolveConfig } from "./config.ts";

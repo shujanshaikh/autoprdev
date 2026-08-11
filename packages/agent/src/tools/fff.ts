@@ -87,6 +87,16 @@ export async function executeAutoprFff<T>(
     };
   }
 
+  if (!isRecord(parsed)) {
+    return {
+      ok: false,
+      error: formatFffFailure("fff returned JSON with an unexpected shape."),
+      exitCode,
+      stdout,
+      stderr,
+    };
+  }
+
   if (exitCode !== 0) {
     return {
       ok: false,
@@ -155,6 +165,10 @@ function isFffErrorPayload(value: unknown): value is { ok: false; error: string 
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function extractJsonObject(value: string | undefined): string | undefined {
   if (!value) {
     return undefined;
@@ -170,7 +184,7 @@ function extractJsonObject(value: string | undefined): string | undefined {
 }
 
 function formatFffFailure(message: string): string {
-  const trimmed = message.trim();
+  const trimmed = message.trim().slice(0, 4_000);
   const prefix =
     "fff search failed inside the Daytona sandbox. Make sure the AutoPR Daytona snapshot or sandbox PATH includes the autopr-fff runtime.";
 

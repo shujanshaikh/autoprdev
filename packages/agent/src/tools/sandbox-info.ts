@@ -14,11 +14,15 @@ async function executeDaytonaSandboxInfo(sandboxOptions: SandboxSessionOptions) 
       `Sandbox ID: ${context.sandbox.id}\n` +
       `Sandbox name: ${context.sandbox.name ?? "(unnamed)"}\n` +
       `Snapshot: ${context.sandbox.snapshot ?? "(unknown)"}\n` +
+      `State: ${context.sandbox.state ?? "(unknown)"}\n` +
+      `Auto-archive interval: ${context.sandbox.autoArchiveInterval ?? "(default)"}\n` +
       `Working directory: ${context.workDir}`,
     details: {
       sandboxId: context.sandbox.id,
       sandboxName: context.sandbox.name ?? null,
       snapshot: context.sandbox.snapshot ?? null,
+      state: context.sandbox.state ?? null,
+      autoArchiveInterval: context.sandbox.autoArchiveInterval ?? null,
       workDir: context.workDir,
     },
   };

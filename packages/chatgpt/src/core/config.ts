@@ -42,7 +42,10 @@ export interface ChatGPTConfig {
   clientVersion?: string;
   /** Custom fetch (for testing, proxies, or non-standard runtimes). */
   fetch?: FetchLike;
-  /** Deadline for outbound OpenAI requests. Defaults to 30 seconds. */
+  /**
+   * Deadline for receiving response headers from OpenAI. Streaming response
+   * bodies may outlive it; caller cancellation remains active. Defaults to 30 seconds.
+   */
   requestTimeoutMs?: number;
 }
 

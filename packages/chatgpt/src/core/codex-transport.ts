@@ -1,5 +1,5 @@
 import type { ResolvedConfig } from "./config.ts";
-import { requestSignal } from "./internal/request-signal.ts";
+import { requestHeaderSignal } from "./internal/request-signal.ts";
 import { DEFAULT_CODEX_INSTRUCTIONS, REASONING_ENCRYPTED_CONTENT } from "./constants.ts";
 import { ChatGPTAuthError } from "./errors.ts";
 import type { FetchLike } from "./types.ts";
@@ -159,12 +159,19 @@ export function createCodexFetch(options: CodexFetchOptions): FetchLike {
 
     const body = await maybeNormalizeBody(targetUrl, headers, request.body, options);
 
-    return baseFetch(targetUrl, {
-      method: request.method,
-      headers,
-      body,
-      signal: requestSignal(config, request.signal),
-    });
+    const requestDeadline = requestHeaderSignal(config, request.signal);
+    try {
+      return await baseFetch(targetUrl, {
+        method: request.method,
+        headers,
+        body,
+        signal: requestDeadline.signal,
+      });
+    } finally {
+      // Fetch resolves after response headers. Do not let the connection
+      // deadline abort a healthy long-running SSE body after that point.
+      requestDeadline.clearDeadline();
+    }
   }) as FetchLike;
 
   return codexFetch;

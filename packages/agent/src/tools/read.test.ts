@@ -169,13 +169,13 @@ describe("Daytona read tool", () => {
   });
 
   it("stops at the byte cap and drops the partially transferred line", async () => {
-    const firstLine = "a".repeat(700 * 1024);
-    const secondLine = "b".repeat(700 * 1024);
+    const firstLine = "a".repeat(40 * 1024);
+    const secondLine = "b".repeat(40 * 1024);
     createSandboxFiles({ [`${WORK_DIR}/huge.txt`]: `${firstLine}\n${secondLine}\ntail\n` });
 
     const result = await executeRead({ path: "huge.txt", limit: 400 });
 
-    // 1 MiB window cap: the first line fits, the second is cut mid-line and dropped.
+    // 64 KiB window cap: the first line fits, the second is cut mid-line and dropped.
     expect(result.content).toContain("Showing lines 1-1 of 4");
     expect(result.content).toContain("[Use offset=2 to continue.]");
     expect(result.content).toContain("per-read byte cap");
@@ -184,19 +184,36 @@ describe("Daytona read tool", () => {
   });
 
   it("continues an oversized single line by byte offset without losing its tail", async () => {
-    const hugeLine = `${"a".repeat(1024 * 1024)}TAIL`;
+    const hugeLine = `${"a".repeat(64 * 1024)}TAIL`;
     createSandboxFiles({ [`${WORK_DIR}/single-line.txt`]: `${hugeLine}\nnext\n` });
 
     const first = await executeRead({ path: "single-line.txt", limit: 2 });
     expect(first.content).toContain("final line is incomplete");
-    expect(first.content).toContain("offset=1 byteOffset=1048576");
+    expect(first.content).toContain("offset=1 byteOffset=65536");
 
     const continuation = await executeRead({
       path: "single-line.txt",
       offset: 1,
-      byteOffset: 1024 * 1024,
+      byteOffset: 64 * 1024,
     });
     expect(continuation.content).toContain("1 | TAIL");
     expect(continuation.content).toContain("[Use offset=2 to continue.]");
+  });
+
+  it("does not split or skip a multibyte character at the byte boundary", async () => {
+    const prefix = "a".repeat(64 * 1024 - 1);
+    createSandboxFiles({ [`${WORK_DIR}/utf8-boundary.txt`]: `${prefix}🙂TAIL\n` });
+
+    const first = await executeRead({ path: "utf8-boundary.txt" });
+    expect(first.content).not.toContain("�");
+    expect(first.content).toContain("offset=1 byteOffset=65535");
+
+    const continuation = await executeRead({
+      path: "utf8-boundary.txt",
+      offset: 1,
+      byteOffset: 64 * 1024 - 1,
+    });
+    expect(continuation.content).toContain("1 | 🙂TAIL");
+    expect(continuation.content).not.toContain("�");
   });
 });

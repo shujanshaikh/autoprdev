@@ -48,7 +48,7 @@ export interface CodexAgentModelOptions<TTaskId extends AgentTaskId = AgentTaskI
 export interface GrokAgentModelOptions<TTaskId extends AgentTaskId = AgentTaskId> {
   provider: "xai";
   modelId: string;
-  reasoningEffort?: "low" | "high";
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
   promptCacheKey?: string;
   credentialsGrantId: string;
   credentialsGrantContext: {

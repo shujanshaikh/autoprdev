@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import type { AgentProvider } from "#/lib/agent-models";
+import { isAgentReasoningEffortSupported, type AgentProvider } from "#/lib/agent-models";
 import {
   codexErrorResponse,
   createCodexAgentModelOptions,
@@ -22,8 +22,8 @@ export async function createAgentModelOptions<TTaskId extends "autopr-agent" | "
 ): Promise<AgentModelOptions<TTaskId>> {
   if (provider === "xai") {
     const options = await createGrokAgentModelOptions(modelId, grantContext);
-    return reasoningEffort === "low" || reasoningEffort === "high"
-      ? { ...options, reasoningEffort }
+    return isAgentReasoningEffortSupported({ provider: "xai", modelId: options.modelId }, reasoningEffort)
+      ? { ...options, reasoningEffort: reasoningEffort as "low" | "medium" | "high" | "xhigh" }
       : options;
   }
   return createCodexAgentModelOptions(request, modelId, reasoningEffort, grantContext);

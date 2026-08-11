@@ -185,6 +185,7 @@ export function PierreDiffView({
   newContent,
   diffStyle = "unified",
   lineDiffType = "none",
+  wordWrap = true,
   onAddLineContext,
 }: {
   patch?: string;
@@ -193,6 +194,7 @@ export function PierreDiffView({
   newContent?: string;
   diffStyle?: PierreDiffStyle;
   lineDiffType?: PierreLineDiffType;
+  wordWrap?: boolean;
   onAddLineContext?: (range: SelectedLineRange) => void;
 }) {
   const { resolvedTheme } = useTheme();
@@ -207,7 +209,7 @@ export function PierreDiffView({
       theme: DEFAULT_THEMES,
       themeType,
       disableLineNumbers: false,
-      overflow: "wrap",
+      overflow: wordWrap ? "wrap" : "scroll",
       diffStyle,
       diffIndicators: "bars",
       lineHoverHighlight: "both",
@@ -222,7 +224,7 @@ export function PierreDiffView({
       tokenizeMaxLineLength: 1000,
       disableFileHeader: true,
     }),
-    [diffStyle, lineDiffType, onAddLineContext, themeType],
+    [diffStyle, lineDiffType, onAddLineContext, themeType, wordWrap],
   );
 
   if (requiresOptIn && !optedIn) {

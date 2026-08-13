@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import { executeSandboxCommand } from "../sandbox/execute";
+import { CuaComputerClient, type CuaComputerOptions } from "./cua-client";
 import { raceWithTimeout } from "./timeout";
 
 export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
@@ -11,13 +11,12 @@ const COMPUTER_READY_TIMEOUT_MS = 30_000;
 const COMPUTER_READY_POLL_MS = 1_000;
 const COMPUTER_RECOVERY_DELAY_MS = 1_000;
 const MAX_COMPUTER_DIAGNOSTIC_LENGTH = 400;
-const DEFAULT_DISPLAY = ":1";
-const DEFAULT_SCREENSHOT_FORMAT = "png";
-const DEFAULT_SCREENSHOT_QUALITY = 100;
-const DEFAULT_SCREENSHOT_SCALE = 1;
+const DEFAULT_SCREENSHOT_FORMAT = "jpeg";
+const DEFAULT_SCREENSHOT_QUALITY = 85;
 const MAX_COMPUTER_METADATA_CHARS = 8_000;
 const MAX_RECORDINGS_RETURNED = 25;
 const COMPUTER_ACTION_TIMEOUT_MS = 120_000;
+const COMPUTER_START_TIMEOUT_MS = 8 * 60_000;
 const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 const computerOperationTails = new WeakMap<object, Promise<void>>();
 
@@ -50,12 +49,13 @@ function runBoundedComputerOperation<T>(
   track: TrackComputerOperation,
   operation: () => Promise<T>,
   timeoutError: () => Error,
+  timeoutMs = COMPUTER_ACTION_TIMEOUT_MS,
 ): Promise<T> {
   const pending = Promise.resolve().then(operation);
   track(pending);
   return raceWithTimeout(
     () => pending,
-    COMPUTER_ACTION_TIMEOUT_MS,
+    timeoutMs,
     timeoutError,
   );
 }
@@ -72,18 +72,9 @@ const browserUrlSchema = z.string().min(1).max(4_096).refine((value) => {
   }
 }, "URL must be an absolute http:// or https:// URL.");
 
-const screenshotRegionSchema = z.object({
-  x: screenCoordinateSchema,
-  y: screenCoordinateSchema,
-  width: z.number().int().min(1).max(10_000),
-  height: z.number().int().min(1).max(10_000),
-});
-
 const screenshotOptionsSchema = {
-  showCursor: z.boolean().optional().describe("Whether to show the cursor in the screenshot."),
-  format: z.enum(["jpeg", "png", "webp"]).optional().describe("Compressed screenshot format."),
-  quality: z.number().int().min(1).max(100).optional().describe("Compression quality for lossy formats."),
-  scale: z.number().min(0.1).max(1).optional().describe("Scale factor for the screenshot."),
+  format: z.enum(["jpeg", "png"]).optional().describe("CUA screenshot format."),
+  quality: z.number().int().min(1).max(95).optional().describe("JPEG compression quality."),
 };
 
 const legacyActionNameSchema = z.enum([
@@ -114,16 +105,16 @@ const legacyActionNameSchema = z.enum([
 
 const computerActionSchema = z.discriminatedUnion("type", [
   z.object({
-    type: z.literal("start").describe("Start the Daytona desktop/computer-use services."),
+    type: z.literal("start").describe("Start the Daytona desktop and CUA computer-server."),
   }),
   z.object({
-    type: z.literal("status").describe("Read the Daytona desktop/computer-use service status."),
+    type: z.literal("status").describe("Read CUA and Daytona desktop service status."),
   }),
   z.object({
     type: z.literal("display").describe("Read display information."),
   }),
   z.object({
-    type: z.literal("windows").describe("List visible desktop windows."),
+    type: z.literal("windows").describe("Inspect the active desktop window through CUA."),
   }),
   z.object({
     type: z.literal("open_url").describe("Open a URL in the sandbox desktop browser."),
@@ -131,7 +122,6 @@ const computerActionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("screenshot").describe("Capture the current desktop state."),
-    region: screenshotRegionSchema.optional().describe("Optional screen region to capture."),
     ...screenshotOptionsSchema,
   }),
   z.object({
@@ -208,7 +198,6 @@ const legacyActionSchema = z.object({
     .optional()
     .describe("Legacy alias for action. Prefer actions[].type with canonical action names for new calls."),
   url: browserUrlSchema.optional(),
-  region: screenshotRegionSchema.optional(),
   ...screenshotOptionsSchema,
   x: screenCoordinateSchema.optional(),
   y: screenCoordinateSchema.optional(),
@@ -273,9 +262,7 @@ const computerInputSchema = legacyActionSchema.extend({
 type ComputerAction = z.infer<typeof computerActionSchema>;
 type ComputerInput = z.infer<typeof computerInputSchema>;
 
-export interface DaytonaComputerToolOptions {
-  display?: string;
-}
+export type CuaComputerToolOptions = CuaComputerOptions;
 
 type DaytonaRecording = {
   id?: unknown;
@@ -298,11 +285,8 @@ type ScreenshotForModel = {
   cursorPosition?: unknown;
   width?: number;
   height?: number;
-  region?: { x: number; y: number; width: number; height: number };
   format: string;
   quality: number;
-  scale: number;
-  showCursor: boolean;
 };
 
 type ScreenshotMetadata = Omit<ScreenshotForModel, "data"> & {
@@ -408,6 +392,10 @@ function compactMetadataValue(value: unknown): unknown {
   } catch {
     return { truncated: true, preview: String(value).slice(0, MAX_COMPUTER_METADATA_CHARS) };
   }
+}
+
+function commandDetails(result: Record<string, unknown>): Pick<ComputerOutputDetails, "command"> {
+  return { command: compactMetadataValue(result) as Record<string, unknown> };
 }
 
 function responseField(value: unknown, field: string): unknown {
@@ -631,40 +619,6 @@ function recordingSummary(recording: ReturnType<typeof compactRecording>) {
   return parts.join(" - ");
 }
 
-function openUrlCommand() {
-  return [
-    "set -eu",
-    "mkdir -p /tmp/autopr-cua-browser",
-    'export DISPLAY="${DISPLAY:-:1}"',
-    'export NO_AT_BRIDGE="${NO_AT_BRIDGE:-1}"',
-    'export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}"',
-    'mkdir -p "$XDG_RUNTIME_DIR"',
-    'chmod 700 "$XDG_RUNTIME_DIR"',
-    'BROWSER="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || command -v firefox || command -v xdg-open || true)"',
-    'if [ -z "$BROWSER" ]; then',
-    '  echo "No supported graphical browser launcher found" >&2',
-    "  exit 127",
-    "fi",
-    'case "$(basename "$BROWSER")" in',
-    "  chromium*|google-chrome*)",
-    '    nohup "$BROWSER" \\',
-    "      --disable-dev-shm-usage \\",
-    "      --no-first-run \\",
-    "      --force-renderer-accessibility \\",
-    "      --user-data-dir=/tmp/autopr-cua-browser/profile \\",
-    '      --new-window "$CUA_URL" >/tmp/autopr-cua-browser/browser.log 2>&1 &',
-    "    ;;",
-    "  firefox*)",
-    '    nohup "$BROWSER" --new-window "$CUA_URL" >/tmp/autopr-cua-browser/browser.log 2>&1 &',
-    "    ;;",
-    "  *)",
-    '    nohup "$BROWSER" "$CUA_URL" >/tmp/autopr-cua-browser/browser.log 2>&1 &',
-    "    ;;",
-    "esac",
-    'echo "launched $BROWSER"',
-  ].join("\n");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -673,28 +627,9 @@ function numberField(value: Record<string, unknown>, key: string): number | unde
   return typeof value[key] === "number" ? value[key] : undefined;
 }
 
-function activeDisplayInfo(displayInfo: unknown): { x?: number; y?: number; width?: number; height?: number } | undefined {
-  if (!isRecord(displayInfo) || !Array.isArray(displayInfo.displays)) {
-    return undefined;
-  }
-
-  const displays = displayInfo.displays.filter(isRecord);
-  const display = displays.find((item) => item.isActive === true) ?? displays[0];
-  if (!display) {
-    return undefined;
-  }
-
-  return {
-    x: numberField(display, "x"),
-    y: numberField(display, "y"),
-    width: numberField(display, "width"),
-    height: numberField(display, "height"),
-  };
-}
-
 function parseImageData(raw: string | undefined, fallbackMimeType = "image/png") {
   if (!raw) {
-    throw new Error("Daytona did not return screenshot data.");
+    throw new Error("CUA did not return screenshot data.");
   }
 
   const dataUrlMatch = raw.match(/^data:(?<mediaType>[^;]+);base64,(?<data>.+)$/s);
@@ -713,72 +648,52 @@ function parseImageData(raw: string | undefined, fallbackMimeType = "image/png")
 
 function screenshotOptions(input?: Extract<ComputerAction, { type: "screenshot" }>) {
   return {
-    showCursor: input?.showCursor ?? true,
     format: input?.format ?? DEFAULT_SCREENSHOT_FORMAT,
     quality: input?.quality ?? DEFAULT_SCREENSHOT_QUALITY,
-    scale: input?.scale ?? DEFAULT_SCREENSHOT_SCALE,
   };
 }
 
 async function captureScreenshot(
-  computerUse: {
-    screenshot: {
-      takeCompressed(options?: {
-        showCursor?: boolean;
-        format?: string;
-        quality?: number;
-        scale?: number;
-      }): Promise<unknown>;
-      takeCompressedRegion(
-        region: { x: number; y: number; width: number; height: number },
-        options?: {
-          showCursor?: boolean;
-          format?: string;
-          quality?: number;
-          scale?: number;
-        },
-      ): Promise<unknown>;
-    };
-    display: {
-      getInfo(): Promise<unknown>;
-    };
-  },
+  cua: CuaComputerClient,
   input?: Extract<ComputerAction, { type: "screenshot" }>,
 ) {
   const options = screenshotOptions(input);
-  const [shot, displayInfo] = await Promise.all([
-    input?.region
-      ? computerUse.screenshot.takeCompressedRegion(input.region, options)
-      : computerUse.screenshot.takeCompressed(options),
-    computerUse.display.getInfo().catch(() => undefined),
+  const [shot, screenSize, cursor] = await Promise.all([
+    cua.command("screenshot", options),
+    cua.command("get_screen_size").catch(() => undefined),
+    cua.command("get_cursor_position").catch(() => undefined),
   ]);
-  const response = isRecord(shot) ? shot : {};
+  const size = isRecord(screenSize?.size) ? screenSize.size : undefined;
+  const cursorPosition = isRecord(cursor?.position) ? cursor.position : undefined;
   const { data, mimeType } = parseImageData(
-    typeof response.screenshot === "string" ? response.screenshot : undefined,
+    typeof shot.image_data === "string" ? shot.image_data : undefined,
     options.format === "jpeg" ? "image/jpeg" : `image/${options.format}`,
   );
-  const display = activeDisplayInfo(displayInfo);
+  const display = size
+    ? { width: numberField(size, "width"), height: numberField(size, "height") }
+    : undefined;
 
   return {
     screenshot: {
       data,
       mimeType,
-      sizeBytes: typeof response.sizeBytes === "number" ? response.sizeBytes : undefined,
-      cursorPosition: response.cursorPosition,
+      sizeBytes: Buffer.byteLength(data, "base64"),
+      cursorPosition,
       width: display?.width,
       height: display?.height,
-      region: input?.region,
       format: options.format,
       quality: options.quality,
-      scale: options.scale,
-      showCursor: options.showCursor,
     } satisfies ScreenshotForModel,
     display,
   };
 }
 
-function requiresDesktop(action: ComputerAction) {
-  return !["status", "get_recording", "list_recordings"].includes(action.type);
+function requiresDaytonaDesktop(action: ComputerAction) {
+  return !["status", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
+}
+
+function requiresCua(action: ComputerAction) {
+  return !["status", "start_recording", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
 }
 
 function shouldCaptureAfter(actions: ComputerAction[]) {
@@ -855,11 +770,8 @@ function legacyToAction(input: z.infer<typeof legacyActionSchema>): unknown {
     case "screenshot":
       return {
         type: "screenshot",
-        region: input.region,
-        showCursor: input.showCursor,
         format: input.format,
         quality: input.quality,
-        scale: input.scale,
       };
     case "wait":
       return { type: "wait", ms: input.ms };
@@ -974,56 +886,80 @@ function computerContentOutput(content: string, details: ComputerOutputDetails) 
 async function runOneAction(
   action: ComputerAction,
   context: Awaited<ReturnType<typeof getSandboxContext>>,
-  computerOptions: DaytonaComputerToolOptions,
+  cua: CuaComputerClient,
 ): Promise<Partial<ComputerOutputDetails>> {
-  const { sandbox, workDir } = context;
-  const { computerUse } = sandbox;
+  const { computerUse } = context.sandbox;
 
   switch (action.type) {
     case "start": {
       await ensureComputerReady(computerUse);
-      const status = compactMetadataValue(await computerUse.getStatus());
+      await cua.ensureReady();
+      const status = compactMetadataValue({
+        status: "active",
+        provider: "cua",
+        server: await cua.inspect(),
+        daytonaDesktop: await computerUse.getStatus(),
+      });
       return { status };
     }
     case "status": {
-      const status = compactMetadataValue(await computerUse.getStatus());
+      let server: unknown;
+      try {
+        server = await cua.inspect();
+      } catch (error) {
+        server = {
+          status: "unavailable",
+          error: compactDiagnostic(error instanceof Error ? error.message : String(error)),
+        };
+      }
+      const status = compactMetadataValue({
+        status: isRecord(server) && server.status === "ok" ? "active" : "inactive",
+        provider: "cua",
+        server,
+        daytonaDesktop: await computerUse.getStatus(),
+      });
       return { status };
     }
     case "display": {
-      const display = activeDisplayInfo(await computerUse.display.getInfo());
+      const result = await cua.command("get_screen_size");
+      const size = isRecord(result.size) ? result.size : {};
+      const display = {
+        width: numberField(size, "width"),
+        height: numberField(size, "height"),
+      };
       return { display };
     }
     case "windows": {
-      return { windows: compactMetadataValue(await computerUse.display.getWindows()) };
+      try {
+        const current = await cua.command("get_current_window_id");
+        const windowId = current.window_id;
+        if (typeof windowId !== "string" && typeof windowId !== "number") {
+          return { windows: [] };
+        }
+        const [name, size, position] = await Promise.all([
+          cua.command("get_window_name", { window_id: windowId }),
+          cua.command("get_window_size", { window_id: windowId }),
+          cua.command("get_window_position", { window_id: windowId }),
+        ]);
+        return {
+          windows: [{
+            id: windowId,
+            name: name.name,
+            width: size.width,
+            height: size.height,
+            x: position.x,
+            y: position.y,
+            active: true,
+          }],
+        };
+      } catch {
+        return { windows: [] };
+      }
     }
     case "open_url": {
-      const result = await executeSandboxCommand(openUrlCommand(), {
-        cwd: workDir,
-        timeout: 15,
-        env: {
-          CUA_URL: action.url,
-          DISPLAY: computerOptions.display ?? process.env.DAYTONA_DISPLAY ?? DEFAULT_DISPLAY,
-        },
-        sandboxOptions: {
-          cacheKey: context.sandbox.id,
-          sandboxId: context.sandbox.id,
-        },
-      });
-
-      if (typeof result.exitCode === "number" && result.exitCode !== 0) {
-        throw new Error(result.stderr || result.stdout || `Could not open ${action.url} in the Daytona desktop browser.`);
-      }
-
+      const result = await cua.command("open", { target: action.url });
       await sleep(2_000);
-      return {
-        windows: compactMetadataValue(await computerUse.display.getWindows().catch(() => undefined)),
-        command: {
-          cwd: result.cwd,
-          exitCode: result.exitCode ?? null,
-          stdout: compactDiagnostic(result.stdout ?? result.output ?? ""),
-          stderr: compactDiagnostic(result.stderr ?? ""),
-        },
-      };
+      return commandDetails(result);
     }
     case "screenshot":
       return {};
@@ -1031,37 +967,72 @@ async function runOneAction(
       await sleep(action.ms ?? 1000);
       return {};
     case "move": {
-      await computerUse.mouse.move(action.x, action.y);
-      return {};
+      return commandDetails(await cua.command("move_cursor", { x: action.x, y: action.y }));
     }
     case "click": {
-      await computerUse.mouse.click(action.x, action.y, action.button ?? "left");
-      return {};
+      let result: Record<string, unknown>;
+      if (action.button === "middle") {
+        await cua.command("mouse_down", { x: action.x, y: action.y, button: "middle" });
+        result = await cua.command("mouse_up", { x: action.x, y: action.y, button: "middle" });
+      } else {
+        result = await cua.command(action.button === "right" ? "right_click" : "left_click", {
+          x: action.x,
+          y: action.y,
+        });
+      }
+      return commandDetails(result);
     }
     case "double_click": {
-      await computerUse.mouse.click(action.x, action.y, action.button ?? "left", true);
-      return {};
+      let result: Record<string, unknown> | undefined;
+      if (action.button === "middle") {
+        for (let index = 0; index < 2; index += 1) {
+          await cua.command("mouse_down", { x: action.x, y: action.y, button: "middle" });
+          result = await cua.command("mouse_up", { x: action.x, y: action.y, button: "middle" });
+        }
+      } else {
+        const command = action.button === "right" ? "right_click" : "double_click";
+        result = await cua.command(command, { x: action.x, y: action.y });
+        if (command !== "double_click") {
+          result = await cua.command(command, { x: action.x, y: action.y });
+        }
+      }
+      if (!result) throw new Error("CUA double-click returned no action result.");
+      return commandDetails(result);
     }
     case "drag": {
-      await computerUse.mouse.drag(action.startX, action.startY, action.endX, action.endY, action.button ?? "left");
-      return {};
+      return commandDetails(await cua.command("drag", {
+        path: [[action.startX, action.startY], [action.endX, action.endY]],
+        button: action.button ?? "left",
+        duration: 0.5,
+      }));
     }
     case "scroll": {
-      await computerUse.mouse.scroll(action.x, action.y, action.direction, action.amount ?? 5);
-      return {};
+      await cua.command("move_cursor", { x: action.x, y: action.y });
+      return commandDetails(await cua.command("scroll_direction", {
+        direction: action.direction,
+        clicks: action.amount ?? 5,
+      }));
     }
     case "type": {
-      await computerUse.keyboard.type(action.text, action.delayMs ?? 0);
-      return {};
+      return commandDetails(await cua.command("type_text", { text: action.text }));
     }
     case "keypress": {
       const modifiers = action.modifiers?.map((modifier) => (modifier === "cmd" ? "meta" : modifier));
-      await computerUse.keyboard.press(action.key, modifiers);
-      return {};
+      if (modifiers?.length) {
+        return commandDetails(await cua.command("hotkey", { keys: [...modifiers, action.key] }));
+      }
+      return commandDetails(await cua.command("press_key", { key: action.key }));
     }
     case "hotkey": {
-      await computerUse.keyboard.hotkey(action.keys);
-      return {};
+      const keys = action.keys
+        .split("+")
+        .map((key) => key.trim().toLowerCase())
+        .filter(Boolean)
+        .map((key) => key === "cmd" ? "meta" : key);
+      if (keys.length === 0) {
+        throw new Error("CUA hotkey requires at least one key.");
+      }
+      return commandDetails(await cua.command("hotkey", { keys }));
     }
     case "start_recording": {
       const recording = compactRecording(
@@ -1098,48 +1069,62 @@ async function runOneAction(
   }
 }
 
-async function executeDaytonaComputer(
+async function executeCuaComputer(
   input: ComputerInput,
   sandboxOptions: SandboxSessionOptions,
-  computerOptions: DaytonaComputerToolOptions,
+  computerOptions: CuaComputerToolOptions,
 ) {
   const context = await getSandboxContext(sandboxOptions);
   const { computerUse } = context.sandbox;
-  return serializeComputerOperations(computerUse, (track) => executeDaytonaComputerActions(
+  return serializeComputerOperations(computerUse, (track) => executeCuaComputerActions(
     input,
     context,
+    sandboxOptions,
     computerOptions,
     track,
   ));
 }
 
-async function executeDaytonaComputerActions(
+async function executeCuaComputerActions(
   input: ComputerInput,
   context: Awaited<ReturnType<typeof getSandboxContext>>,
-  computerOptions: DaytonaComputerToolOptions,
+  sandboxOptions: SandboxSessionOptions,
+  computerOptions: CuaComputerToolOptions,
   track: TrackComputerOperation,
 ) {
   const { computerUse } = context.sandbox;
+  const cua = new CuaComputerClient(context.sandbox, sandboxOptions, computerOptions);
   const summaries = input.actions.map(summarizeAction);
   const details: ComputerOutputDetails = {
     action: input.actions.length === 1 ? input.actions[0]?.type : undefined,
     actions: summaries,
   };
   const recordings: Array<ReturnType<typeof compactRecording>> = [];
+  const needsCua = input.actions.some(requiresCua);
 
-  if (input.actions.some(requiresDesktop)) {
+  if (input.actions.some(requiresDaytonaDesktop)) {
     await runBoundedComputerOperation(
       track,
-      () => ensureComputerReady(computerUse),
-      () => new Error("Timed out waiting for the Daytona desktop to become ready."),
+      async () => {
+        await ensureComputerReady(computerUse);
+        if (needsCua) {
+          await cua.ensureReady();
+        }
+      },
+      () => new Error(
+        needsCua
+          ? "Timed out waiting for the Daytona desktop and CUA computer-server to become ready."
+          : "Timed out waiting for the Daytona desktop to become ready.",
+      ),
+      COMPUTER_START_TIMEOUT_MS,
     );
   }
 
   for (const action of input.actions) {
     const partial = await runBoundedComputerOperation(
       track,
-      () => runOneAction(action, context, computerOptions),
-      () => new Error(`Timed out running Daytona computer action ${action.type}.`),
+      () => runOneAction(action, context, cua),
+      () => new Error(`Timed out running CUA computer action ${action.type}.`),
     );
 
     if (partial.status !== undefined) {
@@ -1175,8 +1160,8 @@ async function executeDaytonaComputerActions(
   if (shouldCaptureAfter(input.actions)) {
     const captured = await runBoundedComputerOperation(
       track,
-      () => captureScreenshot(computerUse, requestedScreenshot),
-      () => new Error("Timed out capturing the Daytona desktop screenshot."),
+      () => captureScreenshot(cua, requestedScreenshot),
+      () => new Error("Timed out capturing the CUA desktop screenshot."),
     );
     details.screenshot = captured.screenshot;
     details.display = details.display ?? captured.display;
@@ -1191,6 +1176,10 @@ async function executeDaytonaComputerActions(
       ? `Screenshot: ${details.screenshot.mimeType}, ${details.screenshot.sizeBytes ?? details.screenshot.data?.length ?? "unknown"} bytes`
       : undefined,
     details.recording ? recordingSummary(details.recording) : undefined,
+    typeof details.command?.effect === "string"
+      ? `CUA action effect: ${details.command.effect}` +
+        (details.command.effect === "suspected_noop" ? " (verify the screenshot before continuing)" : "")
+      : undefined,
     !details.recording && details.recordings
       ? `Found ${details.recordings.length} demo recording${details.recordings.length === 1 ? "" : "s"}` +
         (details.recordingsTruncated ? ` (showing first ${MAX_RECORDINGS_RETURNED})` : "")
@@ -1201,16 +1190,16 @@ async function executeDaytonaComputerActions(
   return computerContentOutput(contentLines.join("\n"), details);
 }
 
-export function createDaytonaComputerTool(
+export function createCuaComputerTool(
   sandboxOptions: SandboxSessionOptions,
-  computerOptions: DaytonaComputerToolOptions = {},
+  computerOptions: CuaComputerToolOptions = {},
 ) {
-  return tool<ComputerInput, Awaited<ReturnType<typeof executeDaytonaComputer>>>({
+  return tool<ComputerInput, Awaited<ReturnType<typeof executeCuaComputer>>>({
     title: "computer",
     description:
-      "Inspect and operate the Daytona desktop for HTTP(S) browser previews, screenshots, GUI interaction, and demo recordings. Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh screenshot when screen state matters. Mutates GUI/recording state; keep batches small and re-check before coordinate-sensitive actions.",
+      "Inspect and operate the Daytona Linux desktop through CUA for HTTP(S) browser previews, screenshots, and GUI interaction. Demo recordings remain backed by Daytona. Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh CUA screenshot when screen state matters. Mutates GUI/recording state; keep batches small and re-check before coordinate-sensitive actions.",
     inputSchema: computerInputSchema,
     toModelOutput: ({ output }) => output,
-    execute: (input) => executeDaytonaComputer(input, sandboxOptions, computerOptions),
+    execute: (input) => executeCuaComputer(input, sandboxOptions, computerOptions),
   });
 }

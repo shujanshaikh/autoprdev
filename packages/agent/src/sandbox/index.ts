@@ -44,39 +44,6 @@ export interface DaytonaSandbox {
     restartProcess?(processName: string): Promise<unknown>;
     getProcessLogs?(processName: string): Promise<unknown>;
     getProcessErrors?(processName: string): Promise<unknown>;
-    mouse: {
-      getPosition(): Promise<unknown>;
-      move(x: number, y: number): Promise<unknown>;
-      click(x: number, y: number, button?: string, double?: boolean): Promise<unknown>;
-      drag(startX: number, startY: number, endX: number, endY: number, button?: string): Promise<unknown>;
-      scroll(x: number, y: number, direction: "up" | "down", amount?: number): Promise<unknown>;
-    };
-    keyboard: {
-      type(text: string, delay?: number): Promise<void>;
-      press(key: string, modifiers?: string[]): Promise<void>;
-      hotkey(keys: string): Promise<void>;
-    };
-    screenshot: {
-      takeCompressed(options?: {
-        showCursor?: boolean;
-        format?: string;
-        quality?: number;
-        scale?: number;
-      }): Promise<unknown>;
-      takeCompressedRegion(
-        region: { x: number; y: number; width: number; height: number },
-        options?: {
-          showCursor?: boolean;
-          format?: string;
-          quality?: number;
-          scale?: number;
-        },
-      ): Promise<unknown>;
-    };
-    display: {
-      getInfo(): Promise<unknown>;
-      getWindows(): Promise<unknown>;
-    };
     recording: {
       start(label?: string): Promise<unknown>;
       stop(id: string): Promise<unknown>;

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CUA_PORT="${CUA_PORT:-8765}"
+CUA_VERSION="${CUA_VERSION:-0.3.42}"
+CUA_RUNTIME="/opt/autopr/cua"
+CUA_STATE_DIR="/tmp/autopr-cua"
+CUA_PID_FILE="${CUA_STATE_DIR}/computer-server.pid"
+CUA_LOG_FILE="${CUA_STATE_DIR}/computer-server.log"
+
+mkdir -p "$CUA_STATE_DIR" "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+chmod 700 "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+
+run_command() {
+  local payload="$1"
+  curl --fail --silent --max-time 10 \
+    -H 'Content-Type: application/json' \
+    --data "$payload" \
+    "http://127.0.0.1:${CUA_PORT}/cmd" \
+    | sed -n 's/^data: //p'
+}
+
+is_ready() {
+  local version_response screen_response
+
+  curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/status" \
+    | jq -e '.status == "ok" and .os_type == "linux"' >/dev/null \
+    || return 1
+  curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/commands" \
+    | jq -e --arg require_driver "$CUA_EXPECT_DRIVER" \
+      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or .commands.get_desktop_state)' >/dev/null \
+    || return 1
+
+  version_response="$(run_command '{"command":"version"}')" || return 1
+  printf '%s' "$version_response" \
+    | jq -e --arg expected "$CUA_VERSION" '.success == true and .package == $expected' >/dev/null \
+    || return 1
+
+  # This initializes the embedded Driver session and verifies that it can
+  # actually reach Daytona's X11 desktop, not merely that HTTP is listening.
+  screen_response="$(run_command '{"command":"get_screen_size"}')" || return 1
+  printf '%s' "$screen_response" \
+    | jq -e '.success == true and (.size.width | type == "number") and (.size.height | type == "number")' >/dev/null
+}
+
+is_owned_server_pid() {
+  local pid="$1"
+  kill -0 "$pid" 2>/dev/null \
+    && [ -r "/proc/${pid}/cmdline" ] \
+    && tr '\0' ' ' <"/proc/${pid}/cmdline" | grep -Fq "$CUA_RUNTIME/bin/cua-computer-server"
+}
+
+stop_owned_server() {
+  local pid="$1"
+  is_owned_server_pid "$pid" || return 0
+  kill "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.2
+  done
+  return 0
+}
+
+backend_args=(--backend native)
+CUA_EXPECT_DRIVER=false
+if [ "$(uname -m)" = "x86_64" ] && "$CUA_RUNTIME/bin/python" -c 'import cua_driver' >/dev/null 2>&1; then
+  backend_args=(--backend cua-driver --driver-mode embedded --capture-scope desktop)
+  CUA_EXPECT_DRIVER=true
+fi
+
+if is_ready; then
+  exit 0
+fi
+
+if [ -s "$CUA_PID_FILE" ]; then
+  existing_pid="$(cat "$CUA_PID_FILE")"
+  stop_owned_server "$existing_pid"
+fi
+
+if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port ${CUA_PORT} is already occupied by a non-CUA process." >&2
+  exit 1
+fi
+
+# Daytona's signed preview URL is the external authorization boundary. CUA's
+# cloud-mode headers do not apply to this private server inside the VM.
+unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE
+export DISPLAY="${DISPLAY:-:1}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+export BROWSER="${BROWSER:-google-chrome}"
+
+start_server() {
+  nohup "$CUA_RUNTIME/bin/cua-computer-server" \
+    --host 0.0.0.0 \
+    --port "$CUA_PORT" \
+    "$@" \
+    --log-level warning \
+    >>"$CUA_LOG_FILE" 2>&1 &
+  echo "$!" >"$CUA_PID_FILE"
+}
+
+: >"$CUA_LOG_FILE"
+start_server "${backend_args[@]}"
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  is_ready && exit 0
+  sleep 0.5
+done
+
+if [ "${backend_args[1]:-}" = "cua-driver" ]; then
+  driver_pid="$(cat "$CUA_PID_FILE")"
+  stop_owned_server "$driver_pid"
+  printf '%s\n' "CUA Driver failed to initialize; falling back to CUA's native X11 handler." >>"$CUA_LOG_FILE"
+  CUA_EXPECT_DRIVER=false
+  start_server --backend native
+fi
+
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  is_ready && exit 0
+  sleep 0.5
+done
+
+echo "CUA computer-server did not become ready on port ${CUA_PORT}." >&2
+tail -n 40 "$CUA_LOG_FILE" >&2 || true
+exit 1

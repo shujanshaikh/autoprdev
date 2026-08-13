@@ -30,5 +30,5 @@ export {
   type SandboxSessionOptions,
 } from "./sandbox";
 export { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
-export { createDaytonaTools, type DaytonaComputerToolOptions, type DaytonaTools } from "./tools";
+export { createDaytonaTools, type CuaComputerToolOptions, type DaytonaTools } from "./tools";
 export { DEMO_RECORDING_INSTRUCTIONS } from "./demo-recording";

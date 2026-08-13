@@ -2,15 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSandboxContext: vi.fn(),
+  ensureReady: vi.fn(),
+  inspect: vi.fn(),
+  command: vi.fn(),
 }));
 
 vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
+vi.mock("./cua-client", () => ({
+  CuaComputerClient: class {
+    ensureReady = mocks.ensureReady;
+    inspect = mocks.inspect;
+    command = mocks.command;
+  },
+}));
 
-import { createDaytonaComputerTool } from "./computer";
+import { createCuaComputerTool } from "./computer";
 import { safeParse } from "../test/schema";
 
-describe("Daytona computer tool input", () => {
-  const computer = createDaytonaComputerTool({ cacheKey: "computer-schema" });
+describe("CUA computer tool input", () => {
+  const computer = createCuaComputerTool({ cacheKey: "computer-schema" });
 
   it("accepts absolute HTTP(S) preview URLs", () => {
     expect(safeParse(computer.inputSchema, {
@@ -29,18 +39,32 @@ describe("Daytona computer tool input", () => {
       }).success).toBe(false);
     }
   });
+
+  it("uses CUA-supported screenshot formats", () => {
+    expect(safeParse(computer.inputSchema, {
+      actions: [{ type: "screenshot", format: "jpeg", quality: 85 }],
+    }).success).toBe(true);
+    expect(safeParse(computer.inputSchema, {
+      actions: [{ type: "screenshot", format: "webp" }],
+    }).success).toBe(false);
+  });
 });
 
-describe("Daytona computer tool timeout quarantine", () => {
+describe("CUA computer tool timeout quarantine", () => {
   const getStatus = vi.fn(async () => ({ status: "active" }));
-  const click = vi.fn();
+  const stopRecording = vi.fn(async () => ({
+    id: "recording-1",
+    status: "completed",
+  }));
   const computerUse = {
     getStatus,
-    mouse: { click },
+    recording: { stop: stopRecording },
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.ensureReady.mockResolvedValue(undefined);
+    mocks.inspect.mockResolvedValue({ status: "ok", os_type: "linux" });
     mocks.getSandboxContext.mockResolvedValue({
       sandbox: { id: "sandbox-computer", computerUse },
       workDir: "/workspace/repo",
@@ -51,10 +75,10 @@ describe("Daytona computer tool timeout quarantine", () => {
     vi.useFakeTimers();
     try {
       let finishClick: (() => void) | undefined;
-      click.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      mocks.command.mockImplementationOnce(() => new Promise<void>((resolve) => {
         finishClick = resolve;
       }));
-      const computer = createDaytonaComputerTool({ cacheKey: "computer-timeout" });
+      const computer = createCuaComputerTool({ cacheKey: "computer-timeout" });
       if (!computer.execute) throw new Error("computer tool is not executable");
 
       const timedOut = computer.execute(
@@ -62,7 +86,7 @@ describe("Daytona computer tool timeout quarantine", () => {
         { toolCallId: "computer-1", messages: [] },
       );
       const timedOutAssertion = expect(timedOut).rejects.toThrow(
-        "Timed out running Daytona computer action click",
+        "Timed out running CUA computer action click",
       );
       await vi.advanceTimersByTimeAsync(120_000);
       await timedOutAssertion;
@@ -81,5 +105,26 @@ describe("Daytona computer tool timeout quarantine", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("can stop a Daytona recording without starting the desktop or CUA", async () => {
+    const computer = createCuaComputerTool({ cacheKey: "computer-recording-stop" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    await expect(computer.execute(
+      {
+        actions: [{
+          type: "stop_recording",
+          recordingId: "recording-1",
+          title: "CUA migration demo",
+        }],
+      },
+      { toolCallId: "computer-recording", messages: [] },
+    )).resolves.toBeDefined();
+
+    expect(stopRecording).toHaveBeenCalledWith("recording-1");
+    expect(getStatus).not.toHaveBeenCalled();
+    expect(mocks.ensureReady).not.toHaveBeenCalled();
+    expect(mocks.command).not.toHaveBeenCalled();
   });
 });

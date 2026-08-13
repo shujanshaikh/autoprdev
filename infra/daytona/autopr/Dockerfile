@@ -4,6 +4,9 @@ ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
 ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
+ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
+ARG CUA_DRIVER_VERSION=0.12.5
+ARG CUA_SOURCE_REVISION=4c386183eab7109bfa9cb9f182e77c4756a4b403
 
 FROM ${DAYTONA_BASE_IMAGE}
 
@@ -12,6 +15,9 @@ ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
 ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
+ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
+ARG CUA_DRIVER_VERSION=0.12.5
+ARG CUA_SOURCE_REVISION=4c386183eab7109bfa9cb9f182e77c4756a4b403
 
 USER root
 SHELL ["/bin/bash", "-lc"]
@@ -39,6 +45,9 @@ RUN apt-get update \
       nano \
       netcat-openbsd \
       procps \
+      python3 \
+      python3-pip \
+      python3-venv \
       psmisc \
       ripgrep \
       sqlite3 \
@@ -122,6 +131,35 @@ RUN apt-get update \
     && test "$(command -v tini)" = /usr/bin/tini \
     && chsh -s "$(command -v zsh)" daytona
 
+RUN command -v uv >/dev/null \
+    && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv python install 3.13 \
+    && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv venv /opt/autopr/cua --python 3.13 \
+    && cua_source="$(mktemp -d)" \
+    && git -C "$cua_source" init -q \
+    && git -C "$cua_source" remote add origin https://github.com/trycua/cua.git \
+    && git -C "$cua_source" sparse-checkout init --cone \
+    && git -C "$cua_source" sparse-checkout set \
+      libs/python/computer-server \
+      libs/python/core \
+      libs/python/cua-auto \
+    && git -C "$cua_source" fetch --depth=1 origin "$CUA_SOURCE_REVISION" \
+    && git -C "$cua_source" checkout -q --detach FETCH_HEAD \
+    && test "$(git -C "$cua_source" rev-parse HEAD)" = "$CUA_SOURCE_REVISION" \
+    && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+        "${cua_source}/libs/python/computer-server[driver]" \
+        "cua-driver==${CUA_DRIVER_VERSION}"; \
+    else \
+      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+        "${cua_source}/libs/python/computer-server"; \
+    fi \
+    && CUA_EXPECTED_VERSION="$CUA_COMPUTER_SERVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; assert version("cua-computer-server") == os.environ["CUA_EXPECTED_VERSION"]' \
+    && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+      CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; import cua_driver; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]'; \
+      /opt/autopr/cua/bin/cua-computer-server --help | grep -q 'cua-driver'; \
+    fi \
+    && rm -rf "$cua_source"
+
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal
 
 COPY . /opt/autopr/source/
@@ -129,6 +167,7 @@ COPY . /opt/autopr/source/
 RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.sh && nvm use default >/dev/null; fi \
     && install -m 0644 /opt/autopr/source/fff-cli.mjs /opt/autopr/fff/cli.mjs \
     && install -m 0755 /opt/autopr/source/autopr-fff /opt/autopr/bin/autopr-fff \
+    && install -m 0755 /opt/autopr/source/autopr-cua-computer-server /opt/autopr/bin/autopr-cua-computer-server \
     && install -d -m 0755 /etc/gitconfig.d \
     && install -m 0644 /opt/autopr/source/gitconfig /etc/gitconfig.d/autopr \
     && git config --system --add include.path /etc/gitconfig.d/autopr \
@@ -142,7 +181,7 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
     && cd "$AUTOPR_FFF_HOME" \
     && npm init -y >/dev/null \
     && npm install --omit=dev --no-audit --no-fund "@ff-labs/fff-node@${FFF_NODE_VERSION}" \
-    && chmod +x /opt/autopr/bin/autopr-fff \
+    && chmod +x /opt/autopr/bin/autopr-fff /opt/autopr/bin/autopr-cua-computer-server \
     && chmod +x /opt/autopr/desktop/autopr-desktop-session \
     && chmod +x /opt/autopr/desktop/startxfce4-autopr \
     && if [ -x /usr/bin/startxfce4 ] && [ ! -e /usr/bin/startxfce4.autopr-original ]; then mv /usr/bin/startxfce4 /usr/bin/startxfce4.autopr-original; fi \

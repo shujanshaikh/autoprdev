@@ -80,6 +80,8 @@ Set `TRIGGER_PROJECT_REF` while running the Trigger.dev CLI. Configure the follo
 - `LWC_SECRET` (or `LOGIN_WITH_CHATGPT_SECRET`) and any other Login with ChatGPT settings used by the web app
 - `DAYTONA_API_KEY`, plus `DAYTONA_API_URL` and `DAYTONA_SNAPSHOT` when customized
 
+The agent's desktop interaction runs through CUA computer-server inside the Daytona VM; Daytona still owns the VM desktop lifecycle and screen recordings. Build or update the `autopr` snapshot using [`infra/daytona/autopr/README.md`](infra/daytona/autopr/README.md) so new sandboxes have the pinned CUA runtime preinstalled. Older sandboxes use a slower one-time native CUA bootstrap on first computer action.
+
 The root development command starts the web app, Convex, and the Trigger.dev task worker together:
 
 ```bash

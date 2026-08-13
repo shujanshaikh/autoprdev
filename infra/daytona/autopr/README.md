@@ -1,6 +1,6 @@
 # AutoPR Daytona Snapshot
 
-This snapshot extends the Daytona sandbox image with the FFF runtime used by AutoPR search tools, the zsh/starship terminal profile used by the hosted Daytona web terminal and AutoPR's embedded PTY terminal, and the desktop customization used by AutoPR's Daytona computer-use preview.
+This snapshot extends the Daytona sandbox image with the FFF runtime used by AutoPR search tools, the zsh/starship terminal profile used by the hosted Daytona web terminal and AutoPR's embedded PTY terminal, the CUA computer server used for desktop interaction, and the desktop customization used by AutoPR's Daytona preview.
 
 Create a Daytona snapshot named `autopr` from this Dockerfile, then AutoPR will use it by default. The application still honors `DAYTONA_SNAPSHOT` when you need to override the default.
 
@@ -55,7 +55,7 @@ The snapshot also includes conservative system Git defaults for pruning stale re
 
 ## Desktop Profile
 
-The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, recording, and computer-use support intact. The customization layer only adds and configures:
+The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, and recording support intact. AutoPR uses CUA rather than Daytona's mouse, keyboard, screenshot, and display SDK primitives. The customization layer adds and configures:
 
 - Google Chrome Stable, installed from Google's Linux apt repository on amd64 builders.
 - Chrome-compatible wrappers in `/opt/autopr/bin` so AutoPR's browser open path prefers Chrome even when it asks for `chromium`.
@@ -68,6 +68,14 @@ The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, recording, and 
 - The stock Adwaita/XFCE cursor, kept at a normal 24px size.
 - A fixed `1920x1080` noVNC desktop, matching Daytona's computer-use `VNC_RESOLUTION` path, that AutoPR scales inside the desktop panel without resizing the sandbox display.
 - Dev/desktop utilities for a more complete workstation feel: fish, htop, jq, tmux, tree, xterm, git-lfs, zip/unzip, vim, nano, and the developer and diagnostic tools listed above.
+
+## CUA Computer Use
+
+The snapshot uses Daytona's bundled `uv` to install an isolated Python 3.13 runtime and pins CUA source revision `4c386183eab7109bfa9cb9f182e77c4756a4b403` in `/opt/autopr/cua`; Daytona's system Python is left untouched. The source revision is intentional: the published `cua-computer-server==0.3.42` wheel predates the generated Driver backend even though the current source package still reports `0.3.42`. On amd64 the snapshot installs the compatible `cua-driver==0.12.5` release and starts the embedded Driver with desktop capture scope, which is the CUA-recommended route for an X11 VM. Other architectures use CUA's native Linux handler because the Driver's Linux release is x86_64-only.
+
+`autopr-cua-computer-server` starts the service lazily on port `8765`. Readiness requires the expected package version, command manifest, and a successful live display-size probe, which also initializes the embedded Driver session. If Driver initialization fails on amd64, the launcher records the failure and falls back to CUA's native X11 handler so computer use remains available. It binds inside the VM so AutoPR can access it through a short-lived Daytona signed preview URL; the signed URL is never included in model output or persisted tool metadata. Daytona remains responsible for bringing up Xvfb/XFCE/noVNC and for start/stop/download of screen recordings.
+
+The agent runtime probes CUA's status, version, and required command manifest before every interaction sequence. Existing sandboxes created from an older snapshot get a one-time user-local installation fallback; rebuilding this snapshot remains the preferred deployment because it removes that cold start.
 
 The desktop setup files live under `desktop/`. Update those files and rebuild the `autopr` snapshot when you want to change the visible desktop.
 
@@ -108,6 +116,13 @@ test -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3 ttyd; do
   command -v "$executable"
 done
+/opt/autopr/cua/bin/python -c 'import computer_server'
+if [ "$(uname -m)" = "x86_64" ]; then /opt/autopr/cua/bin/python -c 'import cua_driver; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler'; fi
+/opt/autopr/cua/bin/cua-computer-server --help >/dev/null
+command -v autopr-cua-computer-server
+CUA_PORT=8765 DISPLAY=:1 autopr-cua-computer-server
+curl --fail --silent http://127.0.0.1:8765/status | jq -e '.status == "ok" and .os_type == "linux"'
+curl --fail --silent http://127.0.0.1:8765/commands | jq -e '.commands.screenshot and .commands.left_click and .commands.type_text'
 rg --version
 fd --version
 bat --version

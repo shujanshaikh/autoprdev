@@ -13,6 +13,7 @@ exec /usr/bin/google-chrome-stable \
   --disable-dev-shm-usage \
   --disable-extensions \
   --disable-features=Translate,PasswordManagerOnboarding \
+  --force-renderer-accessibility \
   --disable-renderer-backgrounding \
   --disable-sync \
   --metrics-recording-only \

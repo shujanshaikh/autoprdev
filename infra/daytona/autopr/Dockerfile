@@ -160,17 +160,27 @@ RUN command -v uv >/dev/null \
     && test "$(git -C "$cua_source" rev-parse HEAD)" = "$CUA_SOURCE_REVISION" \
     && git -C "$cua_source" apply --recount --check /tmp/autopr-cua-computer-server-agent-cursor.patch \
     && git -C "$cua_source" apply --recount /tmp/autopr-cua-computer-server-agent-cursor.patch \
+    && cua_wheels="$(mktemp -d)" \
+    && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/core" \
+    && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/cua-auto" \
+    && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/computer-server" \
+    && cua_core_wheel="${cua_wheels}/cua_core-${CUA_CORE_VERSION}-py3-none-any.whl" \
+    && cua_auto_wheel="${cua_wheels}/cua_auto-${CUA_AUTO_VERSION}-py3-none-any.whl" \
+    && cua_server_wheel="${cua_wheels}/cua_computer_server-${CUA_COMPUTER_SERVER_VERSION}-py3-none-any.whl" \
+    && test -s "$cua_core_wheel" \
+    && test -s "$cua_auto_wheel" \
+    && test -s "$cua_server_wheel" \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-      uv pip install --python /opt/autopr/cua/bin/python --no-cache --no-editable \
-        "${cua_source}/libs/python/core" \
-        "${cua_source}/libs/python/cua-auto" \
-        "${cua_source}/libs/python/computer-server[driver]" \
+      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+        "$cua_core_wheel" \
+        "$cua_auto_wheel" \
+        "$cua_server_wheel" \
         "cua-driver==${CUA_DRIVER_VERSION}"; \
     else \
-      uv pip install --python /opt/autopr/cua/bin/python --no-cache --no-editable \
-        "${cua_source}/libs/python/core" \
-        "${cua_source}/libs/python/cua-auto" \
-        "${cua_source}/libs/python/computer-server"; \
+      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+        "$cua_core_wheel" \
+        "$cua_auto_wheel" \
+        "$cua_server_wheel"; \
     fi \
     && CUA_EXPECTED_VERSION="$CUA_COMPUTER_SERVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; assert version("cua-computer-server") == os.environ["CUA_EXPECTED_VERSION"]' \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -190,7 +200,7 @@ RUN command -v uv >/dev/null \
       install -m 0644 -o daytona -g daytona "${theme_build}/dev.autopr.cursor.neon.cua-theme" /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; \
       rm -rf "$theme_build"; \
     fi \
-    && rm -rf "$cua_source" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py /tmp/autopr-build-hidden-xcursor.py \
+    && rm -rf "$cua_source" "$cua_wheels" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py /tmp/autopr-build-hidden-xcursor.py \
     && CUA_EXPECTED_CORE_VERSION="$CUA_CORE_VERSION" CUA_EXPECTED_AUTO_VERSION="$CUA_AUTO_VERSION" PYNPUT_BACKEND=dummy /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; import cua_auto, cua_core; from cua_core.telemetry import record_event; import computer_server.main; assert version("cua-core") == os.environ["CUA_EXPECTED_CORE_VERSION"]; assert version("cua-auto") == os.environ["CUA_EXPECTED_AUTO_VERSION"]'
 
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal

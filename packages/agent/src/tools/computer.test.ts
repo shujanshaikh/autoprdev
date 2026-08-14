@@ -142,7 +142,7 @@ describe("CUA computer tool timeout quarantine", () => {
     expect(mocks.command).not.toHaveBeenCalled();
   });
 
-  it("starts recordings through Daytona without invoking a CUA recording path", async () => {
+  it("initializes the visible CUA cursor before starting a Daytona recording", async () => {
     const computer = createCuaComputerTool({ cacheKey: "computer-recording-start" });
     if (!computer.execute) throw new Error("computer tool is not executable");
 
@@ -152,8 +152,11 @@ describe("CUA computer tool timeout quarantine", () => {
     );
 
     expect(startRecording).toHaveBeenCalledWith("Visible cursor demo");
-    expect(mocks.ensureReady).not.toHaveBeenCalled();
+    expect(mocks.ensureReady).toHaveBeenCalledTimes(1);
     expect(mocks.command).not.toHaveBeenCalled();
+    expect(mocks.ensureReady.mock.invocationCallOrder[0]).toBeLessThan(
+      startRecording.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
   });
 
   it("keeps movement, clicks, drag, and scroll positioning on the CUA action path", async () => {

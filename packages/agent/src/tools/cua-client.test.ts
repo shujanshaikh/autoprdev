@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CuaComputerClient,
@@ -9,8 +9,27 @@ import {
 } from "./cua-client";
 import type { DaytonaSandbox } from "../sandbox";
 
+const executeMocks = vi.hoisted(() => ({
+  executeSandboxCommand: vi.fn(),
+}));
+
+vi.mock("../sandbox/execute", () => ({
+  executeSandboxCommand: executeMocks.executeSandboxCommand,
+}));
+
+beforeEach(() => {
+  executeMocks.executeSandboxCommand.mockResolvedValue({
+    exitCode: 0,
+    timedOut: false,
+    stdout: "",
+    stderr: "",
+    output: "",
+  });
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  executeMocks.executeSandboxCommand.mockReset();
 });
 
 describe("CUA computer-server response parsing", () => {
@@ -43,10 +62,13 @@ describe("CUA computer-server response parsing", () => {
     expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
     expect(launcher).toContain("--driver-mode daemon");
     expect(launcher).toContain("probe_agent_cursor");
+    expect(launcher).toContain(".capture_ready == true");
     expect(launcher).not.toContain("--driver-mode embedded");
     expect(compatibilityPatch).toContain('"cursor_id": self._session_id');
     expect(compatibilityPatch).toContain("data = self._result_data(state)");
     expect(compatibilityPatch).toContain('data["overlay"] = self._agent_cursor_overlay_window()');
+    expect(compatibilityPatch).toContain('"method": "x11_desktop_pixel_delta"');
+    expect(compatibilityPatch).toContain("ImageGrab.grab, bbox=box");
     expect(dockerfile).toContain("XCURSOR_THEME=AutoPRHidden");
     expect(desktopSession).toContain("xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr");
     expect(desktopSession).not.toContain("xsetroot -cursor_name");
@@ -267,6 +289,8 @@ describe("CUA client configuration", () => {
             visual_state: { resolved_action: "idle", phase: "loop" },
             runtime_mode: "daemon",
             render_ready: enabled,
+            capture_ready: enabled,
+            capture: { method: "x11_desktop_pixel_delta", changed_pixels: enabled ? 900 : 0 },
             overlay: { mapped: enabled, painted: enabled, bounding_rectangles: enabled ? 4 : 0 },
           })}\n\n`,
         );
@@ -287,6 +311,8 @@ describe("CUA client configuration", () => {
         visualState: { resolved_action: "idle", phase: "loop" },
         runtimeMode: "daemon",
         renderReady: true,
+        captureReady: true,
+        capture: { method: "x11_desktop_pixel_delta", changed_pixels: 900 },
         overlay: { mapped: true, painted: true, bounding_rectangles: 4 },
       },
     });
@@ -358,6 +384,8 @@ describe("CUA client configuration", () => {
             motion,
             runtime_mode: "daemon",
             render_ready: enabled,
+            capture_ready: enabled,
+            capture: { method: "x11_desktop_pixel_delta", changed_pixels: enabled ? 900 : 0 },
             overlay: { mapped: enabled, painted: enabled },
           })}\n\n`,
         );
@@ -377,7 +405,7 @@ describe("CUA client configuration", () => {
     expect(motionCalls).toBe(2);
   });
 
-  it("does not claim cursor visibility when CUA accepts configuration without painting X11", async () => {
+  it("does not trust a mapped overlay that is absent from captured X11 pixels", async () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
     const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
     vi.stubGlobal("fetch", vi.fn(async (
@@ -407,24 +435,31 @@ describe("CUA client configuration", () => {
           enabled: true,
           theme: { id: "dev.autopr.cursor.neon", reduced_motion: "off" },
           motion: recordingMotion,
-          runtime_mode: "embedded",
+          runtime_mode: "daemon",
           render_ready: false,
-          overlay: { mapped: false, painted: false },
+          capture_ready: false,
+          capture: { method: "x11_desktop_pixel_delta", changed_pixels: 0 },
+          overlay: { mapped: true, painted: true },
         })}\n\n`);
       }
       return new Response('data: {"success":true}\n\n');
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = new CuaComputerClient({
+      id: "capture-miss-sandbox",
+      getSignedPreviewUrl,
+    } as unknown as DaytonaSandbox, {});
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "cua-driver",
       cursor: {
         enabled: false,
-        runtimeMode: "embedded",
+        runtimeMode: "daemon",
         renderReady: false,
-        error: expect.stringContaining("overlay-owning daemon mode"),
+        captureReady: false,
+        error: expect.stringContaining("captured X11 desktop frame"),
       },
     });
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1);
   });
 
   it("keeps native fallback available while reporting that the agent cursor is unavailable", async () => {
@@ -451,15 +486,20 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = new CuaComputerClient({
+      id: "native-fallback-sandbox",
+      getSignedPreviewUrl,
+    } as unknown as DaytonaSandbox, {});
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "native",
       cursor: {
         available: false,
         enabled: false,
+        recoveryAttempted: true,
         reason: expect.stringContaining("native computer use and Daytona recording remain active"),
       },
     });
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1);
     expect(commands).not.toContain("set_agent_cursor_enabled");
   });
 });

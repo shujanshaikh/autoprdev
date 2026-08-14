@@ -145,8 +145,13 @@ index 7c055c191..b2e296894 100644
 +            data = self._result_data(state)
 +            data["runtime_mode"] = self._mode
 +            data["overlay"] = self._agent_cursor_overlay_window()
++            data["capture_ready"] = getattr(self, "_cursor_capture_ready", False)
++            if hasattr(self, "_cursor_capture_evidence"):
++                data["capture"] = self._cursor_capture_evidence
 +            data["render_ready"] = bool(
-+                data.get("enabled") and data["overlay"].get("painted")
++                data.get("enabled")
++                and data["overlay"].get("painted")
++                and data["capture_ready"]
 +            )
 +            return self._ok(data)
 +        except Exception as error:
@@ -219,18 +224,81 @@ index 7c055c191..b2e296894 100644
 +            return str(error)
 +
 +    async def probe_agent_cursor(self) -> Dict[str, Any]:
-+        """Paint one overlay frame and prove that the X11 window is visible."""
++        """Prove the official overlay changes pixels in a desktop capture."""
 +
 +        try:
++            from PIL import ImageChops, ImageGrab
++
 +            await self._ensure_session()
 +            x, y = await self._point(None, None)
++            size = await self.get_screen_size()
++            if not size.get("success"):
++                raise RuntimeError(size.get("error", "Screen size is unavailable"))
++            width = int(size["size"]["width"])
++            height = int(size["size"]["height"])
++            left = max(0, x - 96)
++            top = max(0, y - 96)
++            right = min(width, x + 128)
++            bottom = min(height, y + 128)
++            box = (left, top, right, bottom)
++
++            # Shape/mapping metadata was previously treated as proof of paint,
++            # but it cannot prove that an X11 screen grab (and therefore
++            # Daytona's recorder) receives the window's pixels. Capture the
++            # same bounded desktop tile with the official overlay hidden and
++            # visible, then require a material pixel delta.
++            await self._driver.set_agent_cursor_enabled(
++                self._sdk.SetAgentCursorEnabledInput(
++                    session=self._session_id,
++                    enabled=False,
++                )
++            )
++            try:
++                await asyncio.sleep(0.08)
++                before = await asyncio.to_thread(ImageGrab.grab, bbox=box)
++            finally:
++                # Never leave automation without a pointer if the capture
++                # probe itself fails (for example during an X server restart).
++                await self._driver.set_agent_cursor_enabled(
++                    self._sdk.SetAgentCursorEnabledInput(
++                        session=self._session_id,
++                        enabled=True,
++                    )
++                )
 +            cursor_sync_error = await self._sync_agent_cursor_position(
 +                x, y, wait_for_glide=True
 +            )
 +            if cursor_sync_error:
 +                raise RuntimeError(cursor_sync_error)
++            after = await asyncio.to_thread(ImageGrab.grab, bbox=box)
++            difference = ImageChops.difference(before.convert("RGB"), after.convert("RGB"))
++            pixel_data = (
++                difference.get_flattened_data()
++                if hasattr(difference, "get_flattened_data")
++                else difference.getdata()
++            )
++            changed_pixels = sum(
++                1 for pixel in pixel_data if max(pixel) >= 12
++            )
++            self._cursor_capture_ready = changed_pixels >= 64
++            self._cursor_capture_evidence = {
++                "method": "x11_desktop_pixel_delta",
++                "changed_pixels": changed_pixels,
++                "minimum_changed_pixels": 64,
++                "bounds": {
++                    "left": left,
++                    "top": top,
++                    "right": right,
++                    "bottom": bottom,
++                },
++            }
++            if not self._cursor_capture_ready:
++                raise RuntimeError(
++                    "CUA's overlay window was mapped but did not change captured desktop pixels"
++                )
 +            return await self.get_agent_cursor_state()
 +        except Exception as error:
++            self._cursor_capture_ready = False
 +            return self._error(error)
 +
      async def get_capture_scope_state(self) -> Dict[str, Any]:

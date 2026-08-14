@@ -698,7 +698,12 @@ function requiresDaytonaDesktop(action: ComputerAction) {
 }
 
 function requiresCua(action: ComputerAction) {
-  return !["status", "start_recording", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
+  // Recording remains fully Daytona-owned, but the CUA cursor must be ready
+  // before Daytona captures its first frame. Starting a recording used to be
+  // the one desktop action that skipped CUA readiness, which allowed a lazy
+  // Driver startup (or recovery from a transient native fallback) to happen
+  // after the recording was already underway.
+  return !["status", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
 }
 
 function shouldCaptureAfter(actions: ComputerAction[]) {

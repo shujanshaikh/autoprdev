@@ -7,6 +7,7 @@ const CUA_SERVER_READY_TIMEOUT_MS = 45_000;
 const CUA_SERVER_READY_POLL_MS = 500;
 const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
+const CUA_CURSOR_RECOVERY_COOLDOWN_MS = 60_000;
 const CUA_COMPUTER_SERVER_VERSION = "0.3.42";
 const CUA_AGENT_CURSOR_THEME = "dev.autopr.cursor.neon";
 const CUA_AGENT_CURSOR_REDUCED_MOTION = "off" as const;
@@ -54,6 +55,7 @@ const CUA_AGENT_CURSOR_COMMANDS = [
 ] as const;
 
 const cuaServerStartPromises = new Map<string, Promise<void>>();
+const cuaCursorRecoveryAttemptedAt = new Map<string, number>();
 
 export interface CuaComputerOptions {
   display?: string;
@@ -79,10 +81,13 @@ export type CuaAgentCursorStatus = {
   visualState?: Record<string, unknown>;
   runtimeMode?: "daemon" | "embedded";
   renderReady?: boolean;
+  captureReady?: boolean;
+  capture?: Record<string, unknown>;
   overlay?: Record<string, unknown>;
   capabilities: string[];
   reason?: string;
   error?: string;
+  recoveryAttempted?: boolean;
 };
 
 export type CuaAgentCursorMotion = {
@@ -409,6 +414,8 @@ export class CuaComputerClient {
       visualState: isRecord(state?.visual_state) ? state.visual_state : undefined,
       runtimeMode,
       renderReady: state?.render_ready === true,
+      captureReady: state?.capture_ready === true,
+      capture: isRecord(state?.capture) ? state.capture : undefined,
       overlay: isRecord(state?.overlay) ? state.overlay : undefined,
       capabilities,
     };
@@ -476,6 +483,7 @@ export class CuaComputerClient {
       && usesRecordingCursorMotion(cursor.motion)
       && cursor.runtimeMode === "daemon"
       && cursor.renderReady
+      && cursor.captureReady
       && !cursor.error
     ) return status;
 
@@ -517,6 +525,8 @@ export class CuaComputerClient {
           ? state.runtime_mode as "daemon" | "embedded"
           : cursor.runtimeMode,
         renderReady: state.render_ready === true,
+        captureReady: state.capture_ready === true,
+        capture: isRecord(state.capture) ? state.capture : cursor.capture,
         overlay: isRecord(state.overlay) ? state.overlay : cursor.overlay,
         error: undefined,
       };
@@ -536,7 +546,9 @@ export class CuaComputerClient {
         initializedCursor.error = "CUA Driver is not running in its overlay-owning daemon mode.";
       } else if (!initializedCursor.renderReady) {
         initializedCursor.enabled = false;
-        initializedCursor.error = "CUA Driver did not paint a visible X11 agent-cursor overlay.";
+        initializedCursor.error = initializedCursor.captureReady
+          ? "CUA Driver did not paint a visible X11 agent-cursor overlay."
+          : "CUA Driver's overlay was not present in a captured X11 desktop frame.";
       }
       return { ...status, cursor: initializedCursor };
     } catch (error) {
@@ -552,24 +564,77 @@ export class CuaComputerClient {
   }
 
   async ensureReady(): Promise<CuaServerStatus> {
+    let initialStatus: CuaServerStatus | undefined;
     try {
-      return await this.initializeAgentCursor(await this.inspect());
+      initialStatus = await this.initializeAgentCursor(await this.inspect());
+      if (
+        initialStatus.backend === "cua-driver"
+        && initialStatus.cursor?.enabled
+        && initialStatus.cursor.renderReady
+        && initialStatus.cursor.captureReady
+        && !initialStatus.cursor.error
+      ) {
+        return initialStatus;
+      }
     } catch {
       // The server is installed in the AutoPR snapshot and started lazily. The
       // fallback bootstrap keeps existing sandboxes usable until that snapshot
       // has been rebuilt and rolled out.
     }
 
-    await startCuaServer(this.sandbox, this.sandboxOptions, {
-      display: this.display,
-      serverPort: this.serverPort,
-    });
+    const recoveryKey = `${this.sandbox.id}:${this.serverPort}:${this.display}`;
+    const lastRecovery = cuaCursorRecoveryAttemptedAt.get(recoveryKey) ?? 0;
+    const shouldRecover = Date.now() - lastRecovery >= CUA_CURSOR_RECOVERY_COOLDOWN_MS;
+    if (shouldRecover) {
+      const attemptedAt = Date.now();
+      cuaCursorRecoveryAttemptedAt.set(recoveryKey, attemptedAt);
+      const cleanup = setTimeout(() => {
+        if (cuaCursorRecoveryAttemptedAt.get(recoveryKey) === attemptedAt) {
+          cuaCursorRecoveryAttemptedAt.delete(recoveryKey);
+        }
+      }, CUA_CURSOR_RECOVERY_COOLDOWN_MS);
+      cleanup.unref?.();
+      try {
+        // A healthy native server is still degraded on Driver-capable images.
+        // Running the image launcher lets it replace a stale native fallback,
+        // restart a Driver whose overlay thread died, and then re-probe the
+        // exact session before the next action (especially start_recording).
+        await startCuaServer(this.sandbox, this.sandboxOptions, {
+          display: this.display,
+          serverPort: this.serverPort,
+        });
+      } catch (error) {
+        if (initialStatus) {
+          return {
+            ...initialStatus,
+            cursor: initialStatus.cursor
+              ? {
+                  ...initialStatus.cursor,
+                  recoveryAttempted: true,
+                  error: initialStatus.cursor.error
+                    ? `${initialStatus.cursor.error} Recovery failed: ${errorMessage(error)}`
+                    : `CUA Driver cursor recovery failed: ${errorMessage(error)}`,
+                }
+              : initialStatus.cursor,
+          };
+        }
+        throw error;
+      }
+    } else if (initialStatus) {
+      return initialStatus;
+    }
 
     const deadline = Date.now() + CUA_SERVER_READY_TIMEOUT_MS;
     let lastError: unknown;
     while (Date.now() < deadline) {
       try {
-        return await this.initializeAgentCursor(await this.inspect());
+        const recovered = await this.initializeAgentCursor(await this.inspect());
+        return {
+          ...recovered,
+          cursor: recovered.cursor
+            ? { ...recovered.cursor, recoveryAttempted: shouldRecover }
+            : recovered.cursor,
+        };
       } catch (error) {
         lastError = error;
         await new Promise((resolve) => setTimeout(resolve, CUA_SERVER_READY_POLL_MS));

@@ -41,6 +41,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
+import { ResilientTriggerSessionTransport } from "#/lib/resilient-trigger-session-transport";
 import {
   AGENT_CHAT_OPERATION_HEADER,
   AGENT_CHAT_TASK_ID,
@@ -48,6 +49,7 @@ import {
 } from "#/lib/trigger-agent-contract";
 import { setWorkOSAccessTokenHeader } from "#/lib/workos-access-token";
 import {
+  discardUnpersistedAssistantTail,
   runTriggerSessionReconnectAttempt,
   shouldUseTriggerSessionTransport,
   triggerSessionHydration,
@@ -983,6 +985,10 @@ function ThreadChatRuntime({
     fetch: sessionFetch,
     onEvent: handleSessionTransportEvent,
   });
+  const resilientSessionTransport = useMemo(
+    () => new ResilientTriggerSessionTransport<UIMessage>(sessionTransport),
+    [sessionTransport],
+  );
   const [sessionReconnectTick, setSessionReconnectTick] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
@@ -1053,7 +1059,7 @@ function ThreadChatRuntime({
       selectedReasoningEffort,
     ],
   );
-  const transport = usingSessionTransport ? sessionTransport : legacyTransport;
+  const transport = usingSessionTransport ? resilientSessionTransport : legacyTransport;
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,
@@ -1306,6 +1312,21 @@ function ThreadChatRuntime({
       sessionResumeRequestedRef.current = true;
 
       if (status === "error") {
+        // A completed AI SDK stream parser cannot resume in the middle of an
+        // active text/tool part. Rewind Trigger to the last persisted turn
+        // boundary and remove only this turn's unpersisted assistant tail so
+        // the replay includes every required start chunk.
+        const currentSession = sessionTransport.getSession(threadId);
+        if (currentSession) {
+          sessionTransport.setSession(threadId, {
+            ...currentSession,
+            lastEventId: thread?.triggerSessionLastEventId,
+            isStreaming: true,
+          });
+        }
+        setMessages((currentMessages) =>
+          discardUnpersistedAssistantTail(currentMessages, initialMessages)
+        );
         clearError();
       }
 
@@ -1353,9 +1374,12 @@ function ThreadChatRuntime({
     clearError,
     resumeSession,
     resumeStream,
+    initialMessages,
     sessionReconnectTick,
     sessionTransport,
+    setMessages,
     status,
+    thread?.triggerSessionLastEventId,
     thread?.isLive,
     threadId,
     usingSessionTransport,

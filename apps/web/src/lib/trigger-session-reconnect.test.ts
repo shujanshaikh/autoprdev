@@ -1,11 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  discardUnpersistedAssistantTail,
   runTriggerSessionReconnectAttempt,
   triggerSessionReconnectDelayMs,
   shouldUseTriggerSessionTransport,
   triggerSessionHydration,
 } from "./trigger-session-reconnect";
+
+describe("discardUnpersistedAssistantTail", () => {
+  it("removes a partial assistant response before replaying from a persisted cursor", () => {
+    const persisted = [{ id: "user_1", role: "user" as const, parts: [] }];
+    const partialAssistant = {
+      id: "assistant_live",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Partial", state: "streaming" as const }],
+    };
+
+    expect(discardUnpersistedAssistantTail([...persisted, partialAssistant], persisted))
+      .toEqual(persisted);
+  });
+
+  it("preserves an assistant response that is already persisted", () => {
+    const persisted = [{
+      id: "assistant_done",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Done" }],
+    }];
+
+    expect(discardUnpersistedAssistantTail(persisted, persisted)).toBe(persisted);
+  });
+});
 
 describe("Trigger session reconnect", () => {
   it("selects the durable Session transport for an active session turn", () => {

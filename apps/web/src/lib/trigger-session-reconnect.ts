@@ -1,5 +1,20 @@
+import type { UIMessage } from "ai";
+
 const BASE_RECONNECT_DELAY_MS = 250;
 const MAX_RECONNECT_DELAY_MS = 5_000;
+
+export function discardUnpersistedAssistantTail(
+  messages: UIMessage[],
+  persistedMessages: UIMessage[],
+) {
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role !== "assistant") {
+    return messages;
+  }
+
+  const persistedMessageIds = new Set(persistedMessages.map((message) => message.id));
+  return persistedMessageIds.has(lastMessage.id) ? messages : messages.slice(0, -1);
+}
 
 export function shouldUseTriggerSessionTransport(options: {
   sessionCreatedAt?: number;

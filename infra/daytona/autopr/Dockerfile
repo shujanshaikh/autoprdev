@@ -161,13 +161,13 @@ RUN command -v uv >/dev/null \
     && git -C "$cua_source" apply --recount --check /tmp/autopr-cua-computer-server-agent-cursor.patch \
     && git -C "$cua_source" apply --recount /tmp/autopr-cua-computer-server-agent-cursor.patch \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+      uv pip install --python /opt/autopr/cua/bin/python --no-cache --no-editable \
         "${cua_source}/libs/python/core" \
         "${cua_source}/libs/python/cua-auto" \
         "${cua_source}/libs/python/computer-server[driver]" \
         "cua-driver==${CUA_DRIVER_VERSION}"; \
     else \
-      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+      uv pip install --python /opt/autopr/cua/bin/python --no-cache --no-editable \
         "${cua_source}/libs/python/core" \
         "${cua_source}/libs/python/cua-auto" \
         "${cua_source}/libs/python/computer-server"; \
@@ -184,7 +184,8 @@ RUN command -v uv >/dev/null \
       python3 /tmp/autopr-build-cursor-theme.py --output "${theme_build}/autopr-neon.lottie"; \
       "${theme_build}/cua-cursor-theme" validate "${theme_build}/autopr-neon.lottie"; \
       "${theme_build}/cua-cursor-theme" build "${theme_build}/autopr-neon.lottie" --output "${theme_build}/dev.autopr.cursor.neon.cua-theme"; \
-      "${theme_build}/cua-cursor-theme" inspect "${theme_build}/dev.autopr.cursor.neon.cua-theme" | grep -q '^id: dev.autopr.cursor.neon$'; \
+      cursor_theme_inspection="$("${theme_build}/cua-cursor-theme" inspect "${theme_build}/dev.autopr.cursor.neon.cua-theme")"; \
+      printf '%s\n' "$cursor_theme_inspection" | grep -Fqx 'id: dev.autopr.cursor.neon'; \
       install -d -m 0755 -o daytona -g daytona /home/daytona/.local/share/cua-driver/cursor-themes; \
       install -m 0644 -o daytona -g daytona "${theme_build}/dev.autopr.cursor.neon.cua-theme" /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; \
       rm -rf "$theme_build"; \

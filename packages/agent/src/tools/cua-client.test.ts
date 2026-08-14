@@ -57,11 +57,22 @@ describe("CUA computer-server response parsing", () => {
       new URL("../../../../infra/daytona/autopr/Dockerfile", import.meta.url),
       "utf8",
     );
+    const compatibilityPatch = readFileSync(
+      new URL("../../../../infra/daytona/autopr/cua-computer-server-agent-cursor.patch", import.meta.url),
+      "utf8",
+    );
     expect(dockerfile).toContain('"${cua_source}/libs/python/core"');
     expect(dockerfile).toContain('"${cua_source}/libs/python/cua-auto"');
+    expect(dockerfile).toContain("--no-cache --no-editable");
     expect(dockerfile).toContain("import cua_auto, cua_core");
     expect(dockerfile).toContain("from cua_core.telemetry import record_event");
     expect(dockerfile).toContain("PYNPUT_BACKEND=dummy");
+    expect(dockerfile).toContain('cursor_theme_inspection="$(');
+    expect(dockerfile).not.toContain(
+      'cua-cursor-theme" inspect "${theme_build}/dev.autopr.cursor.neon.cua-theme" | grep -q',
+    );
+    expect(compatibilityPatch).toContain('cua-core = { path = "../core" }');
+    expect(compatibilityPatch).toContain('cua-auto = { path = "../cua-auto" }');
     expect(dockerfile.indexOf('rm -rf "$cua_source"')).toBeLessThan(
       dockerfile.indexOf("import cua_auto, cua_core"),
     );

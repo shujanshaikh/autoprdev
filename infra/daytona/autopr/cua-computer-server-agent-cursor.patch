@@ -11,6 +11,12 @@ index 503626b39..169641d79 100644
  ]
  
  [project.urls]
+@@ -93,3 +93,3 @@
+ [tool.uv.sources]
+-cua-core = { workspace = true }
+-cua-auto = { path = "../cua-auto", editable = true }
++cua-core = { path = "../core" }
++cua-auto = { path = "../cua-auto" }
 diff --git a/libs/python/computer-server/computer_server/handlers/cua_driver.py b/libs/python/computer-server/computer_server/handlers/cua_driver.py
 index 7c055c191..b2e296894 100644
 --- a/libs/python/computer-server/computer_server/handlers/cua_driver.py

@@ -52,6 +52,21 @@ describe("CUA computer-server response parsing", () => {
     expect(desktopSession).not.toContain("xsetroot -cursor_name");
   });
 
+  it("installs and validates computer-server's complete pinned CUA runtime", () => {
+    const dockerfile = readFileSync(
+      new URL("../../../../infra/daytona/autopr/Dockerfile", import.meta.url),
+      "utf8",
+    );
+    expect(dockerfile).toContain('"${cua_source}/libs/python/core"');
+    expect(dockerfile).toContain('"${cua_source}/libs/python/cua-auto"');
+    expect(dockerfile).toContain("import cua_auto, cua_core");
+    expect(dockerfile).toContain("from cua_core.telemetry import record_event");
+    expect(dockerfile).toContain("PYNPUT_BACKEND=dummy");
+    expect(dockerfile.indexOf('rm -rf "$cua_source"')).toBeLessThan(
+      dockerfile.indexOf("import cua_auto, cua_core"),
+    );
+  });
+
   it("parses the first successful SSE data frame", () => {
     expect(parseCuaCommandResponse(
       ': keep-alive\ndata: {"success":true,"size":{"width":1920,"height":1080}}\n\n',

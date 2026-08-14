@@ -6,6 +6,8 @@ ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
 ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
 ARG CUA_DRIVER_VERSION=0.19.3
+ARG CUA_CORE_VERSION=0.3.1
+ARG CUA_AUTO_VERSION=0.1.2
 ARG CUA_DRIVER_RELEASE_SHA256=3db9d4257d84bacaf7eb104d225f85613ce67edbb20d6eeb83c1384b6d8a5b10
 ARG CUA_SOURCE_REVISION=4c386183eab7109bfa9cb9f182e77c4756a4b403
 
@@ -18,6 +20,8 @@ ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
 ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
 ARG CUA_DRIVER_VERSION=0.19.3
+ARG CUA_CORE_VERSION=0.3.1
+ARG CUA_AUTO_VERSION=0.1.2
 ARG CUA_DRIVER_RELEASE_SHA256=3db9d4257d84bacaf7eb104d225f85613ce67edbb20d6eeb83c1384b6d8a5b10
 ARG CUA_SOURCE_REVISION=4c386183eab7109bfa9cb9f182e77c4756a4b403
 
@@ -158,10 +162,14 @@ RUN command -v uv >/dev/null \
     && git -C "$cua_source" apply --recount /tmp/autopr-cua-computer-server-agent-cursor.patch \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
       uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+        "${cua_source}/libs/python/core" \
+        "${cua_source}/libs/python/cua-auto" \
         "${cua_source}/libs/python/computer-server[driver]" \
         "cua-driver==${CUA_DRIVER_VERSION}"; \
     else \
       uv pip install --python /opt/autopr/cua/bin/python --no-cache \
+        "${cua_source}/libs/python/core" \
+        "${cua_source}/libs/python/cua-auto" \
         "${cua_source}/libs/python/computer-server"; \
     fi \
     && CUA_EXPECTED_VERSION="$CUA_COMPUTER_SERVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; assert version("cua-computer-server") == os.environ["CUA_EXPECTED_VERSION"]' \
@@ -181,7 +189,8 @@ RUN command -v uv >/dev/null \
       install -m 0644 -o daytona -g daytona "${theme_build}/dev.autopr.cursor.neon.cua-theme" /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; \
       rm -rf "$theme_build"; \
     fi \
-    && rm -rf "$cua_source" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py /tmp/autopr-build-hidden-xcursor.py
+    && rm -rf "$cua_source" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py /tmp/autopr-build-hidden-xcursor.py \
+    && CUA_EXPECTED_CORE_VERSION="$CUA_CORE_VERSION" CUA_EXPECTED_AUTO_VERSION="$CUA_AUTO_VERSION" PYNPUT_BACKEND=dummy /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; import cua_auto, cua_core; from cua_core.telemetry import record_event; import computer_server.main; assert version("cua-core") == os.environ["CUA_EXPECTED_CORE_VERSION"]; assert version("cua-auto") == os.environ["CUA_EXPECTED_AUTO_VERSION"]'
 
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal
 

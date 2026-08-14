@@ -1,0 +1,251 @@
+diff --git a/libs/python/computer-server/pyproject.toml b/libs/python/computer-server/pyproject.toml
+index 503626b39..169641d79 100644
+--- a/libs/python/computer-server/pyproject.toml
++++ b/libs/python/computer-server/pyproject.toml
+@@ -55,7 +55,7 @@ vnc = [
+     "vncdotool>=1.2.0"
+ ]
+ driver = [
+-    "cua-driver>=0.12.2,<0.13.0"
++    "cua-driver>=0.19.3,<0.20.0"
+ ]
+ 
+ [project.urls]
+diff --git a/libs/python/computer-server/computer_server/handlers/cua_driver.py b/libs/python/computer-server/computer_server/handlers/cua_driver.py
+index 7c055c191..b2e296894 100644
+--- a/libs/python/computer-server/computer_server/handlers/cua_driver.py
++++ b/libs/python/computer-server/computer_server/handlers/cua_driver.py
+@@ -48,6 +48,14 @@ class DriverClient(Protocol):
+ 
+     async def get_session_state(self, input: Any) -> Any: ...
+ 
++    async def set_agent_cursor_enabled(self, input: Any) -> Any: ...
++
++    async def set_agent_cursor_motion(self, input: Any) -> Any: ...
++
++    async def set_agent_cursor_theme(self, input: Any) -> Any: ...
++
++    async def get_agent_cursor_state(self, input: Any) -> Any: ...
++
++    async def call_tool(self, name: str, arguments_json: str) -> DriverResult: ...
++
+     async def get_desktop_state(self, input: Any) -> DriverResult: ...
+ 
+     async def get_screen_size(self, input: Any) -> DriverResult: ...
+@@ -156,6 +164,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                         "window": self._sdk.CaptureScope.WINDOW,
+                         "desktop": self._sdk.CaptureScope.DESKTOP,
+                     }[self._capture_scope],
++                    cursor_theme=None,
+                 )
+             )
+             if not started.active:
+@@ -216,6 +225,24 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+             "escalation_detail": state.escalation_detail,
+         }
+ 
++    @classmethod
++    def _json_value(cls, value: Any) -> Any:
++        """Convert generated SDK records and enums into JSON-compatible values."""
++
++        if value is None or isinstance(value, (str, int, float, bool)):
++            return value
++        if isinstance(value, dict):
++            return {key: cls._json_value(item) for key, item in value.items()}
++        if isinstance(value, (list, tuple)):
++            return [cls._json_value(item) for item in value]
++        if hasattr(value, "name"):
++            return str(value.name).lower()
++        fields = getattr(value, "__dict__", None)
++        if isinstance(fields, dict):
++            return {
++                key: cls._json_value(item)
++                for key, item in fields.items()
++                if not key.startswith("_")
++            }
++        return str(value)
++
+     @staticmethod
+     def _ok(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+         return {"success": True, **(data or {})}
+@@ -250,6 +277,117 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                 await self._driver.shutdown()
+                 self._closed = True
+ 
++    async def set_agent_cursor_enabled(self, enabled: bool) -> Dict[str, Any]:
++        """Show or hide the official software-rendered cursor for this session."""
++
++        try:
++            await self._ensure_session()
++            state = await self._driver.set_agent_cursor_enabled(
++                self._sdk.SetAgentCursorEnabledInput(
++                    session=self._session_id,
++                    enabled=enabled,
++                )
++            )
++            return self._ok(self._json_value(state))
++        except Exception as error:
++            return self._error(error)
++
++    async def set_agent_cursor_motion(
++        self,
++        start_handle: Optional[float] = None,
++        end_handle: Optional[float] = None,
++        arc_size: Optional[float] = None,
++        arc_flow: Optional[float] = None,
++        spring: Optional[float] = None,
++        glide_duration_ms: Optional[float] = None,
++        dwell_after_click_ms: Optional[float] = None,
++        idle_hide_ms: Optional[float] = None,
++        turn_radius: Optional[float] = None,
++    ) -> Dict[str, Any]:
++        """Configure official cursor motion while retaining CUA defaults."""
++
++        try:
++            await self._ensure_session()
++            state = await self._driver.set_agent_cursor_motion(
++                self._sdk.SetAgentCursorMotionInput(
++                    session=self._session_id,
++                    start_handle=start_handle,
++                    end_handle=end_handle,
++                    arc_size=arc_size,
++                    arc_flow=arc_flow,
++                    spring=spring,
++                    glide_duration_ms=glide_duration_ms,
++                    dwell_after_click_ms=dwell_after_click_ms,
++                    idle_hide_ms=idle_hide_ms,
++                    turn_radius=turn_radius,
++                )
++            )
++            return self._ok(self._json_value(state))
++        except Exception as error:
++            return self._error(error)
++
++    async def set_agent_cursor_theme(
++        self,
++        theme_id: str,
++        reduced_motion: str = "auto",
++    ) -> Dict[str, Any]:
++        """Select one of CUA Driver's installed cursor themes for this session."""
++
++        modes = {
++            "auto": self._sdk.CursorReducedMotion.AUTO,
++            "on": self._sdk.CursorReducedMotion.ON,
++            "off": self._sdk.CursorReducedMotion.OFF,
++        }
++        normalized = reduced_motion.strip().lower()
++        if normalized not in modes:
++            return self._error(ValueError("reduced_motion must be auto, on, or off"))
++        try:
++            await self._ensure_session()
++            state = await self._driver.set_agent_cursor_theme(
++                self._sdk.SetAgentCursorThemeInput(
++                    session=self._session_id,
++                    theme_id=theme_id,
++                    reduced_motion=modes[normalized],
++                )
++            )
++            return self._ok(self._json_value(state))
++        except Exception as error:
++            return self._error(error)
++
++    async def get_agent_cursor_state(self) -> Dict[str, Any]:
++        """Return bounded cursor state for diagnostics and restart recovery."""
++
++        try:
++            await self._ensure_session()
++            state = await self._driver.get_agent_cursor_state(
++                self._sdk.GetAgentCursorStateInput(session=self._session_id)
++            )
++            return self._ok(self._json_value(state))
++        except Exception as error:
++            return self._error(error)
++
++    async def _sync_agent_cursor_position(self, x: int, y: int) -> Optional[str]:
++        """Move the overlay without replacing delivery to the real OS pointer."""
++
++        try:
++            # The typed MoveCursorInput deliberately represents only desktop
++            # pointer delivery. Use the SDK's official protocol-adapter surface
++            # for the overlay-only form, which defaults to window/agent scope.
++            result = await self._driver.call_tool(
++                "move_cursor",
++                json.dumps({"x": float(x), "y": float(y), "session": self._session_id}),
++            )
++            self._raise_for_error(result)
++            return None
++        except Exception as error:
++            return str(error)
++
+     async def get_capture_scope_state(self) -> Dict[str, Any]:
+         """Return the generated session policy state in the legacy envelope."""
+ 
+@@ -353,15 +492,20 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+     async def move_cursor(self, x: int, y: int) -> Dict[str, Any]:
+         try:
+             await self._ensure_session()
++            cursor_sync_error = await self._sync_agent_cursor_position(x, y)
+             result = await self._driver.move_cursor(
+                 self._sdk.MoveCursorInput(
+                     x=float(x),
+                     y=float(y),
+                     scope=self._sdk.DesktopScope.DESKTOP,
+                     session=self._session_id,
+                 )
+             )
+-            return self._ok(self._result_data(result))
++            data = self._result_data(result)
++            if cursor_sync_error:
++                data["cursor_sync_error"] = cursor_sync_error
++            return self._ok(data)
+         except Exception as error:
+             return self._error(error)
+ 
+@@ -485,10 +633,12 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+         try:
+             await self._ensure_session()
+             x, y = await self._point(None, None)
++            cursor_sync_error = await self._sync_agent_cursor_position(x, y)
+             result = await self._driver.scroll(
+                 self._sdk.ScrollInput(
+                     x=float(x),
+                     y=float(y),
+                     direction={
+                         "up": self._sdk.ScrollDirection.UP,
+@@ -495,13 +645,18 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                         "left": self._sdk.ScrollDirection.LEFT,
+                         "right": self._sdk.ScrollDirection.RIGHT,
+                     }[direction],
+                     scope=self._sdk.DesktopScope.DESKTOP,
+                     session=self._session_id,
+                     by=self._sdk.ScrollBy.LINE,
+                     amount=min(50, max(1, amount)),
+                 )
+             )
+-            return self._ok(self._result_data(result))
++            data = self._result_data(result)
++            if cursor_sync_error:
++                data["cursor_sync_error"] = cursor_sync_error
++            return self._ok(data)
+         except Exception as error:
+             return self._error(error)
+ 
+diff --git a/libs/python/computer-server/computer_server/main.py b/libs/python/computer-server/computer_server/main.py
+index 9d23b215c..d8627aa7a 100644
+--- a/libs/python/computer-server/computer_server/main.py
++++ b/libs/python/computer-server/computer_server/main.py
+@@ -416,6 +416,13 @@ if hasattr(automation_handler, "get_capture_scope_state"):
+     handlers["get_capture_scope_state"] = automation_handler.get_capture_scope_state
+ if hasattr(automation_handler, "escalate_capture_scope"):
+     handlers["escalate_capture_scope"] = automation_handler.escalate_capture_scope
++for cursor_command in (
++    "set_agent_cursor_enabled",
++    "set_agent_cursor_motion",
++    "set_agent_cursor_theme",
++    "get_agent_cursor_state",
++):
++    if hasattr(automation_handler, cursor_command):
++        handlers[cursor_command] = getattr(automation_handler, cursor_command)
+ 
+ 
+ class AuthenticationManager:

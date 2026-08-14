@@ -8,6 +8,7 @@ const CUA_SERVER_READY_POLL_MS = 500;
 const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
 const CUA_COMPUTER_SERVER_VERSION = "0.3.42";
+const CUA_AGENT_CURSOR_THEME = "cua.default";
 
 const REQUIRED_CUA_COMMANDS = [
   "version",
@@ -32,6 +33,13 @@ const REQUIRED_CUA_COMMANDS = [
   "get_screen_size",
 ] as const;
 
+const CUA_AGENT_CURSOR_COMMANDS = [
+  "set_agent_cursor_enabled",
+  "set_agent_cursor_motion",
+  "set_agent_cursor_theme",
+  "get_agent_cursor_state",
+] as const;
+
 const cuaServerStartPromises = new Map<string, Promise<void>>();
 
 export interface CuaComputerOptions {
@@ -45,6 +53,17 @@ export type CuaServerStatus = {
   os_type?: string;
   features?: unknown[];
   backend?: "cua-driver" | "native";
+  cursor?: CuaAgentCursorStatus;
+};
+
+export type CuaAgentCursorStatus = {
+  available: boolean;
+  enabled: boolean;
+  session?: string;
+  theme?: string;
+  capabilities: string[];
+  reason?: string;
+  error?: string;
 };
 
 export type CuaCommandResponse = Record<string, unknown> & {
@@ -300,6 +319,46 @@ export class CuaComputerClient {
     return result;
   }
 
+  private cursorStatus(
+    backend: "cua-driver" | "native",
+    commandManifest: Record<string, unknown>,
+    state?: CuaCommandResponse,
+  ): CuaAgentCursorStatus {
+    const capabilities = CUA_AGENT_CURSOR_COMMANDS.filter(
+      (command) => command in commandManifest,
+    );
+    if (backend === "native") {
+      return {
+        available: false,
+        enabled: false,
+        capabilities,
+        reason: "CUA Driver is unavailable; native computer use and Daytona recording remain active.",
+      };
+    }
+    if (capabilities.length !== CUA_AGENT_CURSOR_COMMANDS.length) {
+      const missing = CUA_AGENT_CURSOR_COMMANDS.filter(
+        (command) => !(command in commandManifest),
+      );
+      return {
+        available: false,
+        enabled: false,
+        capabilities,
+        reason: `CUA Driver does not expose the required agent cursor commands: ${missing.join(", ")}.`,
+      };
+    }
+
+    const theme = isRecord(state?.theme) && typeof state.theme.id === "string"
+      ? state.theme.id
+      : undefined;
+    return {
+      available: true,
+      enabled: state?.enabled === true,
+      session: typeof state?.session === "string" ? state.session : undefined,
+      theme,
+      capabilities,
+    };
+  }
+
   async inspect(): Promise<CuaServerStatus> {
     const [status, commands, version, screen] = await Promise.all([
       this.status(),
@@ -329,16 +388,73 @@ export class CuaComputerClient {
     if (typeof size?.width !== "number" || typeof size.height !== "number") {
       throw new Error("CUA computer-server could not read the Daytona desktop size.");
     }
+    const backend = "get_desktop_state" in commandManifest ? "cua-driver" : "native";
+    let cursor = this.cursorStatus(backend, commandManifest);
+    if (cursor.available) {
+      try {
+        cursor = this.cursorStatus(
+          backend,
+          commandManifest,
+          await this.command("get_agent_cursor_state"),
+        );
+      } catch (error) {
+        cursor = {
+          ...cursor,
+          error: errorMessage(error),
+        };
+      }
+    }
     return {
       ...status,
-      backend: "get_desktop_state" in commandManifest ? "cua-driver" : "native",
+      backend,
+      cursor,
     };
   }
 
-  async ensureReady(): Promise<void> {
+  private async initializeAgentCursor(status: CuaServerStatus): Promise<CuaServerStatus> {
+    const cursor = status.cursor;
+    if (status.backend !== "cua-driver" || !cursor?.available) return status;
+    if (cursor.enabled && cursor.theme === CUA_AGENT_CURSOR_THEME && !cursor.error) return status;
+
     try {
-      await this.inspect();
-      return;
+      if (cursor.theme !== CUA_AGENT_CURSOR_THEME) {
+        await this.command("set_agent_cursor_theme", {
+          theme_id: CUA_AGENT_CURSOR_THEME,
+          reduced_motion: "auto",
+        });
+      }
+      if (!cursor.enabled) {
+        await this.command("set_agent_cursor_enabled", { enabled: true });
+      }
+      const state = await this.command("get_agent_cursor_state");
+      const initializedCursor: CuaAgentCursorStatus = {
+        ...cursor,
+        enabled: state.enabled === true,
+        session: typeof state.session === "string" ? state.session : cursor.session,
+        theme: isRecord(state.theme) && typeof state.theme.id === "string"
+          ? state.theme.id
+          : cursor.theme,
+        error: undefined,
+      };
+      if (!initializedCursor.enabled) {
+        initializedCursor.error = "CUA Driver accepted cursor initialization but still reports it disabled.";
+      }
+      return { ...status, cursor: initializedCursor };
+    } catch (error) {
+      return {
+        ...status,
+        cursor: {
+          ...cursor,
+          enabled: false,
+          error: `Could not initialize the CUA agent cursor: ${errorMessage(error)}`,
+        },
+      };
+    }
+  }
+
+  async ensureReady(): Promise<CuaServerStatus> {
+    try {
+      return await this.initializeAgentCursor(await this.inspect());
     } catch {
       // The server is installed in the AutoPR snapshot and started lazily. The
       // fallback bootstrap keeps existing sandboxes usable until that snapshot
@@ -354,8 +470,7 @@ export class CuaComputerClient {
     let lastError: unknown;
     while (Date.now() < deadline) {
       try {
-        await this.inspect();
-        return;
+        return await this.initializeAgentCursor(await this.inspect());
       } catch (error) {
         lastError = error;
         await new Promise((resolve) => setTimeout(resolve, CUA_SERVER_READY_POLL_MS));

@@ -2,7 +2,11 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import { CuaComputerClient, type CuaComputerOptions } from "./cua-client";
+import {
+  CuaComputerClient,
+  type CuaAgentCursorStatus,
+  type CuaComputerOptions,
+} from "./cua-client";
 import { raceWithTimeout } from "./timeout";
 
 export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
@@ -300,6 +304,7 @@ type ComputerOutputDetails = {
   actions?: string[];
   display?: { x?: number; y?: number; width?: number; height?: number };
   status?: unknown;
+  cursor?: CuaAgentCursorStatus;
   windows?: unknown;
   command?: Record<string, unknown>;
   screenshot?: ScreenshotForModel | ScreenshotMetadata;
@@ -1101,6 +1106,7 @@ async function executeCuaComputerActions(
   };
   const recordings: Array<ReturnType<typeof compactRecording>> = [];
   const needsCua = input.actions.some(requiresCua);
+  let cursor: CuaAgentCursorStatus | undefined;
 
   if (input.actions.some(requiresDaytonaDesktop)) {
     await runBoundedComputerOperation(
@@ -1108,7 +1114,7 @@ async function executeCuaComputerActions(
       async () => {
         await ensureComputerReady(computerUse);
         if (needsCua) {
-          await cua.ensureReady();
+          cursor = (await cua.ensureReady()).cursor;
         }
       },
       () => new Error(
@@ -1119,6 +1125,8 @@ async function executeCuaComputerActions(
       COMPUTER_START_TIMEOUT_MS,
     );
   }
+
+  details.cursor = cursor;
 
   for (const action of input.actions) {
     const partial = await runBoundedComputerOperation(
@@ -1176,6 +1184,11 @@ async function executeCuaComputerActions(
       ? `Screenshot: ${details.screenshot.mimeType}, ${details.screenshot.sizeBytes ?? details.screenshot.data?.length ?? "unknown"} bytes`
       : undefined,
     details.recording ? recordingSummary(details.recording) : undefined,
+    details.cursor
+      ? details.cursor.enabled
+        ? `Agent cursor: enabled (${details.cursor.theme ?? "CUA default theme"})`
+        : `Agent cursor: unavailable${details.cursor.reason ? ` (${details.cursor.reason})` : details.cursor.error ? ` (${details.cursor.error})` : ""}`
+      : undefined,
     typeof details.command?.effect === "string"
       ? `CUA action effect: ${details.command.effect}` +
         (details.command.effect === "suspected_noop" ? " (verify the screenshot before continuing)" : "")

@@ -56,14 +56,28 @@ describe("CUA computer tool timeout quarantine", () => {
     id: "recording-1",
     status: "completed",
   }));
+  const startRecording = vi.fn(async () => ({
+    id: "recording-2",
+    status: "started",
+  }));
   const computerUse = {
     getStatus,
-    recording: { stop: stopRecording },
+    recording: { start: startRecording, stop: stopRecording },
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.ensureReady.mockResolvedValue(undefined);
+    mocks.ensureReady.mockResolvedValue({
+      status: "ok",
+      os_type: "linux",
+      backend: "cua-driver",
+      cursor: {
+        available: true,
+        enabled: true,
+        theme: "cua.default",
+        capabilities: [],
+      },
+    });
     mocks.inspect.mockResolvedValue({ status: "ok", os_type: "linux" });
     mocks.getSandboxContext.mockResolvedValue({
       sandbox: { id: "sandbox-computer", computerUse },
@@ -126,5 +140,60 @@ describe("CUA computer tool timeout quarantine", () => {
     expect(getStatus).not.toHaveBeenCalled();
     expect(mocks.ensureReady).not.toHaveBeenCalled();
     expect(mocks.command).not.toHaveBeenCalled();
+  });
+
+  it("starts recordings through Daytona without invoking a CUA recording path", async () => {
+    const computer = createCuaComputerTool({ cacheKey: "computer-recording-start" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    await computer.execute(
+      { actions: [{ type: "start_recording", title: "Visible cursor demo" }] },
+      { toolCallId: "computer-recording-start", messages: [] },
+    );
+
+    expect(startRecording).toHaveBeenCalledWith("Visible cursor demo");
+    expect(mocks.ensureReady).not.toHaveBeenCalled();
+    expect(mocks.command).not.toHaveBeenCalled();
+  });
+
+  it("keeps movement, clicks, drag, and scroll positioning on the CUA action path", async () => {
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "screenshot") {
+        return { success: true, image_data: "AA==", format: "jpeg" };
+      }
+      if (command === "get_screen_size") {
+        return { success: true, size: { width: 1920, height: 1080 } };
+      }
+      if (command === "get_cursor_position") {
+        return { success: true, position: { x: 60, y: 70 } };
+      }
+      return { success: true };
+    });
+    const computer = createCuaComputerTool({ cacheKey: "computer-cursor-actions" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    await computer.execute({
+      actions: [
+        { type: "move", x: 10, y: 20 },
+        { type: "click", x: 20, y: 30 },
+        { type: "click", x: 30, y: 40, button: "right" },
+        { type: "double_click", x: 40, y: 50 },
+        { type: "drag", startX: 40, startY: 50, endX: 60, endY: 70 },
+        { type: "scroll", x: 60, y: 70, direction: "down", amount: 3 },
+      ],
+    }, { toolCallId: "computer-cursor-actions", messages: [] });
+
+    const actionCalls = mocks.command.mock.calls.filter(
+      ([command]) => !["screenshot", "get_screen_size", "get_cursor_position"].includes(command),
+    );
+    expect(actionCalls).toEqual([
+      ["move_cursor", { x: 10, y: 20 }],
+      ["left_click", { x: 20, y: 30 }],
+      ["right_click", { x: 30, y: 40 }],
+      ["double_click", { x: 40, y: 50 }],
+      ["drag", { path: [[40, 50], [60, 70]], button: "left", duration: 0.5 }],
+      ["move_cursor", { x: 60, y: 70 }],
+      ["scroll_direction", { direction: "down", clicks: 3 }],
+    ]);
   });
 });

@@ -28,7 +28,7 @@ is_ready() {
     || return 1
   curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/commands" \
     | jq -e --arg require_driver "$CUA_EXPECT_DRIVER" \
-      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or .commands.get_desktop_state)' >/dev/null \
+      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or (.commands.get_desktop_state and .commands.set_agent_cursor_enabled and .commands.set_agent_cursor_motion and .commands.set_agent_cursor_theme and .commands.get_agent_cursor_state))' >/dev/null \
     || return 1
 
   version_response="$(run_command '{"command":"version"}')" || return 1

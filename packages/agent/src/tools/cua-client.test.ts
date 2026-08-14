@@ -47,6 +47,16 @@ describe("CUA computer-server response parsing", () => {
 
 describe("CUA client configuration", () => {
   const sandbox = {} as DaytonaSandbox;
+  const requiredCommandNames = [
+    "version", "open", "get_current_window_id", "get_window_name", "get_window_size",
+    "get_window_position", "move_cursor", "left_click", "right_click", "mouse_down",
+    "mouse_up", "double_click", "drag", "scroll_direction", "type_text", "press_key",
+    "hotkey", "screenshot", "get_cursor_position", "get_screen_size",
+  ];
+  const cursorCommandNames = [
+    "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme",
+    "get_agent_cursor_state",
+  ];
 
   it("rejects privileged and invalid computer-server ports", () => {
     expect(() => new CuaComputerClient(sandbox, {}, { serverPort: 80 }))
@@ -87,12 +97,7 @@ describe("CUA client configuration", () => {
 
   it("shares one signed preview URL across concurrent inspection requests", async () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
-    const commandNames = [
-      "version", "open", "get_current_window_id", "get_window_name", "get_window_size",
-      "get_window_position", "move_cursor", "left_click", "right_click", "mouse_down",
-      "mouse_up", "double_click", "drag", "scroll_direction", "type_text", "press_key",
-      "hotkey", "screenshot", "get_cursor_position", "get_screen_size",
-    ];
+    const commandNames = [...requiredCommandNames];
     commandNames.push("get_desktop_state");
     vi.stubGlobal("fetch", vi.fn(async (
       input: string | URL | Request,
@@ -119,7 +124,148 @@ describe("CUA client configuration", () => {
       status: "ok",
       os_type: "linux",
       backend: "cua-driver",
+      cursor: {
+        available: false,
+        enabled: false,
+        capabilities: [],
+        reason: expect.stringContaining("does not expose the required agent cursor commands"),
+      },
     });
     expect(getSignedPreviewUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("detects cursor capabilities and initializes the overlay only once per live session", async () => {
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
+    let enabled = false;
+    const commands: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/status")) {
+        return Response.json({ status: "ok", os_type: "linux" });
+      }
+      if (path.endsWith("/commands")) {
+        return Response.json({
+          commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
+        });
+      }
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { command?: string }
+        : {};
+      const command = body.command ?? "";
+      commands.push(command);
+      if (command === "get_screen_size") {
+        return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
+      }
+      if (command === "version") {
+        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+      }
+      if (command === "set_agent_cursor_enabled") enabled = true;
+      if (command === "get_agent_cursor_state") {
+        return new Response(
+          `data: {"success":true,"session":"computer-server-1","enabled":${enabled},"theme":{"id":"cua.default"}}\n\n`,
+        );
+      }
+      return new Response('data: {"success":true}\n\n');
+    }));
+
+    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    await expect(client.ensureReady()).resolves.toMatchObject({
+      backend: "cua-driver",
+      cursor: {
+        available: true,
+        enabled: true,
+        session: "computer-server-1",
+        theme: "cua.default",
+      },
+    });
+    await expect(client.ensureReady()).resolves.toMatchObject({
+      cursor: { available: true, enabled: true },
+    });
+    expect(commands.filter((command) => command === "set_agent_cursor_enabled")).toHaveLength(1);
+    expect(commands).not.toContain("set_agent_cursor_theme");
+  });
+
+  it("reinitializes the cursor when a restarted server reports a fresh disabled session", async () => {
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
+    let enabled = false;
+    let enableCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/status")) return Response.json({ status: "ok", os_type: "linux" });
+      if (path.endsWith("/commands")) {
+        return Response.json({
+          commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
+        });
+      }
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { command?: string }
+        : {};
+      if (body.command === "version") {
+        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+      }
+      if (body.command === "get_screen_size") {
+        return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
+      }
+      if (body.command === "set_agent_cursor_enabled") {
+        enabled = true;
+        enableCalls += 1;
+      }
+      if (body.command === "get_agent_cursor_state") {
+        return new Response(
+          `data: {"success":true,"session":"generation-${enableCalls}","enabled":${enabled},"theme":{"id":"cua.default"}}\n\n`,
+        );
+      }
+      return new Response('data: {"success":true}\n\n');
+    }));
+
+    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    await client.ensureReady();
+    enabled = false;
+    await client.ensureReady();
+    expect(enableCalls).toBe(2);
+  });
+
+  it("keeps native fallback available while reporting that the agent cursor is unavailable", async () => {
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const commands: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/status")) return Response.json({ status: "ok", os_type: "linux" });
+      if (path.endsWith("/commands")) {
+        return Response.json({
+          commands: Object.fromEntries(requiredCommandNames.map((name) => [name, { params: [] }])),
+        });
+      }
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { command?: string }
+        : {};
+      commands.push(body.command ?? "");
+      if (body.command === "version") {
+        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+      }
+      return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
+    }));
+
+    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    await expect(client.ensureReady()).resolves.toMatchObject({
+      backend: "native",
+      cursor: {
+        available: false,
+        enabled: false,
+        reason: expect.stringContaining("native computer use and Daytona recording remain active"),
+      },
+    });
+    expect(commands).not.toContain("set_agent_cursor_enabled");
   });
 });

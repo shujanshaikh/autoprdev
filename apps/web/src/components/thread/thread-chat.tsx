@@ -41,7 +41,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
-import { ResilientTriggerSessionTransport } from "#/lib/resilient-trigger-session-transport";
 import {
   AGENT_CHAT_OPERATION_HEADER,
   AGENT_CHAT_TASK_ID,
@@ -985,10 +984,6 @@ function ThreadChatRuntime({
     fetch: sessionFetch,
     onEvent: handleSessionTransportEvent,
   });
-  const resilientSessionTransport = useMemo(
-    () => new ResilientTriggerSessionTransport<UIMessage>(sessionTransport),
-    [sessionTransport],
-  );
   const [sessionReconnectTick, setSessionReconnectTick] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
@@ -1059,7 +1054,10 @@ function ThreadChatRuntime({
       selectedReasoningEffort,
     ],
   );
-  const transport = usingSessionTransport ? resilientSessionTransport : legacyTransport;
+  // Trigger.dev 4.5.11 keeps quiet-window/EOF reconnects inside this same
+  // ReadableStream, preserving AI SDK part state between text-start and later
+  // text-delta chunks.
+  const transport = usingSessionTransport ? sessionTransport : legacyTransport;
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,

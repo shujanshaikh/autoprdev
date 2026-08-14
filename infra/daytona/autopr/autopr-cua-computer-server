@@ -7,6 +7,10 @@ CUA_RUNTIME="/opt/autopr/cua"
 CUA_STATE_DIR="/tmp/autopr-cua"
 CUA_PID_FILE="${CUA_STATE_DIR}/computer-server.pid"
 CUA_LOG_FILE="${CUA_STATE_DIR}/computer-server.log"
+CUA_DRIVER_PID_FILE="${CUA_STATE_DIR}/driver.pid"
+CUA_DRIVER_LOG_FILE="${CUA_STATE_DIR}/driver.log"
+CUA_DRIVER_SOCKET="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}/driver.sock"
+CUA_DRIVER_BIN=""
 
 mkdir -p "$CUA_STATE_DIR" "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 chmod 700 "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
@@ -21,14 +25,18 @@ run_command() {
 }
 
 is_ready() {
-  local version_response screen_response
+  local cursor_response version_response screen_response
+
+  if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
+    is_driver_ready || return 1
+  fi
 
   curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/status" \
     | jq -e '.status == "ok" and .os_type == "linux"' >/dev/null \
     || return 1
   curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/commands" \
     | jq -e --arg require_driver "$CUA_EXPECT_DRIVER" \
-      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or (.commands.get_desktop_state and .commands.set_agent_cursor_enabled and .commands.set_agent_cursor_motion and .commands.set_agent_cursor_theme and .commands.get_agent_cursor_state))' >/dev/null \
+      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or (.commands.get_desktop_state and .commands.set_agent_cursor_enabled and .commands.set_agent_cursor_motion and .commands.set_agent_cursor_theme and .commands.get_agent_cursor_state and .commands.probe_agent_cursor))' >/dev/null \
     || return 1
 
   version_response="$(run_command '{"command":"version"}')" || return 1
@@ -36,23 +44,32 @@ is_ready() {
     | jq -e --arg expected "$CUA_VERSION" '.success == true and .package == $expected' >/dev/null \
     || return 1
 
-  # This initializes the embedded Driver session and verifies that it can
+  # This initializes the Driver session and verifies that it can
   # actually reach Daytona's X11 desktop, not merely that HTTP is listening.
   screen_response="$(run_command '{"command":"get_screen_size"}')" || return 1
   printf '%s' "$screen_response" \
     | jq -e '.success == true and (.size.width | type == "number") and (.size.height | type == "number")' >/dev/null
+
+  if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
+    cursor_response="$(run_command '{"command":"probe_agent_cursor"}')" || return 1
+    printf '%s' "$cursor_response" \
+      | jq -e '.success == true and .runtime_mode == "daemon" and .enabled == true and .render_ready == true and .overlay.mapped == true and .overlay.painted == true' >/dev/null \
+      || return 1
+  fi
 }
 
-is_owned_server_pid() {
+is_owned_pid() {
   local pid="$1"
+  local executable="$2"
   kill -0 "$pid" 2>/dev/null \
     && [ -r "/proc/${pid}/cmdline" ] \
-    && tr '\0' ' ' <"/proc/${pid}/cmdline" | grep -Fq "$CUA_RUNTIME/bin/cua-computer-server"
+    && tr '\0' ' ' <"/proc/${pid}/cmdline" | grep -Fq "$executable"
 }
 
-stop_owned_server() {
+stop_owned_process() {
   local pid="$1"
-  is_owned_server_pid "$pid" || return 0
+  local executable="$2"
+  is_owned_pid "$pid" "$executable" || return 0
   kill "$pid" 2>/dev/null || true
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     kill -0 "$pid" 2>/dev/null || return 0
@@ -61,26 +78,40 @@ stop_owned_server() {
   return 0
 }
 
-backend_args=(--backend native)
-CUA_EXPECT_DRIVER=false
-if [ "$(uname -m)" = "x86_64" ] && "$CUA_RUNTIME/bin/python" -c 'import cua_driver' >/dev/null 2>&1; then
-  backend_args=(--backend cua-driver --driver-mode embedded --capture-scope desktop)
-  CUA_EXPECT_DRIVER=true
-fi
+is_driver_ready() {
+  local pid
+  [ -n "$CUA_DRIVER_BIN" ] && [ -S "$CUA_DRIVER_SOCKET" ] && [ -s "$CUA_DRIVER_PID_FILE" ] \
+    || return 1
+  pid="$(cat "$CUA_DRIVER_PID_FILE")"
+  is_owned_pid "$pid" "$CUA_DRIVER_BIN"
+}
 
-if is_ready; then
-  exit 0
-fi
+stop_owned_driver() {
+  if [ -s "$CUA_DRIVER_PID_FILE" ] && [ -n "$CUA_DRIVER_BIN" ]; then
+    stop_owned_process "$(cat "$CUA_DRIVER_PID_FILE")" "$CUA_DRIVER_BIN"
+  fi
+  rm -f "$CUA_DRIVER_PID_FILE" "$CUA_DRIVER_SOCKET"
+}
 
-if [ -s "$CUA_PID_FILE" ]; then
-  existing_pid="$(cat "$CUA_PID_FILE")"
-  stop_owned_server "$existing_pid"
-fi
+start_driver() {
+  : >"$CUA_DRIVER_LOG_FILE"
+  rm -f "$CUA_DRIVER_SOCKET"
+  nohup "$CUA_DRIVER_BIN" serve \
+    --socket "$CUA_DRIVER_SOCKET" \
+    --cursor-theme dev.autopr.cursor.neon \
+    --cursor-reduced-motion off \
+    --glide-ms 480 \
+    --dwell-ms 260 \
+    --idle-hide-ms 0 \
+    >>"$CUA_DRIVER_LOG_FILE" 2>&1 &
+  echo "$!" >"$CUA_DRIVER_PID_FILE"
 
-if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Port ${CUA_PORT} is already occupied by a non-CUA process." >&2
-  exit 1
-fi
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    is_driver_ready && return 0
+    sleep 0.25
+  done
+  return 1
+}
 
 # Daytona's signed preview URL is the external authorization boundary. CUA's
 # cloud-mode headers do not apply to this private server inside the VM.
@@ -90,6 +121,29 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
 export CUA_DRIVER_SESSION_ID="${CUA_DRIVER_SESSION_ID:-AutoPR}"
 export BROWSER="${BROWSER:-google-chrome}"
+
+backend_args=(--backend native)
+CUA_EXPECT_DRIVER=false
+if [ "$(uname -m)" = "x86_64" ] && "$CUA_RUNTIME/bin/python" -c 'import cua_driver' >/dev/null 2>&1; then
+  CUA_DRIVER_BIN="$("$CUA_RUNTIME/bin/python" -c 'from cua_driver import get_binary_path; print(get_binary_path())')"
+  backend_args=(--backend cua-driver --driver-mode daemon --driver-socket "$CUA_DRIVER_SOCKET" --capture-scope desktop)
+  CUA_EXPECT_DRIVER=true
+fi
+
+if is_ready; then
+  exit 0
+fi
+
+if [ -s "$CUA_PID_FILE" ]; then
+  existing_pid="$(cat "$CUA_PID_FILE")"
+  stop_owned_process "$existing_pid" "$CUA_RUNTIME/bin/cua-computer-server"
+fi
+stop_owned_driver
+
+if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port ${CUA_PORT} is already occupied by a non-CUA process." >&2
+  exit 1
+fi
 
 start_server() {
   nohup "$CUA_RUNTIME/bin/cua-computer-server" \
@@ -102,6 +156,12 @@ start_server() {
 }
 
 : >"$CUA_LOG_FILE"
+if [ "$CUA_EXPECT_DRIVER" = "true" ] && ! start_driver; then
+  stop_owned_driver
+  printf '%s\n' "CUA Driver daemon could not start with its X11 overlay; falling back to CUA's native X11 handler." >>"$CUA_LOG_FILE"
+  backend_args=(--backend native)
+  CUA_EXPECT_DRIVER=false
+fi
 start_server "${backend_args[@]}"
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -111,7 +171,8 @@ done
 
 if [ "${backend_args[1]:-}" = "cua-driver" ]; then
   driver_pid="$(cat "$CUA_PID_FILE")"
-  stop_owned_server "$driver_pid"
+  stop_owned_process "$driver_pid" "$CUA_RUNTIME/bin/cua-computer-server"
+  stop_owned_driver
   printf '%s\n' "CUA Driver failed to initialize; falling back to CUA's native X11 handler." >>"$CUA_LOG_FILE"
   CUA_EXPECT_DRIVER=false
   start_server --backend native

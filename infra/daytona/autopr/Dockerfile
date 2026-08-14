@@ -135,8 +135,12 @@ RUN apt-get update \
 
 COPY cua-computer-server-agent-cursor.patch /tmp/autopr-cua-computer-server-agent-cursor.patch
 COPY cursor-theme/build_theme.py /tmp/autopr-build-cursor-theme.py
+COPY cursor-theme/build_hidden_xcursor.py /tmp/autopr-build-hidden-xcursor.py
 
 RUN command -v uv >/dev/null \
+    && command -v xcursorgen >/dev/null \
+    && python3 /tmp/autopr-build-hidden-xcursor.py --output /usr/share/icons/AutoPRHidden \
+    && test -s /usr/share/icons/AutoPRHidden/cursors/left_ptr \
     && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv python install 3.13 \
     && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv venv /opt/autopr/cua --python 3.13 \
     && cua_source="$(mktemp -d)" \
@@ -162,7 +166,7 @@ RUN command -v uv >/dev/null \
     fi \
     && CUA_EXPECTED_VERSION="$CUA_COMPUTER_SERVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; assert version("cua-computer-server") == os.environ["CUA_EXPECTED_VERSION"]' \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-      CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert all(hasattr(CuaDriver, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme")); assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme"))'; \
+      CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput, get_binary_path; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert get_binary_path().is_file(); assert all(hasattr(CuaDriver, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme")); assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme", "probe_agent_cursor"))'; \
       /opt/autopr/cua/bin/cua-computer-server --help | grep -q 'cua-driver'; \
       theme_build="$(mktemp -d)"; \
       theme_archive="cua-driver-rs-${CUA_DRIVER_VERSION}-linux-x86_64-binary.tar.gz"; \
@@ -177,7 +181,7 @@ RUN command -v uv >/dev/null \
       install -m 0644 -o daytona -g daytona "${theme_build}/dev.autopr.cursor.neon.cua-theme" /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; \
       rm -rf "$theme_build"; \
     fi \
-    && rm -rf "$cua_source" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py
+    && rm -rf "$cua_source" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py /tmp/autopr-build-hidden-xcursor.py
 
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal
 
@@ -271,8 +275,8 @@ ENV DISPLAY=:1 \
     BROWSER=google-chrome \
     STARSHIP_CONFIG=/home/daytona/.config/starship.toml \
     STARSHIP_CACHE=/home/daytona/.cache/starship \
-    XCURSOR_THEME=Adwaita \
-    XCURSOR_SIZE=24
+    XCURSOR_THEME=AutoPRHidden \
+    XCURSOR_SIZE=32
 
 USER daytona
 

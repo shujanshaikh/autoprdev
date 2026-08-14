@@ -65,7 +65,7 @@ The snapshot keeps Daytona's existing XFCE, x11vnc, noVNC, Xvfb, and recording s
 - XDG user-dir config that collapses Documents, Pictures, Music, Videos, Downloads, Templates, Public, and Desktop into the home folder instead of creating separate visible folders.
 - A desktop startup hook that reapplies the wallpaper whenever Daytona starts XFCE.
 - A clean wallpaper installed at `/usr/share/backgrounds/autopr/wallpaper.png`.
-- The stock Adwaita/XFCE cursor, kept at a normal 24px size.
+- An invisible hardware Xcursor theme. Real pointer motion and input remain active, but Daytona cannot composite the stock black X11 cursor over CUA's violet software cursor.
 - A fixed `1920x1080` noVNC desktop, matching Daytona's computer-use `VNC_RESOLUTION` path, that AutoPR scales inside the desktop panel without resizing the sandbox display.
 - Dev/desktop utilities for a more complete workstation feel: fish, htop, jq, tmux, tree, xterm, git-lfs, zip/unzip, vim, nano, and the developer and diagnostic tools listed above.
 
@@ -75,9 +75,11 @@ The snapshot uses Daytona's bundled `uv` to install an isolated Python 3.13 runt
 
 The image builds `dev.autopr.cursor.neon` from `cursor-theme/build_theme.py` with the matching, checksummed CUA 0.19.3 authoring sidecar. The compiled artifact is installed into CUA's normal per-user theme store; the compiler and source archive are removed after the build. The theme retains CUA's twelve semantic animations and native renderer while using a violet pointer, cyan action marks, white outline, and soft neon glow chosen for recording contrast.
 
-`autopr-cua-computer-server` starts the service lazily on port `8765`. Readiness requires the expected package version, command manifest (including all four agent-cursor commands for the Driver backend), and a successful live display-size probe, which also initializes the embedded Driver session. The session uses the short public label `AutoPR`, selects `dev.autopr.cursor.neon`, explicitly enables full animation, and applies a recording-focused motion profile once per live session. The profile uses 480 ms curved glides, a visible spring landing, no idle auto-hide, and bounded post-action dwell. Move waits for its visible glide before returning, drag glides to its starting point before press/track/release, and click, drag, scroll, text, and key actions retain enough time for their semantic cue to appear before a following action or evidence screenshot can preempt it. Restart recovery compares the reported theme, reduced-motion mode, and every motion field before reinitializing; diagnostics expose the active motion and visual state.
+`autopr-cua-computer-server` starts the service lazily on port `8765`. On amd64 it first supervises a private `cua-driver serve` process and connects computer-server to its explicit Unix socket in daemon mode. This launch-time ownership matters: CUA 0.19.3's generated embedded SDK starts with its cursor disabled, while Linux creates the X11 overlay UI thread only when the runtime starts enabled. A later setter can update embedded state without creating that missing UI owner. The daemon is CUA's documented overlay-owning host and starts with `dev.autopr.cursor.neon`, full animation, and the recording timing flags already active.
 
-The X11 overlay is a click-through, top-level software-composited window on Daytona's desktop, so Daytona's unchanged X11 screen recorder captures it together with the rest of the display. If Driver initialization fails on amd64, the launcher records the failure and falls back to CUA's native X11 handler so computer use and Daytona recordings remain available; status diagnostics then explicitly report that the agent cursor is unavailable. It binds inside the VM so AutoPR can access it through a short-lived Daytona signed preview URL; the signed URL is never included in model output or persisted tool metadata. Daytona remains responsible for bringing up Xvfb/XFCE/noVNC and for start/stop/download of screen recordings.
+Readiness requires the expected package version, command manifest (including the cursor commands and AutoPR's painted-overlay probe), the live Driver socket, and a successful display-size call. The session uses the short public label `AutoPR` and applies the complete recording motion profile once per live session. The profile uses 480 ms curved glides, a visible spring landing, no idle auto-hide, and bounded post-action dwell. Move waits for its visible glide before returning, drag glides to its starting point before press/track/release, and click, drag, scroll, text, and key actions retain enough time for their semantic cue to appear before a following action or evidence screenshot can preempt it. Initialization is accepted only after an overlay-only move and an X11 Shape query prove that `Cua.AgentCursorOverlay.*` is both mapped and has painted pixels. Restart recovery compares the reported runtime mode, painted state, theme, reduced-motion mode, and every motion field before reinitializing; diagnostics expose the active motion, visual state, and overlay window evidence.
+
+The X11 overlay is a click-through, top-level software-composited window on Daytona's desktop, so Daytona's unchanged X11 screen recorder captures it together with the rest of the display. Daytona's recorder can also obtain the hardware cursor through XFixes instead of desktop pixels, so the image configures a fully transparent system Xcursor while preserving its coordinates and input delivery; only CUA supplies visible cursor pixels. If Driver initialization fails on amd64, the launcher stops its private daemon and falls back to CUA's native X11 handler so computer use and Daytona recordings remain available; status diagnostics then explicitly report that the agent cursor is unavailable. It binds inside the VM so AutoPR can access it through a short-lived Daytona signed preview URL; the signed URL is never included in model output or persisted tool metadata. Daytona remains responsible for bringing up Xvfb/XFCE/noVNC and for start/stop/download of screen recordings.
 
 The agent runtime probes CUA's status, version, and required command manifest before every interaction sequence. Existing sandboxes created from an older snapshot get a one-time user-local installation fallback; rebuilding this snapshot remains the preferred deployment because it removes that cold start.
 
@@ -121,13 +123,16 @@ for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sql
   command -v "$executable"
 done
 /opt/autopr/cua/bin/python -c 'import computer_server'
-if [ "$(uname -m)" = "x86_64" ]; then /opt/autopr/cua/bin/python -c 'from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme"))'; fi
+if [ "$(uname -m)" = "x86_64" ]; then /opt/autopr/cua/bin/python -c 'from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme", "probe_agent_cursor"))'; fi
 if [ "$(uname -m)" = "x86_64" ]; then test -r /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; fi
+test -s /usr/share/icons/AutoPRHidden/cursors/left_ptr
+rg --fixed-strings 'xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr' /opt/autopr/desktop/autopr-desktop-session
 /opt/autopr/cua/bin/cua-computer-server --help >/dev/null
 command -v autopr-cua-computer-server
 CUA_PORT=8765 DISPLAY=:1 autopr-cua-computer-server
 curl --fail --silent http://127.0.0.1:8765/status | jq -e '.status == "ok" and .os_type == "linux"'
-curl --fail --silent http://127.0.0.1:8765/commands | jq -e '.commands.screenshot and .commands.left_click and .commands.type_text and (.commands.get_desktop_state == null or (.commands.set_agent_cursor_enabled and .commands.set_agent_cursor_motion and .commands.set_agent_cursor_theme and .commands.get_agent_cursor_state))'
+curl --fail --silent http://127.0.0.1:8765/commands | jq -e '.commands.screenshot and .commands.left_click and .commands.type_text and (.commands.get_desktop_state == null or (.commands.set_agent_cursor_enabled and .commands.set_agent_cursor_motion and .commands.set_agent_cursor_theme and .commands.get_agent_cursor_state and .commands.probe_agent_cursor))'
+if [ "$(uname -m)" = "x86_64" ]; then curl --fail --silent -H 'Content-Type: application/json' --data '{"command":"probe_agent_cursor"}' http://127.0.0.1:8765/cmd | sed -n 's/^data: //p' | jq -e '.success and .runtime_mode == "daemon" and .enabled and .render_ready and .overlay.mapped and .overlay.painted'; fi
 rg --version
 fd --version
 bat --version
@@ -144,7 +149,7 @@ echo "$BROWSER"
 grep -R "Name=Google Chrome" /usr/share/applications/google-chrome.desktop /usr/share/xfce4/helpers/google-chrome.desktop
 grep -R "NoDisplay=true" /usr/share/applications/exo-web-browser.desktop /usr/share/applications/chromium.desktop 2>/dev/null
 grep -R 'XDG_DOCUMENTS_DIR="$HOME"' /home/daytona/.config/user-dirs.dirs
-echo "$XCURSOR_THEME"
+test "$XCURSOR_THEME" = AutoPRHidden
 stat -c "%a %U %G" /opt/google/chrome/chrome-sandbox
 test -f /usr/share/backgrounds/autopr/wallpaper.png
 test -x /usr/bin/startxfce4.autopr-original

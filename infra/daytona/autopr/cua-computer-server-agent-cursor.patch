@@ -44,27 +44,6 @@ index 7c055c191..b2e296894 100644
              "escalation_detail": state.escalation_detail,
          }
  
-+    @classmethod
-+    def _json_value(cls, value: Any) -> Any:
-+        """Convert generated SDK records and enums into JSON-compatible values."""
-+
-+        if value is None or isinstance(value, (str, int, float, bool)):
-+            return value
-+        if isinstance(value, dict):
-+            return {key: cls._json_value(item) for key, item in value.items()}
-+        if isinstance(value, (list, tuple)):
-+            return [cls._json_value(item) for item in value]
-+        if hasattr(value, "name"):
-+            return str(value.name).lower()
-+        fields = getattr(value, "__dict__", None)
-+        if isinstance(fields, dict):
-+            return {
-+                key: cls._json_value(item)
-+                for key, item in fields.items()
-+                if not key.startswith("_")
-+            }
-+        return str(value)
-+
      @staticmethod
      def _ok(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
          return {"success": True, **(data or {})}
@@ -83,7 +62,7 @@ index 7c055c191..b2e296894 100644
 +                    enabled=enabled,
 +                )
 +            )
-+            return self._ok(self._json_value(state))
++            return self._ok(self._result_data(state))
 +        except Exception as error:
 +            return self._error(error)
 +
@@ -117,7 +96,7 @@ index 7c055c191..b2e296894 100644
 +                    turn_radius=turn_radius,
 +                )
 +            )
-+            return self._ok(self._json_value(state))
++            return self._ok(self._result_data(state))
 +        except Exception as error:
 +            return self._error(error)
 +
@@ -145,7 +124,7 @@ index 7c055c191..b2e296894 100644
 +                    reduced_motion=modes[normalized],
 +                )
 +            )
-+            return self._ok(self._json_value(state))
++            return self._ok(self._result_data(state))
 +        except Exception as error:
 +            return self._error(error)
 +
@@ -157,9 +136,56 @@ index 7c055c191..b2e296894 100644
 +            state = await self._driver.get_agent_cursor_state(
 +                self._sdk.GetAgentCursorStateInput(session=self._session_id)
 +            )
-+            return self._ok(self._json_value(state))
++            data = self._result_data(state)
++            data["runtime_mode"] = self._mode
++            data["overlay"] = self._agent_cursor_overlay_window()
++            data["render_ready"] = bool(
++                data.get("enabled") and data["overlay"].get("painted")
++            )
++            return self._ok(data)
 +        except Exception as error:
 +            return self._error(error)
++
++    def _agent_cursor_overlay_window(self) -> Dict[str, Any]:
++        """Inspect the actual mapped and painted CUA X11 overlay window."""
++
++        if self._mode != "daemon":
++            return {
++                "mapped": False,
++                "painted": False,
++                "reason": "The embedded CUA runtime does not own an overlay UI runloop.",
++            }
++        connection = None
++        try:
++            from Xlib import X, display
++            from Xlib.ext import shape
++
++            connection = display.Display()
++            for window in connection.screen().root.query_tree().children:
++                title = window.get_wm_name()
++                if not isinstance(title, str) or not title.startswith(
++                    "Cua.AgentCursorOverlay."
++                ):
++                    continue
++                attributes = window.get_attributes()
++                rectangles = window.shape_get_rectangles(shape.SK.Bounding).rectangles
++                mapped = attributes.map_state == X.IsViewable
++                return {
++                    "mapped": mapped,
++                    "painted": mapped and len(rectangles) > 0,
++                    "title": title,
++                    "bounding_rectangles": len(rectangles),
++                }
++            return {
++                "mapped": False,
++                "painted": False,
++                "reason": "CUA's X11 overlay window was not found.",
++            }
++        except Exception as error:
++            return {"mapped": False, "painted": False, "error": str(error)}
++        finally:
++            if connection is not None:
++                connection.close()
 +
 +    async def _sync_agent_cursor_position(
 +        self, x: int, y: int, *, wait_for_glide: bool = False
@@ -169,10 +195,12 @@ index 7c055c191..b2e296894 100644
 +        try:
 +            # The typed MoveCursorInput deliberately represents only desktop
 +            # pointer delivery. Use the SDK's official protocol-adapter surface
-+            # for the overlay-only form, which defaults to window/agent scope.
++            # for the overlay-only form. `cursor_id` selects the exact same
++            # session-owned overlay key without rebinding the desktop capture
++            # policy as a forbidden window-scoped action.
 +            result = await self._driver.call_tool(
 +                "move_cursor",
-+                json.dumps({"x": float(x), "y": float(y), "session": self._session_id}),
++                json.dumps({"x": float(x), "y": float(y), "cursor_id": self._session_id}),
 +            )
 +            self._raise_for_error(result)
 +            if wait_for_glide:
@@ -183,6 +211,21 @@ index 7c055c191..b2e296894 100644
 +            return None
 +        except Exception as error:
 +            return str(error)
++
++    async def probe_agent_cursor(self) -> Dict[str, Any]:
++        """Paint one overlay frame and prove that the X11 window is visible."""
++
++        try:
++            await self._ensure_session()
++            x, y = await self._point(None, None)
++            cursor_sync_error = await self._sync_agent_cursor_position(
++                x, y, wait_for_glide=True
++            )
++            if cursor_sync_error:
++                raise RuntimeError(cursor_sync_error)
++            return await self.get_agent_cursor_state()
++        except Exception as error:
++            return self._error(error)
 +
      async def get_capture_scope_state(self) -> Dict[str, Any]:
          """Return the generated session policy state in the legacy envelope."""
@@ -309,6 +352,7 @@ index 9d23b215c..d8627aa7a 100644
 +    "set_agent_cursor_motion",
 +    "set_agent_cursor_theme",
 +    "get_agent_cursor_state",
++    "probe_agent_cursor",
 +):
 +    if hasattr(automation_handler, cursor_command):
 +        handlers[cursor_command] = getattr(automation_handler, cursor_command)

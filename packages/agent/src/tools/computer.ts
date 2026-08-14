@@ -1186,7 +1186,7 @@ async function executeCuaComputerActions(
     details.recording ? recordingSummary(details.recording) : undefined,
     details.cursor
       ? details.cursor.enabled
-        ? `Agent cursor: enabled (${details.cursor.theme ?? "configured CUA theme"})`
+        ? `Agent cursor: painted (${details.cursor.theme ?? "configured CUA theme"}, ${details.cursor.runtimeMode ?? "unknown runtime"})`
         : `Agent cursor: unavailable${details.cursor.reason ? ` (${details.cursor.reason})` : details.cursor.error ? ` (${details.cursor.error})` : ""}`
       : undefined,
     typeof details.command?.effect === "string"

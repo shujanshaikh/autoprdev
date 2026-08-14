@@ -50,6 +50,7 @@ const CUA_AGENT_CURSOR_COMMANDS = [
   "set_agent_cursor_motion",
   "set_agent_cursor_theme",
   "get_agent_cursor_state",
+  "probe_agent_cursor",
 ] as const;
 
 const cuaServerStartPromises = new Map<string, Promise<void>>();
@@ -76,6 +77,9 @@ export type CuaAgentCursorStatus = {
   reducedMotion?: "auto" | "on" | "off";
   motion?: CuaAgentCursorMotion;
   visualState?: Record<string, unknown>;
+  runtimeMode?: "daemon" | "embedded";
+  renderReady?: boolean;
+  overlay?: Record<string, unknown>;
   capabilities: string[];
   reason?: string;
   error?: string;
@@ -392,6 +396,9 @@ export class CuaComputerClient {
     const reducedMotion = ["auto", "on", "off"].includes(String(themeState?.reduced_motion))
       ? themeState?.reduced_motion as "auto" | "on" | "off"
       : undefined;
+    const runtimeMode = ["daemon", "embedded"].includes(String(state?.runtime_mode))
+      ? state?.runtime_mode as "daemon" | "embedded"
+      : undefined;
     return {
       available: true,
       enabled: state?.enabled === true,
@@ -400,6 +407,9 @@ export class CuaComputerClient {
       reducedMotion,
       motion: cursorMotion(state?.motion),
       visualState: isRecord(state?.visual_state) ? state.visual_state : undefined,
+      runtimeMode,
+      renderReady: state?.render_ready === true,
+      overlay: isRecord(state?.overlay) ? state.overlay : undefined,
       capabilities,
     };
   }
@@ -464,6 +474,8 @@ export class CuaComputerClient {
       && cursor.theme === CUA_AGENT_CURSOR_THEME
       && cursor.reducedMotion === CUA_AGENT_CURSOR_REDUCED_MOTION
       && usesRecordingCursorMotion(cursor.motion)
+      && cursor.runtimeMode === "daemon"
+      && cursor.renderReady
       && !cursor.error
     ) return status;
 
@@ -483,7 +495,11 @@ export class CuaComputerClient {
       if (!cursor.enabled) {
         await this.command("set_agent_cursor_enabled", { enabled: true });
       }
-      const state = await this.command("get_agent_cursor_state");
+      // This is deliberately stronger than trusting `enabled`: CUA 0.19.3's
+      // embedded Linux runtime can accept that setter without owning an X11
+      // overlay thread. The compatibility probe moves only the official
+      // overlay, then verifies that its mapped window has a painted shape.
+      const state = await this.command("probe_agent_cursor");
       const initializedCursor: CuaAgentCursorStatus = {
         ...cursor,
         enabled: state.enabled === true,
@@ -497,6 +513,11 @@ export class CuaComputerClient {
           : cursor.reducedMotion,
         motion: cursorMotion(state.motion) ?? cursor.motion,
         visualState: isRecord(state.visual_state) ? state.visual_state : cursor.visualState,
+        runtimeMode: ["daemon", "embedded"].includes(String(state.runtime_mode))
+          ? state.runtime_mode as "daemon" | "embedded"
+          : cursor.runtimeMode,
+        renderReady: state.render_ready === true,
+        overlay: isRecord(state.overlay) ? state.overlay : cursor.overlay,
         error: undefined,
       };
       if (!initializedCursor.enabled) {
@@ -510,6 +531,12 @@ export class CuaComputerClient {
       } else if (!usesRecordingCursorMotion(initializedCursor.motion)) {
         initializedCursor.enabled = false;
         initializedCursor.error = "CUA Driver did not activate the recording cursor motion profile.";
+      } else if (initializedCursor.runtimeMode !== "daemon") {
+        initializedCursor.enabled = false;
+        initializedCursor.error = "CUA Driver is not running in its overlay-owning daemon mode.";
+      } else if (!initializedCursor.renderReady) {
+        initializedCursor.enabled = false;
+        initializedCursor.error = "CUA Driver did not paint a visible X11 agent-cursor overlay.";
       }
       return { ...status, cursor: initializedCursor };
     } catch (error) {

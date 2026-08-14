@@ -12,6 +12,13 @@ the image build. The resulting `.cua-theme` is installed in the Daytona user's
 standard CUA theme store; source archives and compiler binaries do not remain
 in the runtime image.
 
+`build_hidden_xcursor.py` creates the complementary `AutoPRHidden` Xcursor
+theme. It is not a cursor renderer: it makes the real X11 pointer bitmap fully
+transparent while preserving pointer movement and event delivery. This is
+required because an X11 recorder can fetch that hardware bitmap through
+XFixes and draw it over the desktop independently. CUA's mapped overlay window
+therefore remains the only visible pointer in Daytona recordings.
+
 To preview a change locally, use the compiler from CUA Driver 0.19.3:
 
 ```bash

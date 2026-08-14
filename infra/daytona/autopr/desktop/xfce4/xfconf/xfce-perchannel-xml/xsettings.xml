@@ -4,8 +4,8 @@
   <property name="Gtk" type="empty">
     <property name="ThemeName" type="string" value="Adwaita"/>
     <property name="IconThemeName" type="string" value="Adwaita"/>
-    <property name="CursorThemeName" type="string" value="Adwaita"/>
-    <property name="CursorThemeSize" type="int" value="24"/>
+    <property name="CursorThemeName" type="string" value="AutoPRHidden"/>
+    <property name="CursorThemeSize" type="int" value="32"/>
     <property name="FontName" type="string" value="Sans 10"/>
     <property name="MonospaceFontName" type="string" value="Monospace 10"/>
     <property name="EnableAnimations" type="bool" value="false"/>

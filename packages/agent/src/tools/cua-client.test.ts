@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -20,6 +21,35 @@ describe("CUA computer-server response parsing", () => {
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
+  });
+
+  it("launches the image Driver through CUA's overlay-owning daemon mode", () => {
+    const launcher = readFileSync(
+      new URL("../../../../infra/daytona/autopr/autopr-cua-computer-server", import.meta.url),
+      "utf8",
+    );
+    const compatibilityPatch = readFileSync(
+      new URL("../../../../infra/daytona/autopr/cua-computer-server-agent-cursor.patch", import.meta.url),
+      "utf8",
+    );
+    const dockerfile = readFileSync(
+      new URL("../../../../infra/daytona/autopr/Dockerfile", import.meta.url),
+      "utf8",
+    );
+    const desktopSession = readFileSync(
+      new URL("../../../../infra/daytona/autopr/desktop/autopr-desktop-session", import.meta.url),
+      "utf8",
+    );
+    expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
+    expect(launcher).toContain("--driver-mode daemon");
+    expect(launcher).toContain("probe_agent_cursor");
+    expect(launcher).not.toContain("--driver-mode embedded");
+    expect(compatibilityPatch).toContain('"cursor_id": self._session_id');
+    expect(compatibilityPatch).toContain("data = self._result_data(state)");
+    expect(compatibilityPatch).toContain('data["overlay"] = self._agent_cursor_overlay_window()');
+    expect(dockerfile).toContain("XCURSOR_THEME=AutoPRHidden");
+    expect(desktopSession).toContain("xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr");
+    expect(desktopSession).not.toContain("xsetroot -cursor_name");
   });
 
   it("parses the first successful SSE data frame", () => {
@@ -55,7 +85,7 @@ describe("CUA client configuration", () => {
   ];
   const cursorCommandNames = [
     "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme",
-    "get_agent_cursor_state",
+    "get_agent_cursor_state", "probe_agent_cursor",
   ];
   const recordingMotion = {
     start_handle: 0.3,
@@ -192,7 +222,7 @@ describe("CUA client configuration", () => {
         );
       }
       if (command === "set_agent_cursor_enabled") enabled = true;
-      if (command === "get_agent_cursor_state") {
+      if (["get_agent_cursor_state", "probe_agent_cursor"].includes(command)) {
         return new Response(
           `data: ${JSON.stringify({
             success: true,
@@ -201,6 +231,9 @@ describe("CUA client configuration", () => {
             theme: { id: theme, reduced_motion: reducedMotion },
             motion,
             visual_state: { resolved_action: "idle", phase: "loop" },
+            runtime_mode: "daemon",
+            render_ready: enabled,
+            overlay: { mapped: enabled, painted: enabled, bounding_rectangles: enabled ? 4 : 0 },
           })}\n\n`,
         );
       }
@@ -218,6 +251,9 @@ describe("CUA client configuration", () => {
         reducedMotion: "off",
         motion: recordingMotion,
         visualState: { resolved_action: "idle", phase: "loop" },
+        runtimeMode: "daemon",
+        renderReady: true,
+        overlay: { mapped: true, painted: true, bounding_rectangles: 4 },
       },
     });
     await expect(client.ensureReady()).resolves.toMatchObject({
@@ -278,7 +314,7 @@ describe("CUA client configuration", () => {
         );
         motionCalls += 1;
       }
-      if (body.command === "get_agent_cursor_state") {
+      if (["get_agent_cursor_state", "probe_agent_cursor"].includes(body.command ?? "")) {
         return new Response(
           `data: ${JSON.stringify({
             success: true,
@@ -286,6 +322,9 @@ describe("CUA client configuration", () => {
             enabled,
             theme: { id: theme, reduced_motion: reducedMotion },
             motion,
+            runtime_mode: "daemon",
+            render_ready: enabled,
+            overlay: { mapped: enabled, painted: enabled },
           })}\n\n`,
         );
       }
@@ -302,6 +341,56 @@ describe("CUA client configuration", () => {
     expect(enableCalls).toBe(2);
     expect(themeCalls).toBe(2);
     expect(motionCalls).toBe(2);
+  });
+
+  it("does not claim cursor visibility when CUA accepts configuration without painting X11", async () => {
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/status")) return Response.json({ status: "ok", os_type: "linux" });
+      if (path.endsWith("/commands")) {
+        return Response.json({
+          commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
+        });
+      }
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { command?: string }
+        : {};
+      if (body.command === "version") {
+        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+      }
+      if (body.command === "get_screen_size") {
+        return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
+      }
+      if (["get_agent_cursor_state", "probe_agent_cursor"].includes(body.command ?? "")) {
+        return new Response(`data: ${JSON.stringify({
+          success: true,
+          session: "AutoPR",
+          enabled: true,
+          theme: { id: "dev.autopr.cursor.neon", reduced_motion: "off" },
+          motion: recordingMotion,
+          runtime_mode: "embedded",
+          render_ready: false,
+          overlay: { mapped: false, painted: false },
+        })}\n\n`);
+      }
+      return new Response('data: {"success":true}\n\n');
+    }));
+
+    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    await expect(client.ensureReady()).resolves.toMatchObject({
+      backend: "cua-driver",
+      cursor: {
+        enabled: false,
+        runtimeMode: "embedded",
+        renderReady: false,
+        error: expect.stringContaining("overlay-owning daemon mode"),
+      },
+    });
   });
 
   it("keeps native fallback available while reporting that the agent cursor is unavailable", async () => {

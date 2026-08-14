@@ -13,7 +13,7 @@ describe("Daytona sandboxInfo tool", () => {
       sandbox: {
         id: "sandbox-1",
         name: "autopr-thread",
-        snapshot: "autopr",
+        snapshot: "autopr-cua",
         state: "started",
         autoArchiveInterval: 120,
       },

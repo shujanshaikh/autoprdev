@@ -2,7 +2,7 @@
 
 This snapshot extends the Daytona sandbox image with the FFF runtime used by AutoPR search tools, the zsh/starship terminal profile used by the hosted Daytona web terminal and AutoPR's embedded PTY terminal, the CUA computer server used for desktop interaction, and the desktop customization used by AutoPR's Daytona preview.
 
-Create a Daytona snapshot named `autopr` from this Dockerfile, then AutoPR will use it by default. The application still honors `DAYTONA_SNAPSHOT` when you need to override the default.
+Create a Daytona snapshot named `autopr-cua` from this Dockerfile, then AutoPR will use it by default. The application still honors `DAYTONA_SNAPSHOT` when you need to override the default.
 
 ## Base Image
 
@@ -28,7 +28,7 @@ AutoPR launches a short-lived `ttyd` process for each browser terminal preview. 
 
 Tmux is opt-in so browser PTYs and automated sessions continue to open as normal zsh shells. Run `work` to create or attach to the shared `autopr` tmux session.
 
-AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr` snapshot when the terminal profile needs to change.
+AutoPR does not rewrite or sync these terminal files at runtime. Update the files in this directory and rebuild the `autopr-cua` snapshot when the terminal profile needs to change.
 
 Starship and ttyd are installed from their official releases at the versions pinned in the Dockerfile. Their checksums are selected for the build architecture and verified before installation.
 
@@ -81,14 +81,14 @@ The X11 overlay is a click-through, top-level software-composited window on Dayt
 
 The agent runtime probes CUA's status, version, and required command manifest before every interaction sequence. Existing sandboxes created from an older snapshot get a one-time user-local installation fallback; rebuilding this snapshot remains the preferred deployment because it removes that cold start.
 
-The desktop setup files live under `desktop/`. Update those files and rebuild the `autopr` snapshot when you want to change the visible desktop.
+The desktop setup files live under `desktop/`. Update those files and rebuild the `autopr-cua` snapshot when you want to change the visible desktop.
 
 ## Build
 
 From the AutoPR repo root:
 
 ```bash
-daytona snapshot create autopr \
+daytona snapshot create autopr-cua \
   --dockerfile infra/daytona/autopr/Dockerfile \
   --cpu 4 \
   --memory 8 \
@@ -105,7 +105,7 @@ daytona snapshot list
 
 ## Verification
 
-After creating a sandbox from the `autopr` snapshot and cloning a repo into `/home/<repository-name>`, run:
+After creating a sandbox from the `autopr-cua` snapshot and cloning a repo into `/home/<repository-name>`, run:
 
 ```bash
 REPO_DIR=/home/<repository-name>

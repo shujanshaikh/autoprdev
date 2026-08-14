@@ -158,7 +158,7 @@ export interface SandboxSessionOptions {
 }
 
 // Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
-const DEFAULT_DAYTONA_SNAPSHOT = "autopr";
+const DEFAULT_DAYTONA_SNAPSHOT = "autopr-cua";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;

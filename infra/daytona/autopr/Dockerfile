@@ -6,6 +6,7 @@ ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
 ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
 ARG CUA_DRIVER_VERSION=0.19.3
+ARG CUA_DRIVER_RELEASE_SHA256=3db9d4257d84bacaf7eb104d225f85613ce67edbb20d6eeb83c1384b6d8a5b10
 ARG CUA_SOURCE_REVISION=4c386183eab7109bfa9cb9f182e77c4756a4b403
 
 FROM ${DAYTONA_BASE_IMAGE}
@@ -17,6 +18,7 @@ ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
 ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
 ARG CUA_DRIVER_VERSION=0.19.3
+ARG CUA_DRIVER_RELEASE_SHA256=3db9d4257d84bacaf7eb104d225f85613ce67edbb20d6eeb83c1384b6d8a5b10
 ARG CUA_SOURCE_REVISION=4c386183eab7109bfa9cb9f182e77c4756a4b403
 
 USER root
@@ -132,6 +134,7 @@ RUN apt-get update \
     && chsh -s "$(command -v zsh)" daytona
 
 COPY cua-computer-server-agent-cursor.patch /tmp/autopr-cua-computer-server-agent-cursor.patch
+COPY cursor-theme/build_theme.py /tmp/autopr-build-cursor-theme.py
 
 RUN command -v uv >/dev/null \
     && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv python install 3.13 \
@@ -161,8 +164,20 @@ RUN command -v uv >/dev/null \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
       CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert all(hasattr(CuaDriver, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme")); assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme"))'; \
       /opt/autopr/cua/bin/cua-computer-server --help | grep -q 'cua-driver'; \
+      theme_build="$(mktemp -d)"; \
+      theme_archive="cua-driver-rs-${CUA_DRIVER_VERSION}-linux-x86_64-binary.tar.gz"; \
+      curl -fsSL "https://github.com/trycua/cua/releases/download/cua-driver-rs-v${CUA_DRIVER_VERSION}/${theme_archive}" -o "${theme_build}/${theme_archive}"; \
+      echo "${CUA_DRIVER_RELEASE_SHA256}  ${theme_build}/${theme_archive}" | sha256sum -c -; \
+      tar -xzf "${theme_build}/${theme_archive}" -C "$theme_build" cua-cursor-theme; \
+      python3 /tmp/autopr-build-cursor-theme.py --output "${theme_build}/autopr-neon.lottie"; \
+      "${theme_build}/cua-cursor-theme" validate "${theme_build}/autopr-neon.lottie"; \
+      "${theme_build}/cua-cursor-theme" build "${theme_build}/autopr-neon.lottie" --output "${theme_build}/dev.autopr.cursor.neon.cua-theme"; \
+      "${theme_build}/cua-cursor-theme" inspect "${theme_build}/dev.autopr.cursor.neon.cua-theme" | grep -q '^id: dev.autopr.cursor.neon$'; \
+      install -d -m 0755 -o daytona -g daytona /home/daytona/.local/share/cua-driver/cursor-themes; \
+      install -m 0644 -o daytona -g daytona "${theme_build}/dev.autopr.cursor.neon.cua-theme" /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; \
+      rm -rf "$theme_build"; \
     fi \
-    && rm -rf "$cua_source" /tmp/autopr-cua-computer-server-agent-cursor.patch
+    && rm -rf "$cua_source" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py
 
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal
 

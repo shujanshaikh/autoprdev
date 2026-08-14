@@ -8,7 +8,19 @@ const CUA_SERVER_READY_POLL_MS = 500;
 const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
 const CUA_COMPUTER_SERVER_VERSION = "0.3.42";
-const CUA_AGENT_CURSOR_THEME = "cua.default";
+const CUA_AGENT_CURSOR_THEME = "dev.autopr.cursor.neon";
+const CUA_AGENT_CURSOR_REDUCED_MOTION = "off" as const;
+const CUA_AGENT_CURSOR_MOTION = {
+  start_handle: 0.3,
+  end_handle: 0.3,
+  arc_size: 0.3,
+  arc_flow: 0.12,
+  spring: 0.62,
+  glide_duration_ms: 480,
+  dwell_after_click_ms: 260,
+  idle_hide_ms: 0,
+  turn_radius: 80,
+} as const;
 
 const REQUIRED_CUA_COMMANDS = [
   "version",
@@ -61,9 +73,24 @@ export type CuaAgentCursorStatus = {
   enabled: boolean;
   session?: string;
   theme?: string;
+  reducedMotion?: "auto" | "on" | "off";
+  motion?: CuaAgentCursorMotion;
+  visualState?: Record<string, unknown>;
   capabilities: string[];
   reason?: string;
   error?: string;
+};
+
+export type CuaAgentCursorMotion = {
+  start_handle: number;
+  end_handle: number;
+  arc_size: number;
+  arc_flow: number;
+  spring: number;
+  glide_duration_ms: number;
+  dwell_after_click_ms: number;
+  idle_hide_ms: number;
+  turn_radius: number;
 };
 
 export type CuaCommandResponse = Record<string, unknown> & {
@@ -76,6 +103,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function cursorMotion(value: unknown): CuaAgentCursorMotion | undefined {
+  if (!isRecord(value)) return undefined;
+  const fields = Object.keys(CUA_AGENT_CURSOR_MOTION) as Array<keyof CuaAgentCursorMotion>;
+  if (!fields.every((field) => typeof value[field] === "number")) return undefined;
+  return Object.fromEntries(fields.map((field) => [field, value[field]])) as CuaAgentCursorMotion;
+}
+
+function usesRecordingCursorMotion(motion: CuaAgentCursorMotion | undefined): boolean {
+  return motion !== undefined && Object.entries(CUA_AGENT_CURSOR_MOTION).every(
+    ([field, expected]) => Math.abs(motion[field as keyof CuaAgentCursorMotion] - expected) < 0.001,
+  );
 }
 
 function validateServerPort(port: number): number {
@@ -347,14 +387,19 @@ export class CuaComputerClient {
       };
     }
 
-    const theme = isRecord(state?.theme) && typeof state.theme.id === "string"
-      ? state.theme.id
+    const themeState = isRecord(state?.theme) ? state.theme : undefined;
+    const theme = typeof themeState?.id === "string" ? themeState.id : undefined;
+    const reducedMotion = ["auto", "on", "off"].includes(String(themeState?.reduced_motion))
+      ? themeState?.reduced_motion as "auto" | "on" | "off"
       : undefined;
     return {
       available: true,
       enabled: state?.enabled === true,
       session: typeof state?.session === "string" ? state.session : undefined,
       theme,
+      reducedMotion,
+      motion: cursorMotion(state?.motion),
+      visualState: isRecord(state?.visual_state) ? state.visual_state : undefined,
       capabilities,
     };
   }
@@ -414,14 +459,26 @@ export class CuaComputerClient {
   private async initializeAgentCursor(status: CuaServerStatus): Promise<CuaServerStatus> {
     const cursor = status.cursor;
     if (status.backend !== "cua-driver" || !cursor?.available) return status;
-    if (cursor.enabled && cursor.theme === CUA_AGENT_CURSOR_THEME && !cursor.error) return status;
+    if (
+      cursor.enabled
+      && cursor.theme === CUA_AGENT_CURSOR_THEME
+      && cursor.reducedMotion === CUA_AGENT_CURSOR_REDUCED_MOTION
+      && usesRecordingCursorMotion(cursor.motion)
+      && !cursor.error
+    ) return status;
 
     try {
-      if (cursor.theme !== CUA_AGENT_CURSOR_THEME) {
+      if (
+        cursor.theme !== CUA_AGENT_CURSOR_THEME
+        || cursor.reducedMotion !== CUA_AGENT_CURSOR_REDUCED_MOTION
+      ) {
         await this.command("set_agent_cursor_theme", {
           theme_id: CUA_AGENT_CURSOR_THEME,
-          reduced_motion: "auto",
+          reduced_motion: CUA_AGENT_CURSOR_REDUCED_MOTION,
         });
+      }
+      if (!usesRecordingCursorMotion(cursor.motion)) {
+        await this.command("set_agent_cursor_motion", CUA_AGENT_CURSOR_MOTION);
       }
       if (!cursor.enabled) {
         await this.command("set_agent_cursor_enabled", { enabled: true });
@@ -434,10 +491,25 @@ export class CuaComputerClient {
         theme: isRecord(state.theme) && typeof state.theme.id === "string"
           ? state.theme.id
           : cursor.theme,
+        reducedMotion: isRecord(state.theme)
+          && ["auto", "on", "off"].includes(String(state.theme.reduced_motion))
+          ? state.theme.reduced_motion as "auto" | "on" | "off"
+          : cursor.reducedMotion,
+        motion: cursorMotion(state.motion) ?? cursor.motion,
+        visualState: isRecord(state.visual_state) ? state.visual_state : cursor.visualState,
         error: undefined,
       };
       if (!initializedCursor.enabled) {
         initializedCursor.error = "CUA Driver accepted cursor initialization but still reports it disabled.";
+      } else if (initializedCursor.theme !== CUA_AGENT_CURSOR_THEME) {
+        initializedCursor.enabled = false;
+        initializedCursor.error = `CUA Driver did not activate the requested cursor theme ${CUA_AGENT_CURSOR_THEME}.`;
+      } else if (initializedCursor.reducedMotion !== CUA_AGENT_CURSOR_REDUCED_MOTION) {
+        initializedCursor.enabled = false;
+        initializedCursor.error = "CUA Driver did not enable full cursor animation.";
+      } else if (!usesRecordingCursorMotion(initializedCursor.motion)) {
+        initializedCursor.enabled = false;
+        initializedCursor.error = "CUA Driver did not activate the recording cursor motion profile.";
       }
       return { ...status, cursor: initializedCursor };
     } catch (error) {

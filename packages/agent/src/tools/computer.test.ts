@@ -74,7 +74,7 @@ describe("CUA computer tool timeout quarantine", () => {
       cursor: {
         available: true,
         enabled: true,
-        theme: "cua.default",
+        theme: "dev.autopr.cursor.neon",
         capabilities: [],
       },
     });

@@ -87,6 +87,8 @@ fi
 unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE
 export DISPLAY="${DISPLAY:-:1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
+export CUA_DRIVER_SESSION_ID="${CUA_DRIVER_SESSION_ID:-AutoPR}"
 export BROWSER="${BROWSER:-google-chrome}"
 
 start_server() {

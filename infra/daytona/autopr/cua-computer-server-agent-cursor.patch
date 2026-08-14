@@ -161,7 +161,9 @@ index 7c055c191..b2e296894 100644
 +        except Exception as error:
 +            return self._error(error)
 +
-+    async def _sync_agent_cursor_position(self, x: int, y: int) -> Optional[str]:
++    async def _sync_agent_cursor_position(
++        self, x: int, y: int, *, wait_for_glide: bool = False
++    ) -> Optional[str]:
 +        """Move the overlay without replacing delivery to the real OS pointer."""
 +
 +        try:
@@ -173,6 +175,11 @@ index 7c055c191..b2e296894 100644
 +                json.dumps({"x": float(x), "y": float(y), "session": self._session_id}),
 +            )
 +            self._raise_for_error(result)
++            if wait_for_glide:
++                # The recording profile uses a 480 ms fixed glide. Keep the
++                # command open for one extra frame so a following action cannot
++                # preempt the visible approach animation.
++                await asyncio.sleep(0.52)
 +            return None
 +        except Exception as error:
 +            return str(error)
@@ -180,11 +187,22 @@ index 7c055c191..b2e296894 100644
      async def get_capture_scope_state(self) -> Dict[str, Any]:
          """Return the generated session policy state in the legacy envelope."""
  
-@@ -353,15 +492,20 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+@@ -329,6 +473,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                     count=count,
+                 )
+             )
++            await asyncio.sleep(0.26)
+             return self._ok(self._result_data(result))
+         except Exception as error:
+             return self._error(error)
+
+@@ -353,15 +493,20 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
      async def move_cursor(self, x: int, y: int) -> Dict[str, Any]:
          try:
              await self._ensure_session()
-+            cursor_sync_error = await self._sync_agent_cursor_position(x, y)
++            cursor_sync_error = await self._sync_agent_cursor_position(
++                x, y, wait_for_glide=True
++            )
              result = await self._driver.move_cursor(
                  self._sdk.MoveCursorInput(
                      x=float(x),
@@ -201,7 +219,54 @@ index 7c055c191..b2e296894 100644
          except Exception as error:
              return self._error(error)
  
-@@ -485,10 +633,12 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+@@ -390,6 +535,9 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+     ) -> Dict[str, Any]:
+         await self._ensure_session()
++        cursor_sync_error = await self._sync_agent_cursor_position(
++            start_x, start_y, wait_for_glide=True
++        )
+         result = await self._driver.drag(
+             self._sdk.DragInput(
+                 from_x=float(start_x),
+@@ -406,7 +554,12 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                 modifier=None,
+             )
+         )
+-        return self._ok(self._result_data(result))
++        await asyncio.sleep(0.18)
++        data = self._result_data(result)
++        if cursor_sync_error:
++            data["cursor_sync_error"] = cursor_sync_error
++        return self._ok(data)
+
+     async def drag(
+         self, path: List[Tuple[int, int]], button: str = "left", duration: float = 0.5
+@@ -444,6 +597,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                     session=self._session_id,
+                 )
+             )
++            await asyncio.sleep(0.18)
+             return self._ok(self._result_data(result))
+         except Exception as error:
+             return self._error(error)
+@@ -458,6 +612,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                     modifiers=None,
+                 )
+             )
++            await asyncio.sleep(0.18)
+             return self._ok(self._result_data(result))
+         except Exception as error:
+             return self._error(error)
+@@ -476,6 +631,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                     session=self._session_id,
+                 )
+             )
++            await asyncio.sleep(0.18)
+             return self._ok(self._result_data(result))
+         except Exception as error:
+             return self._error(error)
+
+@@ -485,10 +641,12 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
          try:
              await self._ensure_session()
              x, y = await self._point(None, None)
@@ -212,7 +277,7 @@ index 7c055c191..b2e296894 100644
                      y=float(y),
                      direction={
                          "up": self._sdk.ScrollDirection.UP,
-@@ -495,13 +645,18 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+@@ -495,13 +653,19 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
                          "left": self._sdk.ScrollDirection.LEFT,
                          "right": self._sdk.ScrollDirection.RIGHT,
                      }[direction],
@@ -223,6 +288,7 @@ index 7c055c191..b2e296894 100644
                  )
              )
 -            return self._ok(self._result_data(result))
++            await asyncio.sleep(0.26)
 +            data = self._result_data(result)
 +            if cursor_sync_error:
 +                data["cursor_sync_error"] = cursor_sync_error

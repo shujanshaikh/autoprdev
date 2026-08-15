@@ -358,7 +358,7 @@ function RepoColumnPager({
   }, [repositories, currentPage]);
 
   return (
-    <div className="flex h-[22rem] min-w-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
+    <div className="flex h-[18rem] min-w-0 flex-col border-b border-border lg:h-[22rem] lg:border-b-0 lg:border-r">
       <ColumnHeader
         label="Repository"
         hint={
@@ -579,14 +579,14 @@ function BranchColumn({
   onSelect: (v: string) => void;
 }) {
   return (
-    <div className="flex h-[22rem] min-w-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
+    <div className="flex min-w-0 flex-col border-b border-border lg:h-[22rem] lg:border-b-0 lg:border-r">
       <ColumnHeader
         label="Branch"
         hint={isLoading ? "loading" : branches.length ? `${branches.length}` : undefined}
       />
       <div
         className={cn(
-          "minimal-scrollbar relative min-h-0 flex-1 overflow-y-auto",
+          "minimal-scrollbar relative min-h-24 max-h-52 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1",
           isDisabled && "opacity-50",
         )}
       >
@@ -677,10 +677,10 @@ function LaunchColumn({
   onCreate: () => void;
 }) {
   return (
-    <div className="flex h-[22rem] min-w-0 flex-col">
+    <div className="flex min-w-0 flex-col lg:h-[22rem]">
       <ColumnHeader label="Launch" hint={launchReady ? "ready" : "—"} />
       <div className="flex flex-1 flex-col justify-between gap-3 p-3">
-        <dl className="space-y-2 font-mono text-xs">
+        <dl className="hidden space-y-2 font-mono text-xs lg:block">
           <SummaryRow
             label="repo"
             value={selectedRepo?.fullName}

@@ -216,14 +216,14 @@ function WorkspaceCreateSandboxDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(46rem,calc(100svh-2rem))] overflow-hidden p-0 sm:max-w-5xl">
+      <DialogContent className="max-h-[min(46rem,calc(100svh-2rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="border-b border-border px-4 py-3">
           <DialogTitle>Create a sandbox</DialogTitle>
           <DialogDescription>
             GitHub repository, branch, sandbox.
           </DialogDescription>
         </DialogHeader>
-        <div className="minimal-scrollbar min-h-0 overflow-y-auto p-4">
+        <div className="minimal-scrollbar min-h-0 touch-pan-y overflow-y-auto overscroll-contain p-3 [-webkit-overflow-scrolling:touch] sm:p-4">
           <CreateSandboxPanel
             isGithubConnected={isGithubConnected}
             isConnectingGithub={isConnectingGithub}

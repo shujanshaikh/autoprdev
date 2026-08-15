@@ -41,6 +41,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
+import { UIMessageStreamProtocolTransport } from "#/lib/ui-message-stream-protocol";
 import {
   AGENT_CHAT_OPERATION_HEADER,
   AGENT_CHAT_TASK_ID,
@@ -984,6 +985,10 @@ function ThreadChatRuntime({
     fetch: sessionFetch,
     onEvent: handleSessionTransportEvent,
   });
+  const repairedSessionTransport = useMemo(
+    () => new UIMessageStreamProtocolTransport<UIMessage>(sessionTransport),
+    [sessionTransport],
+  );
   const [sessionReconnectTick, setSessionReconnectTick] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
@@ -1054,10 +1059,9 @@ function ThreadChatRuntime({
       selectedReasoningEffort,
     ],
   );
-  // Trigger.dev 4.5.11 keeps quiet-window/EOF reconnects inside this same
-  // ReadableStream, preserving AI SDK part state between text-start and later
-  // text-delta chunks.
-  const transport = usingSessionTransport ? sessionTransport : legacyTransport;
+  // Trigger owns reconnect/cursor state; this wrapper only repairs malformed
+  // text boundaries inside each logical stream.
+  const transport = usingSessionTransport ? repairedSessionTransport : legacyTransport;
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,

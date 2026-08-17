@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -47,7 +46,7 @@ describe("CUA computer-server response parsing", () => {
     );
   });
 
-  it("keeps CUA's daemon backend while suppressing its branded overlay", () => {
+  it("keeps CUA's official animated cursor without a public session label", () => {
     const launcher = readFileSync(
       new URL("../../../../infra/daytona/autopr/autopr-cua-computer-server", import.meta.url),
       "utf8",
@@ -70,47 +69,29 @@ describe("CUA computer-server response parsing", () => {
     expect(launcher.match(/9>&-/g)).toHaveLength(2);
     expect(launcher).toContain('kill -KILL "$pid"');
     expect(launcher).toContain("--driver-mode daemon");
-    expect(launcher).toContain('"command":"set_agent_cursor_enabled","params":{"enabled":false}');
-    expect(launcher).toContain(".enabled == false");
+    expect(launcher).toContain("--cursor-theme cua.default");
+    expect(launcher).toContain('{"command":"get_cursor_position"}');
+    expect(launcher).toContain("{command:\"move_cursor\",params:{x:$x,y:$y}}");
+    expect(launcher).toContain(".implicit == true");
+    expect(launcher).toContain(".session == null");
+    expect(launcher).toContain(".label_visible == false");
+    expect(launcher).not.toContain('"command":"set_agent_cursor_enabled"');
+    expect(launcher).toContain("set_cursor_theme AutoPRHidden");
     expect(launcher).toContain("set_cursor_theme Adwaita");
-    expect(launcher).not.toContain('CUA_DRIVER_SESSION_ID="${CUA_DRIVER_SESSION_ID:-AutoPR}"');
+    expect(launcher).not.toContain("CUA_DRIVER_SESSION_ID");
     expect(launcher).not.toContain("--driver-mode embedded");
-    expect(compatibilityPatch).toContain('"cursor_id": self._session_id');
-    expect(compatibilityPatch).toContain("data = self._result_data(state)");
-    expect(compatibilityPatch).toContain('data["overlay"] = self._agent_cursor_overlay_window()');
+    expect(compatibilityPatch).toContain("self._session_id: Optional[str] = None");
     expect(compatibilityPatch).toContain(
-      'title != f"Cua.AgentCursorOverlay.{self._session_id}"',
+      'self._contract_type("ActionTarget").DESKTOP(display_id="primary")',
     );
-    expect(compatibilityPatch).toContain('"method": "x11_stable_overlay_delta"');
-    expect(compatibilityPatch).toContain("for hidden_a, visible_a, visible_b, hidden_b");
-    expect(compatibilityPatch).toContain("ImageGrab.grab, bbox=box");
-    expect(dockerfile).toMatch(/sha256sum -c - \\\n\s+&& tar -xzf/);
-    expect(dockerfile).toContain("XCURSOR_THEME=Adwaita");
+    expect(compatibilityPatch).toContain('"label_visible": state.session is not None');
+    expect(compatibilityPatch).not.toContain("probe_agent_cursor");
+    expect(dockerfile).toContain("ARG CUA_DRIVER_VERSION=0.20.0");
+    expect(dockerfile).toContain("ARG CUA_SOURCE_REVISION=bb8c86049cad1bf0853c6d25c03c14875d0d047f");
+    expect(dockerfile).not.toContain("autopr-build-cursor-theme");
     expect(desktopSession).toContain('CURSOR_THEME="Adwaita"');
     expect(desktopSession).toContain("xsetroot -cursor_name left_ptr");
     expect(desktopSession).not.toContain("xsetroot -xcf /usr/share/icons/AutoPRHidden");
-  });
-
-  it("rotates the system cue around the gear center", () => {
-    const builder = fileURLToPath(
-      new URL("../../../../infra/daytona/autopr/cursor-theme/build_theme.py", import.meta.url),
-    );
-    const result = spawnSync("python3", [
-      "-c",
-      [
-        "import json, runpy, sys",
-        "animation = runpy.run_path(sys.argv[1])['action_system']()",
-        "layers = [layer for layer in animation['layers'] if layer['nm'].startswith('System')]",
-        "print(json.dumps([[layer['ks']['a']['k'], layer['ks']['p']['k']] for layer in layers]))",
-      ].join("; "),
-      builder,
-    ], { encoding: "utf8" });
-
-    expect(result.stderr).toBe("");
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual(
-      Array.from({ length: 6 }, () => [[29, 39], [15, 39]]),
-    );
   });
 
   it("installs and validates computer-server's complete pinned CUA runtime", () => {
@@ -133,10 +114,9 @@ describe("CUA computer-server response parsing", () => {
     expect(dockerfile).toContain("import cua_auto, cua_core");
     expect(dockerfile).toContain("from cua_core.telemetry import record_event");
     expect(dockerfile).toContain("PYNPUT_BACKEND=dummy");
-    expect(dockerfile).toContain('cursor_theme_inspection="$(');
-    expect(dockerfile).not.toContain(
-      'cua-cursor-theme" inspect "${theme_build}/dev.autopr.cursor.neon.cua-theme" | grep -q',
-    );
+    expect(dockerfile).not.toContain("cursor_theme_inspection");
+    expect(dockerfile).not.toContain("cua-cursor-theme");
+    expect(compatibilityPatch).toContain('"cua-driver>=0.20.0,<0.21.0"');
     expect(compatibilityPatch).toContain('cua-core = { path = "../core" }');
     expect(compatibilityPatch).toContain('cua-auto = { path = "../cua-auto" }');
     expect(dockerfile.indexOf('rm -rf "$cua_source"')).toBeLessThan(
@@ -179,19 +159,8 @@ describe("CUA client configuration", () => {
     "hotkey", "screenshot", "get_cursor_position", "get_screen_size",
   ];
   const cursorCommandNames = [
-    "set_agent_cursor_enabled", "get_agent_cursor_state",
+    "get_agent_cursor_state",
   ];
-  const recordingMotion = {
-    start_handle: 0.3,
-    end_handle: 0.3,
-    arc_size: 0.3,
-    arc_flow: 0.12,
-    spring: 0.62,
-    glide_duration_ms: 480,
-    dwell_after_click_ms: 260,
-    idle_hide_ms: 0,
-    turn_radius: 80,
-  };
 
   it("rejects privileged and invalid computer-server ports", () => {
     expect(() => new CuaComputerClient(sandbox, {}, { serverPort: 80 }))
@@ -269,13 +238,9 @@ describe("CUA client configuration", () => {
     expect(getSignedPreviewUrl).toHaveBeenCalledTimes(1);
   });
 
-  it("detects cursor capabilities and disables the branded overlay once per live session", async () => {
+  it("accepts an unlabeled implicit 0.20 cursor and masks the hardware pointer", async () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
     const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
-    let enabled = true;
-    const theme = "cua.default";
-    const reducedMotion = "auto";
-    const motion = recordingMotion;
     const commands: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (
       input: string | URL | Request,
@@ -293,7 +258,6 @@ describe("CUA client configuration", () => {
       const body = typeof init?.body === "string"
         ? JSON.parse(init.body) as {
             command?: string;
-            params?: Record<string, boolean | number | string> & { enabled?: boolean };
           }
         : {};
       const command = body.command ?? "";
@@ -304,21 +268,16 @@ describe("CUA client configuration", () => {
       if (command === "version") {
         return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
       }
-      if (command === "set_agent_cursor_enabled") enabled = body.params?.enabled === true;
       if (command === "get_agent_cursor_state") {
         return new Response(
           `data: ${JSON.stringify({
             success: true,
-            session: "computer-server-1",
-            enabled,
-            theme: { id: theme, reduced_motion: reducedMotion },
-            motion,
-            visual_state: { resolved_action: "idle", phase: "loop" },
+            session: null,
+            implicit: true,
+            label_visible: false,
+            enabled: true,
+            theme: { id: "cua.default" },
             runtime_mode: "daemon",
-            render_ready: enabled,
-            capture_ready: enabled,
-            capture: { method: "x11_stable_overlay_delta", changed_pixels: enabled ? 900 : 0 },
-            overlay: { mapped: enabled, painted: enabled, bounding_rectangles: enabled ? 4 : 0 },
           })}\n\n`,
         );
       }
@@ -330,32 +289,34 @@ describe("CUA client configuration", () => {
       backend: "cua-driver",
       cursor: {
         available: true,
-        enabled: false,
-        session: "computer-server-1",
+        enabled: true,
+        implicit: true,
+        labelVisible: false,
         theme: "cua.default",
-        reducedMotion: "auto",
-        motion: recordingMotion,
-        visualState: { resolved_action: "idle", phase: "loop" },
         runtimeMode: "daemon",
-        renderReady: false,
-        captureReady: false,
-        capture: { method: "x11_stable_overlay_delta", changed_pixels: 0 },
-        overlay: { mapped: false, painted: false, bounding_rectangles: 0 },
-        reason: expect.stringContaining("native desktop pointer"),
       },
     });
     await expect(client.ensureReady()).resolves.toMatchObject({
-      cursor: { available: true, enabled: false },
+      cursor: { available: true, enabled: true, implicit: true, labelVisible: false },
     });
-    expect(commands.filter((command) => command === "set_agent_cursor_enabled")).toHaveLength(1);
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1);
+    expect(executeMocks.executeSandboxCommand.mock.calls[0]?.[0]).toContain(
+      "xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr 32",
+    );
+    expect(commands).not.toContain("set_agent_cursor_enabled");
     expect(commands).not.toContain("set_agent_cursor_theme");
     expect(commands).not.toContain("set_agent_cursor_motion");
     expect(commands).not.toContain("probe_agent_cursor");
   });
 
-  it("disables the overlay again when a restarted server reports it enabled", async () => {
+  it("disables a labeled legacy cursor when an older snapshot cannot migrate in place", async () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
-    const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
+    const commandNames = [
+      ...requiredCommandNames,
+      "get_desktop_state",
+      ...cursorCommandNames,
+      "set_agent_cursor_enabled",
+    ];
     let enabled = true;
     let disableCalls = 0;
     vi.stubGlobal("fetch", vi.fn(async (
@@ -390,14 +351,11 @@ describe("CUA client configuration", () => {
           `data: ${JSON.stringify({
             success: true,
             session: `generation-${disableCalls}`,
+            implicit: false,
+            label_visible: true,
             enabled,
-            theme: { id: "cua.default", reduced_motion: "auto" },
-            motion: recordingMotion,
+            theme: { id: "dev.autopr.cursor.neon", reduced_motion: "off" },
             runtime_mode: "daemon",
-            render_ready: enabled,
-            capture_ready: enabled,
-            capture: { method: "x11_stable_overlay_delta", changed_pixels: enabled ? 900 : 0 },
-            overlay: { mapped: enabled, painted: enabled },
           })}\n\n`,
         );
       }
@@ -405,13 +363,22 @@ describe("CUA client configuration", () => {
     }));
 
     const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
-    await client.ensureReady();
-    enabled = true;
-    await client.ensureReady();
-    expect(disableCalls).toBe(2);
+    await expect(client.ensureReady()).resolves.toMatchObject({
+      cursor: {
+        enabled: false,
+        implicit: false,
+        labelVisible: true,
+        reason: expect.stringContaining("labeled legacy cursor was disabled"),
+      },
+    });
+    expect(disableCalls).toBe(1);
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(2);
+    expect(executeMocks.executeSandboxCommand.mock.calls[1]?.[0]).toContain(
+      "xsetroot -cursor_name left_ptr",
+    );
   });
 
-  it("does not require a painted overlay after disabling it", async () => {
+  it("restores the native pointer when the implicit overlay is unavailable", async () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
     const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
     vi.stubGlobal("fetch", vi.fn(async (
@@ -426,7 +393,7 @@ describe("CUA client configuration", () => {
         });
       }
       const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as { command?: string; params?: { enabled?: boolean } }
+        ? JSON.parse(init.body) as { command?: string }
         : {};
       if (body.command === "version") {
         return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
@@ -434,21 +401,15 @@ describe("CUA client configuration", () => {
       if (body.command === "get_screen_size") {
         return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
       }
-      if (body.command === "set_agent_cursor_enabled") {
-        return new Response('data: {"success":true,"enabled":false}\n\n');
-      }
       if (body.command === "get_agent_cursor_state") {
         return new Response(`data: ${JSON.stringify({
           success: true,
-          session: "computer-use",
+          session: null,
+          implicit: true,
+          label_visible: false,
           enabled: false,
-          theme: { id: "dev.autopr.cursor.neon", reduced_motion: "off" },
-          motion: recordingMotion,
+          theme: { id: "cua.default" },
           runtime_mode: "daemon",
-          render_ready: false,
-          capture_ready: false,
-          capture: { method: "x11_stable_overlay_delta", changed_pixels: 0 },
-          overlay: { mapped: true, painted: true },
         })}\n\n`);
       }
       return new Response('data: {"success":true}\n\n');
@@ -462,13 +423,13 @@ describe("CUA client configuration", () => {
       backend: "cua-driver",
       cursor: {
         enabled: false,
+        implicit: true,
+        labelVisible: false,
         runtimeMode: "daemon",
-        renderReady: false,
-        captureReady: false,
       },
     });
-    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1);
-    expect(executeMocks.executeSandboxCommand.mock.calls[0]?.[0]).toContain(
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(2);
+    expect(executeMocks.executeSandboxCommand.mock.calls[1]?.[0]).toContain(
       "xsetroot -cursor_name left_ptr",
     );
   });

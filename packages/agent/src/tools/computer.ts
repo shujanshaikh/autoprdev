@@ -778,9 +778,9 @@ function requiresDaytonaDesktop(action: ComputerAction) {
 }
 
 function requiresCua(action: ComputerAction) {
-  // Recording remains fully Daytona-owned, but CUA readiness also normalizes
-  // the visible native pointer and suppresses the branded overlay. Do that
-  // before Daytona captures the first frame, not after recording has started.
+  // Recording remains Daytona-owned, but CUA readiness also selects exactly
+  // one visible pointer: the unlabeled 0.20 overlay or the native fallback.
+  // Do that before Daytona captures the first frame.
   return !["status", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
 }
 
@@ -1332,7 +1332,7 @@ async function executeCuaComputerActions(
     details.recording ? recordingSummary(details.recording) : undefined,
     details.cursor
       ? details.cursor.enabled
-        ? `Agent cursor: painted (${details.cursor.theme ?? "configured CUA theme"}, ${details.cursor.runtimeMode ?? "unknown runtime"})`
+        ? `Agent cursor: official animated overlay (${details.cursor.theme ?? "configured CUA theme"}, ${details.cursor.labelVisible ? "labeled" : "unlabeled"} ${details.cursor.implicit ? "implicit" : "explicit"} session)`
         : details.cursor.available
           ? `Agent cursor overlay: disabled; native desktop pointer active${details.cursor.error ? ` (${details.cursor.error})` : ""}`
           : `Agent cursor: unavailable${details.cursor.reason ? ` (${details.cursor.reason})` : details.cursor.error ? ` (${details.cursor.error})` : ""}`

@@ -28,7 +28,7 @@ run_command() {
 }
 
 is_ready() {
-  local cursor_response version_response screen_response
+  local cursor_payload cursor_response cursor_x cursor_y version_response screen_response
 
   if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
     is_driver_ready || return 1
@@ -39,7 +39,7 @@ is_ready() {
     || return 1
   curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/commands" \
     | jq -e --arg require_driver "$CUA_EXPECT_DRIVER" \
-      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or (.commands.get_desktop_state and .commands.set_agent_cursor_enabled and .commands.get_agent_cursor_state))' >/dev/null \
+      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or (.commands.get_desktop_state and .commands.get_agent_cursor_state))' >/dev/null \
     || return 1
 
   version_response="$(run_command '{"command":"version"}')" || return 1
@@ -54,13 +54,18 @@ is_ready() {
     | jq -e '.success == true and (.size.width | type == "number") and (.size.height | type == "number")' >/dev/null
 
   if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
-    cursor_response="$(run_command '{"command":"set_agent_cursor_enabled","params":{"enabled":false}}')" || return 1
-    printf '%s' "$cursor_response" \
-      | jq -e '.success == true and .enabled == false' >/dev/null \
-      || return 1
+    # A new implicit lifecycle is intentionally unlabeled and materializes its
+    # overlay on the first cursor-bearing action. Move to the already-observed
+    # OS position so readiness creates the animation without changing the UI.
+    cursor_response="$(run_command '{"command":"get_cursor_position"}')" || return 1
+    cursor_x="$(printf '%s' "$cursor_response" | jq -er '.position.x')" || return 1
+    cursor_y="$(printf '%s' "$cursor_response" | jq -er '.position.y')" || return 1
+    cursor_payload="$(jq -nc --argjson x "$cursor_x" --argjson y "$cursor_y" '{command:"move_cursor",params:{x:$x,y:$y}}')" || return 1
+    cursor_response="$(run_command "$cursor_payload")" || return 1
+    printf '%s' "$cursor_response" | jq -e '.success == true' >/dev/null || return 1
     cursor_response="$(run_command '{"command":"get_agent_cursor_state"}')" || return 1
     printf '%s' "$cursor_response" \
-      | jq -e '.success == true and .runtime_mode == "daemon" and .enabled == false' >/dev/null \
+      | jq -e '.success == true and .runtime_mode == "daemon" and .enabled == true and .implicit == true and .session == null and .label_visible == false and .theme.id == "cua.default"' >/dev/null \
       || return 1
   fi
 }
@@ -112,7 +117,7 @@ start_driver() {
   # The daemon must not retain the launcher's advisory lock after this shell exits.
   nohup "$CUA_DRIVER_BIN" serve \
     --socket "$CUA_DRIVER_SOCKET" \
-    --cursor-theme dev.autopr.cursor.neon \
+    --cursor-theme cua.default \
     --cursor-reduced-motion off \
     --glide-ms 480 \
     --dwell-ms 260 \
@@ -134,7 +139,6 @@ unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE
 export DISPLAY="${DISPLAY:-:1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
-export CUA_DRIVER_SESSION_ID="${CUA_DRIVER_SESSION_ID:-computer-use}"
 export BROWSER="${BROWSER:-google-chrome}"
 
 set_cursor_theme() {
@@ -154,9 +158,14 @@ set_cursor_theme() {
 }
 
 apply_backend_cursor_theme() {
-  # Keep one honest, system-owned pointer. The CUA overlay is disabled above,
-  # so it cannot lag behind input delivery or render a branded session badge.
-  set_cursor_theme Adwaita
+  if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
+    # Driver 0.20 owns the visible animated pointer. Its transport-private
+    # session has no public label, while the transparent Xcursor prevents the
+    # recorder from compositing a second hardware pointer over the overlay.
+    set_cursor_theme AutoPRHidden
+  else
+    set_cursor_theme Adwaita
+  fi
 }
 
 backend_args=(--backend native)

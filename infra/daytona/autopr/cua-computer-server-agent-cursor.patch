@@ -1,5 +1,188 @@
+diff --git a/libs/python/computer-server/computer_server/handlers/cua_driver.py b/libs/python/computer-server/computer_server/handlers/cua_driver.py
+index 97df86de6..26588ae7b 100644
+--- a/libs/python/computer-server/computer_server/handlers/cua_driver.py
++++ b/libs/python/computer-server/computer_server/handlers/cua_driver.py
+@@ -14,7 +14,6 @@ import base64
+ import importlib
+ import json
+ import os
+-import uuid
+ from io import BytesIO
+ from types import ModuleType
+ from typing import Any, Dict, List, Optional, Protocol, Tuple
+@@ -47,6 +46,8 @@ class DriverClient(Protocol):
+
+     async def get_session_state(self, input: Any) -> Any: ...
+
++    async def get_session(self, input: Any) -> Any: ...
++
+     async def get_desktop_state(self, input: Any) -> DriverResult: ...
+ 
+     async def get_screen_size(self, input: Any) -> DriverResult: ...
+@@ -108,11 +109,10 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+         self._driver = driver
+         self._fallback = fallback
+         self._mode = selected_mode
+-        self._session_id = (
+-            session_id
+-            or os.environ.get("CUA_DRIVER_SESSION_ID")
+-            or (f"computer-server-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+-        )
++        # CUA Driver 0.20 owns one private lifecycle session per SDK transport.
++        # Never publish computer-server's product name as a session label: the
++        # official overlay renders public labels beside its animated pointer.
++        self._session_id: Optional[str] = None
+         selected_scope = (
+             (capture_scope or os.environ.get("CUA_DRIVER_CAPTURE_SCOPE", "desktop")).strip().lower()
+         )
+@@ -132,6 +132,15 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                 "CUA_BACKEND=cua-driver requires cua-computer-server[driver]"
+             ) from error
+
++    def _contract_type(self, name: str) -> Any:
++        """Resolve types omitted from the 0.20 wheel's public re-exports."""
++
++        exported = getattr(self._sdk, name, None)
++        if exported is not None:
++            return exported
++        contract = importlib.import_module("cua_driver._native_contract")
++        return getattr(contract, name)
++
+     @property
+     def mode(self) -> str:
+         return self._mode
+@@ -151,11 +160,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+             started = await self._driver.start_session(
+                 self._sdk.StartSessionInput(
+                     session=self._session_id,
+-                    capture_scope={
+-                        "auto": self._sdk.CaptureScope.AUTO,
+-                        "window": self._sdk.CaptureScope.WINDOW,
+-                        "desktop": self._sdk.CaptureScope.DESKTOP,
+-                    }[self._capture_scope],
++                    capture_scope=None,
++                    cursor_theme=None,
+                 )
+             )
+             if not started.active:
+@@ -250,6 +256,32 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                 await self._driver.shutdown()
+                 self._closed = True
+ 
++    async def get_agent_cursor_state(self) -> Dict[str, Any]:
++        """Return label-safe state for the transport-owned 0.20 cursor."""
++
++        try:
++            await self._ensure_session()
++            state = await self._driver.get_session(
++                self._contract_type("GetSessionInput")(session=self._session_id)
++            )
++            return self._ok(
++                {
++                    "session": state.session,
++                    "implicit": state.implicit,
++                    "enabled": state.cursor_visible,
++                    "label_visible": state.session is not None,
++                    "theme": {"id": "cua.default"},
++                    "runtime_mode": self._mode,
++                }
++            )
++        except Exception as error:
++            return self._error(error)
++
++    def _desktop_target(self) -> Any:
++        """Select 0.20's exact per-action desktop coordinate space."""
++
++        return self._contract_type("ActionTarget").DESKTOP(display_id="primary")
++
+     async def get_capture_scope_state(self) -> Dict[str, Any]:
+         """Return the generated session policy state in the legacy envelope."""
+ 
+@@ -320,7 +352,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                 self._sdk.ClickInput(
+                     x=float(px),
+                     y=float(py),
+-                    scope=self._sdk.DesktopScope.DESKTOP,
++                    target=self._desktop_target(),
++                    scope=None,
+                     session=self._session_id,
+                     button={
+                         "left": self._sdk.ClickButton.LEFT,
+@@ -357,7 +390,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                 self._sdk.MoveCursorInput(
+                     x=float(x),
+                     y=float(y),
+-                    scope=self._sdk.DesktopScope.DESKTOP,
++                    target=self._desktop_target(),
++                    scope=None,
+                     session=self._session_id,
+                 )
+             )
+@@ -394,7 +428,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                 from_y=float(start_y),
+                 to_x=float(end_x),
+                 to_y=float(end_y),
+-                scope=self._sdk.DesktopScope.DESKTOP,
++                target=self._desktop_target(),
++                scope=None,
+                 session=self._session_id,
+                 duration_ms=min(10000, max(0, int(duration * 1000))),
+                 steps=steps,
+@@ -440,7 +475,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+             result = await self._driver.type_text(
+                 self._sdk.TypeTextInput(
+                     text=text,
+-                    scope=self._sdk.DesktopScope.DESKTOP,
++                    target=self._desktop_target(),
++                    scope=None,
+                     session=self._session_id,
+                 )
+             )
+@@ -454,7 +490,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+             result = await self._driver.press_key(
+                 self._sdk.PressKeyInput(
+                     key=key,
+-                    scope=self._sdk.DesktopScope.DESKTOP,
++                    target=self._desktop_target(),
++                    scope=None,
+                     session=self._session_id,
+                     modifiers=None,
+                 )
+@@ -473,7 +510,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+             result = await self._driver.hotkey(
+                 self._sdk.HotkeyInput(
+                     keys=keys,
+-                    scope=self._sdk.DesktopScope.DESKTOP,
++                    target=self._desktop_target(),
++                    scope=None,
+                     session=self._session_id,
+                 )
+             )
+@@ -495,7 +533,8 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
+                         "left": self._sdk.ScrollDirection.LEFT,
+                         "right": self._sdk.ScrollDirection.RIGHT,
+                     }[direction],
+-                    scope=self._sdk.DesktopScope.DESKTOP,
++                    target=self._desktop_target(),
++                    scope=None,
+                     session=self._session_id,
+                     by=self._sdk.ScrollBy.LINE,
+                     amount=min(50, max(1, amount)),
+diff --git a/libs/python/computer-server/computer_server/main.py b/libs/python/computer-server/computer_server/main.py
+index c068f5309..56044f192 100644
+--- a/libs/python/computer-server/computer_server/main.py
++++ b/libs/python/computer-server/computer_server/main.py
+@@ -416,6 +416,8 @@ if hasattr(automation_handler, "get_capture_scope_state"):
+     handlers["get_capture_scope_state"] = automation_handler.get_capture_scope_state
+ if hasattr(automation_handler, "escalate_capture_scope"):
+     handlers["escalate_capture_scope"] = automation_handler.escalate_capture_scope
++if hasattr(automation_handler, "get_agent_cursor_state"):
++    handlers["get_agent_cursor_state"] = automation_handler.get_agent_cursor_state
+ 
+ 
+ class AuthenticationManager:
 diff --git a/libs/python/computer-server/pyproject.toml b/libs/python/computer-server/pyproject.toml
-index 503626b39..169641d79 100644
+index 4bdfb86d8..559589ffb 100644
 --- a/libs/python/computer-server/pyproject.toml
 +++ b/libs/python/computer-server/pyproject.toml
 @@ -55,7 +55,7 @@ vnc = [
@@ -7,461 +190,169 @@ index 503626b39..169641d79 100644
  ]
  driver = [
 -    "cua-driver>=0.12.2,<0.13.0"
-+    "cua-driver>=0.19.3,<0.20.0"
++    "cua-driver>=0.20.0,<0.21.0"
  ]
- 
+
  [project.urls]
-@@ -93,3 +93,3 @@
+@@ -91,5 +91,5 @@ dev = [
+ api = "python -m computer_server"
+
  [tool.uv.sources]
 -cua-core = { workspace = true }
 -cua-auto = { path = "../cua-auto", editable = true }
 +cua-core = { path = "../core" }
 +cua-auto = { path = "../cua-auto" }
-diff --git a/libs/python/computer-server/computer_server/handlers/cua_driver.py b/libs/python/computer-server/computer_server/handlers/cua_driver.py
-index 7c055c191..b2e296894 100644
---- a/libs/python/computer-server/computer_server/handlers/cua_driver.py
-+++ b/libs/python/computer-server/computer_server/handlers/cua_driver.py
-@@ -48,6 +48,14 @@ class DriverClient(Protocol):
- 
-     async def get_session_state(self, input: Any) -> Any: ...
- 
-+    async def set_agent_cursor_enabled(self, input: Any) -> Any: ...
-+
-+    async def set_agent_cursor_motion(self, input: Any) -> Any: ...
-+
-+    async def set_agent_cursor_theme(self, input: Any) -> Any: ...
-+
-+    async def get_agent_cursor_state(self, input: Any) -> Any: ...
-+
-+    async def call_tool(self, name: str, arguments_json: str) -> DriverResult: ...
-+
-     async def get_desktop_state(self, input: Any) -> DriverResult: ...
- 
-     async def get_screen_size(self, input: Any) -> DriverResult: ...
-@@ -156,6 +164,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                         "window": self._sdk.CaptureScope.WINDOW,
-                         "desktop": self._sdk.CaptureScope.DESKTOP,
-                     }[self._capture_scope],
-+                    cursor_theme=None,
-                 )
-             )
-             if not started.active:
-@@ -216,6 +225,24 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-             "escalation_detail": state.escalation_detail,
-         }
- 
-     @staticmethod
-     def _ok(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-         return {"success": True, **(data or {})}
-@@ -250,6 +277,117 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                 await self._driver.shutdown()
-                 self._closed = True
- 
-+    async def set_agent_cursor_enabled(self, enabled: bool) -> Dict[str, Any]:
-+        """Show or hide the official software-rendered cursor for this session."""
-+
-+        try:
-+            await self._ensure_session()
-+            state = await self._driver.set_agent_cursor_enabled(
-+                self._sdk.SetAgentCursorEnabledInput(
-+                    session=self._session_id,
-+                    enabled=enabled,
-+                )
-+            )
-+            return self._ok(self._result_data(state))
-+        except Exception as error:
-+            return self._error(error)
-+
-+    async def set_agent_cursor_motion(
-+        self,
-+        start_handle: Optional[float] = None,
-+        end_handle: Optional[float] = None,
-+        arc_size: Optional[float] = None,
-+        arc_flow: Optional[float] = None,
-+        spring: Optional[float] = None,
-+        glide_duration_ms: Optional[float] = None,
-+        dwell_after_click_ms: Optional[float] = None,
-+        idle_hide_ms: Optional[float] = None,
-+        turn_radius: Optional[float] = None,
-+    ) -> Dict[str, Any]:
-+        """Configure official cursor motion while retaining CUA defaults."""
-+
-+        try:
-+            await self._ensure_session()
-+            state = await self._driver.set_agent_cursor_motion(
-+                self._sdk.SetAgentCursorMotionInput(
-+                    session=self._session_id,
-+                    start_handle=start_handle,
-+                    end_handle=end_handle,
-+                    arc_size=arc_size,
-+                    arc_flow=arc_flow,
-+                    spring=spring,
-+                    glide_duration_ms=glide_duration_ms,
-+                    dwell_after_click_ms=dwell_after_click_ms,
-+                    idle_hide_ms=idle_hide_ms,
-+                    turn_radius=turn_radius,
-+                )
-+            )
-+            return self._ok(self._result_data(state))
-+        except Exception as error:
-+            return self._error(error)
-+
-+    async def set_agent_cursor_theme(
-+        self,
-+        theme_id: str,
-+        reduced_motion: str = "auto",
-+    ) -> Dict[str, Any]:
-+        """Select one of CUA Driver's installed cursor themes for this session."""
-+
-+        modes = {
-+            "auto": self._sdk.CursorReducedMotion.AUTO,
-+            "on": self._sdk.CursorReducedMotion.ON,
-+            "off": self._sdk.CursorReducedMotion.OFF,
-+        }
-+        normalized = reduced_motion.strip().lower()
-+        if normalized not in modes:
-+            return self._error(ValueError("reduced_motion must be auto, on, or off"))
-+        try:
-+            await self._ensure_session()
-+            state = await self._driver.set_agent_cursor_theme(
-+                self._sdk.SetAgentCursorThemeInput(
-+                    session=self._session_id,
-+                    theme_id=theme_id,
-+                    reduced_motion=modes[normalized],
-+                )
-+            )
-+            return self._ok(self._result_data(state))
-+        except Exception as error:
-+            return self._error(error)
-+
-+    async def get_agent_cursor_state(self) -> Dict[str, Any]:
-+        """Return bounded cursor state for diagnostics and restart recovery."""
-+
-+        try:
-+            await self._ensure_session()
-+            state = await self._driver.get_agent_cursor_state(
-+                self._sdk.GetAgentCursorStateInput(session=self._session_id)
-+            )
-+            data = self._result_data(state)
-+            data["runtime_mode"] = self._mode
-+            data["overlay"] = self._agent_cursor_overlay_window()
-+            data["capture_ready"] = getattr(self, "_cursor_capture_ready", False)
-+            if hasattr(self, "_cursor_capture_evidence"):
-+                data["capture"] = self._cursor_capture_evidence
-+            data["render_ready"] = bool(
-+                data.get("enabled")
-+                and data["overlay"].get("painted")
-+                and data["capture_ready"]
-+            )
-+            return self._ok(data)
-+        except Exception as error:
-+            return self._error(error)
-+
-+    def _agent_cursor_overlay_window(self) -> Dict[str, Any]:
-+        """Inspect the actual mapped and painted CUA X11 overlay window."""
-+
-+        if self._mode != "daemon":
-+            return {
-+                "mapped": False,
-+                "painted": False,
-+                "reason": "The embedded CUA runtime does not own an overlay UI runloop.",
-+            }
-+        connection = None
-+        try:
-+            from Xlib import X, display
-+            from Xlib.ext import shape
-+
-+            connection = display.Display()
-+            for window in connection.screen().root.query_tree().children:
-+                title = window.get_wm_name()
-+                if title != f"Cua.AgentCursorOverlay.{self._session_id}":
-+                    continue
-+                attributes = window.get_attributes()
-+                rectangles = window.shape_get_rectangles(shape.SK.Bounding).rectangles
-+                mapped = attributes.map_state == X.IsViewable
-+                return {
-+                    "mapped": mapped,
-+                    "painted": mapped and len(rectangles) > 0,
-+                    "title": title,
-+                    "bounding_rectangles": len(rectangles),
-+                }
-+            return {
-+                "mapped": False,
-+                "painted": False,
-+                "reason": "CUA's X11 overlay window was not found.",
-+            }
-+        except Exception as error:
-+            return {"mapped": False, "painted": False, "error": str(error)}
-+        finally:
-+            if connection is not None:
-+                connection.close()
-+
-+    async def _sync_agent_cursor_position(
-+        self, x: int, y: int, *, wait_for_glide: bool = False
-+    ) -> Optional[str]:
-+        """Move the overlay without replacing delivery to the real OS pointer."""
-+
-+        try:
-+            # The typed MoveCursorInput deliberately represents only desktop
-+            # pointer delivery. Use the SDK's official protocol-adapter surface
-+            # for the overlay-only form. `cursor_id` selects the exact same
-+            # session-owned overlay key without rebinding the desktop capture
-+            # policy as a forbidden window-scoped action.
-+            result = await self._driver.call_tool(
-+                "move_cursor",
-+                json.dumps({"x": float(x), "y": float(y), "cursor_id": self._session_id}),
-+            )
-+            self._raise_for_error(result)
-+            if wait_for_glide:
-+                # The recording profile uses a 480 ms fixed glide. Keep the
-+                # command open for one extra frame so a following action cannot
-+                # preempt the visible approach animation.
-+                await asyncio.sleep(0.52)
-+            return None
-+        except Exception as error:
-+            return str(error)
-+
-+    async def probe_agent_cursor(self) -> Dict[str, Any]:
-+        """Prove the official overlay changes pixels in a desktop capture."""
-+
-+        try:
-+            from PIL import ImageGrab
-+
-+            await self._ensure_session()
-+            x, y = await self._point(None, None)
-+            size = await self.get_screen_size()
-+            if not size.get("success"):
-+                raise RuntimeError(size.get("error", "Screen size is unavailable"))
-+            width = int(size["size"]["width"])
-+            height = int(size["size"]["height"])
-+            left = max(0, x - 96)
-+            top = max(0, y - 96)
-+            right = min(width, x + 128)
-+            bottom = min(height, y + 128)
-+            box = (left, top, right, bottom)
-+
-+            # Shape/mapping metadata was previously treated as proof of paint,
-+            # but it cannot prove that an X11 screen grab (and therefore
-+            # Daytona's recorder) receives the window's pixels. Compare two
-+            # visible frames against stable hidden frames on both sides so
-+            # unrelated video, caret, or application animation is rejected.
-+            await self._driver.set_agent_cursor_enabled(
-+                self._sdk.SetAgentCursorEnabledInput(
-+                    session=self._session_id,
-+                    enabled=False,
-+                )
-+            )
-+            try:
-+                cursor_sync_error = await self._sync_agent_cursor_position(
-+                    x, y, wait_for_glide=True
-+                )
-+                if cursor_sync_error:
-+                    raise RuntimeError(cursor_sync_error)
-+                await asyncio.sleep(0.08)
-+                hidden_before = await asyncio.to_thread(ImageGrab.grab, bbox=box)
-+                await self._driver.set_agent_cursor_enabled(
-+                    self._sdk.SetAgentCursorEnabledInput(
-+                        session=self._session_id,
-+                        enabled=True,
-+                    )
-+                )
-+                await asyncio.sleep(0.08)
-+                visible_first = await asyncio.to_thread(ImageGrab.grab, bbox=box)
-+                await asyncio.sleep(0.04)
-+                visible_second = await asyncio.to_thread(ImageGrab.grab, bbox=box)
-+                await self._driver.set_agent_cursor_enabled(
-+                    self._sdk.SetAgentCursorEnabledInput(
-+                        session=self._session_id,
-+                        enabled=False,
-+                    )
-+                )
-+                await asyncio.sleep(0.08)
-+                hidden_after = await asyncio.to_thread(ImageGrab.grab, bbox=box)
-+            finally:
-+                # Never leave automation without a pointer if the capture
-+                # probe itself fails (for example during an X server restart).
-+                await self._driver.set_agent_cursor_enabled(
-+                    self._sdk.SetAgentCursorEnabledInput(
-+                        session=self._session_id,
-+                        enabled=True,
-+                    )
-+                )
-+            rgb_frames = [
-+                frame.convert("RGB")
-+                for frame in (hidden_before, visible_first, visible_second, hidden_after)
-+            ]
-+            pixel_frames = [
-+                frame.get_flattened_data()
-+                if hasattr(frame, "get_flattened_data")
-+                else frame.getdata()
-+                for frame in rgb_frames
-+            ]
-+            changed_pixels = 0
-+            unstable_pixels = 0
-+            for hidden_a, visible_a, visible_b, hidden_b in zip(*pixel_frames):
-+                hidden_delta = max(abs(left - right) for left, right in zip(hidden_a, hidden_b))
-+                if hidden_delta > 6:
-+                    unstable_pixels += 1
-+                    continue
-+                visible_delta = min(
-+                    max(abs(left - right) for left, right in zip(visible_a, hidden_a)),
-+                    max(abs(left - right) for left, right in zip(visible_a, hidden_b)),
-+                    max(abs(left - right) for left, right in zip(visible_b, hidden_a)),
-+                    max(abs(left - right) for left, right in zip(visible_b, hidden_b)),
-+                )
-+                if visible_delta >= 12:
-+                    changed_pixels += 1
-+            self._cursor_capture_ready = changed_pixels >= 64
-+            self._cursor_capture_evidence = {
-+                "method": "x11_stable_overlay_delta",
-+                "changed_pixels": changed_pixels,
-+                "unstable_pixels": unstable_pixels,
-+                "minimum_changed_pixels": 64,
-+                "bounds": {
-+                    "left": left,
-+                    "top": top,
-+                    "right": right,
-+                    "bottom": bottom,
-+                },
-+            }
-+            if not self._cursor_capture_ready:
-+                raise RuntimeError(
-+                    "CUA's overlay window did not change stable captured desktop pixels"
-+                )
-+            return await self.get_agent_cursor_state()
-+        except Exception as error:
-+            self._cursor_capture_ready = False
-+            return self._error(error)
-+
-     async def get_capture_scope_state(self) -> Dict[str, Any]:
-         """Return the generated session policy state in the legacy envelope."""
- 
-@@ -329,6 +473,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                     count=count,
-                 )
-             )
-+            await asyncio.sleep(0.26)
-             return self._ok(self._result_data(result))
-         except Exception as error:
-             return self._error(error)
+diff --git a/libs/python/computer-server/tests/test_cua_driver_handler.py b/libs/python/computer-server/tests/test_cua_driver_handler.py
+index e16b2942a..e045fea50 100644
+--- a/libs/python/computer-server/tests/test_cua_driver_handler.py
++++ b/libs/python/computer-server/tests/test_cua_driver_handler.py
+@@ -12,6 +12,11 @@ class _Record:
+         self.__dict__.update(values)
 
-@@ -353,15 +493,20 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-     async def move_cursor(self, x: int, y: int) -> Dict[str, Any]:
-         try:
-             await self._ensure_session()
-+            cursor_sync_error = await self._sync_agent_cursor_position(
-+                x, y, wait_for_glide=True
-+            )
-             result = await self._driver.move_cursor(
-                 self._sdk.MoveCursorInput(
-                     x=float(x),
-                     y=float(y),
-                     scope=self._sdk.DesktopScope.DESKTOP,
-                     session=self._session_id,
-                 )
-             )
--            return self._ok(self._result_data(result))
-+            data = self._result_data(result)
-+            if cursor_sync_error:
-+                data["cursor_sync_error"] = cursor_sync_error
-+            return self._ok(data)
-         except Exception as error:
-             return self._error(error)
- 
-@@ -390,6 +535,9 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-     ) -> Dict[str, Any]:
-         await self._ensure_session()
-+        cursor_sync_error = await self._sync_agent_cursor_position(
-+            start_x, start_y, wait_for_glide=True
-+        )
-         result = await self._driver.drag(
-             self._sdk.DragInput(
-                 from_x=float(start_x),
-@@ -406,7 +554,12 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                 modifier=None,
-             )
+
++class _ActionTarget:
++    class DESKTOP(_Record):
++        pass
++
++
+ class _CaptureScope(Enum):
+     AUTO = "auto"
+     WINDOW = "window"
+@@ -87,6 +92,14 @@ class _Driver:
+             escalation_detail=None,
          )
--        return self._ok(self._result_data(result))
-+        await asyncio.sleep(0.18)
-+        data = self._result_data(result)
-+        if cursor_sync_error:
-+            data["cursor_sync_error"] = cursor_sync_error
-+        return self._ok(data)
 
-     async def drag(
-         self, path: List[Tuple[int, int]], button: str = "left", duration: float = 0.5
-@@ -444,6 +597,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                     session=self._session_id,
-                 )
-             )
-+            await asyncio.sleep(0.18)
-             return self._ok(self._result_data(result))
-         except Exception as error:
-             return self._error(error)
-@@ -458,6 +612,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                     modifiers=None,
-                 )
-             )
-+            await asyncio.sleep(0.18)
-             return self._ok(self._result_data(result))
-         except Exception as error:
-             return self._error(error)
-@@ -476,6 +631,7 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                     session=self._session_id,
-                 )
-             )
-+            await asyncio.sleep(0.18)
-             return self._ok(self._result_data(result))
-         except Exception as error:
-             return self._error(error)
++    async def get_session(self, input):
++        self.calls.append(("get_session", input))
++        return SimpleNamespace(
++            session=None,
++            implicit=True,
++            cursor_visible=True,
++        )
++
+     async def escalate_session(self, input):
+         self.calls.append(("escalate_session", input))
+         return SimpleNamespace(
+@@ -171,10 +184,12 @@ def sdk():
+         ClickButton=_ClickButton,
+         ScrollDirection=_ScrollDirection,
+         ScrollBy=_ScrollBy,
++        ActionTarget=_ActionTarget,
+         StartSessionInput=_Record,
+         EndSessionInput=_Record,
+         EscalateSessionInput=_Record,
+         GetSessionStateInput=_Record,
++        GetSessionInput=_Record,
+         GetDesktopStateInput=_Record,
+         GetScreenSizeInput=_Record,
+         GetCursorPositionInput=_Record,
+@@ -202,7 +217,7 @@ def fallback():
 
-@@ -485,10 +641,12 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-         try:
-             await self._ensure_session()
-             x, y = await self._point(None, None)
-+            cursor_sync_error = await self._sync_agent_cursor_position(x, y)
-             result = await self._driver.scroll(
-                 self._sdk.ScrollInput(
-                     x=float(x),
-                     y=float(y),
-                     direction={
-                         "up": self._sdk.ScrollDirection.UP,
-@@ -495,13 +653,19 @@ class CuaDriverAutomationHandler(BaseAutomationHandler):
-                         "left": self._sdk.ScrollDirection.LEFT,
-                         "right": self._sdk.ScrollDirection.RIGHT,
-                     }[direction],
-                     scope=self._sdk.DesktopScope.DESKTOP,
-                     session=self._session_id,
-                     by=self._sdk.ScrollBy.LINE,
-                     amount=min(50, max(1, amount)),
-                 )
-             )
--            return self._ok(self._result_data(result))
-+            await asyncio.sleep(0.26)
-+            data = self._result_data(result)
-+            if cursor_sync_error:
-+                data["cursor_sync_error"] = cursor_sync_error
-+            return self._ok(data)
-         except Exception as error:
-             return self._error(error)
- 
-diff --git a/libs/python/computer-server/computer_server/main.py b/libs/python/computer-server/computer_server/main.py
-index 9d23b215c..d8627aa7a 100644
---- a/libs/python/computer-server/computer_server/main.py
-+++ b/libs/python/computer-server/computer_server/main.py
-@@ -416,6 +416,13 @@ if hasattr(automation_handler, "get_capture_scope_state"):
-     handlers["get_capture_scope_state"] = automation_handler.get_capture_scope_state
- if hasattr(automation_handler, "escalate_capture_scope"):
-     handlers["escalate_capture_scope"] = automation_handler.escalate_capture_scope
-+for cursor_command in (
-+    "set_agent_cursor_enabled",
-+    "set_agent_cursor_motion",
-+    "set_agent_cursor_theme",
-+    "get_agent_cursor_state",
-+    "probe_agent_cursor",
+
+ @pytest.mark.asyncio
+-async def test_desktop_actions_share_one_typed_session(sdk, fallback):
++async def test_desktop_actions_share_one_implicit_session_and_exact_target(sdk, fallback):
+     driver = _Driver()
+     handler = CuaDriverAutomationHandler(
+         fallback,
+@@ -225,19 +240,24 @@ async def test_desktop_actions_share_one_typed_session(sdk, fallback):
+     assert scroll["success"] is True
+     assert [name for name, _ in driver.calls].count("start_session") == 1
+     start = next(value for name, value in driver.calls if name == "start_session")
+-    assert start.session == "server-a"
+-    assert start.capture_scope is _CaptureScope.DESKTOP
++    assert start.session is None
++    assert start.capture_scope is None
++    assert start.cursor_theme is None
+     clicked = next(value for name, value in driver.calls if name == "click")
+     assert (clicked.x, clicked.y) == (12.0, 34.0)
+-    assert clicked.scope is _DesktopScope.DESKTOP
++    assert clicked.target.display_id == "primary"
++    assert clicked.scope is None
++    assert clicked.session is None
+
+
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize(
+-    ("capture_scope", "expected"),
+-    [("auto", _CaptureScope.AUTO), ("window", _CaptureScope.WINDOW)],
++    "capture_scope",
++    ["auto", "window", "desktop"],
+ )
+-async def test_session_capture_scope_is_configurable(sdk, fallback, capture_scope, expected):
++async def test_legacy_capture_scope_does_not_label_or_bind_implicit_session(
++    sdk, fallback, capture_scope
 +):
-+    if hasattr(automation_handler, cursor_command):
-+        handlers[cursor_command] = getattr(automation_handler, cursor_command)
- 
- 
- class AuthenticationManager:
+     driver = _Driver()
+     handler = CuaDriverAutomationHandler(
+         fallback,
+@@ -250,7 +270,8 @@ async def test_session_capture_scope_is_configurable(sdk, fallback, capture_scop
+     await handler.get_screen_size()
+
+     start = next(value for name, value in driver.calls if name == "start_session")
+-    assert start.capture_scope is expected
++    assert start.session is None
++    assert start.capture_scope is None
+
+
+ @pytest.mark.asyncio
+@@ -266,13 +287,26 @@ async def test_adapter_uses_the_generated_python_contract(fallback):
+     )
+
+     result = await handler.get_screen_size()
++    click = await handler.left_click(12, 34)
++    cursor = await handler.get_agent_cursor_state()
+
+     assert result == {"success": True, "size": {"width": 1280, "height": 720}}
++    assert click["success"] is True
++    assert cursor["success"] is True
+     start = next(value for name, value in driver.calls if name == "start_session")
+     assert isinstance(start, cua_driver.StartSessionInput)
+-    assert start.capture_scope is cua_driver.CaptureScope.DESKTOP
++    assert start.session is None
++    assert start.capture_scope is None
++    assert start.cursor_theme is None
+     request = next(value for name, value in driver.calls if name == "get_screen_size")
+     assert isinstance(request, cua_driver.GetScreenSizeInput)
++    from cua_driver import _native_contract
++
++    clicked = next(value for name, value in driver.calls if name == "click")
++    assert isinstance(clicked, cua_driver.ClickInput)
++    assert isinstance(clicked.target, _native_contract.ActionTarget.DESKTOP)
++    session = next(value for name, value in driver.calls if name == "get_session")
++    assert isinstance(session, _native_contract.GetSessionInput)
+
+
+ @pytest.mark.asyncio
+@@ -323,10 +357,30 @@ async def test_close_ends_owned_session_and_shuts_down_once(sdk, fallback):
+     await handler.close()
+     await handler.close()
+
+-    assert [value.session for value in driver.ended] == ["owned-session"]
++    assert [value.session for value in driver.ended] == [None]
+     assert driver.shutdown_count == 1
+
+
++@pytest.mark.asyncio
++async def test_cursor_diagnostics_keep_the_implicit_session_unlabeled(sdk, fallback):
++    driver = _Driver()
++    handler = CuaDriverAutomationHandler(
++        fallback, driver=driver, sdk=sdk, session_id="must-not-render"
++    )
++
++    state = await handler.get_agent_cursor_state()
++
++    assert state == {
++        "success": True,
++        "session": None,
++        "implicit": True,
++        "enabled": True,
++        "label_visible": False,
++        "theme": {"id": "cua.default"},
++        "runtime_mode": "embedded",
++    }
++
++
+ @pytest.mark.asyncio
+ async def test_non_portable_actions_remain_on_legacy_handler(sdk, fallback):
+     handler = CuaDriverAutomationHandler(fallback, driver=_Driver(), sdk=sdk)

@@ -34,14 +34,15 @@ const REQUIRED_CUA_COMMANDS = [
 ] as const;
 
 const CUA_AGENT_CURSOR_COMMANDS = [
-  "set_agent_cursor_enabled",
   "get_agent_cursor_state",
+  "set_agent_cursor_enabled",
 ] as const;
+const REQUIRED_CUA_AGENT_CURSOR_COMMANDS = ["get_agent_cursor_state"] as const;
 
 const cuaServerStartPromises = new Map<string, Promise<void>>();
 const cuaCursorRecoveryAttemptedAt = new Map<string, number>();
 const cuaCursorRecoveryPromises = new Map<string, Promise<void>>();
-const nativePointerSetupPromises = new WeakMap<object, Promise<void>>();
+const desktopPointerSetupPromises = new WeakMap<object, Map<string, Promise<void>>>();
 
 export interface CuaComputerOptions {
   display?: string;
@@ -60,6 +61,8 @@ export type CuaServerStatus = {
 export type CuaAgentCursorStatus = {
   available: boolean;
   enabled: boolean;
+  implicit?: boolean;
+  labelVisible?: boolean;
   session?: string;
   theme?: string;
   reducedMotion?: "auto" | "on" | "off";
@@ -268,22 +271,29 @@ async function startCuaServer(
   }
 }
 
-async function ensureNativeDesktopPointer(
+async function ensureDesktopPointer(
   sandbox: DaytonaSandbox,
   sandboxOptions: SandboxSessionOptions,
   display: string,
+  mode: "native" | "overlay",
 ): Promise<void> {
-  const existing = nativePointerSetupPromises.get(sandbox);
+  const setupKey = `${display}:${mode}`;
+  const sandboxSetups = desktopPointerSetupPromises.get(sandbox) ?? new Map<string, Promise<void>>();
+  desktopPointerSetupPromises.set(sandbox, sandboxSetups);
+  const existing = sandboxSetups.get(setupKey);
   if (existing) return await existing;
 
+  const theme = mode === "overlay" ? "AutoPRHidden" : "Adwaita";
   const pending = executeSandboxCommand([
     "set -eu",
-    'export XCURSOR_THEME="Adwaita"',
+    `export XCURSOR_THEME="${theme}"`,
     'if command -v xfconf-query >/dev/null 2>&1; then',
-    '  xfconf-query -c xsettings -p /Gtk/CursorThemeName -s Adwaita >/dev/null 2>&1 || true',
+    `  xfconf-query -c xsettings -p /Gtk/CursorThemeName -s "${theme}" >/dev/null 2>&1 || true`,
     '  xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 32 >/dev/null 2>&1 || true',
     "fi",
-    'if command -v xsetroot >/dev/null 2>&1; then xsetroot -cursor_name left_ptr; fi',
+    mode === "overlay"
+      ? 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr 32; fi'
+      : 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -cursor_name left_ptr; fi',
   ].join("\n"), {
     cwd: "/home/daytona",
     timeout: 15,
@@ -296,15 +306,15 @@ async function ensureNativeDesktopPointer(
   }).then((result) => {
     if (result.timedOut || result.exitCode !== 0) {
       const diagnostic = result.stderr || result.stdout || result.output || "unknown pointer setup failure";
-      throw new Error(`Could not restore the native Daytona pointer: ${diagnostic}`);
+      throw new Error(`Could not configure the ${mode} Daytona pointer mode: ${diagnostic}`);
     }
   });
 
-  nativePointerSetupPromises.set(sandbox, pending);
+  sandboxSetups.set(setupKey, pending);
   try {
     await pending;
   } catch (error) {
-    nativePointerSetupPromises.delete(sandbox);
+    sandboxSetups.delete(setupKey);
     throw error;
   }
 }
@@ -417,8 +427,8 @@ export class CuaComputerClient {
         reason: "CUA Driver is unavailable; native computer use and Daytona recording remain active.",
       };
     }
-    if (capabilities.length !== CUA_AGENT_CURSOR_COMMANDS.length) {
-      const missing = CUA_AGENT_CURSOR_COMMANDS.filter(
+    if (!REQUIRED_CUA_AGENT_CURSOR_COMMANDS.every((command) => capabilities.includes(command))) {
+      const missing = REQUIRED_CUA_AGENT_CURSOR_COMMANDS.filter(
         (command) => !(command in commandManifest),
       );
       return {
@@ -440,6 +450,10 @@ export class CuaComputerClient {
     return {
       available: true,
       enabled: state?.enabled === true,
+      implicit: state?.implicit === true,
+      labelVisible: typeof state?.label_visible === "boolean"
+        ? state.label_visible
+        : undefined,
       session: typeof state?.session === "string" ? state.session : undefined,
       theme,
       reducedMotion,
@@ -506,66 +520,67 @@ export class CuaComputerClient {
     };
   }
 
-  private async hideAgentCursor(status: CuaServerStatus): Promise<CuaServerStatus> {
+  private isLabelSafeCursor(status: CuaServerStatus): boolean {
     const cursor = status.cursor;
-    if (status.backend !== "cua-driver" || !cursor?.available) return status;
-    if (!cursor.enabled && !cursor.error) return status;
+    return status.backend === "cua-driver"
+      && cursor?.available === true
+      && cursor.enabled
+      && cursor.implicit === true
+      && cursor.labelVisible === false
+      && cursor.session === undefined
+      && cursor.theme === "cua.default"
+      && cursor.runtimeMode === "daemon"
+      && !cursor.error;
+  }
 
-    try {
-      if (cursor.enabled) {
-        await this.command("set_agent_cursor_enabled", { enabled: false });
-      }
-      const state = await this.command("get_agent_cursor_state");
-      const hiddenCursor: CuaAgentCursorStatus = {
-        ...cursor,
-        enabled: state.enabled === true,
-        session: typeof state.session === "string" ? state.session : cursor.session,
-        theme: isRecord(state.theme) && typeof state.theme.id === "string"
-          ? state.theme.id
-          : cursor.theme,
-        reducedMotion: isRecord(state.theme)
-          && ["auto", "on", "off"].includes(String(state.theme.reduced_motion))
-          ? state.theme.reduced_motion as "auto" | "on" | "off"
-          : cursor.reducedMotion,
-        motion: cursorMotion(state.motion) ?? cursor.motion,
-        visualState: isRecord(state.visual_state) ? state.visual_state : cursor.visualState,
-        runtimeMode: ["daemon", "embedded"].includes(String(state.runtime_mode))
-          ? state.runtime_mode as "daemon" | "embedded"
-          : cursor.runtimeMode,
-        renderReady: state.render_ready === true,
-        captureReady: state.capture_ready === true,
-        capture: isRecord(state.capture) ? state.capture : cursor.capture,
-        overlay: isRecord(state.overlay) ? state.overlay : cursor.overlay,
-        reason: "The branded CUA overlay is disabled; Daytona uses the native desktop pointer.",
-        error: undefined,
-      };
-      if (hiddenCursor.enabled) {
-        hiddenCursor.error = "CUA Driver did not disable its branded agent-cursor overlay.";
-      }
-      return { ...status, cursor: hiddenCursor };
-    } catch (error) {
-      return {
-        ...status,
-        cursor: {
-          ...cursor,
-          error: `Could not disable the CUA agent-cursor overlay: ${errorMessage(error)}`,
-        },
-      };
+  private async useSafePointer(status: CuaServerStatus): Promise<CuaServerStatus> {
+    if (this.isLabelSafeCursor(status)) {
+      await ensureDesktopPointer(this.sandbox, this.sandboxOptions, this.display, "overlay");
+      return status;
     }
+
+    let safeStatus = status;
+    const cursor = status.cursor;
+    if (
+      status.backend === "cua-driver"
+      && cursor?.enabled
+      && cursor.capabilities.includes("set_agent_cursor_enabled")
+    ) {
+      try {
+        await this.command("set_agent_cursor_enabled", { enabled: false });
+        safeStatus = {
+          ...status,
+          cursor: {
+            ...cursor,
+            enabled: false,
+            reason: "The labeled legacy cursor was disabled; the native Daytona pointer is active.",
+          },
+        };
+      } catch (error) {
+        safeStatus = {
+          ...status,
+          cursor: {
+            ...cursor,
+            error: `Could not disable the labeled legacy cursor: ${errorMessage(error)}`,
+          },
+        };
+      }
+    } else if (status.backend === "cua-driver" && cursor?.enabled) {
+      throw new Error(
+        "CUA Driver has a visible cursor but cannot prove it is unlabeled or disable it safely.",
+      );
+    }
+
+    await ensureDesktopPointer(this.sandbox, this.sandboxOptions, this.display, "native");
+    return safeStatus;
   }
 
   async ensureReady(): Promise<CuaServerStatus> {
     let initialStatus: CuaServerStatus | undefined;
     try {
-      initialStatus = await this.hideAgentCursor(await this.inspect());
-      if (
-        initialStatus.backend === "cua-driver"
-        && initialStatus.cursor?.available
-        && !initialStatus.cursor.enabled
-        && !initialStatus.cursor.error
-      ) {
-        await ensureNativeDesktopPointer(this.sandbox, this.sandboxOptions, this.display);
-        return initialStatus;
+      initialStatus = await this.inspect();
+      if (this.isLabelSafeCursor(initialStatus)) {
+        return await this.useSafePointer(initialStatus);
       }
     } catch {
       // The server is installed in the AutoPR snapshot and started lazily. The
@@ -602,38 +617,37 @@ export class CuaComputerClient {
 
     if (recovery) {
       try {
-        // A healthy native server is still degraded on Driver-capable images.
-        // Running the image launcher lets it replace a stale native fallback,
-        // restart a Driver whose overlay thread died, and then re-probe the
-        // exact session before the next action (especially start_recording).
+        // A healthy native or labeled legacy server is still degraded on a
+        // 0.20-capable image. Let the image launcher replace it before the next
+        // action, especially before Daytona starts recording.
         await recovery;
       } catch (error) {
         if (initialStatus) {
+          const safeInitialStatus = await this.useSafePointer(initialStatus);
           return {
-            ...initialStatus,
-            cursor: initialStatus.cursor
+            ...safeInitialStatus,
+            cursor: safeInitialStatus.cursor
               ? {
-                  ...initialStatus.cursor,
+                  ...safeInitialStatus.cursor,
                   recoveryAttempted: true,
-                  error: initialStatus.cursor.error
-                    ? `${initialStatus.cursor.error} Recovery failed: ${errorMessage(error)}`
+                  error: safeInitialStatus.cursor.error
+                    ? `${safeInitialStatus.cursor.error} Recovery failed: ${errorMessage(error)}`
                     : `CUA Driver cursor recovery failed: ${errorMessage(error)}`,
                 }
-              : initialStatus.cursor,
+              : safeInitialStatus.cursor,
           };
         }
         throw error;
       }
     } else if (initialStatus) {
-      return initialStatus;
+      return await this.useSafePointer(initialStatus);
     }
 
     const deadline = Date.now() + CUA_SERVER_READY_TIMEOUT_MS;
     let lastError: unknown;
     while (Date.now() < deadline) {
       try {
-        const recovered = await this.hideAgentCursor(await this.inspect());
-        await ensureNativeDesktopPointer(this.sandbox, this.sandboxOptions, this.display);
+        const recovered = await this.useSafePointer(await this.inspect());
         return {
           ...recovered,
           cursor: recovered.cursor

@@ -8,7 +8,7 @@ const DEFAULT_TOOL_SNIPPETS: Record<string, string> = {
   write: "Create or overwrite files with complete content",
   bash: "Execute shell commands inside the Daytona sandbox",
   process: "Poll, interact with, and terminate background shell commands",
-  computer: "Use CUA inside the Daytona Linux desktop for browser demos, screenshots, and mouse/keyboard interaction; use Daytona recording actions for demo videos",
+  computer: "Use CUA inside the Daytona Linux desktop for browser testing, screenshots, and mouse/keyboard interaction; demo-enabled turns can also use Daytona recording actions",
 };
 
 const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
@@ -49,7 +49,7 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   ],
   computer: [
     "Inspect the repository and terminal state to choose the preview command, localhost URL, route, and UI path yourself.",
-    "Demo mode gives you permission to run a dev or preview process inside Daytona when useful; do not assume a hard-coded command or URL.",
+    "You may run a dev or preview process inside Daytona when browser testing is useful; do not assume a hard-coded command or URL.",
     "Use the CUA-backed computer tool with actions[] for small batches of desktop actions; it returns the latest screenshot as image content after relevant screen actions.",
     "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available. Coordinates are absolute screen pixels.",
     "Inspect a fresh screenshot before coordinate-sensitive interactions, and verify the resulting screen state before continuing.",

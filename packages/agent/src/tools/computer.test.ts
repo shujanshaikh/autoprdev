@@ -143,7 +143,10 @@ describe("CUA computer tool timeout quarantine", () => {
   });
 
   it("initializes the visible CUA cursor before starting a Daytona recording", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "computer-recording-start" });
+    const computer = createCuaComputerTool(
+      { cacheKey: "computer-recording-start" },
+      { recordingEnabled: true },
+    );
     if (!computer.execute) throw new Error("computer tool is not executable");
 
     await computer.execute(
@@ -159,6 +162,23 @@ describe("CUA computer tool timeout quarantine", () => {
     );
   });
 
+  it("blocks starting a recording when demo mode is disabled without touching the sandbox", async () => {
+    const computer = createCuaComputerTool(
+      { cacheKey: "computer-recording-disabled" },
+      { recordingEnabled: false },
+    );
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    await expect(computer.execute(
+      { actions: [{ type: "start_recording", title: "Unapproved demo" }] },
+      { toolCallId: "computer-recording-disabled", messages: [] },
+    )).rejects.toThrow("Demo recording is disabled for this thread");
+
+    expect(mocks.getSandboxContext).not.toHaveBeenCalled();
+    expect(startRecording).not.toHaveBeenCalled();
+    expect(mocks.ensureReady).not.toHaveBeenCalled();
+  });
+
   it("keeps movement, clicks, drag, and scroll positioning on the CUA action path", async () => {
     mocks.command.mockImplementation(async (command: string) => {
       if (command === "screenshot") {
@@ -172,7 +192,10 @@ describe("CUA computer tool timeout quarantine", () => {
       }
       return { success: true };
     });
-    const computer = createCuaComputerTool({ cacheKey: "computer-cursor-actions" });
+    const computer = createCuaComputerTool(
+      { cacheKey: "computer-cursor-actions" },
+      { recordingEnabled: false },
+    );
     if (!computer.execute) throw new Error("computer tool is not executable");
 
     await computer.execute({

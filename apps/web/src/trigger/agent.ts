@@ -1,6 +1,7 @@
 import {
   applyAgenticCache,
   CodingHarness,
+  COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
   createAgentStepController,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
@@ -206,7 +207,7 @@ async function runAgentTask(
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
   const harness = new CodingHarness({
     ...sandboxOptions,
-    computer: demoRecordingEnabled ? {} : false,
+    computer: { recordingEnabled: demoRecordingEnabled },
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
@@ -218,7 +219,7 @@ async function runAgentTask(
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
       demoRecordingEnabled
         ? DEMO_RECORDING_INSTRUCTIONS
-        : undefined,
+        : COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
     ]
       .filter(Boolean)
       .join("\n"),

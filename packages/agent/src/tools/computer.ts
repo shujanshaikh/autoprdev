@@ -267,7 +267,10 @@ const computerInputSchema = legacyActionSchema.extend({
 type ComputerAction = z.infer<typeof computerActionSchema>;
 type ComputerInput = z.infer<typeof computerInputSchema>;
 
-export type CuaComputerToolOptions = CuaComputerOptions;
+export interface CuaComputerToolOptions extends CuaComputerOptions {
+  /** Allows starting new Daytona recordings. Keep disabled outside demo-enabled turns. */
+  recordingEnabled?: boolean;
+}
 
 type DaytonaRecording = {
   id?: unknown;
@@ -1097,6 +1100,15 @@ async function executeCuaComputer(
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions,
 ) {
+  if (
+    computerOptions.recordingEnabled !== true
+    && input.actions.some((action) => action.type === "start_recording")
+  ) {
+    throw new Error(
+      "Demo recording is disabled for this thread. Enable demo mode before starting a screen recording.",
+    );
+  }
+
   const context = await getSandboxContext(sandboxOptions);
   const { computerUse } = context.sandbox;
   return serializeComputerOperations(computerUse, (track) => executeCuaComputerActions(
@@ -1225,10 +1237,13 @@ export function createCuaComputerTool(
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions = {},
 ) {
+  const recordingDescription = computerOptions.recordingEnabled === true
+    ? "Demo recordings are enabled and backed by Daytona."
+    : "Screen recording is disabled for this thread; CUA browser testing and GUI interaction remain available.";
+
   return tool<ComputerInput, Awaited<ReturnType<typeof executeCuaComputer>>>({
     title: "computer",
-    description:
-      "Inspect and operate the Daytona Linux desktop through CUA for HTTP(S) browser previews, screenshots, and GUI interaction. Demo recordings remain backed by Daytona. Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh CUA screenshot when screen state matters. Mutates GUI/recording state; keep batches small and re-check before coordinate-sensitive actions.",
+    description: `Inspect and operate the Daytona Linux desktop through CUA for HTTP(S) browser previews, screenshots, and GUI interaction. ${recordingDescription} Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh CUA screenshot when screen state matters. Mutates GUI state; keep batches small and re-check before coordinate-sensitive actions.`,
     inputSchema: computerInputSchema,
     toModelOutput: ({ output }) => output,
     execute: (input) => executeCuaComputer(input, sandboxOptions, computerOptions),

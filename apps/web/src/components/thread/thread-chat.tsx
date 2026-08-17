@@ -83,6 +83,8 @@ import {
 } from "#/components/codex-prompt-connection-line";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
+import { activeComputerToolCallId } from "#/components/thread/thread-computer-activity";
+import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
   getCodexReasoningEffortLabel,
@@ -1568,6 +1570,10 @@ function ThreadChatRuntime({
   const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
     ? lastMessage.id
     : undefined;
+  const activeComputerToolCall = useMemo(
+    () => activeAssistantMessageId ? activeComputerToolCallId(lastMessage) : undefined,
+    [activeAssistantMessageId, lastMessage],
+  );
   const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
@@ -1747,6 +1753,11 @@ function ThreadChatRuntime({
               : []}
             workspaceDiffLoadingFile={workspaceDiffLoadingFile}
             onSelectChangedFile={handleSelectChangedFile}
+          />
+          <ThreadComputerPreview
+            projectId={projectId}
+            activityKey={activeAssistantMessageId}
+            active={Boolean(activeComputerToolCall)}
           />
         </div>
 

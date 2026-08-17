@@ -10,12 +10,15 @@ type DaytonaDesktopViewProps = {
   websocketUrl?: string;
   loading?: boolean;
   className?: string;
+  interactive?: boolean;
 };
 
 type RfbInstance = {
   scaleViewport: boolean;
   resizeSession: boolean;
   clipViewport: boolean;
+  // noVNC exposes this at runtime but omits it from its published TypeScript declaration.
+  viewOnly?: boolean;
   background: string;
   focus: () => void;
   disconnect: () => void;
@@ -29,13 +32,19 @@ type RfbConstructor = new (
   options?: { shared?: boolean; credentials?: Record<string, string> },
 ) => RfbInstance;
 
-function applyFixedDesktopMode(rfb: RfbInstance) {
+function applyFixedDesktopMode(rfb: RfbInstance, interactive: boolean) {
   rfb.clipViewport = false;
   rfb.scaleViewport = true;
   rfb.resizeSession = false;
+  rfb.viewOnly = !interactive;
 }
 
-export function DaytonaDesktopView({ websocketUrl, loading = false, className }: DaytonaDesktopViewProps) {
+export function DaytonaDesktopView({
+  websocketUrl,
+  loading = false,
+  className,
+  interactive = true,
+}: DaytonaDesktopViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RfbInstance | null>(null);
@@ -106,9 +115,11 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
     const handleConnect: EventListener = () => {
       updateConnection({ state: "connected" });
       if (activeRfb) {
-        applyFixedDesktopMode(activeRfb);
+        applyFixedDesktopMode(activeRfb, interactive);
       }
-      window.requestAnimationFrame(() => activeRfb?.focus());
+      if (interactive) {
+        window.requestAnimationFrame(() => activeRfb?.focus());
+      }
     };
     const handleDisconnect: EventListener = (event) => {
       const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
@@ -134,7 +145,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
 
         const RFB = module.default as RfbConstructor;
         const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
-        applyFixedDesktopMode(rfb);
+        applyFixedDesktopMode(rfb, interactive);
         rfb.background = "#000000";
 
         rfb.addEventListener("connect", handleConnect);
@@ -164,7 +175,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
       rfb?.disconnect();
       container.replaceChildren();
     };
-  }, [websocketUrl]);
+  }, [interactive, websocketUrl]);
 
   const { state, error } = connection;
   const showOverlay = loading || !websocketUrl || state === "connecting" || state === "error";
@@ -179,11 +190,14 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
     >
       <div
         ref={containerRef}
-        role="application"
-        aria-label="Remote desktop"
-        className="shrink-0 overflow-hidden bg-black [&>div]:!h-full [&>div]:!w-full [&>div]:!overflow-hidden [&_canvas]:outline-none"
+        role={interactive ? "application" : "img"}
+        aria-label={interactive ? "Remote desktop" : "Live remote desktop preview"}
+        className={cn(
+          "shrink-0 overflow-hidden bg-black [&>div]:!h-full [&>div]:!w-full [&>div]:!overflow-hidden [&_canvas]:outline-none",
+          !interactive && "pointer-events-none select-none",
+        )}
         style={frameStyle}
-        onMouseDown={() => rfbRef.current?.focus()}
+        onMouseDown={interactive ? () => rfbRef.current?.focus() : undefined}
       />
 
       {showOverlay ? (

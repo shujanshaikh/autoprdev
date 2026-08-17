@@ -67,6 +67,7 @@ describe("CUA computer-server response parsing", () => {
     expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
     expect(launcher).toContain('flock 9');
     expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_ready; then'));
+    expect(launcher.match(/9>&-/g)).toHaveLength(2);
     expect(launcher).toContain('kill -KILL "$pid"');
     expect(launcher).toContain("--driver-mode daemon");
     expect(launcher).toContain("probe_agent_cursor");
@@ -83,6 +84,7 @@ describe("CUA computer-server response parsing", () => {
     expect(compatibilityPatch).toContain('"method": "x11_stable_overlay_delta"');
     expect(compatibilityPatch).toContain("for hidden_a, visible_a, visible_b, hidden_b");
     expect(compatibilityPatch).toContain("ImageGrab.grab, bbox=box");
+    expect(dockerfile).toMatch(/sha256sum -c - \\\n\s+&& tar -xzf/);
     expect(dockerfile).toContain("XCURSOR_THEME=Adwaita");
     expect(desktopSession).toContain('CURSOR_THEME="Adwaita"');
     expect(desktopSession).toContain("xsetroot -cursor_name left_ptr");

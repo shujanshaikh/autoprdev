@@ -105,6 +105,7 @@ stop_owned_driver() {
 start_driver() {
   : >"$CUA_DRIVER_LOG_FILE"
   rm -f "$CUA_DRIVER_SOCKET"
+  # The daemon must not retain the launcher's advisory lock after this shell exits.
   nohup "$CUA_DRIVER_BIN" serve \
     --socket "$CUA_DRIVER_SOCKET" \
     --cursor-theme dev.autopr.cursor.neon \
@@ -112,6 +113,7 @@ start_driver() {
     --glide-ms 480 \
     --dwell-ms 260 \
     --idle-hide-ms 0 \
+    9>&- \
     >>"$CUA_DRIVER_LOG_FILE" 2>&1 &
   echo "$!" >"$CUA_DRIVER_PID_FILE"
 
@@ -180,11 +182,13 @@ if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 start_server() {
+  # The server is long-lived, so close the launcher's lock descriptor in the child.
   nohup "$CUA_RUNTIME/bin/cua-computer-server" \
     --host 0.0.0.0 \
     --port "$CUA_PORT" \
     "$@" \
     --log-level warning \
+    9>&- \
     >>"$CUA_LOG_FILE" 2>&1 &
   echo "$!" >"$CUA_PID_FILE"
 }

@@ -201,24 +201,39 @@ describe("CUA computer tool timeout quarantine", () => {
   });
 
   it("paces CUA typing when the caller requests a per-key delay", async () => {
-    mocks.command.mockImplementation(async (command: string) => {
-      if (command === "screenshot") {
-        return { success: true, image_data: "AA==", format: "jpeg" };
-      }
-      return { success: true };
-    });
-    const computer = createCuaComputerTool({ cacheKey: "computer-paced-typing" });
-    if (!computer.execute) throw new Error("computer tool is not executable");
+    vi.useFakeTimers();
+    try {
+      mocks.command.mockImplementation(async (command: string) => {
+        if (command === "screenshot") {
+          return { success: true, image_data: "AA==", format: "jpeg" };
+        }
+        return { success: true };
+      });
+      const computer = createCuaComputerTool({ cacheKey: "computer-paced-typing" });
+      if (!computer.execute) throw new Error("computer tool is not executable");
 
-    await computer.execute(
-      { actions: [{ type: "type", text: "ab", delayMs: 1 }] },
-      { toolCallId: "computer-paced-typing", messages: [] },
-    );
+      const execution = computer.execute(
+        { actions: [{ type: "type", text: "ab", delayMs: 25 }] },
+        { toolCallId: "computer-paced-typing", messages: [] },
+      );
+      await vi.advanceTimersByTimeAsync(0);
 
-    const typingCalls = mocks.command.mock.calls.filter(([command]) => command === "type_text");
-    expect(typingCalls).toEqual([
-      ["type_text", { text: "a" }],
-      ["type_text", { text: "b" }],
-    ]);
+      const typingCalls = () => mocks.command.mock.calls.filter(
+        ([command]) => command === "type_text",
+      );
+      expect(typingCalls()).toEqual([["type_text", { text: "a" }]]);
+
+      await vi.advanceTimersByTimeAsync(24);
+      expect(typingCalls()).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await execution;
+      expect(typingCalls()).toEqual([
+        ["type_text", { text: "a" }],
+        ["type_text", { text: "b" }],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

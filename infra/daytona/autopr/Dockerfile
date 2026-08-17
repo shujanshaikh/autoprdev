@@ -184,21 +184,21 @@ RUN command -v uv >/dev/null \
     fi \
     && CUA_EXPECTED_VERSION="$CUA_COMPUTER_SERVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; assert version("cua-computer-server") == os.environ["CUA_EXPECTED_VERSION"]' \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-      CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput, get_binary_path; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert get_binary_path().is_file(); assert all(hasattr(CuaDriver, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme")); assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme", "probe_agent_cursor"))'; \
-      /opt/autopr/cua/bin/cua-computer-server --help | grep -q 'cua-driver'; \
-      theme_build="$(mktemp -d)"; \
-      theme_archive="cua-driver-rs-${CUA_DRIVER_VERSION}-linux-x86_64-binary.tar.gz"; \
-      curl -fsSL "https://github.com/trycua/cua/releases/download/cua-driver-rs-v${CUA_DRIVER_VERSION}/${theme_archive}" -o "${theme_build}/${theme_archive}"; \
-      echo "${CUA_DRIVER_RELEASE_SHA256}  ${theme_build}/${theme_archive}" | sha256sum -c -; \
-      tar -xzf "${theme_build}/${theme_archive}" -C "$theme_build" cua-cursor-theme; \
-      python3 /tmp/autopr-build-cursor-theme.py --output "${theme_build}/autopr-neon.lottie"; \
-      "${theme_build}/cua-cursor-theme" validate "${theme_build}/autopr-neon.lottie"; \
-      "${theme_build}/cua-cursor-theme" build "${theme_build}/autopr-neon.lottie" --output "${theme_build}/dev.autopr.cursor.neon.cua-theme"; \
-      cursor_theme_inspection="$("${theme_build}/cua-cursor-theme" inspect "${theme_build}/dev.autopr.cursor.neon.cua-theme")"; \
-      printf '%s\n' "$cursor_theme_inspection" | grep -Fqx 'id: dev.autopr.cursor.neon'; \
-      install -d -m 0755 -o daytona -g daytona /home/daytona/.local/share/cua-driver/cursor-themes; \
-      install -m 0644 -o daytona -g daytona "${theme_build}/dev.autopr.cursor.neon.cua-theme" /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; \
-      rm -rf "$theme_build"; \
+      CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput, get_binary_path; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert get_binary_path().is_file(); assert all(hasattr(CuaDriver, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme")); assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme", "probe_agent_cursor"))' \
+      && /opt/autopr/cua/bin/cua-computer-server --help | grep -q 'cua-driver' \
+      && theme_build="$(mktemp -d)" \
+      && theme_archive="cua-driver-rs-${CUA_DRIVER_VERSION}-linux-x86_64-binary.tar.gz" \
+      && curl -fsSL "https://github.com/trycua/cua/releases/download/cua-driver-rs-v${CUA_DRIVER_VERSION}/${theme_archive}" -o "${theme_build}/${theme_archive}" \
+      && echo "${CUA_DRIVER_RELEASE_SHA256}  ${theme_build}/${theme_archive}" | sha256sum -c - \
+      && tar -xzf "${theme_build}/${theme_archive}" -C "$theme_build" cua-cursor-theme \
+      && python3 /tmp/autopr-build-cursor-theme.py --output "${theme_build}/autopr-neon.lottie" \
+      && "${theme_build}/cua-cursor-theme" validate "${theme_build}/autopr-neon.lottie" \
+      && "${theme_build}/cua-cursor-theme" build "${theme_build}/autopr-neon.lottie" --output "${theme_build}/dev.autopr.cursor.neon.cua-theme" \
+      && cursor_theme_inspection="$("${theme_build}/cua-cursor-theme" inspect "${theme_build}/dev.autopr.cursor.neon.cua-theme")" \
+      && printf '%s\n' "$cursor_theme_inspection" | grep -Fqx 'id: dev.autopr.cursor.neon' \
+      && install -d -m 0755 -o daytona -g daytona /home/daytona/.local/share/cua-driver/cursor-themes \
+      && install -m 0644 -o daytona -g daytona "${theme_build}/dev.autopr.cursor.neon.cua-theme" /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme \
+      && rm -rf "$theme_build"; \
     fi \
     && rm -rf "$cua_source" "$cua_wheels" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-cursor-theme.py /tmp/autopr-build-hidden-xcursor.py \
     && CUA_EXPECTED_CORE_VERSION="$CUA_CORE_VERSION" CUA_EXPECTED_AUTO_VERSION="$CUA_AUTO_VERSION" PYNPUT_BACKEND=dummy /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; import cua_auto, cua_core; from cua_core.telemetry import record_event; import computer_server.main; assert version("cua-core") == os.environ["CUA_EXPECTED_CORE_VERSION"]; assert version("cua-auto") == os.environ["CUA_EXPECTED_AUTO_VERSION"]'

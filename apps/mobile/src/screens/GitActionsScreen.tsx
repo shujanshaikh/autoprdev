@@ -1,24 +1,9 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "convex/react";
-import {
-  CircleArrowDown,
-  CircleArrowOutUpRight,
-  CircleArrowUp,
-  CircleCheckBig,
-  GitBranch,
-  MessageSquareText,
-  RefreshCw,
-} from "lucide-react-native";
+import { CircleArrowDown, CircleArrowOutUpRight, CircleArrowUp, CircleCheckBig, GitBranch, MessageSquareText, RefreshCw } from "lucide-react-native";
 import { useCallback, useLayoutEffect, useState } from "react";
-import {
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GitOperationProgress } from "../components/git/GitOperationProgress";
@@ -26,13 +11,7 @@ import { SheetCard, SheetMetaCard, SheetRow, SheetSectionTitle } from "../compon
 import { ErrorNotice, LoadingState } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadGit } from "../hooks/useThreadGit";
-import {
-  gitStatusSummary,
-  rowAction,
-  rowDetail,
-  rowLabel,
-  type GitOverviewRow,
-} from "../lib/gitActions";
+import { gitStatusSummary, rowAction, rowDetail, rowLabel, type GitOverviewRow } from "../lib/gitActions";
 import { openExternalUrl } from "../lib/openUrl";
 import type { RootStackParamList } from "../types";
 

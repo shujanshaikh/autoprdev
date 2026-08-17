@@ -1,3 +1,4 @@
+
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubPullRequestForBranch } from "@autopr/backend/convex/lib/github_oauth";
@@ -9,29 +10,11 @@ import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
 import { pullProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
 import { generateThreadTitle } from "#/lib/generated-git-metadata";
-import {
-  getGithubOAuthToken,
-  getGithubRepositoryToken,
-  getGithubRepositoryTokenForFullName,
-  GithubConnectionError,
-  requireWorkOSAuth,
-  safeErrorMessage,
-} from "#/lib/github-oauth-server";
-import {
-  readThreadGitFileDiff,
-  readThreadGitStatus,
-  SandboxRuntimeNotStartedError,
-  ThreadGitFileNotChangedError,
-} from "#/lib/thread-git-status-server";
+import { getGithubOAuthToken, getGithubRepositoryToken, getGithubRepositoryTokenForFullName, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
+import { readThreadGitFileDiff, readThreadGitStatus, SandboxRuntimeNotStartedError, ThreadGitFileNotChangedError } from "#/lib/thread-git-status-server";
 import { runThreadGitWorkflow } from "#/lib/thread-git-workflow-server";
-import {
-  ThreadGitMutationConflictError,
-  withThreadGitMutation,
-} from "#/lib/thread-git-mutation-server";
-import {
-  persistedThreadWorkspace,
-  resolveThreadWorkspaceCoordinates,
-} from "#/lib/thread-workspace-server";
+import { ThreadGitMutationConflictError, withThreadGitMutation } from "#/lib/thread-git-mutation-server";
+import { persistedThreadWorkspace, resolveThreadWorkspaceCoordinates } from "#/lib/thread-workspace-server";
 
 const postRequestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -54,7 +37,7 @@ const postRequestSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
-function errorMessage(error: unknown) {
+function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : "Could not load recording.";
 }
 
@@ -479,11 +462,11 @@ export const Route = createFileRoute("/api/project/$projectId/thread/$threadId")
   server: {
     handlers: {
       GET: async ({ request, params }: { request: Request; params: any }) =>
-        GET(request, { params: Promise.resolve(params) } as any),
+        GET(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any),
       POST: async ({ request, params }: { request: Request; params: any }) =>
-        POST(request, { params: Promise.resolve(params) } as any),
+        POST(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any),
       DELETE: async ({ request, params }: { request: Request; params: any }) =>
-        DELETE(request, { params: Promise.resolve(params) } as any),
+        DELETE(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any),
     },
   },
 });

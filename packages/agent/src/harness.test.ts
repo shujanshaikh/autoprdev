@@ -6,19 +6,13 @@ const mocks = vi.hoisted(() => ({
   prepareDaytonaSandbox: vi.fn(),
 }));
 
-vi.mock("./tools", () => ({
-  createDaytonaTools: mocks.createDaytonaTools,
-}));
-
-vi.mock("./project-instructions", () => ({
-  loadSandboxProjectInstructions: mocks.loadSandboxProjectInstructions,
-}));
-
-vi.mock("./steps", () => ({
-  prepareDaytonaSandbox: mocks.prepareDaytonaSandbox,
-}));
-
 import { CodingHarness, CodingHarnessBusyError, type CodingHarnessEvent } from "./harness";
+
+const dependencies = {
+  createDaytonaTools: mocks.createDaytonaTools,
+  loadSandboxProjectInstructions: mocks.loadSandboxProjectInstructions,
+  prepareDaytonaSandbox: mocks.prepareDaytonaSandbox,
+};
 
 describe("CodingHarness", () => {
   beforeEach(() => {
@@ -40,7 +34,7 @@ describe("CodingHarness", () => {
   });
 
   it("prepares once and exposes a deterministic run lifecycle", async () => {
-    const harness = new CodingHarness({ cacheKey: "harness-test" });
+    const harness = new CodingHarness({ cacheKey: "harness-test" }, dependencies);
     const events: CodingHarnessEvent[] = [];
     harness.on((event) => {
       events.push(event);
@@ -73,7 +67,7 @@ describe("CodingHarness", () => {
     const harness = new CodingHarness({
       cacheKey: "harness-tools",
       selectedTools: [" read ", "missing", "read", "process", ""],
-    });
+    }, dependencies);
 
     const context = await harness.prepare();
 
@@ -85,7 +79,7 @@ describe("CodingHarness", () => {
   it("returns to idle after preparation failure and can retry", async () => {
     const failure = new Error("sandbox unavailable");
     mocks.prepareDaytonaSandbox.mockRejectedValueOnce(failure);
-    const harness = new CodingHarness({ cacheKey: "harness-retry" });
+    const harness = new CodingHarness({ cacheKey: "harness-retry" }, dependencies);
     const events: CodingHarnessEvent[] = [];
     harness.on((event) => {
       events.push(event);
@@ -104,7 +98,7 @@ describe("CodingHarness", () => {
   it("isolates listener failures from the agent run", async () => {
     const listenerFailure = new Error("telemetry offline");
     const onListenerError = vi.fn();
-    const harness = new CodingHarness({ cacheKey: "harness-listener", onListenerError });
+    const harness = new CodingHarness({ cacheKey: "harness-listener", onListenerError }, dependencies);
     harness.on(() => {
       throw listenerFailure;
     });
@@ -116,7 +110,7 @@ describe("CodingHarness", () => {
   });
 
   it("rejects overlapping runs without corrupting the active run", async () => {
-    const harness = new CodingHarness({ cacheKey: "harness-busy" });
+    const harness = new CodingHarness({ cacheKey: "harness-busy" }, dependencies);
     let releaseRun!: () => void;
     const activeRun = harness.run(() => new Promise<void>((resolve) => {
       releaseRun = resolve;

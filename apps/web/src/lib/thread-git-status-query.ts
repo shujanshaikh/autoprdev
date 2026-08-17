@@ -27,7 +27,7 @@ export function useThreadGitStatusQuery(options: {
       const response = await fetch(
         `/api/project/${encodeURIComponent(options.projectId)}/thread/${encodeURIComponent(options.threadId)}?gitStatus=1&refresh=1`,
       );
-      const body = (await response.json().catch(() => ({}))) as GitStatusResponse;
+      const body = (await response.json().catch(() => ({}))) satisfies GitStatusResponse;
       if (!response.ok || !body.status) {
         throw new Error(body.error?.message ?? "Could not refresh Git status.");
       }

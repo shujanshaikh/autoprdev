@@ -1,11 +1,5 @@
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  type CodeViewItem,
-  type CodeViewLineSelection,
-  type CodeViewOptions,
-  type SelectedLineRange,
-  type ThemeTypes,
-} from "@pierre/diffs";
+import { type CodeViewItem, type CodeViewLineSelection, type CodeViewOptions, type SelectedLineRange, type ThemeTypes } from "@pierre/diffs";
 import { CodeView, type CodeViewHandle } from "@pierre/diffs/react";
 import { Check, ChevronDown, ChevronRight, Copy, Link2 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -13,13 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { usePierreDiffPreferences } from "@/components/ai-elements/pierre-diff-view";
 import { pathParts } from "#/lib/file-type-icon";
-import {
-  createDiffPromptContext,
-  createThreadDiffCodeViewItem,
-  type DiffPromptContext,
-  type ThreadDiffDeepLink,
-  type ThreadDiffEntry,
-} from "./thread-diff-panel-utils";
+import { createDiffPromptContext, createThreadDiffCodeViewItem, type DiffPromptContext, type ThreadDiffDeepLink, type ThreadDiffEntry } from "./thread-diff-panel-utils";
 
 const CODE_VIEW_CSS = `
 [data-diffs-header] {

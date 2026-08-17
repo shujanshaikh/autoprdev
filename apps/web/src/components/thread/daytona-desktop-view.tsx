@@ -111,7 +111,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
       window.requestAnimationFrame(() => activeRfb?.focus());
     };
     const handleDisconnect: EventListener = (event) => {
-      const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
+      const detail = (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ event as CustomEvent<{ clean?: boolean }>).detail;
       if (disposed) return;
       updateConnection(
         detail?.clean === false
@@ -132,7 +132,7 @@ export function DaytonaDesktopView({ websocketUrl, loading = false, className }:
       .then((module) => {
         if (disposed || !containerRef.current) return;
 
-        const RFB = module.default as RfbConstructor;
+        const RFB = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ module.default as RfbConstructor;
         const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
         applyFixedDesktopMode(rfb);
         rfb.background = "#000000";

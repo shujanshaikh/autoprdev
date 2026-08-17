@@ -9,13 +9,13 @@ import { SheetActionButton } from "../SheetList";
 
 type GitOperation = Doc<"gitOperations">;
 
-const phaseLabels: Record<GitWorkflowPhase, string> = {
+const phaseLabels = {
   branch: "Created branch",
   validate: "Running validation/hooks",
   commit: "Committed files",
   push: "Pushed to GitHub",
   pull_request: "Created pull request",
-};
+} satisfies Record<GitWorkflowPhase, string>;
 
 /**
  * The per-phase checklist the web thread shows while a Git workflow runs,

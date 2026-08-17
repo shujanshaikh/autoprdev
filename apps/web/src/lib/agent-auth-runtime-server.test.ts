@@ -1,16 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@tanstack/react-start/server-only", () => ({}));
-vi.mock("#/lib/codex-auth-runtime-server", () => ({
-  createCodexResponsesModel: vi.fn(),
-  revokeCodexAgentGrant: vi.fn(),
-}));
-vi.mock("#/lib/grok-auth-runtime-server", () => ({
-  createGrokResponsesModel: vi.fn(),
-  revokeGrokAgentGrant: vi.fn(),
-}));
-
-import { createGrokResponsesModel } from "#/lib/grok-auth-runtime-server";
 import { agentProviderOptions, agentSystemPrompt, createAgentResponsesModel } from "./agent-auth-runtime-server";
 import type { AgentModelOptions } from "./trigger-agent-contract";
 
@@ -18,6 +7,13 @@ const grantContext = {
   userId: "user-1",
   taskId: "autopr-agent" as const,
   contextId: "thread-1",
+};
+
+const dependencies = {
+  createCodexResponsesModel: vi.fn(),
+  createGrokResponsesModel: vi.fn(),
+  revokeCodexAgentGrant: vi.fn(),
+  revokeGrokAgentGrant: vi.fn(),
 };
 
 describe("agent provider prompt routing", () => {
@@ -69,8 +65,8 @@ describe("agent provider prompt routing", () => {
     expect(agentProviderOptions(model, "system instructions")).toEqual({
       xai: { reasoningEffort: undefined, store: false },
     });
-    void createAgentResponsesModel(model);
-    expect(createGrokResponsesModel).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: "xhigh" }));
+    void createAgentResponsesModel(model, dependencies);
+    expect(dependencies.createGrokResponsesModel).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: "xhigh" }));
   });
 
   it("removes xhigh from Grok models that do not support it", () => {
@@ -82,7 +78,7 @@ describe("agent provider prompt routing", () => {
       credentialsGrantContext: grantContext,
     };
 
-    void createAgentResponsesModel(model);
-    expect(createGrokResponsesModel).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: undefined }));
+    void createAgentResponsesModel(model, dependencies);
+    expect(dependencies.createGrokResponsesModel).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: undefined }));
   });
 });

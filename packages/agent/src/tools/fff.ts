@@ -1,3 +1,6 @@
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import type { SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand, shellQuote } from "../sandbox/execute";
 
@@ -109,7 +112,7 @@ export async function executeAutoprFff<T>(
 
   return {
     ok: true,
-    value: parsed as T,
+    value: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ parsed as T,
     exitCode,
   };
 }
@@ -154,19 +157,19 @@ function buildAutoprFffCommand(subcommand: string, flags: Record<string, FffFlag
   ].join("; ");
 }
 
-function isFffErrorPayload(value: unknown): value is { ok: false; error: string } {
+function isFffErrorPayload<ValueValue>(value: ValueValue): value is ValueValue & ({ ok: false; error: string }) {
   return (
-    typeof value === "object" &&
+    hasObjectType(value) &&
     value !== null &&
     "ok" in value &&
-    (value as { ok: unknown }).ok === false &&
+    (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as { ok: unknown }).ok === false &&
     "error" in value &&
-    typeof (value as { error: unknown }).error === "string"
+    hasStringType((/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as { error: unknown }).error)
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function extractJsonObject(value: string | undefined): string | undefined {

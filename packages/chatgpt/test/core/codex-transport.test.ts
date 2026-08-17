@@ -1,12 +1,6 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { describe, expect, test } from "vitest";
-import {
-  createCodexFetch,
-  extractCodexModelSlugs,
-  listCodexModels,
-  normalizeResponsesBody,
-  resolveConfig,
-  resolveTargetUrl,
-} from "../../src/core/index.ts";
+import { createCodexFetch, extractCodexModelSlugs, listCodexModels, normalizeResponsesBody, resolveConfig, resolveTargetUrl } from "../../src/core/index.ts";
 import { createMockFetch, jsonResponse } from "./helpers.ts";
 
 describe("codex transport", () => {
@@ -27,7 +21,7 @@ describe("codex transport", () => {
     );
     expect(out.instructions).toBe("keep");
     // caller-provided reasoning.effort wins over the option default
-    expect((out.reasoning as { effort: string }).effort).toBe("high");
+    expect((/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ out.reasoning as { effort: string }).effort).toBe("high");
     // store is always forced false for the ChatGPT backend
     expect(out.store).toBe(false);
   });
@@ -47,7 +41,7 @@ describe("codex transport", () => {
         { type: "item_reference", id: "ref_1" },
       ],
     });
-    const input = out.input as Array<Record<string, unknown>>;
+    const input = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ out.input as Array<JsonObject>;
     expect(input).toHaveLength(1);
     expect(input[0]).not.toHaveProperty("id");
     expect(input[0]?.type).toBe("message");

@@ -1,3 +1,6 @@
+import { hasNumberType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 export type TokenUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -47,19 +50,19 @@ export type AssistantRunMetadata = {
   durationSeconds?: number;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function asFiniteNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function asFiniteNumber<ValueValue>(value: ValueValue) {
+  return hasNumberType(value) && Number.isFinite(value) ? value : undefined;
 }
 
-function asTokenNumber(value: unknown) {
+function asTokenNumber<ValueValue>(value: ValueValue) {
   return asFiniteNumber(value) ?? 0;
 }
 
-function isAssistantUsageMetadata(value: unknown): value is AssistantUsageMetadata {
+function isAssistantUsageMetadata<ValueValue>(value: ValueValue): value is ValueValue & (AssistantUsageMetadata) {
   return (
     isRecord(value) &&
     (value.usage === undefined || isRecord(value.usage)) &&
@@ -68,13 +71,13 @@ function isAssistantUsageMetadata(value: unknown): value is AssistantUsageMetada
   );
 }
 
-function readTokenUsage(value: unknown): TokenUsage | null {
+function readTokenUsage<ValueValue>(value: ValueValue): TokenUsage | null {
   if (!isRecord(value)) {
     return null;
   }
 
   const hasTokenUsage = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens"].some(
-    (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
+    (key) => hasNumberType(value[key]) && Number.isFinite(value[key]),
   );
 
   if (!hasTokenUsage) {
@@ -90,20 +93,20 @@ function readTokenUsage(value: unknown): TokenUsage | null {
   };
 }
 
-function readTokenCost(value: unknown): TokenCost | null {
+function readTokenCost<ValueValue>(value: ValueValue): TokenCost | null {
   if (!isRecord(value)) {
     return null;
   }
 
   const hasTokenCost = ["input", "output", "cacheRead", "cacheWrite", "total"].some(
-    (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
+    (key) => hasNumberType(value[key]) && Number.isFinite(value[key]),
   );
 
   if (!hasTokenCost) {
     return null;
   }
 
-  const cost = value as TokenCostMetadata;
+  const cost = value satisfies TokenCostMetadata;
 
   return {
     input: asTokenNumber(cost.input),
@@ -114,7 +117,7 @@ function readTokenCost(value: unknown): TokenCost | null {
   };
 }
 
-export function getAssistantContextUsage(metadata: unknown): TokenUsage | null {
+export function getAssistantContextUsage<MetadataValue>(metadata: MetadataValue): TokenUsage | null {
   if (!isAssistantUsageMetadata(metadata)) {
     return null;
   }
@@ -122,7 +125,7 @@ export function getAssistantContextUsage(metadata: unknown): TokenUsage | null {
   return readTokenUsage(metadata.contextUsage) ?? readTokenUsage(metadata.usage);
 }
 
-export function getAssistantRunUsage(metadata: unknown): TokenUsage | null {
+export function getAssistantRunUsage<MetadataValue>(metadata: MetadataValue): TokenUsage | null {
   if (!isAssistantUsageMetadata(metadata)) {
     return null;
   }
@@ -130,7 +133,7 @@ export function getAssistantRunUsage(metadata: unknown): TokenUsage | null {
   return readTokenUsage(metadata.usage) ?? readTokenUsage(metadata.contextUsage);
 }
 
-export function getAssistantRunCost(metadata: unknown): TokenCost | null {
+export function getAssistantRunCost<MetadataValue>(metadata: MetadataValue): TokenCost | null {
   if (!isAssistantUsageMetadata(metadata)) {
     return null;
   }
@@ -138,7 +141,7 @@ export function getAssistantRunCost(metadata: unknown): TokenCost | null {
   return readTokenCost(metadata.usage?.cost) ?? readTokenCost(metadata.contextUsage?.cost);
 }
 
-export function readAssistantRunMetadata(metadata: unknown): AssistantRunMetadata | null {
+export function readAssistantRunMetadata<MetadataValue>(metadata: MetadataValue): AssistantRunMetadata | null {
   if (!isAssistantUsageMetadata(metadata) || !metadata.run) {
     return null;
   }
@@ -163,12 +166,16 @@ export function readAssistantRunMetadata(metadata: unknown): AssistantRunMetadat
   };
 }
 
-export function withAssistantRunMetadata(
-  metadata: unknown,
+export function withAssistantRunMetadata<MetadataValue>(
+  metadata: MetadataValue,
   run: Required<AssistantRunMetadata>,
 ) {
   return {
-    ...(isRecord(metadata) ? metadata : {}),
+    ...(() => {
+  let optionalProperties;
+  if (isRecord(metadata)) optionalProperties = metadata;
+  return optionalProperties;
+})(),
     run,
   };
 }

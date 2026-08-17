@@ -5,11 +5,7 @@ import { z } from "zod";
 
 import { convexAction, convexQuery } from "#/lib/convex-server";
 import { sanitizeStoppedAssistantParts } from "#/lib/chat-messages";
-import {
-  isTriggerNotFoundError,
-  lookupTriggerAgentRun,
-  reconcileThreadWithTriggerRun,
-} from "#/lib/trigger-agent-run-server";
+import { isTriggerNotFoundError, lookupTriggerAgentRun, reconcileThreadWithTriggerRun } from "#/lib/trigger-agent-run-server";
 import { agentProjectTag, agentThreadTag } from "#/lib/trigger-agent-contract";
 
 const cancelRunRequestSchema = z.object({
@@ -102,6 +98,6 @@ async function POST(
 
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/agent/$runId")({
   server: {
-    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, { params: Promise.resolve(params) } as any) },
+    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any) },
   },
 });

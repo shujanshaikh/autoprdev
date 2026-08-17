@@ -1,20 +1,8 @@
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  githubPullRequestLocalBranch,
-  githubRepositoriesMatch,
-  isThreadCompatibleWithGithubPullRequest,
-  parseGithubPullRequestReference,
-  resolveGithubPullRequestHead,
-} from "@autopr/backend/convex/lib/githubPullRequest";
-import {
-  fetchGithubPullRequestDetail,
-  fetchGithubPullRequestFiles,
-  fetchGithubPullRequestForBranch,
-  fetchGithubPullRequestTimeline,
-  GithubApiError,
-  resolveGithubPullRequest,
-} from "@autopr/backend/convex/lib/github_oauth";
+import { githubPullRequestLocalBranch, githubRepositoriesMatch, isThreadCompatibleWithGithubPullRequest, parseGithubPullRequestReference, resolveGithubPullRequestHead } from "@autopr/backend/convex/lib/githubPullRequest";
+import { fetchGithubPullRequestDetail, fetchGithubPullRequestFiles, fetchGithubPullRequestForBranch, fetchGithubPullRequestTimeline, GithubApiError, resolveGithubPullRequest } from "@autopr/backend/convex/lib/github_oauth";
 
 describe("parseGithubPullRequestReference", () => {
   it.each([
@@ -79,7 +67,7 @@ describe("parseGithubPullRequestReference", () => {
   });
 });
 
-function response(data: unknown, status = 200, headers?: Record<string, string>) {
+function response<DataValue>(data: DataValue, status = 200, headers?: Record<string, string>) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json", ...headers },

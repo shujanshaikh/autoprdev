@@ -1,13 +1,5 @@
 import { Button } from "@autopr/ui/components/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
 import { Loader2, Trash2 } from "lucide-react";
 
 interface DeleteDialogProps {

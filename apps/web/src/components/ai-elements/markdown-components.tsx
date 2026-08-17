@@ -97,11 +97,11 @@ const MarkdownTd = ({
  * Component overrides to pass to <Streamdown components={…} />. Keeps
  * generated markdown compact so chat output still feels like a coding harness.
  */
-export const markdownComponents: Record<string, ComponentType<any>> = {
+export const markdownComponents = {
   table: MarkdownTable,
   thead: MarkdownThead,
   tbody: MarkdownTbody,
   tr: MarkdownTr,
   th: MarkdownTh,
   td: MarkdownTd,
-};
+} satisfies Record<string, ComponentType<any>>;

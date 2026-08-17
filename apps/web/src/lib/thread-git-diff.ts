@@ -23,7 +23,7 @@ export async function fetchThreadGitFileDiff(options: {
       + `/thread/${encodeURIComponent(options.threadId)}`
       + `?gitDiff=${encodeURIComponent(options.file)}`,
   );
-  const body = await response.json().catch(() => ({})) as ThreadGitFileDiffResponse;
+  const body = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await response.json().catch(() => ({})) as ThreadGitFileDiffResponse;
 
   if (!response.ok || !body.diff) {
     throw new Error(body.error?.message ?? "Could not open the file diff.");

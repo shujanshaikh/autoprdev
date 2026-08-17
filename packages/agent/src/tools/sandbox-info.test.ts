@@ -1,10 +1,9 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSandboxContext: vi.fn(),
 }));
-vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
-
 import { createDaytonaSandboxInfoTool } from "./sandbox-info";
 
 describe("Daytona sandboxInfo tool", () => {
@@ -19,12 +18,15 @@ describe("Daytona sandboxInfo tool", () => {
       },
       workDir: "/workspace/repo",
     });
-    const info = createDaytonaSandboxInfoTool({ cacheKey: "info-test" });
+    const info = createDaytonaSandboxInfoTool(
+      { cacheKey: "info-test" },
+      { getSandboxContext: mocks.getSandboxContext },
+    );
     if (!info.execute) throw new Error("sandboxInfo tool is not executable");
 
-    const result = await info.execute({}, { toolCallId: "info-1", messages: [] }) as {
+    const result = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ await info.execute({}, { toolCallId: "info-1", messages: [] }) as {
       content: string;
-      details: Record<string, unknown>;
+      details: JsonObject;
     };
     expect(result.content).toContain("State: started");
     expect(result.details).toMatchObject({ state: "started", autoArchiveInterval: 120 });

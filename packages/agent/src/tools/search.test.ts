@@ -1,3 +1,4 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -6,22 +7,23 @@ const mocks = vi.hoisted(() => ({
   resolveJailedSandboxPath: vi.fn(),
 }));
 
-vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
-vi.mock("../sandbox/execute", () => ({ resolveJailedSandboxPath: mocks.resolveJailedSandboxPath }));
-vi.mock("./fff", () => ({ executeAutoprFff: mocks.executeAutoprFff }));
-
 import { createDaytonaFindTool } from "./find";
 import { createDaytonaGrepTool } from "./grep";
 import { safeParse } from "../test/schema";
 
-async function execute(toolName: "find" | "grep", input: Record<string, unknown>) {
+async function execute(toolName: "find" | "grep", input: JsonObject) {
+  const dependencies = {
+    getSandboxContext: mocks.getSandboxContext,
+    resolveJailedSandboxPath: mocks.resolveJailedSandboxPath,
+    executeFff: mocks.executeAutoprFff,
+  };
   const instance = toolName === "find"
-    ? createDaytonaFindTool({ cacheKey: "search-test" })
-    : createDaytonaGrepTool({ cacheKey: "search-test" });
+    ? createDaytonaFindTool({ cacheKey: "search-test" }, dependencies)
+    : createDaytonaGrepTool({ cacheKey: "search-test" }, dependencies);
   if (!instance.execute) throw new Error(`${toolName} tool is not executable`);
-  return await instance.execute(input, { toolCallId: `${toolName}-1`, messages: [] }) as {
+  return /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ await instance.execute(input, { toolCallId: `${toolName}-1`, messages: [] }) as {
     content: string;
-    details: Record<string, unknown>;
+    details: JsonObject;
   };
 }
 

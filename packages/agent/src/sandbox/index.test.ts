@@ -4,15 +4,18 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
 }));
 
-vi.mock("@daytona/sdk", () => ({
-  Daytona: class {
-    get = mocks.get;
-  },
-}));
+import { createSandbox, getSandboxContext } from "./index";
+
+const dependencies = {
+  createDaytonaClient: vi.fn(async () => ({
+    get: mocks.get,
+    create: vi.fn(),
+    delete: vi.fn(),
+  })),
+};
 
 describe("sandbox lookup coalescing", () => {
   beforeEach(() => {
-    vi.resetModules();
     mocks.get.mockReset();
   });
 
@@ -21,7 +24,7 @@ describe("sandbox lookup coalescing", () => {
       id: "sandbox-1",
       state: "started",
       autoArchiveInterval: 120,
-      domainAllowList: undefined as string | undefined,
+      domainAllowList: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ undefined as string | undefined,
       start: vi.fn(),
       setAutoArchiveInterval: vi.fn(),
       updateNetworkSettings: vi.fn(async ({ domainAllowList }: { domainAllowList: string }) => {
@@ -29,22 +32,20 @@ describe("sandbox lookup coalescing", () => {
       }),
     };
     mocks.get.mockResolvedValue(sandbox);
-    const { createSandbox, getSandboxContext } = await import("./index");
-
     await Promise.all([
-      createSandbox({ sandboxId: sandbox.id }),
-      createSandbox({ sandboxId: sandbox.id }),
+      createSandbox({ sandboxId: sandbox.id }, dependencies),
+      createSandbox({ sandboxId: sandbox.id }, dependencies),
     ]);
     await getSandboxContext({
       cacheKey: "project:thread:1",
       sandboxId: sandbox.id,
       workDir: "/home/widget",
-    });
+    }, dependencies);
     await getSandboxContext({
       cacheKey: "project:thread:1",
       sandboxId: sandbox.id,
       workDir: "/home/widget",
-    });
+    }, dependencies);
 
     expect(mocks.get).toHaveBeenCalledTimes(1);
     expect(sandbox.updateNetworkSettings).toHaveBeenCalledWith({
@@ -59,7 +60,7 @@ describe("sandbox lookup coalescing", () => {
       id: "sandbox-2",
       state: "started",
       autoArchiveInterval: 120,
-      domainAllowList: undefined as string | undefined,
+      domainAllowList: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ undefined as string | undefined,
       start: vi.fn(async () => {
         sandbox.state = "started";
       }),
@@ -69,21 +70,19 @@ describe("sandbox lookup coalescing", () => {
       }),
     };
     mocks.get.mockImplementation(async () => sandbox);
-    const { getSandboxContext } = await import("./index");
-
     try {
       await getSandboxContext({
         cacheKey: "project:thread:2",
         sandboxId: sandbox.id,
         workDir: "/home/widget",
-      });
+      }, dependencies);
       sandbox.state = "stopped";
       vi.advanceTimersByTime(5_001);
       await getSandboxContext({
         cacheKey: "project:thread:2",
         sandboxId: sandbox.id,
         workDir: "/home/widget",
-      });
+      }, dependencies);
 
       expect(mocks.get).toHaveBeenCalledTimes(2);
       expect(sandbox.start).toHaveBeenCalledTimes(1);
@@ -103,9 +102,7 @@ describe("sandbox lookup coalescing", () => {
       updateNetworkSettings: vi.fn(),
     };
     mocks.get.mockResolvedValue(sandbox);
-    const { createSandbox } = await import("./index");
-
-    await expect(createSandbox({ sandboxId: sandbox.id })).rejects.toThrow(
+    await expect(createSandbox({ sandboxId: sandbox.id }, dependencies)).rejects.toThrow(
       "Refusing to start a sandbox",
     );
     expect(sandbox.start).not.toHaveBeenCalled();

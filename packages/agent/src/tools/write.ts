@@ -2,12 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import {
-  downloadRemoteFileChunk,
-  ensureRemoteParentDirectory,
-  RemoteFileNotFoundError,
-  resolveJailedSandboxPath,
-} from "../sandbox/execute";
+import { downloadRemoteFileChunk, ensureRemoteParentDirectory, RemoteFileNotFoundError, resolveJailedSandboxPath } from "../sandbox/execute";
 import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutation-queue";
 import { createBoundedToolDiff } from "./diff";
 import { toTextModelOutput } from "./format";
@@ -34,6 +29,25 @@ const writeInputSchema = z.object({
 
 type WriteInput = z.infer<typeof writeInputSchema>;
 
+interface WriteSandbox {
+  id: string;
+  fs: { uploadFile: (content: Buffer, remotePath: string) => Promise<void> };
+}
+
+export interface DaytonaWriteDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{ sandbox: WriteSandbox; workDir: string }>;
+  resolveJailedSandboxPath: typeof resolveJailedSandboxPath;
+  downloadRemoteFileChunk: typeof downloadRemoteFileChunk;
+  ensureRemoteParentDirectory: typeof ensureRemoteParentDirectory;
+}
+
+const defaultDependencies: DaytonaWriteDependencies = {
+  getSandboxContext,
+  resolveJailedSandboxPath,
+  downloadRemoteFileChunk,
+  ensureRemoteParentDirectory,
+};
+
 type PreviousRemoteText = {
   text: string;
   /** False when the existing file exceeded the download cap and was cut off. */
@@ -43,9 +57,10 @@ type PreviousRemoteText = {
 async function readRemoteTextIfPresent(
   remotePath: string,
   sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaWriteDependencies,
 ): Promise<PreviousRemoteText | null> {
   try {
-    const chunk = await downloadRemoteFileChunk({
+    const chunk = await dependencies.downloadRemoteFileChunk({
       remotePath,
       maxBytes: MAX_PREVIOUS_CONTENT_BYTES,
       sandboxOptions,
@@ -63,15 +78,15 @@ async function readRemoteTextIfPresent(
   }
 }
 
-async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSessionOptions) {
-  const context = await getSandboxContext(sandboxOptions);
-  const remotePath = await resolveJailedSandboxPath(input.path, {
+async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSessionOptions, dependencies: DaytonaWriteDependencies) {
+  const context = await dependencies.getSandboxContext(sandboxOptions);
+  const remotePath = await dependencies.resolveJailedSandboxPath(input.path, {
     workDir: context.workDir,
     sandboxOptions,
   });
 
   return withFileMutationQueue(createFileMutationQueueKey(context.sandbox.id, remotePath), async () => {
-    const previous = await readRemoteTextIfPresent(remotePath, sandboxOptions);
+    const previous = await readRemoteTextIfPresent(remotePath, sandboxOptions, dependencies);
     const content = Buffer.from(input.content, "utf8");
     const status = previous === null ? "added" as const : "modified" as const;
     // A previous file beyond the download cap cannot produce a trustworthy
@@ -107,7 +122,7 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
       };
     }
 
-    await ensureRemoteParentDirectory(remotePath, sandboxOptions);
+    await dependencies.ensureRemoteParentDirectory(remotePath, sandboxOptions);
     await context.sandbox.fs.uploadFile(content, remotePath);
 
     const oversizedNote = diff.patchOmitted
@@ -134,13 +149,16 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
   });
 }
 
-export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaWriteTool(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaWriteDependencies = defaultDependencies,
+) {
   return tool({
     title: "write",
     description:
       "Write complete text content to a Daytona file, creating parents or overwriting as needed. Canonicalizes paths inside the workspace jail, skips identical writes, serializes same-file mutations, and omits oversized diff previews safely. Use for new files or intentional rewrites; use edit for targeted changes.",
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaWrite(input, sandboxOptions),
+    execute: (input) => executeDaytonaWrite(input, sandboxOptions, dependencies),
   });
 }

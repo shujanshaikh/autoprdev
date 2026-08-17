@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  agentModelKey,
-  getAgentModelOptions,
-  getAgentContextLimit,
-  getAgentReasoningEfforts,
-  selectAgentReasoningEffort,
-  selectAgentModel,
-} from "./agent-models";
+import { agentModelKey, getAgentModelOptions, getAgentContextLimit, getAgentReasoningEfforts, selectAgentReasoningEffort, selectAgentModel } from "./agent-models";
 
 describe("agent model selection", () => {
   const options = getAgentModelOptions({

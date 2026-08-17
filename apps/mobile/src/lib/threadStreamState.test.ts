@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  mergePersistedAssistantParts,
-  reconcileThreadMessages,
-  type ThreadDisplayMessage,
-} from "./threadStreamState";
+import { mergePersistedAssistantParts, reconcileThreadMessages, type ThreadDisplayMessage } from "./threadStreamState";
 
 const user = (messageId: string): ThreadDisplayMessage => ({
   messageId,

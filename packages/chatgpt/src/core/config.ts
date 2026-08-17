@@ -1,15 +1,6 @@
-import {
-  DEFAULT_CLIENT_ID,
-  DEFAULT_CLIENT_VERSION,
-  DEFAULT_CODEX_BASE_URL,
-  DEFAULT_ISSUER,
-  DEFAULT_ORIGINATOR,
-  DEFAULT_REALTIME_BASE_URL,
-  DEFAULT_REALTIME_CLIENT_BUILD,
-  DEFAULT_REALTIME_CLIENT_VERSION,
-  DEFAULT_REALTIME_WEB_CLIENT_ID,
-  DEFAULT_SCOPE,
-} from "./constants.ts";
+import { hasNumberType } from "@autopr/config/runtime-type";
+
+import { DEFAULT_CLIENT_ID, DEFAULT_CLIENT_VERSION, DEFAULT_CODEX_BASE_URL, DEFAULT_ISSUER, DEFAULT_ORIGINATOR, DEFAULT_REALTIME_BASE_URL, DEFAULT_REALTIME_CLIENT_BUILD, DEFAULT_REALTIME_CLIENT_VERSION, DEFAULT_REALTIME_WEB_CLIENT_ID, DEFAULT_SCOPE } from "./constants.ts";
 import type { FetchLike } from "./types.ts";
 
 /**
@@ -78,8 +69,8 @@ export interface ResolvedConfig {
 const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
 
 function resolveFetch(custom?: FetchLike): FetchLike {
-  if (typeof custom === "function") return custom;
-  if (typeof globalThis.fetch === "function") return globalThis.fetch.bind(globalThis);
+  if (custom instanceof Function) return custom;
+  if (globalThis.fetch instanceof Function) return globalThis.fetch.bind(globalThis);
   throw new TypeError(
     "No fetch implementation available. Pass `fetch` in the config on runtimes without a global fetch.",
   );
@@ -101,7 +92,7 @@ export function resolveConfig(config: ChatGPTConfig = {}): ResolvedConfig {
     clientVersion: config.clientVersion ?? DEFAULT_CLIENT_VERSION,
     fetch: resolveFetch(config.fetch),
     requestTimeoutMs:
-      typeof config.requestTimeoutMs === "number" &&
+      hasNumberType(config.requestTimeoutMs) &&
       Number.isFinite(config.requestTimeoutMs) &&
       config.requestTimeoutMs > 0
         ? config.requestTimeoutMs

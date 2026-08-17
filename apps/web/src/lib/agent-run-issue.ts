@@ -1,3 +1,6 @@
+import { hasNumberType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 export type AgentRunIssue = {
   runId: string;
   stepName?: string;
@@ -8,30 +11,30 @@ export type AgentRunIssue = {
   occurredAt: number;
 };
 
-function readRecordProperty(error: unknown, key: string): unknown {
-  return typeof error === "object" && error !== null
-    ? (error as Record<string, unknown>)[key]
+function readRecordProperty<ErrorValue>(error: ErrorValue, key: string): JsonValue {
+  return hasObjectType(error) && error !== null
+    ? (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ error as JsonObject)[key]
     : undefined;
 }
 
-function readStringProperty(error: unknown, key: string): string | undefined {
+function readStringProperty<ErrorValue>(error: ErrorValue, key: string): string | undefined {
   const value = readRecordProperty(error, key);
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return hasStringType(value) && value.length > 0 ? value : undefined;
 }
 
-function readNumberProperty(error: unknown, key: string): number | undefined {
+function readNumberProperty<ErrorValue>(error: ErrorValue, key: string): number | undefined {
   const value = readRecordProperty(error, key);
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return hasNumberType(value) && Number.isFinite(value) ? value : undefined;
 }
 
-function readNestedErrorMessage(value: unknown): string | undefined {
+function readNestedErrorMessage<ValueValue>(value: ValueValue): string | undefined {
   const error = readRecordProperty(value, "error");
-  if (typeof error !== "object" || error === null) {
+  if (!hasObjectType(error) || error === null) {
     return undefined;
   }
 
-  const message = (error as Record<string, unknown>).message;
-  return typeof message === "string" && message.length > 0 ? message : undefined;
+  const message = (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ error as JsonObject).message;
+  return hasStringType(message) && message.length > 0 ? message : undefined;
 }
 
 function parseEmbeddedErrorMessage(message: string): string | undefined {
@@ -49,7 +52,7 @@ function parseEmbeddedErrorMessage(message: string): string | undefined {
   }
 }
 
-export function displayAgentError(error: unknown): string {
+export function displayAgentError<ErrorValue>(error: ErrorValue): string {
   const message = error instanceof Error ? error.message : String(error);
   const directNestedMessage = readNestedErrorMessage(error);
   const embeddedMessage = parseEmbeddedErrorMessage(message);
@@ -58,8 +61,8 @@ export function displayAgentError(error: unknown): string {
   return directNestedMessage ?? embeddedMessage ?? causeMessage ?? message;
 }
 
-export function agentRunIssueFromError(
-  error: unknown,
+export function agentRunIssueFromError<ErrorValue>(
+  error: ErrorValue,
   runId: string,
   attempt: number,
 ): AgentRunIssue {

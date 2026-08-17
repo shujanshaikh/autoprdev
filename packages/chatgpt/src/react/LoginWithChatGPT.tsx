@@ -1,12 +1,10 @@
 "use client";
 
+import { hasObjectType, hasUndefinedType } from "@autopr/config/runtime-type";
+
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { ChatGPTMark, Spinner } from "./icons.tsx";
-import {
-  type UseLoginWithChatGPTOptions,
-  type UseLoginWithChatGPTResult,
-  useLoginWithChatGPT,
-} from "./useLoginWithChatGPT.ts";
+import { type UseLoginWithChatGPTOptions, type UseLoginWithChatGPTResult, useLoginWithChatGPT } from "./useLoginWithChatGPT.ts";
 import { CHATGPT_LOGIN_POPUP_FEATURES, CHATGPT_LOGIN_POPUP_NAME } from "./popup.ts";
 
 export interface LoginWithChatGPTProps extends UseLoginWithChatGPTOptions {
@@ -97,7 +95,7 @@ export function LoginWithChatGPT(props: LoginWithChatGPTProps): ReactNode {
   const state = useLoginWithChatGPT(hookOptions);
   // Guard against `consent={false as any}` from pre-release code: the consent
   // step is not skippable, only customizable.
-  const consentOptions = consent && typeof consent === "object" ? consent : {};
+  const consentOptions = consent && hasObjectType(consent) ? consent : {};
   // Fallback for blocked popups: render the same consent inline instead of
   // silently starting a login the user never agreed to.
   const [showInlineConsent, setShowInlineConsent] = useState(false);
@@ -197,7 +195,7 @@ export interface OpenLoginWithChatGPTConsentPopupOptions extends LoginWithChatGP
 }
 
 export function openLoginWithChatGPTConsentPopup(options: OpenLoginWithChatGPTConsentPopupOptions): Window | null {
-  if (typeof window === "undefined") return null;
+  if (hasUndefinedType(globalThis.window)) return null;
   const popup = window.open("", CHATGPT_LOGIN_POPUP_NAME, CHATGPT_LOGIN_POPUP_FEATURES);
   if (!popup) return null;
 
@@ -283,7 +281,7 @@ function renderConsentPopupHtml({
 function safeHref(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try {
-    const base = typeof window === "undefined" ? "https://localhost" : window.location.href;
+    const base = hasUndefinedType(globalThis.window) ? "https://localhost" : window.location.href;
     const url = new URL(value, base);
     return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
   } catch {

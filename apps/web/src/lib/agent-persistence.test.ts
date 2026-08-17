@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createAgentPersistenceGrant,
-  hashAgentPersistenceToken,
-} from "./agent-persistence";
+import { createAgentPersistenceGrant, hashAgentPersistenceToken } from "./agent-persistence";
 
 describe("agent persistence grants", () => {
   it("creates a high-entropy token with a reproducible one-way hash", async () => {

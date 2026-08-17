@@ -6,12 +6,7 @@ import { useCallback, useMemo } from "react";
 
 import { WebRequestError, webRequest } from "../api/web";
 import { useAuth } from "../auth/AuthProvider";
-import {
-  createOperationId,
-  createsPullRequest,
-  resolveThreadGitActions,
-  type ThreadGitAction,
-} from "../lib/gitActions";
+import { createOperationId, createsPullRequest, resolveThreadGitActions, type ThreadGitAction } from "../lib/gitActions";
 import { useWebQuery } from "./useWebQuery";
 
 type GitStatusResponse = { status: ThreadGitStatus };
@@ -86,9 +81,21 @@ export function useThreadGit(projectId: string, threadId: string) {
       operationId,
       ...(usesPullRequestEndpoint
         ? {
-            ...(input.pullRequestTitle ? { title: input.pullRequestTitle } : {}),
-            ...(input.pullRequestBody ? { body: input.pullRequestBody } : {}),
-            ...(input.pullRequestDraft === undefined ? {} : { draft: input.pullRequestDraft }),
+            ...(() => {
+  let optionalProperties;
+  if (input.pullRequestTitle) optionalProperties = { title: input.pullRequestTitle };
+  return optionalProperties;
+})(),
+            ...(() => {
+  let optionalProperties;
+  if (input.pullRequestBody) optionalProperties = { body: input.pullRequestBody };
+  return optionalProperties;
+})(),
+            ...(() => {
+  let optionalProperties;
+  if (!(input.pullRequestDraft === undefined)) optionalProperties = { draft: input.pullRequestDraft };
+  return optionalProperties;
+})(),
           }
         : input.commitMessage ? { commitMessage: input.commitMessage } : {}),
     });

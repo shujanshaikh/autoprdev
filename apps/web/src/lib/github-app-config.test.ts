@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildGithubAppInstallUrl,
-  decodeGithubAppPrivateKey,
-  getTrustedGithubInstallationUrl,
-  GITHUB_APP_DISPLAY_NAME,
-} from "./github-app-config";
+import { buildGithubAppInstallUrl, decodeGithubAppPrivateKey, getTrustedGithubInstallationUrl, GITHUB_APP_DISPLAY_NAME } from "./github-app-config";
 
 describe("Autopr GitHub App configuration", () => {
   it("uses the product's requested display capitalization", () => {

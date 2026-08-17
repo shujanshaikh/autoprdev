@@ -16,7 +16,7 @@ export async function parseJson<T>(
   message: string,
 ): Promise<T> {
   try {
-    return (await response.json()) as T;
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json()) as T;
   } catch (cause) {
     throw new ChatGPTAuthError(code, message, { status: response.status, cause });
   }

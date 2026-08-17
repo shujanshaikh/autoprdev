@@ -74,9 +74,11 @@ async function POST({ request }: { request: Request }) {
         clientId,
         provider: parsed.data.provider === "google" ? "GoogleOAuth" : "authkit",
         redirectUri: parsed.data.redirectUri,
-        ...(parsed.data.provider === "google"
-          ? {}
-          : { screenHint: parsed.data.screenHint }),
+        ...(() => {
+  let optionalProperties;
+  if (!(parsed.data.provider === "google")) optionalProperties = { screenHint: parsed.data.screenHint };
+  return optionalProperties;
+})(),
       });
       return Response.json(authorization, {
         headers: { "Cache-Control": "private, no-store" },

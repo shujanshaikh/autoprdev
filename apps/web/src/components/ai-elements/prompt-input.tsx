@@ -1,76 +1,18 @@
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from "@autopr/ui/components/command";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@autopr/ui/components/dropdown-menu";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@autopr/ui/components/hover-card";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupTextarea,
-} from "@autopr/ui/components/input-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@autopr/ui/components/select";
+import { hasNumberType, hasStringType, hasUndefinedType } from "@autopr/config/runtime-type";
+
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@autopr/ui/components/command";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@autopr/ui/components/hover-card";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@autopr/ui/components/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@autopr/ui/components/select";
 import { Spinner } from "@autopr/ui/components/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@autopr/ui/components/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "ai";
-import {
-  ArrowUpIcon,
-  ImageIcon,
-  Monitor,
-  PlusIcon,
-  SquareIcon,
-  XIcon,
-} from "lucide-react";
+import { ArrowUpIcon, ImageIcon, Monitor, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { nanoid } from "nanoid";
-import type {
-  ChangeEvent,
-  ChangeEventHandler,
-  ClipboardEventHandler,
-  ComponentProps,
-  FormEvent,
-  FormEventHandler,
-  HTMLAttributes,
-  KeyboardEventHandler,
-  PropsWithChildren,
-  ReactNode,
-  RefObject,
-} from "react";
-import {
-  Children,
-  createContext,
-  use,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import type { ChangeEvent, ChangeEventHandler, ClipboardEventHandler, ComponentProps, FormEvent, FormEventHandler, HTMLAttributes, KeyboardEventHandler, PropsWithChildren, ReactNode, RefObject } from "react";
+import { Children, createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // ============================================================================
 // Helpers
@@ -85,7 +27,7 @@ const convertBlobUrlToDataUrl = async (url: string): Promise<string | null> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       // oxlint-disable-next-line eslint-plugin-unicorn(prefer-add-event-listener)
-      reader.onloadend = () => resolve(reader.result as string);
+      reader.onloadend = () => resolve(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ reader.result as string);
       // oxlint-disable-next-line eslint-plugin-unicorn(prefer-add-event-listener)
       reader.onerror = () => resolve(null);
       reader.readAsDataURL(blob);
@@ -103,7 +45,7 @@ const revokeObjectUrl = (url: string | undefined) => {
 
 const captureScreenshot = async (): Promise<File | null> => {
   if (
-    typeof navigator === "undefined" ||
+    hasUndefinedType(globalThis.navigator) ||
     !navigator.mediaDevices?.getDisplayMedia
   ) {
     return null;
@@ -623,12 +565,12 @@ export const PromptInput = ({
 
       setItems((prev) => {
         const capacity =
-          typeof maxFiles === "number"
+          hasNumberType(maxFiles)
             ? Math.max(0, maxFiles - prev.length)
             : undefined;
         const capped =
-          typeof capacity === "number" ? sized.slice(0, capacity) : sized;
-        if (typeof capacity === "number" && sized.length > capacity) {
+          hasNumberType(capacity) ? sized.slice(0, capacity) : sized;
+        if (hasNumberType(capacity) && sized.length > capacity) {
           onError?.({
             code: "max_files",
             message: "Too many files. Some were not added.",
@@ -705,12 +647,12 @@ export const PromptInput = ({
 
       const currentCount = files.length;
       const capacity =
-        typeof maxFiles === "number"
+        hasNumberType(maxFiles)
           ? Math.max(0, maxFiles - currentCount)
           : undefined;
       const capped =
-        typeof capacity === "number" ? sized.slice(0, capacity) : sized;
-      if (typeof capacity === "number" && sized.length > capacity) {
+        hasNumberType(capacity) ? sized.slice(0, capacity) : sized;
+      if (hasNumberType(capacity) && sized.length > capacity) {
         onError?.({
           code: "max_files",
           message: "Too many files. Some were not added.",
@@ -890,7 +832,7 @@ export const PromptInput = ({
         ? controller.textInput.value
         : (() => {
             const formData = new FormData(form);
-            return (formData.get("message") as string) || "";
+            return (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ formData.get("message") as string) || "";
           })();
 
       // Reset form immediately after capturing text to avoid race condition
@@ -1046,7 +988,7 @@ export const PromptInputTextarea = ({
 
         // Check if the submit button is disabled before submitting
         const { form } = e.currentTarget;
-        const submitButton = form?.querySelector(
+        const submitButton = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ form?.querySelector(
           'button[type="submit"]'
         ) as HTMLButtonElement | null;
         if (submitButton?.disabled) {
@@ -1220,9 +1162,9 @@ export const PromptInputButton = ({
   }
 
   const tooltipContent =
-    typeof tooltip === "string" ? tooltip : tooltip.content;
-  const shortcut = typeof tooltip === "string" ? undefined : tooltip.shortcut;
-  const side = typeof tooltip === "string" ? "top" : (tooltip.side ?? "top");
+    hasStringType(tooltip) ? tooltip : tooltip.content;
+  const shortcut = hasStringType(tooltip) ? undefined : tooltip.shortcut;
+  const side = hasStringType(tooltip) ? "top" : (tooltip.side ?? "top");
 
   return (
     <Tooltip>

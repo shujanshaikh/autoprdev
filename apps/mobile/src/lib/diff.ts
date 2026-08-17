@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { computeWordDiffRanges, toSegments, type DiffSegment } from "./wordDiff";
 
 export type DiffLineType = "context" | "add" | "delete" | "meta" | "hunk";
@@ -191,21 +194,23 @@ export function hunkRange(content: string) {
   return content.match(/^@@[^@]*@@/)?.[0] ?? content;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function toolSlug(part: Record<string, unknown>) {
-  if (part.type === "dynamic-tool" && typeof part.toolName === "string") return part.toolName;
-  return typeof part.type === "string" && part.type.startsWith("tool-")
-    ? part.type.slice("tool-".length)
+function toolSlug(part: JsonObject): string {
+  const type = part.type;
+  const toolName = part.toolName;
+  if (type === "dynamic-tool" && hasStringType(toolName)) return String(toolName);
+  return hasStringType(type) && String(type).startsWith("tool-")
+    ? String(type).slice("tool-".length)
     : "";
 }
 
 export function extractDiffEntries(messages: readonly unknown[]): DiffEntry[] {
   const entries: DiffEntry[] = [];
   for (const messageValue of messages) {
-    if (!isRecord(messageValue) || !Array.isArray(messageValue.parts) || typeof messageValue.messageId !== "string") {
+    if (!isRecord(messageValue) || !Array.isArray(messageValue.parts) || !hasStringType(messageValue.messageId)) {
       continue;
     }
     for (let index = 0; index < messageValue.parts.length; index += 1) {
@@ -215,20 +220,20 @@ export function extractDiffEntries(messages: readonly unknown[]): DiffEntry[] {
       const details = output && isRecord(output.details) ? output.details : null;
       const diff = details && isRecord(details.diff) ? details.diff : null;
       if (!diff) continue;
-      const patch = typeof diff.patch === "string" ? diff.patch : "";
-      const file = typeof details?.path === "string"
+      const patch = hasStringType(diff.patch) ? diff.patch : "";
+      const file = hasStringType(details?.path)
         ? details.path
-        : typeof diff.fileName === "string" ? diff.fileName : "Changed file";
+        : hasStringType(diff.fileName) ? diff.fileName : "Changed file";
       let additions = 0;
       let deletions = 0;
       for (const line of patch.split("\n")) {
         if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
         if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
       }
-      const oldContent = typeof diff.oldContent === "string" || diff.oldContent === null
+      const oldContent = hasStringType(diff.oldContent) || diff.oldContent === null
         ? diff.oldContent
         : undefined;
-      const newContent = typeof diff.newContent === "string" ? diff.newContent : undefined;
+      const newContent = hasStringType(diff.newContent) ? diff.newContent : undefined;
       const status = diff.status === "added" || diff.status === "deleted" || diff.status === "modified"
         ? diff.status
         : oldContent === null || oldContent === "" ? "added" : newContent === "" ? "deleted" : "modified";

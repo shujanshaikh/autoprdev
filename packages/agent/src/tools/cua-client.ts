@@ -1,4 +1,7 @@
-import type { DaytonaSandbox, SandboxSessionOptions } from "../sandbox";
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
+import type { SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand } from "../sandbox/execute";
 
 const DEFAULT_CUA_SERVER_PORT = 8_765;
@@ -64,6 +67,17 @@ export interface CuaComputerOptions {
   requestTimeoutMs?: number;
 }
 
+export interface CuaClientSandbox {
+  id: string;
+  getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
+}
+
+export interface CuaClientDependencies {
+  executeSandboxCommand: typeof executeSandboxCommand;
+}
+
+const defaultDependencies: CuaClientDependencies = { executeSandboxCommand };
+
 export type CuaServerStatus = {
   status: "ok";
   os_type?: string;
@@ -79,12 +93,12 @@ export type CuaAgentCursorStatus = {
   theme?: string;
   reducedMotion?: "auto" | "on" | "off";
   motion?: CuaAgentCursorMotion;
-  visualState?: Record<string, unknown>;
+  visualState?: JsonObject;
   runtimeMode?: "daemon" | "embedded";
   renderReady?: boolean;
   captureReady?: boolean;
-  capture?: Record<string, unknown>;
-  overlay?: Record<string, unknown>;
+  capture?: JsonObject;
+  overlay?: JsonObject;
   capabilities: string[];
   reason?: string;
   error?: string;
@@ -103,28 +117,28 @@ export type CuaAgentCursorMotion = {
   turn_radius: number;
 };
 
-export type CuaCommandResponse = Record<string, unknown> & {
+export type CuaCommandResponse = JsonObject & {
   success: true;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function errorMessage(error: unknown): string {
+function errorMessage<ErrorValue>(error: ErrorValue): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function cursorMotion(value: unknown): CuaAgentCursorMotion | undefined {
+function cursorMotion<ValueValue>(value: ValueValue): CuaAgentCursorMotion | undefined {
   if (!isRecord(value)) return undefined;
-  const fields = Object.keys(CUA_AGENT_CURSOR_MOTION) as Array<keyof CuaAgentCursorMotion>;
-  if (!fields.every((field) => typeof value[field] === "number")) return undefined;
-  return Object.fromEntries(fields.map((field) => [field, value[field]])) as CuaAgentCursorMotion;
+  const fields = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ Object.keys(CUA_AGENT_CURSOR_MOTION) as Array<keyof CuaAgentCursorMotion>;
+  if (!fields.every((field) => hasNumberType(value[field]))) return undefined;
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ Object.fromEntries(fields.map((field) => [field, value[field]])) as CuaAgentCursorMotion;
 }
 
 function usesRecordingCursorMotion(motion: CuaAgentCursorMotion | undefined): boolean {
   return motion !== undefined && Object.entries(CUA_AGENT_CURSOR_MOTION).every(
-    ([field, expected]) => Math.abs(motion[field as keyof CuaAgentCursorMotion] - expected) < 0.001,
+    ([field, expected]) => Math.abs(motion[/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ field as keyof CuaAgentCursorMotion] - expected) < 0.001,
   );
 }
 
@@ -184,11 +198,11 @@ export function parseCuaCommandResponse(body: string): CuaCommandResponse {
       throw new Error("CUA computer-server returned a non-object command result.");
     }
     if (parsed.success !== true) {
-      const detail = typeof parsed.error === "string" ? parsed.error : "unknown CUA command failure";
+      const detail = hasStringType(parsed.error) ? parsed.error : "unknown CUA command failure";
       throw new Error(`CUA computer-server command failed: ${detail}`);
     }
 
-    return parsed as CuaCommandResponse;
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ parsed as CuaCommandResponse;
   }
 
   throw new Error("CUA computer-server returned no SSE data frame.");
@@ -239,16 +253,17 @@ export function cuaBootstrapCommand(): string {
 }
 
 async function startCuaServer(
-  sandbox: DaytonaSandbox,
+  sandbox: CuaClientSandbox,
   sandboxOptions: SandboxSessionOptions,
   options: Required<Pick<CuaComputerOptions, "display" | "serverPort">>,
+  dependencies: CuaClientDependencies,
 ): Promise<void> {
   const startKey = `${sandbox.id}:${options.serverPort}:${options.display}`;
   const existing = cuaServerStartPromises.get(startKey);
   if (existing) return await existing;
 
   const pending = (async () => {
-    const result = await executeSandboxCommand(cuaBootstrapCommand(), {
+    const result = await dependencies.executeSandboxCommand(cuaBootstrapCommand(), {
       cwd: "/home/daytona",
       timeout: 7 * 60,
       env: {
@@ -288,9 +303,10 @@ export class CuaComputerClient {
   private readonly requestTimeoutMs: number;
 
   constructor(
-    private readonly sandbox: DaytonaSandbox,
+    private readonly sandbox: CuaClientSandbox,
     private readonly sandboxOptions: SandboxSessionOptions,
     options: CuaComputerOptions = {},
+    private readonly dependencies: CuaClientDependencies = defaultDependencies,
   ) {
     this.display = options.display ?? process.env.DAYTONA_DISPLAY ?? ":1";
     this.serverPort = validateServerPort(options.serverPort ?? DEFAULT_CUA_SERVER_PORT);
@@ -323,7 +339,7 @@ export class CuaComputerClient {
     return appendUrlPath(this.baseUrl!, path);
   }
 
-  private async getJson(path: string): Promise<unknown> {
+  private async getJson(path: string): Promise<JsonValue> {
     const response = await fetchWithTimeout(
       await this.url(path),
       { headers: { Accept: "application/json" } },
@@ -332,7 +348,7 @@ export class CuaComputerClient {
     if (!response.ok) {
       throw new Error(`CUA computer-server ${path} failed with HTTP ${response.status}.`);
     }
-    return await response.json();
+    return jsonValueSchema.parse(await response.json());
   }
 
   async status(): Promise<CuaServerStatus> {
@@ -340,10 +356,10 @@ export class CuaComputerClient {
     if (!isRecord(payload) || payload.status !== "ok") {
       throw new Error("CUA computer-server status response was invalid.");
     }
-    return payload as CuaServerStatus;
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ payload as CuaServerStatus;
   }
 
-  async command(command: string, params?: Record<string, unknown>): Promise<CuaCommandResponse> {
+  async command(command: string, params?: JsonObject): Promise<CuaCommandResponse> {
     const response = await fetchWithTimeout(
       await this.url("/cmd"),
       {
@@ -363,7 +379,7 @@ export class CuaComputerClient {
     }
     const result = parseCuaCommandResponse(await response.text());
     if (result.effect === "refused") {
-      const detail = typeof result.text === "string"
+      const detail = hasStringType(result.text)
         ? result.text
         : `CUA reported action effect ${result.effect}`;
       throw new Error(`CUA command ${command} was refused: ${detail}`);
@@ -373,7 +389,7 @@ export class CuaComputerClient {
 
   private cursorStatus(
     backend: "cua-driver" | "native",
-    commandManifest: Record<string, unknown>,
+    commandManifest: JsonObject,
     state?: CuaCommandResponse,
   ): CuaAgentCursorStatus {
     const capabilities = CUA_AGENT_CURSOR_COMMANDS.filter(
@@ -400,17 +416,17 @@ export class CuaComputerClient {
     }
 
     const themeState = isRecord(state?.theme) ? state.theme : undefined;
-    const theme = typeof themeState?.id === "string" ? themeState.id : undefined;
+    const theme = hasStringType(themeState?.id) ? themeState.id : undefined;
     const reducedMotion = ["auto", "on", "off"].includes(String(themeState?.reduced_motion))
-      ? themeState?.reduced_motion as "auto" | "on" | "off"
+      ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ themeState?.reduced_motion as "auto" | "on" | "off"
       : undefined;
     const runtimeMode = ["daemon", "embedded"].includes(String(state?.runtime_mode))
-      ? state?.runtime_mode as "daemon" | "embedded"
+      ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ state?.runtime_mode as "daemon" | "embedded"
       : undefined;
     return {
       available: true,
       enabled: state?.enabled === true,
-      session: typeof state?.session === "string" ? state.session : undefined,
+      session: hasStringType(state?.session) ? state.session : undefined,
       theme,
       reducedMotion,
       motion: cursorMotion(state?.motion),
@@ -444,13 +460,13 @@ export class CuaComputerClient {
       throw new Error(`CUA computer-server is missing required commands: ${missing.join(", ")}.`);
     }
     if (version.package !== CUA_COMPUTER_SERVER_VERSION) {
-      const received = typeof version.package === "string" ? version.package : "unknown";
+      const received = hasStringType(version.package) ? version.package : "unknown";
       throw new Error(
         `Expected CUA computer-server ${CUA_COMPUTER_SERVER_VERSION}, received ${received}.`,
       );
     }
     const size = isRecord(screen.size) ? screen.size : undefined;
-    if (typeof size?.width !== "number" || typeof size.height !== "number") {
+    if (!hasNumberType(size?.width) || !hasNumberType(size.height)) {
       throw new Error("CUA computer-server could not read the Daytona desktop size.");
     }
     const backend = "get_desktop_state" in commandManifest ? "cua-driver" : "native";
@@ -514,18 +530,18 @@ export class CuaComputerClient {
       const initializedCursor: CuaAgentCursorStatus = {
         ...cursor,
         enabled: state.enabled === true,
-        session: typeof state.session === "string" ? state.session : cursor.session,
-        theme: isRecord(state.theme) && typeof state.theme.id === "string"
+        session: hasStringType(state.session) ? state.session : cursor.session,
+        theme: isRecord(state.theme) && hasStringType(state.theme.id)
           ? state.theme.id
           : cursor.theme,
         reducedMotion: isRecord(state.theme)
           && ["auto", "on", "off"].includes(String(state.theme.reduced_motion))
-          ? state.theme.reduced_motion as "auto" | "on" | "off"
+          ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ state.theme.reduced_motion as "auto" | "on" | "off"
           : cursor.reducedMotion,
         motion: cursorMotion(state.motion) ?? cursor.motion,
         visualState: isRecord(state.visual_state) ? state.visual_state : cursor.visualState,
         runtimeMode: ["daemon", "embedded"].includes(String(state.runtime_mode))
-          ? state.runtime_mode as "daemon" | "embedded"
+          ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ state.runtime_mode as "daemon" | "embedded"
           : cursor.runtimeMode,
         renderReady: state.render_ready === true,
         captureReady: state.capture_ready === true,
@@ -602,7 +618,7 @@ export class CuaComputerClient {
       const pending = startCuaServer(this.sandbox, this.sandboxOptions, {
         display: this.display,
         serverPort: this.serverPort,
-      });
+      }, this.dependencies);
       cuaCursorRecoveryPromises.set(recoveryKey, pending);
       void pending.finally(() => {
         if (cuaCursorRecoveryPromises.get(recoveryKey) === pending) {

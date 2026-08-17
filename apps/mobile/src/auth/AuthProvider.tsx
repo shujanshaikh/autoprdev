@@ -1,21 +1,13 @@
-import * as SecureStore from "expo-secure-store";
-import * as WebBrowser from "expo-web-browser";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { hasNumberType } from "@autopr/config/runtime-type";
+
+
+import type * as SecureStore from "expo-secure-store";
+import type * as WebBrowser from "expo-web-browser";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { WebRequestError, webRequest } from "../api/web";
 import type { MobileSession } from "../types";
 import { commitRefreshedSession, createSessionPersister } from "./sessionGeneration";
-
-WebBrowser.maybeCompleteAuthSession();
 
 const SESSION_KEY = "autopr.mobile.session.v1";
 const VERIFIER_KEY = "autopr.mobile.pkce-verifier.v1";
@@ -37,6 +29,31 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+export interface AuthDependencies {
+  secureStore: Pick<typeof SecureStore, "deleteItemAsync" | "getItemAsync" | "setItemAsync">;
+  webBrowser: {
+    maybeCompleteAuthSession: (...parameters: Parameters<typeof WebBrowser.maybeCompleteAuthSession>) => void;
+    openAuthSessionAsync: typeof WebBrowser.openAuthSessionAsync;
+  };
+  webRequest: typeof webRequest;
+}
+
+const defaultDependencies: AuthDependencies = {
+  secureStore: {
+    deleteItemAsync: async (...parameters) => (await import("expo-secure-store")).deleteItemAsync(...parameters),
+    getItemAsync: async (...parameters) => (await import("expo-secure-store")).getItemAsync(...parameters),
+    setItemAsync: async (...parameters) => (await import("expo-secure-store")).setItemAsync(...parameters),
+  },
+  webBrowser: {
+    maybeCompleteAuthSession: (...parameters) => {
+      void import("expo-web-browser").then((module) => module.maybeCompleteAuthSession(...parameters));
+    },
+    openAuthSessionAsync: async (...parameters) =>
+      await (await import("expo-web-browser")).openAuthSessionAsync(...parameters),
+  },
+  webRequest,
+};
+
 function tokenExpiresAt(token: string) {
   try {
     const payload = token.split(".")[1];
@@ -44,22 +61,28 @@ function tokenExpiresAt(token: string) {
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
     const decoded = globalThis.atob(padded);
-    const value = JSON.parse(decoded) as { exp?: unknown };
-    return typeof value.exp === "number" ? value.exp * 1000 : 0;
+    const value = JSON.parse(decoded) satisfies { exp?: unknown };
+    return hasNumberType(value.exp) ? value.exp * 1000 : 0;
   } catch {
     return 0;
   }
 }
 
-async function saveSession(session: MobileSession | null) {
+async function saveSession(session: MobileSession | null, dependencies: AuthDependencies) {
   if (session) {
-    await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
+    await dependencies.secureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
   } else {
-    await SecureStore.deleteItemAsync(SESSION_KEY);
+    await dependencies.secureStore.deleteItemAsync(SESSION_KEY);
   }
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({
+  children,
+  dependencies = defaultDependencies,
+}: {
+  children: ReactNode;
+  dependencies?: AuthDependencies;
+}) {
   const [session, setSession] = useState<MobileSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -70,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (sessionPersisterRef.current === null) {
     sessionPersisterRef.current = createSessionPersister({
       currentGeneration: () => authGenerationRef.current,
-      persist: saveSession,
+      persist: (next) => saveSession(next, dependencies),
     });
   }
   const persistSession = sessionPersisterRef.current;
@@ -80,11 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session]);
 
   useEffect(() => {
+    dependencies.webBrowser.maybeCompleteAuthSession();
     let active = true;
-    void SecureStore.getItemAsync(SESSION_KEY)
+    void dependencies.secureStore.getItemAsync(SESSION_KEY)
       .then((stored) => {
         if (!active || !stored) return;
-        const parsed = JSON.parse(stored) as MobileSession;
+        const parsed = JSON.parse(stored) satisfies MobileSession;
         if (parsed.accessToken && parsed.refreshToken && parsed.user?.id) {
           setSession(parsed);
         }
@@ -98,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [dependencies]);
 
   const refresh = useCallback(async () => {
     if (refreshPromiseRef.current) return await refreshPromiseRef.current;
@@ -107,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const generation = authGenerationRef.current;
 
     let request: Promise<string | null>;
-    request = webRequest<MobileSession>("/api/mobile/auth", null, {
+    request = dependencies.webRequest<MobileSession>("/api/mobile/auth", null, {
       method: "POST",
       body: JSON.stringify({ action: "refresh", refreshToken }),
     })
@@ -122,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         persistSession,
       }))
-      .catch(async (cause: unknown) => {
+      .catch(async <CauseValue,>(cause: CauseValue) => {
         if (generation !== authGenerationRef.current) return null;
         const isAuthFailure = cause instanceof WebRequestError
           && (cause.status === 400 || cause.status === 401 || cause.status === 403);
@@ -144,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     refreshPromiseRef.current = request;
     return await request;
-  }, []);
+  }, [dependencies, persistSession]);
 
   const getAccessToken = useCallback(async (forceRefresh = false) => {
     const current = sessionRef.current;
@@ -165,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } = {}) => {
     setAuthError(null);
     try {
-      const flow = await webRequest<{
+      const flow = await dependencies.webRequest<{
         url: string;
         state: string;
         codeVerifier: string;
@@ -178,23 +202,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           provider,
         }),
       });
-      await SecureStore.setItemAsync(VERIFIER_KEY, flow.codeVerifier);
-      const result = await WebBrowser.openAuthSessionAsync(flow.url, REDIRECT_URI);
+      await dependencies.secureStore.setItemAsync(VERIFIER_KEY, flow.codeVerifier);
+      const result = await dependencies.webBrowser.openAuthSessionAsync(flow.url, REDIRECT_URI);
       if (result.type !== "success") {
-        await SecureStore.deleteItemAsync(VERIFIER_KEY);
+        await dependencies.secureStore.deleteItemAsync(VERIFIER_KEY);
         return;
       }
 
       const callback = new URL(result.url);
       const code = callback.searchParams.get("code");
       const returnedState = callback.searchParams.get("state");
-      const verifier = await SecureStore.getItemAsync(VERIFIER_KEY);
-      await SecureStore.deleteItemAsync(VERIFIER_KEY);
+      const verifier = await dependencies.secureStore.getItemAsync(VERIFIER_KEY);
+      await dependencies.secureStore.deleteItemAsync(VERIFIER_KEY);
       if (!code || !verifier || returnedState !== flow.state) {
         throw new Error("The sign-in response could not be verified.");
       }
 
-      const next = await webRequest<MobileSession>("/api/mobile/auth", null, {
+      const next = await dependencies.webRequest<MobileSession>("/api/mobile/auth", null, {
         method: "POST",
         body: JSON.stringify({ action: "exchange", code, codeVerifier: verifier }),
       });
@@ -207,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Sign-in failed.");
     }
-  }, []);
+  }, [dependencies, persistSession]);
 
   const signOut = useCallback(async () => {
     const accessToken = sessionRef.current?.accessToken ?? null;
@@ -223,7 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5_000);
     try {
-      await webRequest<{ success: boolean }>("/api/mobile/auth", accessToken, {
+      await dependencies.webRequest<{ success: boolean }>("/api/mobile/auth", accessToken, {
         method: "POST",
         body: JSON.stringify({ action: "logout" }),
         signal: controller.signal,
@@ -236,7 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timeout);
     }
     setAuthError(revokeError);
-  }, []);
+  }, [dependencies, persistSession]);
 
   const value = useMemo<AuthContextValue>(() => ({
     session,

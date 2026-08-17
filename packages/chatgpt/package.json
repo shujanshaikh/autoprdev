@@ -19,11 +19,11 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
+    "@autopr/config": "workspace:*",
     "react": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@autopr/config": "workspace:*",
     "@types/react": "catalog:",
     "typescript": "catalog:",
     "vitest": "^4.1.6"

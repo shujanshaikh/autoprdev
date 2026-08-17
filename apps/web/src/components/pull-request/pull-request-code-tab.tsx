@@ -1,27 +1,13 @@
+import { hasStringType, hasUndefinedType } from "@autopr/config/runtime-type";
+
 import { Skeleton } from "@autopr/ui/components/skeleton";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  Check,
-  CheckCheck,
-  Columns2,
-  ExternalLink,
-  FileCode2,
-  List,
-  RefreshCw,
-  TextWrap,
-} from "lucide-react";
+import { Check, CheckCheck, Columns2, ExternalLink, FileCode2, List, RefreshCw, TextWrap } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import {
-  PierreDiffView,
-  PierreDiffWorkerPoolProvider,
-  usePierreDiffPreferences,
-} from "#/components/ai-elements/pierre-diff-view";
+import { PierreDiffView, PierreDiffWorkerPoolProvider, usePierreDiffPreferences } from "#/components/ai-elements/pierre-diff-view";
 import { FileTypeIcon, pathParts } from "#/lib/file-type-icon";
-import {
-  type ProjectPullRequestFile,
-  useProjectPullRequestFiles,
-} from "#/lib/project-pull-requests";
+import { type ProjectPullRequestFile, useProjectPullRequestFiles } from "#/lib/project-pull-requests";
 
 function filePatch(file: ProjectPullRequestFile) {
   if (!file.patch) return undefined;
@@ -35,10 +21,10 @@ function reviewStorageKey(projectId: string, number: number) {
 }
 
 function readReviewedFiles(projectId: string, number: number) {
-  if (typeof window === "undefined") return new Set<string>();
+  if (hasUndefinedType(globalThis.window)) return new Set<string>();
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(reviewStorageKey(projectId, number)) ?? "[]");
-    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => hasStringType(value)) : []);
   } catch {
     return new Set<string>();
   }

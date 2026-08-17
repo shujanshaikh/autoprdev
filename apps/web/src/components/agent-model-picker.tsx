@@ -1,29 +1,12 @@
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@autopr/ui/components/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@autopr/ui/components/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@autopr/ui/components/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@autopr/ui/components/popover";
 import { cn } from "@autopr/ui/lib/utils";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 import { CodexLogo } from "#/components/icons/codex-logo";
 import { GrokLogo } from "#/components/icons/grok-logo";
-import {
-  AGENT_PROVIDERS,
-  formatAgentModelLabel,
-  getAgentContextLimit,
-  type AgentModelOption,
-  type AgentProvider,
-} from "#/lib/agent-models";
+import { AGENT_PROVIDERS, formatAgentModelLabel, getAgentContextLimit, type AgentModelOption, type AgentProvider } from "#/lib/agent-models";
 
 const PROVIDER_DETAILS = {
   "openai-codex": {

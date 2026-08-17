@@ -1,3 +1,5 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+
 export const CHATGPT_SESSION_COOKIE_NAME = "lwc_session";
 
 export type CodexPublicSession = {
@@ -93,12 +95,12 @@ export function createStoredCodexSessionLink(sessionCookieHeader: string): Store
 
 export function parseStoredCodexSessionLink(value: string): StoredCodexSessionLink | undefined {
   try {
-    const parsed = JSON.parse(value) as Partial<StoredCodexSessionLink>;
+    const parsed = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(value) as Partial<StoredCodexSessionLink>;
     if (
       parsed.version !== 1 ||
       parsed.provider !== "openai-codex" ||
       parsed.type !== "login-with-chatgpt-session" ||
-      typeof parsed.sessionCookieHeader !== "string"
+      !hasStringType(parsed.sessionCookieHeader)
     ) {
       return undefined;
     }

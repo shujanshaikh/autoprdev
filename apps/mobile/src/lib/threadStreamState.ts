@@ -1,3 +1,6 @@
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
 export type ThreadDisplayMessage = {
   messageId: string;
   role: string;
@@ -20,45 +23,45 @@ const TERMINAL_TOOL_STATES = new Set([
   "output-error",
 ]);
 
-function recordPart(part: unknown): Record<string, unknown> | null {
-  return typeof part === "object" && part !== null && !Array.isArray(part)
-    ? part as Record<string, unknown>
+function recordPart<PartValue>(part: PartValue): JsonObject | null {
+  return hasObjectType(part) && part !== null && !Array.isArray(part)
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ part as JsonObject
     : null;
 }
 
-function partType(part: unknown) {
+function partType<PartValue>(part: PartValue) {
   const value = recordPart(part)?.type;
-  return typeof value === "string" ? value : undefined;
+  return hasStringType(value) ? value : undefined;
 }
 
-function partState(part: unknown) {
+function partState<PartValue>(part: PartValue) {
   const value = recordPart(part)?.state;
-  return typeof value === "string" ? value : undefined;
+  return hasStringType(value) ? value : undefined;
 }
 
-function toolCallId(part: unknown) {
+function toolCallId<PartValue>(part: PartValue) {
   const value = recordPart(part)?.toolCallId;
-  return typeof value === "string" ? value : undefined;
+  return hasStringType(value) ? value : undefined;
 }
 
-function isToolPart(part: unknown) {
+function isToolPart<PartValue>(part: PartValue) {
   const type = partType(part);
   return type === "dynamic-tool" || Boolean(type?.startsWith("tool-"));
 }
 
-function isIncompleteToolPart(part: unknown) {
+function isIncompleteToolPart<PartValue>(part: PartValue) {
   return isToolPart(part) && !TERMINAL_TOOL_STATES.has(partState(part) ?? "");
 }
 
-function textPartValue(part: unknown) {
+function textPartValue<PartValue>(part: PartValue) {
   const value = recordPart(part);
   const type = partType(part);
-  return value && (type === "text" || type === "reasoning") && typeof value.text === "string"
+  return value && (type === "text" || type === "reasoning") && hasStringType(value.text)
     ? value.text
     : undefined;
 }
 
-function isPersistedPartMoreComplete(currentPart: unknown, persistedPart: unknown) {
+function isPersistedPartMoreComplete<CurrentPartValue, PersistedPartValue>(currentPart: CurrentPartValue, persistedPart: PersistedPartValue) {
   if (!currentPart) return false;
 
   const currentState = partState(currentPart);

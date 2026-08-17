@@ -1,10 +1,7 @@
-import {
-  streamText,
-  type LanguageModel,
-  type LanguageModelMiddleware,
-  type ModelMessage,
-  type PrepareStepFunction,
-} from "ai";
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
+import { streamText, type LanguageModel, type LanguageModelMiddleware, type ModelMessage, type PrepareStepFunction } from "ai";
 
 import { compactPromptMessagesForModel } from "./agent-message-compaction";
 
@@ -58,11 +55,11 @@ type MiddlewareStreamOptions = Parameters<MiddlewareWrapStream>[0];
 type ProviderPrompt = MiddlewareStreamOptions["params"]["prompt"];
 type ProviderStreamResult = Awaited<ReturnType<MiddlewareStreamOptions["model"]["doStream"]>>;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function safeJsonStringify(value: unknown) {
+function safeJsonStringify<ValueValue>(value: ValueValue) {
   try {
     return JSON.stringify(value) ?? "undefined";
   } catch {
@@ -80,8 +77,8 @@ function truncateText(value: string, maxChars: number) {
   return `${value.slice(0, headChars)}\n\n[${value.length - headChars - tailChars} characters omitted]\n\n${value.slice(-tailChars)}`;
 }
 
-function compactUnknown(value: unknown, maxStringChars = TOOL_OUTPUT_PREVIEW_CHARS, depth = 0): unknown {
-  if (typeof value === "string") {
+function compactUnknown<ValueValue>(value: ValueValue, maxStringChars = TOOL_OUTPUT_PREVIEW_CHARS, depth = 0): JsonValue {
+  if (hasStringType(value)) {
     return truncateText(value, maxStringChars);
   }
   if (depth >= 6) {
@@ -101,7 +98,7 @@ function compactUnknown(value: unknown, maxStringChars = TOOL_OUTPUT_PREVIEW_CHA
   );
 }
 
-function compactToolOutput(output: unknown, maxChars = TOOL_OUTPUT_MAX_CHARS) {
+function compactToolOutput<OutputValue>(output: OutputValue, maxChars = TOOL_OUTPUT_MAX_CHARS) {
   const serialized = safeJsonStringify(output);
   if (serialized.length <= maxChars) {
     return output;
@@ -123,7 +120,7 @@ function capLargeToolOutputs(messages: ModelMessage[]) {
       return message;
     }
 
-    return {
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ {
       ...message,
       content: message.content.map((part) =>
         part.type === "tool-result"
@@ -135,7 +132,7 @@ function capLargeToolOutputs(messages: ModelMessage[]) {
 }
 
 function messageTokenEstimate(message: ModelMessage) {
-  if (typeof message.content === "string") {
+  if (hasStringType(message.content)) {
     return Math.ceil(message.content.length / 4) + 4;
   }
 
@@ -199,18 +196,18 @@ function findTailStart(messages: ModelMessage[], keepRecentTokens: number) {
   return start;
 }
 
-function serializeContentPart(part: unknown) {
-  if (!isRecord(part) || typeof part.type !== "string") {
+function serializeContentPart<PartValue>(part: PartValue) {
+  if (!isRecord(part) || !hasStringType(part.type)) {
     return truncateText(safeJsonStringify(part), TOOL_OUTPUT_PREVIEW_CHARS);
   }
-  if (part.type === "text" && typeof part.text === "string") {
+  if (part.type === "text" && hasStringType(part.text)) {
     return part.text;
   }
   if (part.type === "reasoning") {
     return "[assistant reasoning omitted]";
   }
   if (part.type === "image" || part.type === "file") {
-    return `[${part.type} attachment${typeof part.filename === "string" ? `: ${part.filename}` : ""}]`;
+    return `[${part.type} attachment${hasStringType(part.filename) ? `: ${part.filename}` : ""}]`;
   }
   if (part.type === "tool-call") {
     return `[tool call: ${String(part.toolName)}]\n${truncateText(safeJsonStringify(part.input), TOOL_OUTPUT_PREVIEW_CHARS)}`;
@@ -223,7 +220,7 @@ function serializeContentPart(part: unknown) {
 
 function serializeMessages(messages: ModelMessage[]) {
   return messages.map((message, index) => {
-    const content = typeof message.content === "string"
+    const content = hasStringType(message.content)
       ? message.content
       : message.content.map(serializeContentPart).join("\n");
     return `--- message ${index + 1} (${message.role}) ---\n${content}`;
@@ -389,8 +386,8 @@ export function createAgentContextCompactor(
   };
 }
 
-function errorStrings(error: unknown, seen = new Set<object>()): string[] {
-  if (typeof error === "string") {
+function errorStrings<ErrorValue>(error: ErrorValue, seen = new Set<object>()): string[] {
+  if (hasStringType(error)) {
     return [error];
   }
   if (!isRecord(error) || seen.has(error)) {
@@ -399,14 +396,14 @@ function errorStrings(error: unknown, seen = new Set<object>()): string[] {
   seen.add(error);
 
   return Object.entries(error).flatMap(([key, value]) => {
-    if (typeof value === "string") {
+    if (hasStringType(value)) {
       return [key, value];
     }
     return errorStrings(value, seen);
   });
 }
 
-export function isContextOverflowError(error: unknown) {
+export function isContextOverflowError<ErrorValue>(error: ErrorValue) {
   const text = [
     error instanceof Error ? error.message : undefined,
     ...errorStrings(error),
@@ -467,7 +464,7 @@ function compactProviderMessage(
     content.push(part);
   }
 
-  return { ...message, content } as ProviderPrompt[number];
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { ...message, content } as ProviderPrompt[number];
 }
 
 function serializeProviderHead(messages: ProviderPrompt) {

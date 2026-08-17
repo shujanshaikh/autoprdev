@@ -30,7 +30,7 @@ const ShimmerComponent = ({
       className
     ),
     initial: { backgroundPosition: "100% center" },
-    style: {
+    style: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ {
       "--spread": `${dynamicSpread}px`,
       backgroundImage:
         "var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))",

@@ -1,11 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  ChatGPTAuthError,
-  createAuthorizationUrl,
-  exchangeAuthorizationCode,
-  refreshTokens,
-  resolveConfig,
-} from "../../src/core/index.ts";
+import { ChatGPTAuthError, createAuthorizationUrl, exchangeAuthorizationCode, refreshTokens, resolveConfig } from "../../src/core/index.ts";
 import { createMockFetch, jsonResponse, makeIdToken } from "./helpers.ts";
 
 describe("oauth", () => {

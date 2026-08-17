@@ -1,3 +1,6 @@
+import { hasBooleanType, hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { useQuery } from "@tanstack/react-query";
 
 export interface ProjectSandboxBranchState {
@@ -9,22 +12,22 @@ export interface ProjectSandboxBranchState {
   checkedAt: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-export function parseProjectSandboxBranchResponse(value: unknown): ProjectSandboxBranchState {
+export function parseProjectSandboxBranchResponse<ValueValue>(value: ValueValue): ProjectSandboxBranchState {
   if (
     !isRecord(value) ||
-    typeof value.available !== "boolean" ||
-    typeof value.detachedHead !== "boolean" ||
-    typeof value.commitSha !== "string" ||
-    typeof value.hasChanges !== "boolean" ||
-    typeof value.checkedAt !== "number" ||
-    (value.branch !== null && typeof value.branch !== "string")
+    !hasBooleanType(value.available) ||
+    !hasBooleanType(value.detachedHead) ||
+    !hasStringType(value.commitSha) ||
+    !hasBooleanType(value.hasChanges) ||
+    !hasNumberType(value.checkedAt) ||
+    (value.branch !== null && !hasStringType(value.branch))
   ) {
     throw new Error(
-      isRecord(value) && typeof value.error === "string"
+      isRecord(value) && hasStringType(value.error)
         ? value.error
         : "Could not read the sandbox branch.",
     );
@@ -57,7 +60,7 @@ export function useProjectSandboxBranchQuery(options: {
       if (!response.ok) {
         const errorBody: unknown = await response.json().catch(() => ({}));
         throw new Error(
-          isRecord(errorBody) && typeof errorBody.error === "string"
+          isRecord(errorBody) && hasStringType(errorBody.error)
             ? errorBody.error
             : "Could not read the sandbox branch.",
         );

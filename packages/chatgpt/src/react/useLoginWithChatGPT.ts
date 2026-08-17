@@ -1,11 +1,10 @@
 "use client";
 
+import { hasUndefinedType } from "@autopr/config/runtime-type";
+
 import type { ChatGPTUser, LoginStatus } from "../core/types.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  CHATGPT_LOGIN_POPUP_NAME,
-  CHATGPT_VERIFICATION_POPUP_FEATURES,
-} from "./popup.ts";
+import { CHATGPT_LOGIN_POPUP_NAME, CHATGPT_VERIFICATION_POPUP_FEATURES } from "./popup.ts";
 
 /** Client-side status: the server statuses plus transient hydration/connecting phases. */
 export type ClientLoginStatus = LoginStatus | "loading" | "connecting";
@@ -106,7 +105,7 @@ export function useLoginWithChatGPT(
         ...init,
       });
       if (!response.ok) throw new Error(`Request to ${path} failed (${response.status}).`);
-      return (await response.json()) as T;
+      return /* SAFETY: The caller supplies the response contract for this typed request helper. */ (await response.json()) as T;
     },
     [basePath],
   );
@@ -121,7 +120,7 @@ export function useLoginWithChatGPT(
 
   const copyCode = useCallback(async () => {
     const code = state.userCode;
-    if (!code || typeof navigator === "undefined" || !navigator.clipboard) return;
+    if (!code || hasUndefinedType(globalThis.navigator) || !navigator.clipboard) return;
     try {
       await navigator.clipboard.writeText(code);
       setState((prev) => ({ ...prev, copied: true }));
@@ -132,7 +131,7 @@ export function useLoginWithChatGPT(
   }, [resetCopiedSoon, state.userCode]);
 
   const reopen = useCallback(() => {
-    if (typeof window === "undefined") return;
+    if (hasUndefinedType(globalThis.window)) return;
     const existing = popupRef.current;
     if (existing && !existing.closed) {
       existing.focus();
@@ -162,7 +161,7 @@ export function useLoginWithChatGPT(
       let copied = false;
       const clipboard = loginOptions.popup && !loginOptions.popup.closed
         ? loginOptions.popup.navigator.clipboard
-        : typeof navigator !== "undefined"
+        : !hasUndefinedType(globalThis.navigator)
           ? navigator.clipboard
           : undefined;
       if (autoCopyCode && clipboard?.writeText) {
@@ -176,7 +175,7 @@ export function useLoginWithChatGPT(
 
       // Open or navigate the popup after copying. A caller can pass a pre-opened
       // same-window consent popup so the user continues to OpenAI in one place.
-      if (openPopup && typeof window !== "undefined") {
+      if (openPopup && !hasUndefinedType(globalThis.window)) {
         const existing = loginOptions.popup;
         if (existing && !existing.closed) {
           existing.opener = null;

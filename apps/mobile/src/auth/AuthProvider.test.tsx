@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+// @vitest-environment jsdom
+import { type JsonValue } from "@autopr/config/runtime-value";
 import { act, cleanup, render } from "@testing-library/react";
-import * as SecureStore from "expo-secure-store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WebRequestError } from "../api/web";
@@ -11,20 +12,15 @@ const SESSION_KEY = "autopr.mobile.session.v1";
 
 const { webRequestMock, secureStore } = vi.hoisted(() => ({
   webRequestMock: vi.fn<
-    (path: string, accessToken: string | null, init?: RequestInit) => Promise<unknown>
+    (path: string, accessToken: string | null, init?: RequestInit) => Promise<JsonValue>
   >(),
   secureStore: {
     store: new Map<string, string>(),
-    deferredWrite: null as { promise: Promise<void> } | null,
+    deferredWrite: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ null as { promise: Promise<void> } | null,
   },
 }));
 
-vi.mock("../api/web", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../api/web")>();
-  return { ...actual, webRequest: webRequestMock };
-});
-
-vi.mock("expo-secure-store", () => ({
+const secureStoreApi = {
   getItemAsync: vi.fn(async (key: string) => secureStore.store.get(key) ?? null),
   setItemAsync: vi.fn(async (key: string, value: string) => {
     secureStore.store.set(key, value);
@@ -35,15 +31,23 @@ vi.mock("expo-secure-store", () => ({
   deleteItemAsync: vi.fn(async (key: string) => {
     secureStore.store.delete(key);
   }),
-}));
+};
 
-vi.mock("expo-web-browser", () => ({
+const webBrowser = {
   maybeCompleteAuthSession: vi.fn(),
   openAuthSessionAsync: vi.fn(async () => ({
-    type: "success",
+    type: "success" as const,
     url: "autopr://auth/callback?code=code-1&state=state-1",
   })),
-}));
+};
+
+const dependencies = {
+  secureStore: secureStoreApi,
+  webBrowser,
+  webRequest: async <Result,>(...parameters: Parameters<typeof webRequestMock>) =>
+    /* SAFETY: The fake endpoint is controlled by each test and returns the result type requested by AuthProvider. */
+    await webRequestMock(...parameters) as Result,
+};
 
 const sessionA: MobileSession = {
   accessToken: "access-token-a",
@@ -77,7 +81,7 @@ const refreshedSessionA: MobileSession = {
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
+  let reject!: <ReasonValue>(reason?: ReasonValue) => void;
   const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
     reject = rejectPromise;
@@ -102,11 +106,11 @@ describe("AuthProvider", () => {
   });
 
   it("keeps session B when a refresh started before sign-in fails afterwards", async () => {
-    await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(sessionA));
+    await secureStoreApi.setItemAsync(SESSION_KEY, JSON.stringify(sessionA));
 
     const refreshA = createDeferred<MobileSession>();
     webRequestMock.mockImplementation((_path, _accessToken, init) => {
-      const { action } = JSON.parse(String(init?.body ?? "{}")) as { action?: string };
+      const { action } = JSON.parse(String(init?.body ?? "{}")) satisfies { action?: string };
       switch (action) {
         case "refresh":
           return refreshA.promise;
@@ -124,7 +128,7 @@ describe("AuthProvider", () => {
     });
 
     render(
-      <AuthProvider>
+      <AuthProvider dependencies={dependencies}>
         <AuthProbe />
       </AuthProvider>,
     );
@@ -150,16 +154,16 @@ describe("AuthProvider", () => {
     expect(auth?.session).toEqual(sessionB);
     expect(auth?.authError).toBeNull();
 
-    const stored = await SecureStore.getItemAsync(SESSION_KEY);
+    const stored = await secureStoreApi.getItemAsync(SESSION_KEY);
     expect(stored ? JSON.parse(stored) : null).toEqual(sessionB);
   });
 
   it("keeps the fresh session persisted when a stale refresh, sign-out, and sign-in interleave", async () => {
-    await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(sessionA));
+    await secureStoreApi.setItemAsync(SESSION_KEY, JSON.stringify(sessionA));
 
     const refreshA = createDeferred<MobileSession>();
     webRequestMock.mockImplementation((_path, _accessToken, init) => {
-      const { action } = JSON.parse(String(init?.body ?? "{}")) as { action?: string };
+      const { action } = JSON.parse(String(init?.body ?? "{}")) satisfies { action?: string };
       switch (action) {
         case "refresh":
           return refreshA.promise;
@@ -179,7 +183,7 @@ describe("AuthProvider", () => {
     });
 
     render(
-      <AuthProvider>
+      <AuthProvider dependencies={dependencies}>
         <AuthProbe />
       </AuthProvider>,
     );
@@ -217,7 +221,7 @@ describe("AuthProvider", () => {
     expect(auth?.session).toEqual(sessionB);
     expect(auth?.authError).toBeNull();
 
-    const stored = await SecureStore.getItemAsync(SESSION_KEY);
+    const stored = await secureStoreApi.getItemAsync(SESSION_KEY);
     expect(stored ? JSON.parse(stored) : null).toEqual(sessionB);
   });
 });

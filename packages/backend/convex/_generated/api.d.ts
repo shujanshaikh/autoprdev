@@ -36,11 +36,7 @@ import type * as sandboxCosts from "../sandboxCosts.js";
 import type * as threads from "../threads.js";
 import type * as userSettings from "../userSettings.js";
 
-import type {
-  ApiFromModules,
-  FilterApi,
-  FunctionReference,
-} from "convex/server";
+import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
   codexAuth: typeof codexAuth;

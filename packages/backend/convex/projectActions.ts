@@ -1,7 +1,10 @@
 "use node";
 
+import { hasBooleanType, hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import * as daytonaSdk from "@daytona/sdk";
-import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
+import type { ComputerUse, Sandbox as DaytonaSandbox } from "@daytona/sdk";
 import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 import { ConvexError, v } from "convex/values";
 
@@ -9,21 +12,8 @@ import { internal } from "./_generated/api";
 import { action, type ActionCtx } from "./_generated/server";
 import { normalizeGithubUrl } from "./lib/github";
 import { sandboxCommandText } from "./lib/sandboxCommandOutput";
-import {
-  autoprSandboxLabels,
-  autoprSandboxName,
-  isExpectedAutoprSandbox,
-} from "./lib/sandboxIdentity";
-import {
-  assessWorktreeCleanup,
-  createThreadFeatureBranch,
-  createThreadWorktreePath,
-  decideWorktreeProvision,
-  parseGitWorktreeList,
-  resolveThreadBaseBranch,
-  resolveThreadWorkspaceMode,
-  type ThreadWorkspaceMode,
-} from "./lib/threadWorktree";
+import { autoprSandboxLabels, autoprSandboxName, isExpectedAutoprSandbox } from "./lib/sandboxIdentity";
+import { assessWorktreeCleanup, createThreadFeatureBranch, createThreadWorktreePath, decideWorktreeProvision, parseGitWorktreeList, resolveThreadBaseBranch, resolveThreadWorkspaceMode, type ThreadWorkspaceMode } from "./lib/threadWorktree";
 
 const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready"), v.literal("failed"));
 
@@ -119,15 +109,7 @@ interface SandboxRuntimeStatusResult {
 
 type ComputerUseProcessName = (typeof COMPUTER_USE_PROCESS_NAMES)[number];
 
-type ComputerUseLifecycle = {
-  start(): Promise<unknown>;
-  stop(): Promise<unknown>;
-  getStatus(): Promise<unknown>;
-  getProcessStatus?(processName: string): Promise<unknown>;
-  restartProcess?(processName: string): Promise<unknown>;
-  getProcessLogs?(processName: string): Promise<unknown>;
-  getProcessErrors?(processName: string): Promise<unknown>;
-};
+type ComputerUseLifecycle = ComputerUse;
 
 const sandboxStartPromises = new Map<string, Promise<DaytonaSandbox>>();
 const recentlyStartedSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
@@ -141,7 +123,7 @@ type ComputerUseDiagnostics = {
   diagnosticError?: string;
 };
 
-function errorMessage(error: unknown) {
+function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
@@ -159,7 +141,7 @@ async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFa
       { command, suppressInputEcho: true },
       120,
     );
-    if (!allowFailure && typeof result.exitCode === "number" && result.exitCode !== 0) {
+    if (!allowFailure && hasNumberType(result.exitCode) && result.exitCode !== 0) {
       throw new Error(sandboxCommandText(result) || "Sandbox Git command failed.");
     }
     return result;
@@ -168,8 +150,8 @@ async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFa
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function repoNameFromUrl(repoUrl?: string): string | undefined {
@@ -217,13 +199,13 @@ function sandboxRepositoryPath(sandboxWorkDir: string, repoDirectoryName: string
   return `${sandboxWorkDir.replace(/\/+$/, "")}/${repoDirectoryName}`;
 }
 
-function isSandboxNotFoundError(error: unknown) {
+function isSandboxNotFoundError<ErrorValue>(error: ErrorValue) {
   const message = errorMessage(error).toLowerCase();
 
   return message.includes("not found") || message.includes("404");
 }
 
-function isSandboxNetworkNotReadyError(error: unknown) {
+function isSandboxNetworkNotReadyError<ErrorValue>(error: ErrorValue) {
   const message = errorMessage(error).toLowerCase();
 
   return (
@@ -233,11 +215,11 @@ function isSandboxNetworkNotReadyError(error: unknown) {
   );
 }
 
-function isSandboxStateChangeInProgressError(error: unknown) {
+function isSandboxStateChangeInProgressError<ErrorValue>(error: ErrorValue) {
   return errorMessage(error).toLowerCase().includes("state change in progress");
 }
 
-function isDaytonaRateLimitError(error: unknown) {
+function isDaytonaRateLimitError<ErrorValue>(error: ErrorValue) {
   if (error instanceof Error && error.name === "DaytonaRateLimitError") return true;
   const message = errorMessage(error).toLowerCase();
   if (message.includes("too many requests") || message.includes("throttlerexception")) return true;
@@ -337,18 +319,18 @@ function normalizePreviewUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function computerUseStatus(value: unknown): string | undefined {
+function computerUseStatus<ValueValue>(value: ValueValue): string | undefined {
   if (!isRecord(value)) return undefined;
   const status = value.status;
-  return typeof status === "string" ? status.toLowerCase() : undefined;
+  return hasStringType(status) ? status.toLowerCase() : undefined;
 }
 
-function compactDiagnostic(value: unknown): string | undefined {
+function compactDiagnostic<ValueValue>(value: ValueValue): string | undefined {
   if (value === undefined || value === null) return undefined;
 
   let raw: string;
   try {
-    raw = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+    raw = hasStringType(value) ? value : JSON.stringify(value) ?? String(value);
   } catch {
     raw = String(value);
   }
@@ -359,11 +341,11 @@ function compactDiagnostic(value: unknown): string | undefined {
     : normalized;
 }
 
-function responseField(value: unknown, field: string): unknown {
+function responseField<ValueValue>(value: ValueValue, field: string): JsonValue {
   return isRecord(value) ? value[field] : undefined;
 }
 
-function computerUseProcessNamesFromError(error: unknown): ComputerUseProcessName[] {
+function computerUseProcessNamesFromError<ErrorValue>(error: ErrorValue): ComputerUseProcessName[] {
   const message = errorMessage(error).toLowerCase();
   const matched = COMPUTER_USE_PROCESS_NAMES.filter((processName) => message.includes(processName));
   return matched.length > 0 ? matched : [...COMPUTER_USE_PROCESS_NAMES];
@@ -377,8 +359,8 @@ async function readComputerUseStatus(computerUse: Pick<ComputerUseLifecycle, "ge
   }
 }
 
-function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
-  if (typeof state !== "string") return "unknown";
+function normalizeSandboxRuntimeStatus<StateValue>(state: StateValue): SandboxRuntimeStatus {
+  if (!hasStringType(state)) return "unknown";
   const normalized = state.toLowerCase();
   if (normalized === "started" || normalized === "running") return "started";
   if (normalized === "archived") return "archived";
@@ -389,7 +371,7 @@ function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
 async function getDaytonaSandboxRuntimeStatus(sandboxId: string): Promise<SandboxRuntimeStatusResult> {
   const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
-  const rawState = typeof sandbox.state === "string" ? sandbox.state : undefined;
+  const rawState = hasStringType(sandbox.state) ? sandbox.state : undefined;
 
   return {
     status: normalizeSandboxRuntimeStatus(rawState),
@@ -443,8 +425,8 @@ async function collectComputerUseDiagnostics(
       const status = await computerUse.getProcessStatus?.(processName);
       const running = responseField(status, "running");
       const processStatus = responseField(status, "status");
-      diagnostic.running = typeof running === "boolean" ? running : undefined;
-      diagnostic.status = typeof processStatus === "string" ? processStatus : undefined;
+      diagnostic.running = hasBooleanType(running) ? running : undefined;
+      diagnostic.status = hasStringType(processStatus) ? processStatus : undefined;
     } catch (error) {
       diagnostic.diagnosticError = compactDiagnostic(`status: ${errorMessage(error)}`);
     }
@@ -498,7 +480,7 @@ function formatComputerUseFailure(errors: unknown[], diagnostics: ComputerUseDia
   ].filter(Boolean).join(" ");
 }
 
-async function recoverComputerUse(computerUse: ComputerUseLifecycle, cause: unknown) {
+async function recoverComputerUse<CauseValue>(computerUse: ComputerUseLifecycle, cause: CauseValue) {
   const errors: unknown[] = [cause];
   const processNames = computerUseProcessNamesFromError(cause);
 
@@ -679,7 +661,7 @@ async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPrevi
 }
 
 async function startIsolatedTerminalPreview(sandbox: DaytonaSandbox, workDir: string) {
-  let lastError: unknown;
+  let lastError: Error | undefined;
 
   for (let attempt = 0; attempt < TERMINAL_PORT_ATTEMPTS; attempt += 1) {
     const port = TERMINAL_PORT_MIN + Math.floor(Math.random() * TERMINAL_PORT_SPAN);
@@ -1584,7 +1566,7 @@ export const removeSandboxEnvironmentVariable = action({
       await sandbox.updateEnv({}, { unset: [args.envName] });
       if (existingSecret) {
         await sandbox.updateSecrets(remainingMap);
-        await daytona.secret.delete(existingSecret.secretId).catch((error: unknown) => {
+        await daytona.secret.delete(existingSecret.secretId).catch(<ErrorValue>(error: ErrorValue) => {
           if (!isSandboxNotFoundError(error)) throw error;
         });
       }

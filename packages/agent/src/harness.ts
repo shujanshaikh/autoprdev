@@ -1,7 +1,5 @@
-import {
-  buildSandboxAgentProjectContext,
-  buildSandboxAgentSystemPrompt,
-} from "./system-prompt";
+
+import { buildSandboxAgentProjectContext, buildSandboxAgentSystemPrompt } from "./system-prompt";
 import { loadSandboxProjectInstructions } from "./project-instructions";
 import { createDaytonaTools, type CuaComputerToolOptions, type DaytonaTools } from "./tools";
 import { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
@@ -56,6 +54,18 @@ export class CodingHarnessBusyError extends Error {
   }
 }
 
+export interface CodingHarnessDependencies {
+  createDaytonaTools: typeof createDaytonaTools;
+  loadSandboxProjectInstructions: typeof loadSandboxProjectInstructions;
+  prepareDaytonaSandbox: typeof prepareDaytonaSandbox;
+}
+
+const defaultDependencies: CodingHarnessDependencies = {
+  createDaytonaTools,
+  loadSandboxProjectInstructions,
+  prepareDaytonaSandbox,
+};
+
 /**
  * Small orchestration harness for Daytona-backed coding agents.
  *
@@ -67,7 +77,10 @@ export class CodingHarness {
   private prepared?: CodingHarnessContext;
   private readonly listeners = new Set<CodingHarnessListener>();
 
-  constructor(private readonly options: CodingHarnessOptions) {}
+  constructor(
+    private readonly options: CodingHarnessOptions,
+    private readonly dependencies: CodingHarnessDependencies = defaultDependencies,
+  ) {}
 
   getPhase(): CodingHarnessPhase {
     return this.phase;
@@ -90,14 +103,14 @@ export class CodingHarness {
     await this.setPhase("preparing");
 
     try {
-      const sandbox = await prepareDaytonaSandbox(this.options);
-      const tools = createDaytonaTools(this.options, {
+      const sandbox = await this.dependencies.prepareDaytonaSandbox(this.options);
+      const tools = this.dependencies.createDaytonaTools(this.options, {
         computer: this.options.computer,
       });
       const toolSelection = selectTools(tools, this.options.selectedTools);
       const instructionFiles = this.options.includeProjectInstructions === false
         ? []
-        : await loadSandboxProjectInstructions(this.options, {
+        : await this.dependencies.loadSandboxProjectInstructions(this.options, {
             cwd: sandbox.workDir,
             projectRoot: sandbox.workDir,
             filenames: this.options.projectInstructionFilenames,
@@ -182,7 +195,7 @@ export class CodingHarness {
     }
   }
 
-  private async reportListenerError(event: CodingHarnessEvent, error: unknown) {
+  private async reportListenerError<ErrorValue>(event: CodingHarnessEvent, error: ErrorValue) {
     const label = describeCodingHarnessEvent(event);
     const handler = this.options.onListenerError;
 
@@ -211,7 +224,7 @@ function describeCodingHarnessEvent(event: CodingHarnessEvent): string {
 function selectTools(
   tools: DaytonaTools,
   selectedTools: string[] | undefined,
-): { tools: DaytonaTools; toolNames: string[]; unavailableToolNames: string[] } {
+) {
   const availableToolNames = Object.keys(tools);
   const requestedToolNames = selectedTools ? dedupeToolNames(selectedTools) : availableToolNames;
   const availableToolNameSet = new Set(availableToolNames);
@@ -222,7 +235,7 @@ function selectTools(
   const selectedToolEntries = Object.entries(tools).filter(([toolName]) => selectedToolSet.has(toolName));
 
   return {
-    tools: Object.fromEntries(selectedToolEntries) as DaytonaTools,
+    tools: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ Object.fromEntries(selectedToolEntries) as DaytonaTools,
     toolNames,
     unavailableToolNames,
   };

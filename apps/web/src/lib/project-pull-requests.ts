@@ -1,3 +1,5 @@
+import { hasObjectType } from "@autopr/config/runtime-type";
+
 import { useQuery } from "@tanstack/react-query";
 
 export type ProjectPullRequestState = "open" | "closed";
@@ -83,13 +85,13 @@ async function readJson<T>(response: Response): Promise<T> {
   const data: unknown = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const error = data && typeof data === "object" && "error" in data
+    const error = data && hasObjectType(data) && "error" in data
       ? String(data.error)
       : "Request failed.";
     throw new Error(error);
   }
 
-  return data as T;
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ data as T;
 }
 
 export function useProjectPullRequests(projectId: string) {

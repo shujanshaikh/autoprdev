@@ -1,13 +1,7 @@
 import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { describe, expect, it } from "vitest";
 
-import {
-  gitStatusSummary,
-  resolveThreadGitActions,
-  rowAction,
-  rowDetail,
-  rowLabel,
-} from "./gitActions";
+import { gitStatusSummary, resolveThreadGitActions, rowAction, rowDetail, rowLabel } from "./gitActions";
 
 function status(overrides: Partial<ThreadGitStatus> = {}): ThreadGitStatus {
   return {

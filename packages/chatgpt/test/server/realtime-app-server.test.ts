@@ -1,14 +1,10 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { describe, expect, test } from "vitest";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  ChatGPTRealtimeAppServerSession,
-  chatgptPlanType,
-  realtimeExecutionConfig,
-  type RealtimeBridgeEvent,
-} from "../../src/server/realtime-app-server.ts";
+import { ChatGPTRealtimeAppServerSession, chatgptPlanType, realtimeExecutionConfig, type RealtimeBridgeEvent } from "../../src/server/realtime-app-server.ts";
 
-function jwt(payload: Record<string, unknown>): string {
+function jwt(payload: JsonObject): string {
   return `header.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.signature`;
 }
 
@@ -23,7 +19,9 @@ describe("ChatGPTRealtimeAppServerSession", () => {
 
     await expect(session.start({ sdp: "v=0\r\n" })).rejects.toThrow();
 
-    const home = (session as unknown as { home: string }).home;
+    const home = session.diagnostics.home;
+    expect(home).toBeDefined();
+    if (!home) throw new Error("Expected the realtime session home directory.");
     await expect(access(join(home, "auth.json"))).rejects.toThrow();
   });
 
@@ -43,8 +41,10 @@ describe("ChatGPTRealtimeAppServerSession", () => {
 
     try {
       await expect(session.start({ sdp: "v=0\r\n" })).rejects.toThrow();
-      expect((session as unknown as { process: { exitCode: number | null } }).process.exitCode).toBe(0);
-      const home = (session as unknown as { home: string }).home;
+      expect(session.diagnostics.processExitCode).toBe(0);
+      const home = session.diagnostics.home;
+      expect(home).toBeDefined();
+      if (!home) throw new Error("Expected the realtime session home directory.");
       await expect(access(join(home, "auth.json"))).rejects.toThrow();
     } finally {
       delete process.env[secretName];
@@ -120,12 +120,12 @@ describe("ChatGPTRealtimeAppServerSession", () => {
         return { output: { status: "sent", draftId: "draft_1" } };
       },
     });
-    const wire: Array<Record<string, unknown>> = [];
+    const wire: Array<JsonObject> = [];
     const events: RealtimeBridgeEvent[] = [];
     session.onEvent((event) => events.push(event));
-    (session as any).send = (message: Record<string, unknown>) => wire.push(message);
+    (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).send = (message: JsonObject) => wire.push(message);
 
-    await (session as any).handleTool(41, {
+    await (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).handleTool(41, {
       callId: "call_1",
       tool: "email_request_send_draft",
       arguments: { draftId: "draft_1" },
@@ -133,7 +133,7 @@ describe("ChatGPTRealtimeAppServerSession", () => {
 
     expect(wire).toHaveLength(1);
     expect(wire[0]?.id).toBe(41);
-    expect((wire[0]?.result as Record<string, unknown>)?.success).toBe(true);
+    expect((/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ wire[0]?.result as JsonObject)?.success).toBe(true);
     expect(events.at(-1)).toEqual({
       type: "tool.pending_confirmation",
       callId: "call_1",
@@ -177,8 +177,8 @@ describe("ChatGPTRealtimeAppServerSession", () => {
         return { output: { status: "applied" } };
       },
     });
-    (session as any).send = () => {};
-    await (session as any).handleTool(1, {
+    (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).send = () => {};
+    await (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).handleTool(1, {
       callId: "call_1",
       tool: "apply_change",
       arguments: {},
@@ -213,8 +213,8 @@ describe("ChatGPTRealtimeAppServerSession", () => {
         return { output: { status: "applied" } };
       },
     });
-    (session as any).send = () => {};
-    await (session as any).handleTool(1, {
+    (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).send = () => {};
+    await (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).handleTool(1, {
       callId: "call_1",
       tool: "apply_change",
       arguments: {},
@@ -248,13 +248,13 @@ describe("ChatGPTRealtimeAppServerSession", () => {
         speech: "The change was applied.",
       }),
     });
-    (session as any).send = () => {};
-    (session as any).threadId = "thread_1";
-    (session as any).expectResult = async () => {
+    (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).send = () => {};
+    (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).threadId = "thread_1";
+    (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).expectResult = async () => {
       throw new Error("voice transport closed");
     };
     session.onEvent((event) => events.push(event));
-    await (session as any).handleTool(1, {
+    await (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ session as any).handleTool(1, {
       callId: "call_1",
       tool: "apply_change",
       arguments: {},

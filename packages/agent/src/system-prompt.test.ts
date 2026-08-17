@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildSandboxAgentProjectContext,
-  buildSandboxAgentSystemPrompt,
-  withSandboxAgentProjectContext,
-} from "./system-prompt";
+import { buildSandboxAgentProjectContext, buildSandboxAgentSystemPrompt, withSandboxAgentProjectContext } from "./system-prompt";
 
 describe("buildSandboxAgentSystemPrompt", () => {
   it("labels repository instructions untrusted and preserves anti-exfiltration precedence", () => {

@@ -1,14 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  type CodexPublicSession,
-  createStoredCodexSessionLink,
-  getCodexSessionCookieHeaders,
-  getChatGPTSessionCookieHeader,
-  parseStoredCodexSessionLink,
-  requestWithChatGPTSession,
-  resolveCodexSession,
-} from "./codex-session";
+import { type CodexPublicSession, createStoredCodexSessionLink, getCodexSessionCookieHeaders, getChatGPTSessionCookieHeader, parseStoredCodexSessionLink, requestWithChatGPTSession, resolveCodexSession } from "./codex-session";
 
 const authenticatedSession = {
   status: "authenticated",
@@ -105,7 +97,7 @@ describe("Codex account session resolution", () => {
   });
 
   it("normalizes request objects created by another server runtime", () => {
-    const foreignRequest = {
+    const foreignRequest = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ {
       bodyUsed: false,
       headers: new Headers({ cookie: "workos_session=workos-1" }),
       method: "POST",

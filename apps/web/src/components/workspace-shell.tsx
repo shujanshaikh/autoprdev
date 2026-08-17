@@ -1,51 +1,18 @@
 import { api } from "@autopr/backend/convex/_generated/api";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@autopr/ui/components/sidebar";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@autopr/ui/components/sidebar";
 import { TooltipProvider } from "@autopr/ui/components/tooltip";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import {
-  useMutation as useReactMutation,
-  useQuery as useReactQuery,
-} from "@tanstack/react-query";
-import {
-  useAction,
-  useConvexAuth,
-  useMutation as useConvexMutation,
-  useQuery,
-} from "convex/react";
-import {
-  useCallback,
-  useMemo,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useMutation as useReactMutation, useQuery as useReactQuery } from "@tanstack/react-query";
+import { useAction, useConvexAuth, useMutation as useConvexMutation, useQuery } from "convex/react";
+import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { SettingsDialog, type WorkspaceUserSettings } from "#/components/settings/settings-dialog";
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
-import {
-  readJson,
-  type GithubAppInstallation,
-  type GithubBranch,
-  type GithubRepository,
-} from "#/components/dashboard/types";
+import { readJson, type GithubAppInstallation, type GithubBranch, type GithubRepository } from "#/components/dashboard/types";
 import { RouteTransition } from "#/components/route-transition";
-import {
-  WorkspaceSidebar,
-  type WorkspaceProject,
-  type WorkspaceThread,
-} from "#/components/workspace-sidebar";
+import { WorkspaceSidebar, type WorkspaceProject, type WorkspaceThread } from "#/components/workspace-sidebar";
 import { useCodexStatus } from "#/lib/codex-status";
 import { useGrokStatus } from "#/lib/grok-status";
 
@@ -268,16 +235,16 @@ export function WorkspaceShell({
   const navigate = useNavigate();
   const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
-  const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip") as WorkspaceProject[] | undefined;
-  const threads = useQuery(api.threads.listForSidebar, isAuthenticated ? {} : "skip") as WorkspaceThread[] | undefined;
-  const sandboxCosts = useQuery(
+  const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip") satisfies WorkspaceProject[] | undefined;
+  const threads = useQuery(api.threads.listForSidebar, isAuthenticated ? {} : "skip") satisfies WorkspaceThread[] | undefined;
+  const sandboxCosts = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ useQuery(
     api.sandboxCosts.listForCurrentUser,
     isAuthenticated ? {} : "skip",
   ) as WorkspaceSandboxCost[] | undefined;
   const userSettings = useQuery(
     api.userSettings.get,
     isAuthenticated ? {} : "skip",
-  ) as WorkspaceUserSettings | undefined;
+  ) satisfies WorkspaceUserSettings | undefined;
   const removeProjectWithSandbox = useAction(api.projectActions.removeWithSandbox);
   const setDemoRecordingExperimentEnabled = useConvexMutation(
     api.userSettings.setDemoRecordingExperimentEnabled,
@@ -338,7 +305,7 @@ export function WorkspaceShell({
     <TooltipProvider>
       <SidebarProvider
         className="project-shell h-dvh max-h-dvh overflow-hidden"
-        style={{ "--sidebar-width": "18rem" } as CSSProperties}
+        style={/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { "--sidebar-width": "18rem" } as CSSProperties}
       >
         <WorkspaceSidebar
           projects={projects}
@@ -354,7 +321,7 @@ export function WorkspaceShell({
             <SidebarTrigger className="border border-border bg-background" />
           </div>
           <RouteTransition>
-            {typeof children === "function"
+            {children instanceof Function
               ? children({ openCreateProject })
               : children}
           </RouteTransition>

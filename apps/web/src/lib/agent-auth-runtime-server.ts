@@ -5,30 +5,47 @@ import { createGrokResponsesModel, revokeGrokAgentGrant } from "#/lib/grok-auth-
 import { isAgentReasoningEffortSupported } from "#/lib/agent-models";
 import type { AgentModelOptions } from "#/lib/trigger-agent-contract";
 
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue | undefined };
-type ProviderOptions = Record<string, { [key: string]: JsonValue | undefined }>;
+export interface AgentAuthDependencies {
+  createCodexResponsesModel: typeof createCodexResponsesModel;
+  createGrokResponsesModel: typeof createGrokResponsesModel;
+  revokeCodexAgentGrant: typeof revokeCodexAgentGrant;
+  revokeGrokAgentGrant: typeof revokeGrokAgentGrant;
+}
 
-export function createAgentResponsesModel(options: AgentModelOptions) {
+const defaultDependencies: AgentAuthDependencies = {
+  createCodexResponsesModel,
+  createGrokResponsesModel,
+  revokeCodexAgentGrant,
+  revokeGrokAgentGrant,
+};
+
+export function createAgentResponsesModel(
+  options: AgentModelOptions,
+  dependencies: AgentAuthDependencies = defaultDependencies,
+) {
   if (options.provider !== "xai") {
-    return createCodexResponsesModel(options);
+    return dependencies.createCodexResponsesModel(options);
   }
 
   const reasoningEffort = isAgentReasoningEffortSupported(options, options.reasoningEffort)
     ? options.reasoningEffort
     : undefined;
-  return createGrokResponsesModel({ ...options, reasoningEffort });
+  return dependencies.createGrokResponsesModel({ ...options, reasoningEffort });
 }
 
-export function revokeAgentModelGrant(options: AgentModelOptions) {
+export function revokeAgentModelGrant(
+  options: AgentModelOptions,
+  dependencies: AgentAuthDependencies = defaultDependencies,
+) {
   return options.provider === "xai"
-    ? revokeGrokAgentGrant(options.credentialsGrantId)
-    : revokeCodexAgentGrant(options.credentialsGrantId);
+    ? dependencies.revokeGrokAgentGrant(options.credentialsGrantId)
+    : dependencies.revokeCodexAgentGrant(options.credentialsGrantId);
 }
 
 export function agentProviderOptions(
   options: AgentModelOptions,
   instructions: string,
-): ProviderOptions {
+) {
   if (options.provider === "xai") {
     const reasoningEffort = isAgentReasoningEffortSupported(options, options.reasoningEffort)
       ? options.reasoningEffort

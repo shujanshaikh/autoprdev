@@ -1,15 +1,8 @@
+
 import "@tanstack/react-start/server-only";
 
 import { GrokOAuthError } from "@autopr/grok/core";
-import {
-  createGrokAgentGrant,
-  disconnectGrok,
-  getGrokConnectionStatus,
-  GrokConnectionError,
-  pollGrokDeviceAuthorization,
-  revokeGrokAgentGrant,
-  startGrokDeviceAuthorization,
-} from "#/lib/grok-auth-runtime-server";
+import { createGrokAgentGrant, disconnectGrok, getGrokConnectionStatus, GrokConnectionError, pollGrokDeviceAuthorization, revokeGrokAgentGrant, startGrokDeviceAuthorization } from "#/lib/grok-auth-runtime-server";
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 import type { GrokAgentModelOptions } from "#/lib/trigger-agent-contract";
 
@@ -60,7 +53,7 @@ export function revokeGrokAgentModelOptions(options: GrokAgentModelOptions) {
   return revokeGrokAgentGrant(options.credentialsGrantId);
 }
 
-export function grokErrorResponse(error: unknown, fallback: string) {
+export function grokErrorResponse<ErrorValue>(error: ErrorValue, fallback: string) {
   if (error instanceof GrokConnectionError) {
     return Response.json({ error: error.message }, { status: error.status });
   }

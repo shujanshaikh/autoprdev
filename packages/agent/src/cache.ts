@@ -1,10 +1,8 @@
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import type { ModelMessage, SystemModelMessage } from "ai";
 
-type ProviderOptions = Record<string, unknown>;
-type ProviderOptionsHolder = {
-  providerOptions?: ProviderOptions;
-};
-
+type ProviderOptions = JsonObject;
 const CACHE_PROVIDER_OPTIONS = {
   anthropic: {
     cacheControl: { type: "ephemeral" },
@@ -26,12 +24,12 @@ const CACHE_PROVIDER_OPTIONS = {
   },
 } satisfies ProviderOptions;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function mergeProviderOptions(base: ProviderOptions | undefined, next: ProviderOptions): ProviderOptions {
-  const result: ProviderOptions = { ...(base ?? {}) };
+  const result: ProviderOptions = { ...base };
 
   for (const [key, value] of Object.entries(next)) {
     const existing = result[key];
@@ -41,41 +39,31 @@ function mergeProviderOptions(base: ProviderOptions | undefined, next: ProviderO
   return result;
 }
 
-function cloneContent(content: ModelMessage["content"]): ModelMessage["content"] {
-  if (!Array.isArray(content)) {
-    return content;
-  }
-
-  return content.map((part) => (isRecord(part) ? { ...part } : part)) as ModelMessage["content"];
-}
-
-function withProviderOptions<T extends ProviderOptionsHolder>(value: T): T {
-  return {
-    ...value,
-    providerOptions: mergeProviderOptions(value.providerOptions, CACHE_PROVIDER_OPTIONS),
-  };
+function applyProviderOptions(value: JsonObject): void {
+  const current = isRecord(value.providerOptions) ? value.providerOptions : undefined;
+  value.providerOptions = mergeProviderOptions(current, CACHE_PROVIDER_OPTIONS);
 }
 
 function markMessageForCache(message: ModelMessage): ModelMessage {
-  const content = cloneContent(message.content);
+  const nextMessage = structuredClone(message);
+  const { content } = nextMessage;
 
   if (Array.isArray(content) && content.length > 0) {
-    const nextContent = [...content] as unknown[];
-    const lastPart = nextContent[nextContent.length - 1];
+    const lastPart = content[content.length - 1];
 
     if (isRecord(lastPart)) {
-      nextContent[nextContent.length - 1] = withProviderOptions(lastPart as ProviderOptionsHolder);
-      return {
-        ...message,
-        content: nextContent,
-      } as unknown as ModelMessage;
+      applyProviderOptions(lastPart);
+      return nextMessage;
     }
   }
 
-  return withProviderOptions({
-    ...message,
-    content,
-  } as unknown as ModelMessage & ProviderOptionsHolder) as unknown as ModelMessage;
+  const current = "providerOptions" in nextMessage && isRecord(nextMessage.providerOptions)
+    ? nextMessage.providerOptions
+    : undefined;
+  Object.assign(nextMessage, {
+    providerOptions: mergeProviderOptions(current, CACHE_PROVIDER_OPTIONS),
+  });
+  return nextMessage;
 }
 
 function cacheCandidateIndexes(messages: ModelMessage[]): number[] {
@@ -101,16 +89,15 @@ export function applyAgenticCache(messages: ModelMessage[]): ModelMessage[] {
       return markMessageForCache(message);
     }
 
-    return {
-      ...message,
-      content: cloneContent(message.content),
-    } as unknown as ModelMessage;
+    return structuredClone(message);
   });
 }
 
 export function createCachedSystemMessage(content: string): SystemModelMessage {
-  return withProviderOptions({
+  const message: SystemModelMessage = {
     role: "system",
     content,
-  } as SystemModelMessage & ProviderOptionsHolder) as SystemModelMessage;
+  };
+  Object.assign(message, { providerOptions: CACHE_PROVIDER_OPTIONS });
+  return message;
 }

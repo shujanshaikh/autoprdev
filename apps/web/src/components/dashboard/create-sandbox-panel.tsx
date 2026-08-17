@@ -1,24 +1,6 @@
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@autopr/ui/components/pagination";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@autopr/ui/components/pagination";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  ArrowRight,
-  Check,
-  ExternalLink,
-  GitBranch,
-  Github,
-  Loader2,
-  Lock,
-  RefreshCw,
-  Search,
-  Unlock,
-} from "lucide-react";
+import { ArrowRight, Check, ExternalLink, GitBranch, Github, Loader2, Lock, RefreshCw, Search, Unlock } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { GitHubLogo } from "#/components/icons/github-logo";

@@ -1,12 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  discardUnpersistedAssistantTail,
-  runTriggerSessionReconnectAttempt,
-  triggerSessionReconnectDelayMs,
-  shouldUseTriggerSessionTransport,
-  triggerSessionHydration,
-} from "./trigger-session-reconnect";
+import { discardUnpersistedAssistantTail, runTriggerSessionReconnectAttempt, triggerSessionReconnectDelayMs, shouldUseTriggerSessionTransport, triggerSessionHydration } from "./trigger-session-reconnect";
 
 describe("discardUnpersistedAssistantTail", () => {
   it("removes a partial assistant response before replaying from a persisted cursor", () => {

@@ -41,7 +41,7 @@ describe("Trigger runtime dependencies", () => {
   it("runs the pinned workspace Trigger CLI instead of an unpatched dlx copy", () => {
     const packageJson = JSON.parse(
       readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
-    ) as { scripts?: Record<string, string>; devDependencies?: Record<string, string> };
+    ) satisfies { scripts?: Record<string, string>; devDependencies?: Record<string, string> };
 
     expect(packageJson.devDependencies?.["trigger.dev"]).toBe("4.5.11");
     expect(packageJson.scripts?.["trigger:dev"]).toBe(

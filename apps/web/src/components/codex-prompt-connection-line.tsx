@@ -2,10 +2,10 @@ import { cn } from "@autopr/ui/lib/utils";
 
 export type CodexPromptConnectionIssue = "disconnected" | "unavailable";
 
-const labels: Record<CodexPromptConnectionIssue, string> = {
+const labels = {
   disconnected: "Connect ChatGPT or Grok before sending a prompt.",
   unavailable: "Could not verify a model connection.",
-};
+} satisfies Record<CodexPromptConnectionIssue, string>;
 
 export function CodexPromptConnectionLine({
   issue,

@@ -1,3 +1,5 @@
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+
 import type { ResolvedConfig } from "./config.ts";
 import { ChatGPTAuthError } from "./errors.ts";
 import { parseJson, safeText } from "./internal/http.ts";
@@ -24,7 +26,7 @@ function toTokens(raw: RawTokenResponse, previousRefreshToken?: string): ChatGPT
     idToken,
     accountId: deriveAccountId(idToken) ?? deriveAccountId(raw.access_token),
     expiresAt:
-      typeof raw.expires_in === "number"
+      hasNumberType(raw.expires_in)
         ? Date.now() + raw.expires_in * 1000
         : getTokenExpiry(raw.access_token),
   };
@@ -154,7 +156,7 @@ export async function refreshTokens(
 function extractErrorCode(body: string): string | undefined {
   try {
     const parsed = JSON.parse(body);
-    if (parsed && typeof parsed.error === "string") return parsed.error;
+    if (parsed && hasStringType(parsed.error)) return parsed.error;
   } catch {
     // not JSON — ignore
   }

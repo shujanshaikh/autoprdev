@@ -1,13 +1,5 @@
-import {
-  parseJsonEventStream,
-  uiMessageChunkSchema,
-  type ChatRequestOptions,
-  type ChatTransport,
-  type PrepareReconnectToStreamRequest,
-  type PrepareSendMessagesRequest,
-  type UIMessage,
-  type UIMessageChunk,
-} from "ai";
+
+import { parseJsonEventStream, uiMessageChunkSchema, type ChatRequestOptions, type ChatTransport, type PrepareReconnectToStreamRequest, type PrepareSendMessagesRequest, type UIMessage, type UIMessageChunk } from "ai";
 
 interface SendMessagesOptions<UI_MESSAGE extends UIMessage> {
   trigger: "submit-message" | "regenerate-message";
@@ -78,7 +70,7 @@ function iterableToReadableStream<T>(
   });
 }
 
-function errorMessage(error: unknown) {
+function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : String(error);
 }
 

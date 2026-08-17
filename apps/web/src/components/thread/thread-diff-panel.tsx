@@ -1,3 +1,5 @@
+import { hasStringType, hasUndefinedType } from "@autopr/config/runtime-type";
+
 import { api } from "@autopr/backend/convex/_generated/api";
 import { ButtonGroup } from "@autopr/ui/components/button-group";
 import { Button } from "@autopr/ui/components/button";
@@ -38,14 +40,14 @@ const VIEWED_DIFFS_STORAGE_PREFIX = "autopr.viewed-diffs.v1";
 const MOBILE_THREAD_VIEW_QUERY = "(max-width: 1023px)";
 
 function subscribeToMobileThreadView(onChange: () => void) {
-  if (typeof window === "undefined") return () => undefined;
+  if (hasUndefinedType(globalThis.window)) return () => undefined;
   const query = window.matchMedia(MOBILE_THREAD_VIEW_QUERY);
   query.addEventListener("change", onChange);
   return () => query.removeEventListener("change", onChange);
 }
 
 function getMobileThreadViewSnapshot() {
-  return typeof window !== "undefined" && window.matchMedia(MOBILE_THREAD_VIEW_QUERY).matches;
+  return !hasUndefinedType(globalThis.window) && window.matchMedia(MOBILE_THREAD_VIEW_QUERY).matches;
 }
 
 function getMobileThreadViewServerSnapshot() {
@@ -53,10 +55,10 @@ function getMobileThreadViewServerSnapshot() {
 }
 
 function readViewedDiffs(threadId: string) {
-  if (typeof window === "undefined") return new Set<string>();
+  if (hasUndefinedType(globalThis.window)) return new Set<string>();
   try {
     const value = JSON.parse(window.localStorage.getItem(`${VIEWED_DIFFS_STORAGE_PREFIX}:${threadId}`) ?? "[]");
-    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : []);
+    return new Set(Array.isArray(value) ? value.filter((id): id is string => hasStringType(id)) : []);
   } catch {
     return new Set<string>();
   }
@@ -82,12 +84,12 @@ const THREAD_DIFF_PANEL_TABS: Array<{
   { kind: "environment", label: "Environment", menuLabel: "Environment", icon: KeyRound },
 ];
 
-const SINGLETON_TAB_IDS: Record<Exclude<ThreadDiffPanelTabKind, "terminal">, string> = {
+const SINGLETON_TAB_IDS = {
   diff: "diff",
   "pull-request": "pull-request",
   desktop: "desktop",
   environment: "environment",
-};
+} satisfies Record<Exclude<ThreadDiffPanelTabKind, "terminal">, string>;
 
 const DEFAULT_VISIBLE_TABS: ThreadDiffPanelVisibleTab[] = [];
 
@@ -121,7 +123,7 @@ const DIFF_LAYOUT_OPTIONS: Array<{
 ];
 
 function getMaxPanelWidth(panelElement?: HTMLElement | null) {
-  if (typeof window === "undefined") return DEFAULT_PANEL_WIDTH;
+  if (hasUndefinedType(globalThis.window)) return DEFAULT_PANEL_WIDTH;
   const containerWidth = panelElement?.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
 
   return Math.max(
@@ -219,7 +221,7 @@ export function ThreadDiffPanel({
     panelRef.current = panel;
 
     const container = panel?.parentElement;
-    if (!panel || !container || typeof ResizeObserver === "undefined") return;
+    if (!panel || !container || hasUndefinedType(ResizeObserver)) return;
 
     const resizeObserver = new ResizeObserver(() => {
       setPanelWidth((currentWidth) => {
@@ -419,7 +421,7 @@ export function ThreadDiffPanel({
           : "w-full lg:w-[var(--thread-diff-width)] lg:shrink-0",
         open ? "flex" : "hidden",
       )}
-      style={{ "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
+      style={/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { "--thread-diff-width": `min(${panelWidth}px, calc(100% - ${DOCKED_MAIN_MIN_WIDTH}px))` } as CSSProperties & Record<"--thread-diff-width", string>}
     >
         <button
           type="button"

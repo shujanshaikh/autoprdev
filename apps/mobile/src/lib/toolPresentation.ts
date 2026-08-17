@@ -3,6 +3,13 @@
  * conversation reads the same on both surfaces.
  */
 
+/**
+ * Header presentation for tool calls, kept in step with the web thread so a
+ * conversation reads the same on both surfaces.
+ */
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+import { parseRuntimeType } from "@autopr/config/runtime-type";
 export type ToolHeader = {
   /** Bare tool slug, e.g. "edit". */
   slug: string;
@@ -19,8 +26,8 @@ export type ToolHeader = {
 /** Tools that get their own expandable row; everything else is exploration. */
 const PRIMARY_TOOL_SLUGS = new Set(["edit", "write", "bash", "computer"]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 export function toolSlug(type: string, toolName?: string) {
@@ -48,11 +55,11 @@ function displayToolLabel(slug: string) {
   return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
-function bashCommand(input: unknown) {
-  return isRecord(input) && typeof input.command === "string" ? input.command.trim() : "";
+function bashCommand<InputValue>(input: InputValue) {
+  return isRecord(input) && hasStringType(input.command) ? input.command.trim() : "";
 }
 
-function bashHeaderLabel(input: unknown) {
+function bashHeaderLabel<InputValue>(input: InputValue) {
   const normalized = bashCommand(input).replace(/\s+/g, " ").trim();
   if (!normalized) return "Run shell command";
   if (/\b(vite|dev)\b/.test(normalized) && /\b(run|npm|pnpm|bun|yarn)\b/.test(normalized)) {
@@ -75,42 +82,42 @@ function fileOperationLabel(slug: "edit" | "write", streaming: boolean, failed: 
   return failed ? "Edit failed" : "Edited";
 }
 
-function formatPrimitive(value: unknown) {
+function formatPrimitive<ValueValue>(value: ValueValue) {
   if (value === null) return "null";
   if (value === undefined) return "";
-  if (typeof value === "object") return JSON.stringify(value);
+  if (hasObjectType(value)) return JSON.stringify(value);
   return String(value);
 }
 
-function shallowEntries(data: Record<string, unknown>) {
+function shallowEntries(data: JsonObject) {
   return Object.entries(data).filter(([, value]) => value !== undefined);
 }
 
-function isShallowDisplayable(data: Record<string, unknown>) {
+function isShallowDisplayable(data: JsonObject) {
   return shallowEntries(data).every(([, value]) => {
     if (value === null) return true;
-    const type = typeof value;
+    const type = parseRuntimeType(value);
     return type === "string" || type === "number" || type === "boolean";
   });
 }
 
-function summaryLine(slug: string, input: unknown) {
+function summaryLine<InputValue>(slug: string, input: InputValue) {
   if (!isRecord(input)) return "";
   switch (slug) {
     case "read":
     case "write":
     case "edit":
-      return typeof input.path === "string" ? pathBasename(input.path) : "";
+      return hasStringType(input.path) ? pathBasename(input.path) : "";
     case "ls": {
-      if (typeof input.path !== "string" || input.path === "" || input.path === ".") return ".";
+      if (!hasStringType(input.path) || input.path === "" || input.path === ".") return ".";
       return pathBasename(input.path) || input.path;
     }
     case "grep":
     case "find": {
       const bits: string[] = [];
-      if (typeof input.path === "string") bits.push(input.path);
-      if (typeof input.pattern === "string") bits.push(`pattern=${input.pattern}`);
-      if (slug === "grep" && typeof input.glob === "string") bits.push(`include=${input.glob}`);
+      if (hasStringType(input.path)) bits.push(input.path);
+      if (hasStringType(input.pattern)) bits.push(`pattern=${input.pattern}`);
+      if (slug === "grep" && hasStringType(input.glob)) bits.push(`include=${input.glob}`);
       return bits.join(" ");
     }
     case "bash":
@@ -139,7 +146,7 @@ export function toolHeader({
   failed: boolean;
 }): ToolHeader {
   const slug = toolSlug(type, toolName);
-  const path = isRecord(input) && typeof input.path === "string" ? input.path : undefined;
+  const path = isRecord(input) && hasStringType(input.path) ? input.path : undefined;
 
   if (slug === "edit" || slug === "write") {
     return {

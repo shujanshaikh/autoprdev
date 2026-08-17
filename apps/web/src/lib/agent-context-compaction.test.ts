@@ -1,13 +1,7 @@
 import { wrapLanguageModel, type LanguageModel, type ModelMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  createAgentContextCompactor,
-  createContextOverflowRecoveryMiddleware,
-  emergencyCompactProviderPrompt,
-  estimateModelMessagesTokens,
-  isContextOverflowError,
-} from "./agent-context-compaction";
+import { createAgentContextCompactor, createContextOverflowRecoveryMiddleware, emergencyCompactProviderPrompt, estimateModelMessagesTokens, isContextOverflowError } from "./agent-context-compaction";
 
 describe("agent context compaction", () => {
   it("creates a checkpoint and retains a coherent recent tail before the hard limit", async () => {
@@ -24,7 +18,7 @@ describe("agent context compaction", () => {
 
     const result = await prepareStep({
       messages,
-      model: "test-model" as LanguageModel,
+      model: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ "test-model" as LanguageModel,
       steps: [],
       stepNumber: 0,
       experimental_context: undefined,
@@ -46,7 +40,7 @@ describe("agent context compaction", () => {
     ];
     const nextResult = await prepareStep({
       messages: nextMessages,
-      model: "test-model" as LanguageModel,
+      model: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ "test-model" as LanguageModel,
       steps: [],
       stepNumber: 1,
       experimental_context: undefined,
@@ -86,7 +80,7 @@ describe("agent context compaction", () => {
 
     const result = await prepareStep({
       messages,
-      model: "test-model" as LanguageModel,
+      model: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ "test-model" as LanguageModel,
       steps: [],
       stepNumber: 0,
       experimental_context: undefined,

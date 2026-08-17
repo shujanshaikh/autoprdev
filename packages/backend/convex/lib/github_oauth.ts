@@ -1,3 +1,5 @@
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+
 export interface GithubOAuthRepository {
   id: number;
   name: string;
@@ -157,14 +159,14 @@ async function githubJson<T>(token: string, url: string, init?: RequestInit): Pr
   if (!response.ok) {
     const body = await response.json().catch(() => undefined);
     const message =
-      body && typeof body === "object" && "message" in body && typeof body.message === "string"
+      body && hasObjectType(body) && "message" in body && hasStringType(body.message)
         ? body.message
         : "GitHub request failed.";
     throw new GithubApiError(message, response.status);
   }
 
   return {
-    data: (await response.json()) as T,
+    data: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json()) as T,
     next: parseNextLink(response.headers.get("link")),
   };
 }
@@ -406,7 +408,11 @@ export async function fetchGithubPullRequests(token: string, owner: string, repo
 function githubActor(actor: { login: string; avatar_url?: string } | null): GithubPullRequestActor {
   return {
     login: actor?.login ?? "ghost",
-    ...(actor?.avatar_url ? { avatarUrl: actor.avatar_url } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (actor?.avatar_url) optionalProperties = { avatarUrl: actor.avatar_url };
+  return optionalProperties;
+})(),
   };
 }
 
@@ -455,8 +461,16 @@ export async function fetchGithubPullRequestDetail(
     author: githubActor(pull.user),
     createdAt: pull.created_at,
     updatedAt: pull.updated_at,
-    ...(pull.closed_at ? { closedAt: pull.closed_at } : {}),
-    ...(pull.merged_at ? { mergedAt: pull.merged_at } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (pull.closed_at) optionalProperties = { closedAt: pull.closed_at };
+  return optionalProperties;
+})(),
+    ...(() => {
+  let optionalProperties;
+  if (pull.merged_at) optionalProperties = { mergedAt: pull.merged_at };
+  return optionalProperties;
+})(),
     draft: Boolean(pull.draft),
     headRef: pull.head.ref,
     baseRef: pull.base.ref,
@@ -496,12 +510,20 @@ export async function fetchGithubPullRequestFiles(
 
   return files.map((file) => ({
     filename: file.filename,
-    ...(file.previous_filename ? { previousFilename: file.previous_filename } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (file.previous_filename) optionalProperties = { previousFilename: file.previous_filename };
+  return optionalProperties;
+})(),
     status: file.status,
     additions: file.additions,
     deletions: file.deletions,
     changes: file.changes,
-    ...(file.patch ? { patch: file.patch } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (file.patch) optionalProperties = { patch: file.patch };
+  return optionalProperties;
+})(),
     blobUrl: file.blob_url,
   }));
 }

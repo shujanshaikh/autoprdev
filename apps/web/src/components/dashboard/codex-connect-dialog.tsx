@@ -1,17 +1,7 @@
 import { Button, buttonVariants } from "@autopr/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  ChatGPTMark,
-  useLoginWithChatGPT,
-  type ChatGPTUser,
-} from "@autopr/chatgpt/react";
+import { ChatGPTMark, useLoginWithChatGPT, type ChatGPTUser } from "@autopr/chatgpt/react";
 import { Check, Copy, Loader2, Unplug } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 

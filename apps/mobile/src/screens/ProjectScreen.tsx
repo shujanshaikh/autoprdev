@@ -4,34 +4,9 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useAction, useConvex, useMutation, useQuery } from "convex/react";
-import {
-  Archive,
-  ChevronDown,
-  ChevronRight,
-  GitBranch,
-  GitPullRequest,
-  Layers,
-  MessageSquare,
-  MoreHorizontal,
-  Search,
-  Trash2,
-  Video,
-  X,
-} from "lucide-react-native";
+import { Archive, ChevronDown, ChevronRight, GitBranch, GitPullRequest, Layers, MessageSquare, MoreHorizontal, Search, Trash2, Video, X } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  InteractionManager,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, FlatList, InteractionManager, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Composer } from "../components/Composer";
@@ -40,16 +15,7 @@ import { ModelMenu, ReasoningMenu } from "../components/ModelMenu";
 import { EmptyState, ErrorNotice, LoadingState, SecondaryButton, StatusPill } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useWebQuery } from "../hooks/useWebQuery";
-import {
-  DEFAULT_CODEX_REASONING_EFFORT,
-  formatCodexModelLabel,
-  formatReasoningEffort,
-  getCodexModelOptions,
-  getCodexReasoningEfforts,
-  isCodexReasoningEffortForModel,
-  selectCodexModel,
-  type CodexReasoningEffort,
-} from "../lib/codexModels";
+import { DEFAULT_CODEX_REASONING_EFFORT, formatCodexModelLabel, formatReasoningEffort, getCodexModelOptions, getCodexReasoningEfforts, isCodexReasoningEffortForModel, selectCodexModel, type CodexReasoningEffort } from "../lib/codexModels";
 import type { PromptFilePart, RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Project">;
@@ -213,7 +179,7 @@ export function ProjectScreen({ navigation, route }: Props) {
     const imageResponse = await fetch(image.uri);
     if (!imageResponse.ok) throw new Error(`Could not read ${image.fileName}.`);
     const blob = await imageResponse.blob();
-    const file = Object.assign(blob, { name: image.fileName, lastModified: Date.now() }) as File;
+    const file = /* SAFETY: Adding the browser File metadata makes this Blob satisfy the upload API's File contract. */ Object.assign(blob, { name: image.fileName, lastModified: Date.now() }) as File;
     const key = await uploadImage(file);
     const url = await convex.query(api.imageUploads.getUrl, { key });
     return {
@@ -241,9 +207,21 @@ export function ProjectScreen({ navigation, route }: Props) {
         projectId,
         threadId,
         title: "New thread",
-        ...(text ? { initialPrompt: text } : {}),
-        ...(initialFiles.length > 0 ? { initialFiles } : {}),
-        ...(selectedModel ? { initialModel: selectedModel } : {}),
+        ...(() => {
+  let optionalProperties;
+  if (text) optionalProperties = { initialPrompt: text };
+  return optionalProperties;
+})(),
+        ...(() => {
+  let optionalProperties;
+  if (initialFiles.length > 0) optionalProperties = { initialFiles };
+  return optionalProperties;
+})(),
+        ...(() => {
+  let optionalProperties;
+  if (selectedModel) optionalProperties = { initialModel: selectedModel };
+  return optionalProperties;
+})(),
         initialReasoningEffort: reasoningEffort,
       });
       setPrompt("");

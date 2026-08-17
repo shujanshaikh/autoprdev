@@ -4,18 +4,8 @@ import { fetchGithubBranches } from "@autopr/backend/convex/lib/github_oauth";
 import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
-import {
-  inspectProjectSandboxGit,
-  SandboxGitConflictError,
-  switchProjectSandboxBranch,
-} from "#/lib/daytona-project-sandbox";
-import {
-  getGithubOAuthToken,
-  getGithubRepositoryToken,
-  GithubConnectionError,
-  requireWorkOSAuth,
-  safeErrorMessage,
-} from "#/lib/github-oauth-server";
+import { inspectProjectSandboxGit, SandboxGitConflictError, switchProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
+import { getGithubOAuthToken, getGithubRepositoryToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
 
 const requestSchema = z.object({
   branch: z.string().min(1),
@@ -137,9 +127,9 @@ export const Route = createFileRoute("/api/project/$projectId/branch")({
   server: {
     handlers: {
       GET: async ({ request, params }: { request: Request; params: any }) =>
-        GET(request, { params: Promise.resolve(params) } as any),
+        GET(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any),
       POST: async ({ request, params }: { request: Request; params: any }) =>
-        POST(request, { params: Promise.resolve(params) } as any),
+        POST(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any),
     },
   },
 });

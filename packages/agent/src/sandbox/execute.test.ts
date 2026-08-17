@@ -5,16 +5,12 @@ const mocks = vi.hoisted(() => ({
   getSandboxContext: vi.fn(),
 }));
 
-vi.mock("./index", () => ({
-  getSandboxContext: mocks.getSandboxContext,
-}));
-
 import {
-  downloadRemoteFileChunk,
-  executeSandboxCommand,
+  downloadRemoteFileChunk as downloadRemoteFileChunkImpl,
+  executeSandboxCommand as executeSandboxCommandImpl,
   isPathWithinRoot,
   RemoteFileNotFoundError,
-  resolveJailedSandboxPath,
+  resolveJailedSandboxPath as resolveJailedSandboxPathImpl,
   resolveSandboxPath,
   SandboxPathBoundaryError,
 } from "./execute";
@@ -29,6 +25,17 @@ const fakeSandbox = {
     deleteSession: vi.fn(async () => ({})),
   },
 };
+
+const dependencies = { getSandboxContext: mocks.getSandboxContext };
+const executeSandboxCommand = (
+  ...parameters: Parameters<typeof executeSandboxCommandImpl>
+) => executeSandboxCommandImpl(parameters[0], parameters[1], dependencies);
+const resolveJailedSandboxPath = (
+  ...parameters: Parameters<typeof resolveJailedSandboxPathImpl>
+) => resolveJailedSandboxPathImpl(parameters[0], parameters[1], dependencies);
+const downloadRemoteFileChunk = (
+  ...parameters: Parameters<typeof downloadRemoteFileChunkImpl>
+) => downloadRemoteFileChunkImpl(parameters[0], dependencies);
 
 /** Unwraps the `'\''`-escaped single-quoted tokens embedded in our commands. */
 function extractQuotedTokens(segment: string): string[] {
@@ -196,7 +203,7 @@ describe("resolveJailedSandboxPath", () => {
       resolveJailedSandboxPath("src/a.ts", { workDir: WORK_DIR, sandboxOptions: {} }),
     ).resolves.toBe(`${WORK_DIR}/src/a.ts`);
 
-    const commands = mocks.executeSessionCommand.mock.calls.map((call) => call[1].command as string);
+    const commands = mocks.executeSessionCommand.mock.calls.map((call) => call[1].command satisfies string);
     expect(commands).toHaveLength(2);
     expect(commands.every((command) => command.includes("realpath -m"))).toBe(true);
     expect(commands.some((command) => command.includes(WORK_DIR))).toBe(true);
@@ -284,7 +291,7 @@ describe("downloadRemoteFileChunk", () => {
     expect(chunk.totalBytes).toBe(6);
     expect(chunk.reachedMaxBytes).toBe(false);
 
-    const command = mocks.executeSessionCommand.mock.calls[0]![1].command as string;
+    const command = mocks.executeSessionCommand.mock.calls[0]![1].command satisfies string;
     expect(command).toContain("head -c 1024 --");
     expect(command).not.toContain("sed -n");
   });
@@ -323,7 +330,7 @@ describe("downloadRemoteFileChunk", () => {
     expect(chunk.totalLines).toBe(3);
     expect(chunk.totalBytes).toBe(14);
 
-    const command = mocks.executeSessionCommand.mock.calls[0]![1].command as string;
+    const command = mocks.executeSessionCommand.mock.calls[0]![1].command satisfies string;
     expect(command).toContain("sed -n");
     expect(command).toContain("2,3p");
     expect(command).not.toContain("set -o pipefail");

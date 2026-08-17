@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+
+
 import { CHATGPT_CODEX_MODEL_LIMITS } from "@autopr/chatgpt/codex-model-limits";
 
 const STANDARD_CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -101,12 +104,12 @@ export type CodexUsageCost = {
   total: number;
 };
 
-export function isCodexModelId(value: unknown): value is CodexModelId {
+export function isCodexModelId<ValueValue>(value: ValueValue): value is ValueValue & (CodexModelId) {
   return normalizeCodexModelId(value) !== undefined;
 }
 
-export function normalizeCodexModelId(value: unknown): CodexModelId | undefined {
-  if (typeof value !== "string") {
+export function normalizeCodexModelId<ValueValue>(value: ValueValue): CodexModelId | undefined {
+  if (!hasStringType(value)) {
     return undefined;
   }
 
@@ -188,11 +191,11 @@ export function getCodexReasoningEffortLabel(value: CodexReasoningEffort) {
   return value === "xhigh" ? "Extra high" : value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-export function isCodexReasoningEffortForModel(
+export function isCodexReasoningEffortForModel<ValueValue>(
   modelId: string | undefined,
-  value: unknown,
-): value is CodexReasoningEffort {
-  return typeof value === "string" && getCodexReasoningEfforts(modelId).includes(value as CodexReasoningEffort);
+  value: ValueValue,
+): value is ValueValue & (CodexReasoningEffort) {
+  return hasStringType(value) && getCodexReasoningEfforts(modelId).includes(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as CodexReasoningEffort);
 }
 
 export function emptyCodexUsageCost(): CodexUsageCost {

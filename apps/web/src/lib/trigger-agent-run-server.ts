@@ -1,3 +1,6 @@
+import { hasObjectType } from "@autopr/config/runtime-type";
+
+
 import "@tanstack/react-start/server-only";
 
 import { api } from "@autopr/backend/convex/_generated/api";
@@ -14,17 +17,17 @@ export type TriggerAgentRunLookup =
   | { status: "not-found" }
   | { status: "mismatch" };
 
-export function isTriggerNotFoundError(error: unknown) {
+export function isTriggerNotFoundError<ErrorValue>(error: ErrorValue) {
   return (
-    typeof error === "object" &&
+    hasObjectType(error) &&
     error !== null &&
     "status" in error &&
-    (error as { status?: unknown }).status === 404
+    (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ error as { status?: unknown }).status === 404
   );
 }
 
 export async function retrieveTriggerAgentRun(runId: string) {
-  const run = await runs.retrieve(runId).catch((error: unknown) => {
+  const run = await runs.retrieve(runId).catch(<ErrorValue>(error: ErrorValue) => {
     if (isTriggerNotFoundError(error)) {
       return null;
     }

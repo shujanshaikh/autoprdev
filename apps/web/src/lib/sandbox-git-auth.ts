@@ -1,3 +1,5 @@
+import { hasNumberType } from "@autopr/config/runtime-type";
+
 import type { DaytonaSandbox } from "@autopr/agent/sandbox";
 
 function shellQuote(value: string) {
@@ -31,7 +33,7 @@ export async function withEphemeralGitAuth<T>(
     undefined,
     30,
   );
-  if (typeof created.exitCode === "number" && created.exitCode !== 0) {
+  if (hasNumberType(created.exitCode) && created.exitCode !== 0) {
     throw new Error("Could not create temporary Git credentials.");
   }
 
@@ -48,7 +50,7 @@ export async function withEphemeralGitAuth<T>(
       undefined,
       30,
     );
-    if (typeof secured.exitCode === "number" && secured.exitCode !== 0) {
+    if (hasNumberType(secured.exitCode) && secured.exitCode !== 0) {
       throw new Error("Could not secure temporary Git credentials.");
     }
 
@@ -73,7 +75,7 @@ export async function withEphemeralGitAuth<T>(
   }
 
   if (operationError !== undefined) throw operationError;
-  return result as T;
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ result as T;
 }
 
 export function runAuthenticatedSandboxCommand(

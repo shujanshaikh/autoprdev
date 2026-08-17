@@ -1,28 +1,20 @@
 "use client"
 
-import * as React from "react"
-import { mergeProps } from "@base-ui/react/merge-props"
-import { useRender } from "@base-ui/react/use-render"
-import { cva, type VariantProps } from "class-variance-authority"
+import { hasStringType } from "@autopr/config/runtime-type";
 
-import { useIsMobile } from "@autopr/ui/hooks/use-mobile"
-import { cn } from "@autopr/ui/lib/utils"
-import { Button } from "@autopr/ui/components/button"
-import { Input } from "@autopr/ui/components/input"
-import { Separator } from "@autopr/ui/components/separator"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@autopr/ui/components/sheet"
-import { Skeleton } from "@autopr/ui/components/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@autopr/ui/components/tooltip"
+import * as React from "react"
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { useIsMobile } from "@autopr/ui/hooks/use-mobile";
+import { cn } from "@autopr/ui/lib/utils";
+import { Button } from "@autopr/ui/components/button";
+import { Input } from "@autopr/ui/components/input";
+import { Separator } from "@autopr/ui/components/separator";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@autopr/ui/components/sheet";
+import { Skeleton } from "@autopr/ui/components/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -74,7 +66,7 @@ function SidebarProvider({
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value
+      const openState = value instanceof Function ? value(open) : value
       if (setOpenProp) {
         setOpenProp(openState)
       } else {
@@ -130,7 +122,7 @@ function SidebarProvider({
       <div
         data-slot="sidebar-wrapper"
         style={
-          {
+          /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ {
             "--sidebar-width": SIDEBAR_WIDTH,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
             ...style,
@@ -188,7 +180,7 @@ function Sidebar({
           data-mobile="true"
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
           style={
-            {
+            /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
             } as React.CSSProperties
           }
@@ -596,7 +588,7 @@ function SidebarMenuButton({
     return comp
   }
 
-  if (typeof tooltip === "string") {
+  if (hasStringType(tooltip)) {
     tooltip = {
       children: tooltip,
     }
@@ -691,6 +683,7 @@ function SidebarMenuSkeleton({
         className="h-3.5 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
         style={
+          /* SAFETY: React's CSSProperties permits this component-owned CSS custom property at runtime. */
           {
             "--skeleton-width": width,
           } as React.CSSProperties

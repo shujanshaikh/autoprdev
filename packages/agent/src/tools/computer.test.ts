@@ -7,17 +7,17 @@ const mocks = vi.hoisted(() => ({
   command: vi.fn(),
 }));
 
-vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
-vi.mock("./cua-client", () => ({
-  CuaComputerClient: class {
-    ensureReady = mocks.ensureReady;
-    inspect = mocks.inspect;
-    command = mocks.command;
-  },
-}));
-
 import { createCuaComputerTool } from "./computer";
 import { safeParse } from "../test/schema";
+
+const dependencies = {
+  getSandboxContext: mocks.getSandboxContext,
+  createClient: () => ({
+    ensureReady: mocks.ensureReady,
+    inspect: mocks.inspect,
+    command: mocks.command,
+  }),
+};
 
 describe("CUA computer tool input", () => {
   const computer = createCuaComputerTool({ cacheKey: "computer-schema" });
@@ -92,7 +92,7 @@ describe("CUA computer tool timeout quarantine", () => {
       mocks.command.mockImplementationOnce(() => new Promise<void>((resolve) => {
         finishClick = resolve;
       }));
-      const computer = createCuaComputerTool({ cacheKey: "computer-timeout" });
+      const computer = createCuaComputerTool({ cacheKey: "computer-timeout" }, {}, dependencies);
       if (!computer.execute) throw new Error("computer tool is not executable");
 
       const timedOut = computer.execute(
@@ -122,7 +122,7 @@ describe("CUA computer tool timeout quarantine", () => {
   });
 
   it("can stop a Daytona recording without starting the desktop or CUA", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "computer-recording-stop" });
+    const computer = createCuaComputerTool({ cacheKey: "computer-recording-stop" }, {}, dependencies);
     if (!computer.execute) throw new Error("computer tool is not executable");
 
     await expect(computer.execute(
@@ -143,7 +143,7 @@ describe("CUA computer tool timeout quarantine", () => {
   });
 
   it("initializes the visible CUA cursor before starting a Daytona recording", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "computer-recording-start" });
+    const computer = createCuaComputerTool({ cacheKey: "computer-recording-start" }, {}, dependencies);
     if (!computer.execute) throw new Error("computer tool is not executable");
 
     await computer.execute(
@@ -172,7 +172,7 @@ describe("CUA computer tool timeout quarantine", () => {
       }
       return { success: true };
     });
-    const computer = createCuaComputerTool({ cacheKey: "computer-cursor-actions" });
+    const computer = createCuaComputerTool({ cacheKey: "computer-cursor-actions" }, {}, dependencies);
     if (!computer.execute) throw new Error("computer tool is not executable");
 
     await computer.execute({
@@ -209,7 +209,11 @@ describe("CUA computer tool timeout quarantine", () => {
         }
         return { success: true };
       });
-      const computer = createCuaComputerTool({ cacheKey: "computer-paced-typing" });
+      const computer = createCuaComputerTool(
+        { cacheKey: "computer-paced-typing" },
+        {},
+        dependencies,
+      );
       if (!computer.execute) throw new Error("computer tool is not executable");
 
       const execution = computer.execute(

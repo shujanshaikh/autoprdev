@@ -1,12 +1,7 @@
+
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogTrigger,
-} from "@autopr/ui/components/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@autopr/ui/components/dialog";
 import { Input } from "@autopr/ui/components/input";
 import { Label } from "@autopr/ui/components/label";
 import { useAction, useQuery } from "convex/react";
@@ -36,7 +31,7 @@ function emptyDraftVariable(id = "environment-variable-initial"): DraftEnvironme
   return { id, envName: "", value: "" };
 }
 
-function actionError(error: unknown, fallback: string): string {
+function actionError<ErrorValue>(error: ErrorValue, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 

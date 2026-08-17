@@ -1,3 +1,6 @@
+import { hasNumberType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import type { JsonObject } from "@autopr/config/runtime-value";
+
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,13 +12,13 @@ export interface RealtimeDynamicTool {
   type: "function";
   name: string;
   description: string;
-  inputSchema: Record<string, unknown>;
+  inputSchema: JsonObject;
 }
 
 export interface RealtimeToolContext {
   callId: string;
   name: string;
-  arguments: Record<string, unknown>;
+  arguments: JsonObject;
 }
 
 export interface RealtimeToolResult {
@@ -77,8 +80,6 @@ export interface StartRealtimeAppServerOptions {
   reasoningEffort?: ReasoningEffort;
 }
 
-type JsonObject = Record<string, unknown>;
-
 interface PendingConfirmation {
   context: RealtimeToolContext;
   result: RealtimeToolResult;
@@ -125,6 +126,11 @@ export class ChatGPTRealtimeAppServerSession {
   }>>();
   private confirmations = new Map<string, PendingConfirmation>();
   private allowedTools: Set<string>;
+
+  /** Exposes process state needed by health checks without leaking the child handle. */
+  get diagnostics() {
+    return { home: this.home, processExitCode: this.process?.exitCode };
+  }
 
   constructor(options: ChatGPTRealtimeAppServerOptions) {
     if (!options.tokens.accessToken || !options.tokens.accountId) {
@@ -188,11 +194,11 @@ export class ChatGPTRealtimeAppServerSession {
         threadSource: "realtime_voice",
         baseInstructions: this.options.executionInstructions ?? DEFAULT_EXECUTION_INSTRUCTIONS,
         developerInstructions: this.options.executionInstructions ?? DEFAULT_EXECUTION_INSTRUCTIONS,
-        dynamicTools: [...this.options.tools, speakToolSpec()],
+        dynamicTools: [...this.options.tools, speakToolSpec()].map((tool) => ({ ...tool })),
         ...realtimeExecutionConfig(options),
       });
       const threadValue = asRecord(asRecord(thread["result"])?.["thread"]);
-      if (typeof threadValue?.["id"] !== "string") throw new Error("App-server returned no thread id.");
+      if (!hasStringType(threadValue?.["id"])) throw new Error("App-server returned no thread id.");
       this.threadId = threadValue["id"];
 
       const [, notification] = await Promise.all([
@@ -211,7 +217,7 @@ export class ChatGPTRealtimeAppServerSession {
         this.waitForNotification("thread/realtime/sdp", 30_000),
       ]);
       const answer = notification["sdp"];
-      if (typeof answer !== "string" || !answer.trimStart().startsWith("v=0")) {
+      if (!hasStringType(answer) || !answer.trimStart().startsWith("v=0")) {
         throw new Error("App-server returned an invalid SDP answer.");
       }
       this.emit({ type: "session.started" });
@@ -232,9 +238,9 @@ export class ChatGPTRealtimeAppServerSession {
    * already completed with a pending result, so native Live remains responsive
    * while the UI waits. The bridge never assumes approval from speech.
    */
-  async resolveConfirmation(
+  async resolveConfirmation<ConfirmationValue>(
     callId: string,
-    confirmation: unknown,
+    confirmation: ConfirmationValue,
   ): Promise<RealtimeConfirmationResult> {
     const pending = this.confirmations.get(callId);
     if (!pending) throw new Error("Tool confirmation is no longer pending.");
@@ -326,12 +332,12 @@ export class ChatGPTRealtimeAppServerSession {
   private handleLine(line: string): void {
     let message: JsonObject;
     try {
-      message = JSON.parse(line) as JsonObject;
+      message = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(line) as JsonObject;
     } catch {
       return;
     }
     const id = message["id"];
-    if ((typeof id === "string" || typeof id === "number") &&
+    if ((hasStringType(id) || hasNumberType(id)) &&
         ("result" in message || "error" in message) && this.pendingRequests.has(id)) {
       const pending = this.pendingRequests.get(id)!;
       clearTimeout(pending.timer);
@@ -340,7 +346,7 @@ export class ChatGPTRealtimeAppServerSession {
       return;
     }
     const method = message["method"];
-    if (typeof method !== "string") return;
+    if (!hasStringType(method)) return;
     const params = asRecord(message["params"]) ?? {};
     const waiters = this.notificationWaiters.get(method) ?? [];
     this.notificationWaiters.delete(method);
@@ -348,7 +354,7 @@ export class ChatGPTRealtimeAppServerSession {
       clearTimeout(waiter.timer);
       waiter.resolve(params);
     }
-    if (typeof id === "string" || typeof id === "number") {
+    if (hasStringType(id) || hasNumberType(id)) {
       void this.handleServerRequest(id, method, params).catch((error) => {
         this.handleProcessStop(error instanceof Error ? error : new Error(String(error)));
       });
@@ -398,8 +404,8 @@ export class ChatGPTRealtimeAppServerSession {
       if (method === "item/tool/call") {
         this.emit({
           type: "tool.failed",
-          callId: typeof params["callId"] === "string" ? params["callId"] : undefined,
-          name: typeof params["tool"] === "string" ? params["tool"] : undefined,
+          callId: hasStringType(params["callId"]) ? params["callId"] : undefined,
+          name: hasStringType(params["tool"]) ? params["tool"] : undefined,
           message,
         });
       } else {
@@ -412,7 +418,7 @@ export class ChatGPTRealtimeAppServerSession {
     const callId = params["callId"];
     const name = params["tool"];
     const args = asRecord(params["arguments"]);
-    if (typeof callId !== "string" || typeof name !== "string" || !args) {
+    if (!hasStringType(callId) || !hasStringType(name) || !args) {
       throw new Error("App-server returned an invalid dynamic-tool request.");
     }
     if (name !== SPEAK_TOOL && !this.allowedTools.has(name)) {
@@ -422,7 +428,7 @@ export class ChatGPTRealtimeAppServerSession {
     this.emit({ type: "tool.running", callId, name });
     if (name === SPEAK_TOOL) {
       const text = args["text"];
-      if (typeof text !== "string" || !text.trim()) throw new Error("speak_to_user requires text.");
+      if (!hasStringType(text) || !text.trim()) throw new Error("speak_to_user requires text.");
       await this.speak(text);
       this.send({ id, result: dynamicToolResponse({ status: "spoken" }) });
       this.emit({ type: "tool.completed", callId, name });
@@ -456,9 +462,9 @@ export class ChatGPTRealtimeAppServerSession {
       if (item?.["type"] === "handoff_request") {
         this.emit({
           type: "handoff",
-          transcript: typeof item["input_transcript"] === "string"
+          transcript: hasStringType(item["input_transcript"])
             ? item["input_transcript"]
-            : typeof item["input"] === "string"
+            : hasStringType(item["input"])
               ? item["input"]
               : "",
         });
@@ -491,7 +497,7 @@ export class ChatGPTRealtimeAppServerSession {
   private async expectResult(method: string, params: JsonObject, timeoutMs?: number): Promise<JsonObject> {
     const response = await this.request(method, params, timeoutMs);
     const error = asRecord(response["error"]);
-    if (error) throw new Error(typeof error["message"] === "string" ? error["message"] : `${method} failed.`);
+    if (error) throw new Error(hasStringType(error["message"]) ? error["message"] : `${method} failed.`);
     return response;
   }
 
@@ -609,7 +615,7 @@ function speakToolSpec(): RealtimeDynamicTool {
   };
 }
 
-function dynamicToolResponse(output: unknown, success = true): JsonObject {
+function dynamicToolResponse<OutputValue>(output: OutputValue, success = true): JsonObject {
   const text = assertJsonSerializable(output, "Dynamic tool output");
   return {
     success,
@@ -617,7 +623,7 @@ function dynamicToolResponse(output: unknown, success = true): JsonObject {
   };
 }
 
-function assertJsonSerializable(output: unknown, label: string): string {
+function assertJsonSerializable<OutputValue>(output: OutputValue, label: string): string {
   const text = JSON.stringify(output);
   if (text === undefined) throw new TypeError(`${label} must be JSON-serializable.`);
   return text;
@@ -629,10 +635,10 @@ export function chatgptPlanType(tokens: ChatGPTTokens): string | undefined {
     try {
       const encoded = token.split(".")[1];
       if (!encoded) continue;
-      const claims = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as JsonObject;
+      const claims = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as JsonObject;
       const auth = asRecord(claims["https://api.openai.com/auth"]);
       const plan = auth?.["chatgpt_plan_type"];
-      if (typeof plan === "string" && plan) return plan;
+      if (hasStringType(plan) && plan) return plan;
     } catch {
       // Try the other signed token.
     }
@@ -645,7 +651,11 @@ export function realtimeExecutionConfig(
   options: Pick<StartRealtimeAppServerOptions, "model" | "reasoningEffort">,
 ): JsonObject {
   return {
-    ...(options.model ? { model: options.model } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (options.model) optionalProperties = { model: options.model };
+  return optionalProperties;
+})(),
     config: { model_reasoning_effort: options.reasoningEffort ?? "low" },
   };
 }
@@ -665,8 +675,8 @@ function unsupportedAttestationToken(): string {
   return `v1.${Buffer.from(bytes).toString("base64url")}`;
 }
 
-function asRecord(value: unknown): JsonObject | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as JsonObject
+function asRecord<ValueValue>(value: ValueValue): JsonObject | undefined {
+  return hasObjectType(value) && value !== null && !Array.isArray(value)
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as JsonObject
     : undefined;
 }

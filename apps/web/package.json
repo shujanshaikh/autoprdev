@@ -20,6 +20,7 @@
     "@autopr/agent": "workspace:*",
     "@autopr/backend": "workspace:*",
     "@autopr/chatgpt": "workspace:*",
+    "@autopr/config": "workspace:*",
     "@autopr/grok": "workspace:*",
     "@autopr/ui": "workspace:*",
     "@convex-dev/r2": "^0.10.1",

@@ -26,10 +26,26 @@ export function buildThreadStartNavigation({
   return {
     ...route,
     search: {
-      ...(prompt ? { prompt } : {}),
-      ...(provider ? { provider } : {}),
-      ...(model ? { model } : {}),
-      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(() => {
+  let optionalProperties;
+  if (prompt) optionalProperties = { prompt };
+  return optionalProperties;
+})(),
+      ...(() => {
+  let optionalProperties;
+  if (provider) optionalProperties = { provider };
+  return optionalProperties;
+})(),
+      ...(() => {
+  let optionalProperties;
+  if (model) optionalProperties = { model };
+  return optionalProperties;
+})(),
+      ...(() => {
+  let optionalProperties;
+  if (reasoningEffort) optionalProperties = { reasoningEffort };
+  return optionalProperties;
+})(),
     },
     // Keep one-time handoff data available to the route without exposing it
     // in the URL or navigating again after the first prompt is consumed.

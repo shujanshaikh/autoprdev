@@ -1,10 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  pollDeviceCode,
-  requestDeviceCode,
-  resolveConfig,
-  waitForDeviceTokens,
-} from "../../src/core/index.ts";
+import { pollDeviceCode, requestDeviceCode, resolveConfig, waitForDeviceTokens } from "../../src/core/index.ts";
 import { createMockFetch, jsonResponse, makeIdToken } from "./helpers.ts";
 
 describe("device flow", () => {

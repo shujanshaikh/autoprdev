@@ -3,14 +3,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAction } from "convex/react";
 import { ExternalLink, RefreshCw } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TurboModuleRegistry,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TurboModuleRegistry, View } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
 import { openExternalUrl } from "../lib/openUrl";
@@ -25,7 +18,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Terminal">;
 type WebViewComponent = typeof import("react-native-webview")["WebView"];
 
 const WebView = TurboModuleRegistry.get("RNCWebViewModule")
-  ? (require("react-native-webview").WebView as WebViewComponent)
+  ? (require("react-native-webview").WebView satisfies WebViewComponent)
   : undefined;
 
 const TERMINAL_URL_REFRESH_SAFETY_SECONDS = 10;
@@ -185,7 +178,7 @@ export function TerminalScreen({ route }: Props) {
             clearOpenTimeout();
             setLoading(false);
           }}
-          onShouldStartLoadWithRequest={({ url }) => {
+          onShouldStartLoadWithRequest={({ url }: { url: string }) => {
             try {
               if (new URL(url).origin === previewOrigin) return true;
             } catch {

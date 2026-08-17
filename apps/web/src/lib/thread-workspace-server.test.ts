@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  persistedThreadWorkspace,
-  resolveThreadWorkspaceCoordinates,
-  type PersistedThreadWorkspace,
-} from "./thread-workspace-server";
+import { persistedThreadWorkspace, resolveThreadWorkspaceCoordinates, type PersistedThreadWorkspace } from "./thread-workspace-server";
 
 const project = {
   cloneUrl: "https://github.com/acme/widget.git",

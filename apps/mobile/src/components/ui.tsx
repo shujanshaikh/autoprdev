@@ -1,13 +1,6 @@
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type PressableProps,
-} from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type PressableProps } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
 
@@ -34,7 +27,7 @@ export function PrimaryButton({
         styles.button,
         compact && styles.buttonCompact,
         { backgroundColor: theme.accent, opacity: disabled ? 0.45 : pressed ? 0.78 : 1 },
-        typeof style === "function" ? style({ pressed }) : style,
+        style instanceof Function ? style({ pressed }) : style,
       ]}
       {...props}
     >
@@ -75,7 +68,7 @@ export function SecondaryButton({
           backgroundColor: pressed ? theme.surfaceSoft : theme.surface,
           borderColor: theme.line,
         },
-        typeof style === "function" ? style({ pressed }) : style,
+        style instanceof Function ? style({ pressed }) : style,
       ]}
       {...props}
     >

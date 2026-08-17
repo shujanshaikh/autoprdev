@@ -1,3 +1,6 @@
+import { hasBooleanType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+
+
 export const DEFAULT_THREAD_TITLE = "New thread";
 export const MAX_THREAD_TITLE_ATTEMPTS = 3;
 const MAX_THREAD_TITLE_MESSAGE_LENGTH = 8_000;
@@ -6,12 +9,12 @@ export function threadTitleRetryDelayMs(attempt: number) {
   return attempt === 0 ? 750 : Math.min(8_000, 1_500 * 2 ** (attempt - 1));
 }
 
-export function shouldRetryThreadTitleError(cause: unknown) {
+export function shouldRetryThreadTitleError<CauseValue>(cause: CauseValue) {
   if (
-    typeof cause === "object"
+    hasObjectType(cause)
     && cause !== null
     && "retryable" in cause
-    && typeof cause.retryable === "boolean"
+    && hasBooleanType(cause.retryable)
   ) {
     return cause.retryable;
   }
@@ -25,12 +28,12 @@ export function firstUserMessageText(
     if (message.role !== "user") continue;
     const text = message.parts.flatMap((part) => {
       if (
-        typeof part === "object"
+        hasObjectType(part)
         && part !== null
         && "type" in part
         && part.type === "text"
         && "text" in part
-        && typeof part.text === "string"
+        && hasStringType(part.text)
       ) {
         return part.text.trim() ? [part.text.trim()] : [];
       }
@@ -38,7 +41,7 @@ export function firstUserMessageText(
     }).join("\n");
     if (text) return text.slice(0, MAX_THREAD_TITLE_MESSAGE_LENGTH);
     const hasFile = message.parts.some((part) =>
-      typeof part === "object"
+      hasObjectType(part)
       && part !== null
       && "type" in part
       && part.type === "file");

@@ -9,7 +9,7 @@ function chunkStream(chunks: UIMessageChunk[]) {
       for (const chunk of chunks) controller.enqueue(chunk);
       controller.close();
     },
-  }) as ReadableStream<UIMessageChunk> & AsyncIterable<UIMessageChunk>;
+  }) satisfies ReadableStream<UIMessageChunk> & AsyncIterable<UIMessageChunk>;
 }
 
 function hangingFinishStream(onCancel: () => void) {
@@ -20,7 +20,7 @@ function hangingFinishStream(onCancel: () => void) {
     cancel() {
       onCancel();
     },
-  }) as ReadableStream<UIMessageChunk> & AsyncIterable<UIMessageChunk>;
+  }) satisfies ReadableStream<UIMessageChunk> & AsyncIterable<UIMessageChunk>;
 }
 
 async function collect(stream: ReadableStream<UIMessageChunk>) {
@@ -59,7 +59,7 @@ describe("Trigger agent stream settlement", () => {
   it("synthesizes finish and settles when a completed run omitted it", async () => {
     const settled = vi.fn();
     const terminalRun = { isCompleted: true };
-    const retrieveRun = vi.fn(async () => terminalRun as never);
+    const retrieveRun = vi.fn(async () => /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ terminalRun as never);
 
     await expect(collect(ensureTerminalRunFinishes(
       chunkStream([]),
@@ -73,7 +73,7 @@ describe("Trigger agent stream settlement", () => {
 
   it("keeps a timed-out stream open when its run is still active", async () => {
     const settled = vi.fn();
-    const retrieveRun = vi.fn(async () => ({ isCompleted: false }) as never);
+    const retrieveRun = vi.fn(async () => /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ ({ isCompleted: false }) as never);
 
     await expect(collect(ensureTerminalRunFinishes(
       chunkStream([]),

@@ -3,11 +3,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { useAppTheme } from "../hooks/useAppTheme";
-import {
-  ComposerToolbarButton,
-  ComposerToolbarRow,
-  ComposerToolbarScroller,
-} from "./ComposerToolbar";
+import { ComposerToolbarButton, ComposerToolbarRow, ComposerToolbarScroller } from "./ComposerToolbar";
 import { GlassSurface } from "./GlassSurface";
 import type { MenuAnchor } from "./MenuSheet";
 import { OpenAIIcon } from "./OpenAIIcon";

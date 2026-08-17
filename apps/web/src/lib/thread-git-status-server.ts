@@ -1,14 +1,10 @@
+import { hasNumberType } from "@autopr/config/runtime-type";
+
+
 import "@tanstack/react-start/server-only";
 
 import { getSandboxWithoutStarting, type DaytonaSandbox } from "@autopr/agent/sandbox";
-import {
-  attachGitNumstat,
-  classifyGitStatus,
-  parseGitNumstat,
-  parseGitStatusPorcelainV2,
-  type GithubPullRequestSummary,
-  type ThreadGitStatus,
-} from "@autopr/backend/convex/lib/gitStatus";
+import { attachGitNumstat, classifyGitStatus, parseGitNumstat, parseGitStatusPorcelainV2, type GithubPullRequestSummary, type ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { sandboxCommandOutput } from "@autopr/backend/convex/lib/sandboxCommandOutput";
 import { withEphemeralGitAuth } from "#/lib/sandbox-git-auth";
 
@@ -36,7 +32,7 @@ async function runGit(
     options.env,
     120,
   );
-  const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
+  const exitCode = hasNumberType(result.exitCode) ? result.exitCode : 0;
   const output = sandboxCommandOutput(result);
 
   if (exitCode !== 0 && !options.allowFailure) {
@@ -46,7 +42,7 @@ async function runGit(
   return { exitCode, output };
 }
 
-function safeRemoteError(error: unknown) {
+function safeRemoteError<ErrorValue>(error: ErrorValue) {
   const raw = error instanceof Error ? error.message : "Could not refresh the Git remote.";
   return raw
     .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/gi, "https://")

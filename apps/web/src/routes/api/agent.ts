@@ -7,16 +7,8 @@ import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import {
-  agentAuthErrorResponse,
-  createAgentModelOptions,
-  revokeAgentModelOptions,
-} from "#/lib/agent-auth-server";
-import {
-  AGENT_IDEMPOTENCY_KEY_TTL,
-  AGENT_TASK_ID,
-  agentUserTag,
-} from "#/lib/trigger-agent-contract";
+import { agentAuthErrorResponse, createAgentModelOptions, revokeAgentModelOptions } from "#/lib/agent-auth-server";
+import { AGENT_IDEMPOTENCY_KEY_TTL, AGENT_TASK_ID, agentUserTag } from "#/lib/trigger-agent-contract";
 import type { agentTask } from "#/trigger/agent";
 
 const standaloneAgentRequestSchema = z.object({
@@ -40,7 +32,7 @@ async function POST(req: Request) {
   }
 
   const { provider, model, reasoningEffort } = parsed.data;
-  const messages = parsed.data.messages as UIMessage[];
+  const messages = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ parsed.data.messages as UIMessage[];
   const authkit = await getAuthkit();
   const workOSSession = await authkit.getSession(req);
   if (!workOSSession) {

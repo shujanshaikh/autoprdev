@@ -1,11 +1,5 @@
 import { useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
 import { FlaskConical, LayoutDashboard, Receipt } from "lucide-react";
 import { CodexConnectPanel } from "#/components/dashboard/codex-connect-dialog";

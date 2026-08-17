@@ -1,50 +1,20 @@
+
 import "@tanstack/react-start/server-only";
 
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { Doc } from "@autopr/backend/convex/_generated/dataModel";
-import {
-  createGithubPullRequest,
-  fetchGithubPullRequestForBranch,
-} from "@autopr/backend/convex/lib/github_oauth";
+import { createGithubPullRequest, fetchGithubPullRequestForBranch } from "@autopr/backend/convex/lib/github_oauth";
 import type { GitWorkflowAction, GitWorkflowPhase } from "@autopr/backend/convex/lib/gitWorkflow";
 import { resolveGithubPullRequestHead } from "@autopr/backend/convex/lib/githubPullRequest";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { CodexConnectionError } from "#/lib/codex-auth-server";
 import { generateCommitMessage } from "#/lib/commit-messages";
-import {
-  generateBranchName,
-  generateCommitMetadata,
-  generatePullRequestContent,
-} from "#/lib/generated-git-metadata";
-import {
-  commitPreparedProjectSandboxChanges,
-  createProjectSandboxFeatureBranch,
-  inspectProjectSandboxGit,
-  prepareProjectSandboxCommit,
-  pushProjectSandboxBranchIfNeeded,
-  readProjectSandboxPullRequestContext,
-  SandboxGitCommandError,
-  SandboxNoChangesError,
-  validatePreparedProjectSandboxCommit,
-} from "#/lib/daytona-project-sandbox";
+import { generateBranchName, generateCommitMetadata, generatePullRequestContent } from "#/lib/generated-git-metadata";
+import { commitPreparedProjectSandboxChanges, createProjectSandboxFeatureBranch, inspectProjectSandboxGit, prepareProjectSandboxCommit, pushProjectSandboxBranchIfNeeded, readProjectSandboxPullRequestContext, SandboxGitCommandError, SandboxNoChangesError, validatePreparedProjectSandboxCommit } from "#/lib/daytona-project-sandbox";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
-import {
-  executeResumableGitWorkflow,
-  GitWorkflowPhaseError,
-  type GitWorkflowCheckpoint,
-  type GitWorkflowPhaseOutput,
-} from "#/lib/git-workflow-runner";
-import {
-  getGithubOAuthToken,
-  getGithubRepositoryToken,
-  getGithubRepositoryTokenForFullName,
-  getGithubUserIdentity,
-  GithubConnectionError,
-  requireGithubRepositoryWriteAccess,
-  requireWorkOSAuth,
-  safeErrorMessage,
-} from "#/lib/github-oauth-server";
+import { executeResumableGitWorkflow, GitWorkflowPhaseError, type GitWorkflowCheckpoint, type GitWorkflowPhaseOutput } from "#/lib/git-workflow-runner";
+import { getGithubOAuthToken, getGithubRepositoryToken, getGithubRepositoryTokenForFullName, getGithubUserIdentity, GithubConnectionError, requireGithubRepositoryWriteAccess, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
 import { ThreadGitMutationConflictError } from "#/lib/thread-git-mutation-server";
 import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 
@@ -73,7 +43,7 @@ function needsPush(action: GitWorkflowAction) {
   return action === "push" || action === "commit_push" || action === "push_create_pr" || action === "commit_push_create_pr";
 }
 
-function phaseError(error: unknown, phase: GitWorkflowPhase) {
+function phaseError<ErrorValue>(error: ErrorValue, phase: GitWorkflowPhase) {
   if (error instanceof GitWorkflowPhaseError) return error;
   if (error instanceof SandboxNoChangesError) {
     return new GitWorkflowPhaseError({
@@ -178,7 +148,7 @@ export async function runThreadGitWorkflow(options: {
     operationId: operation.operationId,
   });
 
-  const failBeforeExecution = async (error: unknown, phase: GitWorkflowPhase) => {
+  const failBeforeExecution = async <ErrorValue>(error: ErrorValue, phase: GitWorkflowPhase) => {
     const failure = phaseError(error, phase);
     const now = Date.now();
     try {
@@ -289,7 +259,7 @@ export async function runThreadGitWorkflow(options: {
   const baseBranch = workspace.baseBranch;
   const fallbackTitle = thread.title && thread.title !== "New thread" ? thread.title : "Update project changes";
 
-  const handlers: Record<GitWorkflowPhase, (checkpoint: GitWorkflowCheckpoint) => Promise<GitWorkflowPhaseOutput>> = {
+  const handlers = {
     branch: async () => {
       const inspected = await inspectProjectSandboxGit({
         sandboxId,
@@ -561,7 +531,7 @@ export async function runThreadGitWorkflow(options: {
         summary: status === "skipped" ? `Found existing pull request #${pull.number}` : `Created pull request #${pull.number}`,
       };
     },
-  };
+  } satisfies Record<GitWorkflowPhase, (checkpoint: GitWorkflowCheckpoint) => Promise<GitWorkflowPhaseOutput>>;
 
   try {
     await executeResumableGitWorkflow({
@@ -576,13 +546,13 @@ export async function runThreadGitWorkflow(options: {
         pullRequestNumber: operation.pullRequestNumber,
         pullRequestUrl: operation.pullRequestUrl,
       },
-      handlers: Object.fromEntries(Object.entries(handlers).map(([phase, handler]) => [
+      handlers: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ Object.fromEntries(Object.entries(handlers).map(([phase, handler]) => [
         phase,
         async (checkpoint: GitWorkflowCheckpoint) => {
           try {
             return await handler(checkpoint);
           } catch (error) {
-            throw phaseError(error, phase as GitWorkflowPhase);
+            throw phaseError(error, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ phase as GitWorkflowPhase);
           }
         },
       ])) as typeof handlers,

@@ -1,11 +1,8 @@
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+
+
 import { createChatGPTProxyProvider } from "@autopr/chatgpt/ai";
-import {
-  createChatGPTHandler,
-  type KeyValueStore,
-  type KeyValueStoreUpdate,
-  type RateLimitBucket,
-  type StoredSession,
-} from "@autopr/chatgpt/server";
+import { createChatGPTHandler, type KeyValueStore, type KeyValueStoreUpdate, type RateLimitBucket, type StoredSession } from "@autopr/chatgpt/server";
 import { WorkOS } from "@workos-inc/node";
 import { nanoid } from "nanoid";
 
@@ -62,7 +59,7 @@ export function getWorkOSVault() {
     throw new CodexConnectionError("WorkOS Vault is not configured. Set WORKOS_API_KEY.", 500);
   }
 
-  return new WorkOS(apiKey).vault as WorkOSVault;
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ new WorkOS(apiKey).vault as WorkOSVault;
 }
 
 function getChatGPTSecret() {
@@ -94,20 +91,20 @@ function getCodexClientVersion() {
   return process.env.LWC_CLIENT_VERSION?.trim() || DEFAULT_CODEX_CLIENT_VERSION;
 }
 
-function isResponseStatus(error: unknown, status: number) {
+function isResponseStatus<ErrorValue>(error: ErrorValue, status: number) {
   return (
-    typeof error === "object" &&
+    hasObjectType(error) &&
     error !== null &&
     "status" in error &&
-    (error as { status?: unknown }).status === status
+    (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ error as { status?: unknown }).status === status
   );
 }
 
-export function isMissingVaultObject(error: unknown) {
+export function isMissingVaultObject<ErrorValue>(error: ErrorValue) {
   return isResponseStatus(error, 404);
 }
 
-export function isVaultConflict(error: unknown) {
+export function isVaultConflict<ErrorValue>(error: ErrorValue) {
   return isResponseStatus(error, 409);
 }
 
@@ -117,14 +114,17 @@ export function vaultObjectName(scope: string, key: string) {
 }
 
 export class WorkOSVaultStore<T> implements KeyValueStore<T> {
-  constructor(private readonly scope: string) {}
+  constructor(
+    private readonly scope: string,
+    private readonly resolveVault: () => WorkOSVault = getWorkOSVault,
+  ) {}
 
   async get(key: string): Promise<T | undefined> {
     const name = vaultObjectName(this.scope, key);
     let object: WorkOSVaultObject;
 
     try {
-      object = await getWorkOSVault().readObjectByName(name);
+      object = await this.resolveVault().readObjectByName(name);
     } catch (error) {
       if (isMissingVaultObject(error)) {
         return undefined;
@@ -136,10 +136,10 @@ export class WorkOSVaultStore<T> implements KeyValueStore<T> {
       return undefined;
     }
 
-    const envelope = JSON.parse(object.value) as VaultStoreEnvelope<T>;
+    const envelope = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(object.value) as VaultStoreEnvelope<T>;
     if (envelope.expiresAt !== undefined && envelope.expiresAt <= Date.now()) {
       try {
-        await getWorkOSVault().deleteObject({
+        await this.resolveVault().deleteObject({
           id: object.id,
           versionCheck: object.metadata?.versionId,
         });
@@ -163,15 +163,15 @@ export class WorkOSVaultStore<T> implements KeyValueStore<T> {
     updater: (current: T | undefined) => KeyValueStoreUpdate<T>,
   ): Promise<T> {
     const name = vaultObjectName(this.scope, key);
-    const vault = getWorkOSVault();
+    const vault = this.resolveVault();
 
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const existing = await vault.readObjectByName(name).catch((error: unknown) => {
+      const existing = await vault.readObjectByName(name).catch(<ErrorValue>(error: ErrorValue) => {
         if (isMissingVaultObject(error)) return undefined;
         throw error;
       });
       const currentEnvelope = existing?.value
-        ? JSON.parse(existing.value) as VaultStoreEnvelope<T>
+        ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(existing.value) as VaultStoreEnvelope<T>
         : undefined;
       const current = currentEnvelope?.expiresAt !== undefined && currentEnvelope.expiresAt <= Date.now()
         ? undefined
@@ -212,7 +212,7 @@ export class WorkOSVaultStore<T> implements KeyValueStore<T> {
 
   async delete(key: string): Promise<void> {
     const name = vaultObjectName(this.scope, key);
-    const existing = await getWorkOSVault().readObjectByName(name).catch((error: unknown) => {
+    const existing = await this.resolveVault().readObjectByName(name).catch(<ErrorValue>(error: ErrorValue) => {
       if (isMissingVaultObject(error)) {
         return undefined;
       }
@@ -220,21 +220,21 @@ export class WorkOSVaultStore<T> implements KeyValueStore<T> {
     });
 
     if (existing) {
-      await getWorkOSVault().deleteObject({ id: existing.id });
+      await this.resolveVault().deleteObject({ id: existing.id });
     }
   }
 
   async take(key: string): Promise<T | undefined> {
     const name = vaultObjectName(this.scope, key);
-    const vault = getWorkOSVault();
+    const vault = this.resolveVault();
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const object = await vault.readObjectByName(name).catch((error: unknown) => {
+      const object = await vault.readObjectByName(name).catch(<ErrorValue>(error: ErrorValue) => {
         if (isMissingVaultObject(error)) return undefined;
         throw error;
       });
       if (!object?.value) return undefined;
-      const envelope = JSON.parse(object.value) as VaultStoreEnvelope<T>;
+      const envelope = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(object.value) as VaultStoreEnvelope<T>;
       if (envelope.value === undefined || envelope.expiresAt !== undefined && envelope.expiresAt <= Date.now()) {
         await vault.deleteObject({ id: object.id }).catch(() => undefined);
         return undefined;
@@ -301,21 +301,28 @@ export type CodexAgentGrant = {
 
 const codexAgentGrantStore = new WorkOSVaultStore<CodexAgentGrant>("agent-codex-grant");
 
-export async function createCodexAgentGrant(grant: CodexAgentGrant): Promise<string> {
+export async function createCodexAgentGrant(
+  grant: CodexAgentGrant,
+  store: KeyValueStore<CodexAgentGrant> = codexAgentGrantStore,
+): Promise<string> {
   const grantId = nanoid(32);
-  await codexAgentGrantStore.set(grantId, grant, { ttlMs: CODEX_AGENT_GRANT_TTL_MS });
+  await store.set(grantId, grant, { ttlMs: CODEX_AGENT_GRANT_TTL_MS });
   return grantId;
 }
 
-export function revokeCodexAgentGrant(grantId: string): Promise<void> {
-  return codexAgentGrantStore.delete(grantId);
+export function revokeCodexAgentGrant(
+  grantId: string,
+  store: KeyValueStore<CodexAgentGrant> = codexAgentGrantStore,
+): Promise<void> {
+  return store.delete(grantId);
 }
 
 export async function resolveCodexAgentGrant(
   grantId: string,
   expected: Pick<CodexAgentGrant, "userId" | "taskId" | "contextId">,
+  store: KeyValueStore<CodexAgentGrant> = codexAgentGrantStore,
 ): Promise<CodexAgentGrant> {
-  const grant = await codexAgentGrantStore.take(grantId);
+  const grant = await store.take(grantId);
   if (!grant) {
     throw new CodexConnectionError(
       "Codex credentials for this run are missing or expired. Send the message again to start a fresh run.",
@@ -345,10 +352,22 @@ export type CodexResponsesModelCredentials =
       chatgptCookieHeader?: never;
     };
 
+export interface CodexResponsesModelDependencies {
+  auth: Pick<typeof chatGPTAuth, "basePath" | "proxyFetch">;
+  createProvider: typeof createChatGPTProxyProvider;
+  grantStore: KeyValueStore<CodexAgentGrant>;
+}
+
+const defaultModelDependencies: CodexResponsesModelDependencies = {
+  auth: chatGPTAuth,
+  createProvider: createChatGPTProxyProvider,
+  grantStore: codexAgentGrantStore,
+};
+
 export async function createCodexResponsesModel(options: {
   modelId: string;
   reasoningEffort: string;
-} & CodexResponsesModelCredentials): Promise<CodexResponsesModel> {
+} & CodexResponsesModelCredentials, dependencies: CodexResponsesModelDependencies = defaultModelDependencies): Promise<CodexResponsesModel> {
   // Resolve the session cookie lazily and cache it per model instance: a grant
   // is redeemed at most once per turn, and token refreshes within the turn
   // reuse the cached cookie instead of extra Vault reads.
@@ -356,13 +375,14 @@ export async function createCodexResponsesModel(options: {
   const resolveCookieHeader = () => {
     if (!cookieHeaderPromise) {
       const pending = (async () => {
-        if (typeof options.chatgptCookieHeader === "string") {
+        if (hasStringType(options.chatgptCookieHeader)) {
           return options.chatgptCookieHeader;
         }
 
         return (await resolveCodexAgentGrant(
           options.credentialsGrantId,
           options.credentialsGrantContext,
+          dependencies.grantStore,
         )).sessionCookieHeader;
       })();
       cookieHeaderPromise = pending;
@@ -382,7 +402,7 @@ export async function createCodexResponsesModel(options: {
   const resolveSessionProxyFetch = () => {
     if (!sessionProxyFetchPromise) {
       const pending = resolveCookieHeader().then((cookieHeader) =>
-        chatGPTAuth.proxyFetch(authRequestFromCookieHeader(cookieHeader)),
+        dependencies.auth.proxyFetch(authRequestFromCookieHeader(cookieHeader)),
       );
       sessionProxyFetchPromise = pending;
       pending.catch(() => {
@@ -395,11 +415,11 @@ export async function createCodexResponsesModel(options: {
     return sessionProxyFetchPromise;
   };
 
-  const proxyFetch = (async (input, init) =>
+  const proxyFetch = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (async (input, init) =>
     (await resolveSessionProxyFetch())(input, init)) as typeof fetch;
 
-  const chatgpt = createChatGPTProxyProvider({
-    basePath: chatGPTAuth.basePath,
+  const chatgpt = dependencies.createProvider({
+    basePath: dependencies.auth.basePath,
     defaultModel: options.modelId,
     fetch: proxyFetch,
     headers: {

@@ -1,21 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { Command as CommandPrimitive } from "cmdk"
+import { Command as CommandPrimitive } from "cmdk";
 
-import { cn } from "@autopr/ui/lib/utils"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog"
-import {
-  InputGroup,
-  InputGroupAddon,
-} from "@autopr/ui/components/input-group"
-import { SearchIcon, CheckIcon } from "lucide-react"
+import { cn } from "@autopr/ui/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
+import { InputGroup, InputGroupAddon } from "@autopr/ui/components/input-group";
+import { SearchIcon, CheckIcon } from "lucide-react";
 
 function Command({
   className,

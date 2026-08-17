@@ -3,14 +3,7 @@ import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { downloadRemoteFileChunk, resolveJailedSandboxPath } from "../sandbox/execute";
-import {
-  clampLimit,
-  completeUtf8PrefixLength,
-  formatNumberedLines,
-  formatSize,
-  isProbablyBinary,
-  toTextModelOutput,
-} from "./format";
+import { clampLimit, completeUtf8PrefixLength, formatNumberedLines, formatSize, isProbablyBinary, toTextModelOutput } from "./format";
 import { requireString } from "./validation";
 
 const DEFAULT_READ_LIMIT = 2_000;
@@ -37,10 +30,22 @@ const readInputSchema = z.object({
 
 type ReadInput = z.infer<typeof readInputSchema>;
 
-async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessionOptions) {
+export interface DaytonaReadDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{ workDir: string }>;
+  resolveJailedSandboxPath: typeof resolveJailedSandboxPath;
+  downloadRemoteFileChunk: typeof downloadRemoteFileChunk;
+}
+
+const defaultDependencies: DaytonaReadDependencies = {
+  getSandboxContext,
+  resolveJailedSandboxPath,
+  downloadRemoteFileChunk,
+};
+
+async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessionOptions, dependencies: DaytonaReadDependencies) {
   const path = requireString(input.path, "path", "read");
-  const context = await getSandboxContext(sandboxOptions);
-  const remotePath = await resolveJailedSandboxPath(path, {
+  const context = await dependencies.getSandboxContext(sandboxOptions);
+  const remotePath = await dependencies.resolveJailedSandboxPath(path, {
     workDir: context.workDir,
     sandboxOptions,
   });
@@ -49,7 +54,7 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
   const limit = clampLimit(input.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT);
   // Only the requested line window leaves the sandbox host, and it is byte-capped
   // there, so a multi-GB artifact can no longer OOM the harness on a single read.
-  const chunk = await downloadRemoteFileChunk({
+  const chunk = await dependencies.downloadRemoteFileChunk({
     remotePath,
     maxBytes: MAX_READ_WINDOW_BYTES,
     startLine: offset,
@@ -148,13 +153,16 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
   };
 }
 
-export function createDaytonaReadTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaReadTool(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaReadDependencies = defaultDependencies,
+) {
   return tool({
     title: "read",
     description:
       "Read a UTF-8 text file from the Daytona sandbox with 1-based line pagination. Returns up to 2,000 lines / 64 KiB and an exact offset (plus byteOffset for a single oversized line) when more remains. Use before editing or explaining code. Paths are canonicalized inside the workspace jail; binary files are reported instead of displayed. Read-only and safe to retry.",
     inputSchema: readInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaRead(input, sandboxOptions),
+    execute: (input) => executeDaytonaRead(input, sandboxOptions, dependencies),
   });
 }

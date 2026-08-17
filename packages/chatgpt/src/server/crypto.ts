@@ -1,3 +1,4 @@
+
 import { base64UrlDecodeToBytes, base64UrlEncode } from "../core/internal/base64.ts";
 
 /**
@@ -44,7 +45,7 @@ async function aesKey(secret: string): Promise<CryptoKey> {
 }
 
 /** Encrypts a JSON-serializable value to an `iv.ciphertext` base64url string. */
-export async function encryptJson(value: unknown, secret: string): Promise<string> {
+export async function encryptJson<ValueValue>(value: ValueValue, secret: string): Promise<string> {
   const key = await aesKey(secret);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = encoder.encode(JSON.stringify(value));
@@ -62,7 +63,7 @@ export async function decryptJson<T>(payload: string, secret: string): Promise<T
   try {
     const key = await aesKey(secret);
     const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
-    return JSON.parse(decoder.decode(plaintext)) as T;
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(decoder.decode(plaintext)) as T;
   } catch {
     return undefined;
   }

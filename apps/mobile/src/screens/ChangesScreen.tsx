@@ -1,32 +1,16 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import {
-  Check,
-  CheckCheck,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  FileDiff,
-  MessageSquarePlus,
-  WrapText,
-} from "lucide-react-native";
+import { Check, CheckCheck, ChevronDown, ChevronRight, Copy, FileDiff, MessageSquarePlus, WrapText } from "lucide-react-native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState, ErrorNotice, LoadingState, PrimaryButton } from "../components/ui";
 import { useAppTheme } from "../hooks/useAppTheme";
 import { useThreadData } from "../hooks/useThreadData";
-import {
-  extractDiffEntries,
-  hunkContext,
-  hunkRange,
-  parseUnifiedDiff,
-  visibleWhitespace,
-  wordDiffSegments,
-  type DiffEntry,
-  type DiffLine,
-} from "../lib/diff";
+import { extractDiffEntries, hunkContext, hunkRange, parseUnifiedDiff, visibleWhitespace, wordDiffSegments, type DiffEntry, type DiffLine } from "../lib/diff";
 import { pathBasename, shortDirectory } from "../lib/toolPresentation";
 import type { DiffSegment } from "../lib/wordDiff";
 import type { RootStackParamList } from "../types";
@@ -324,7 +308,7 @@ export function ChangesScreen({ navigation, route }: Props) {
       } catch {
         return;
       }
-      if (Array.isArray(ids)) setViewed(new Set(ids.filter((value): value is string => typeof value === "string")));
+      if (Array.isArray(ids)) setViewed(new Set(ids.filter((value): value is string => hasStringType(value))));
     }).catch(() => undefined);
   }, [viewedKey]);
 

@@ -14,10 +14,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/xai": "^3.0.102"
+    "@ai-sdk/xai": "^3.0.102",
+    "@autopr/config": "workspace:*"
   },
   "devDependencies": {
-    "@autopr/config": "workspace:*",
     "@types/node": "^20",
     "typescript": "catalog:",
     "vitest": "^4.1.6"

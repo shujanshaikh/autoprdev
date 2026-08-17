@@ -1,9 +1,12 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
 import { base64UrlEncode } from "../../src/core/index.ts";
 
 const encoder = new TextEncoder();
 
 /** Builds an unsigned JWT (`alg: none`) with the given claims. */
-export function makeJwt(payload: Record<string, unknown>): string {
+export function makeJwt(payload: JsonObject): string {
   const header = base64UrlEncode(encoder.encode(JSON.stringify({ alg: "none", typ: "JWT" })));
   const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
   return `${header}.${body}.sig`;
@@ -35,7 +38,7 @@ export function makeAccessToken(expiresInSeconds: number): string {
 }
 
 /** Convenience JSON `Response`. */
-export function jsonResponse(data: unknown, status = 200): Response {
+export function jsonResponse<DataValue>(data: DataValue, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "content-type": "application/json" },
@@ -47,8 +50,8 @@ export function createMockFetch(
   handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
 ): typeof fetch & { calls: Array<{ url: string; init?: RequestInit }> } {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
-  const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string"
+  const fn = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = hasStringType(input)
       ? input
       : input instanceof Request
         ? input.url

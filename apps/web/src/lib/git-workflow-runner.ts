@@ -1,10 +1,5 @@
-import type {
-  GitWorkflowAction,
-  GitWorkflowFailure,
-  GitWorkflowPhase,
-  GitWorkflowPhaseResult,
-  GitWorkflowPushResult,
-} from "@autopr/backend/convex/lib/gitWorkflow";
+
+import type { GitWorkflowAction, GitWorkflowFailure, GitWorkflowPhase, GitWorkflowPhaseResult, GitWorkflowPushResult } from "@autopr/backend/convex/lib/gitWorkflow";
 import { phasesForGitWorkflowAction } from "@autopr/backend/convex/lib/gitWorkflow";
 
 export type GitWorkflowCheckpoint = {
@@ -50,7 +45,7 @@ export type GitWorkflowPhaseHandlers = Record<
   (checkpoint: GitWorkflowCheckpoint) => Promise<GitWorkflowPhaseOutput>
 >;
 
-function failureFor(error: unknown, phase: GitWorkflowPhase): GitWorkflowFailure {
+function failureFor<ErrorValue>(error: ErrorValue, phase: GitWorkflowPhase): GitWorkflowFailure {
   if (error instanceof GitWorkflowPhaseError) {
     return {
       code: error.code,

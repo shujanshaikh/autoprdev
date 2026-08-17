@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useUploadFile } from "@convex-dev/r2/react";
 import { useConvex } from "convex/react";
@@ -5,14 +8,10 @@ import type { FileUIPart } from "ai";
 import { CircleAlert, ImagePlus, LoaderCircle, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
-import {
-  PromptInputButton,
-  type PromptInputMessage,
-  usePromptInputAttachments,
-} from "@/components/ai-elements/prompt-input";
+import { PromptInputButton, type PromptInputMessage, usePromptInputAttachments } from "@/components/ai-elements/prompt-input";
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+function isRecord<VValue>(v: VValue): v is VValue & (JsonObject) {
+  return isJsonObject(v);
 }
 
 export type PromptAttachmentFile = PromptInputMessage["files"][number];
@@ -33,7 +32,7 @@ export type PromptImageUploadManager = {
 };
 
 function attachmentId(file: PromptAttachmentFile) {
-  return typeof file.id === "string" ? file.id : null;
+  return hasStringType(file.id) ? file.id : null;
 }
 
 function filePartWithoutAttachmentId(file: PromptAttachmentFile): FileUIPart {
@@ -50,7 +49,7 @@ function getR2KeyFromFilePart(part: FileUIPart) {
 
   const autoprMetadata = part.providerMetadata.autopr;
 
-  return isRecord(autoprMetadata) && typeof autoprMetadata.r2Key === "string"
+  return isRecord(autoprMetadata) && hasStringType(autoprMetadata.r2Key)
     ? autoprMetadata.r2Key
     : null;
 }

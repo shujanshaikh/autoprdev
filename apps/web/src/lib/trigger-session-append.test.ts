@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  appendToTriggerSession,
-  triggerSessionAppendRetryDelayMs,
-} from "./trigger-session-append";
+import { appendToTriggerSession, triggerSessionAppendRetryDelayMs } from "./trigger-session-append";
 
 describe("Trigger session append", () => {
   it("retries transient 500 responses with one stable idempotency key", async () => {

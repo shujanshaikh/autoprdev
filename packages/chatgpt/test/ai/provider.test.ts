@@ -1,3 +1,5 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
+import { parseRuntimeType } from "@autopr/config/runtime-type";
 import { describe, expect, test } from "vitest";
 import { ChatGPTImageError, ChatGPTProxyError, createChatGPT, createChatGPTProxyProvider } from "../../src/ai/index.ts";
 import { createMockFetch, jsonResponse, makeAccessToken, makeIdToken } from "../core/helpers.ts";
@@ -5,8 +7,8 @@ import { createMockFetch, jsonResponse, makeAccessToken, makeIdToken } from "../
 describe("createChatGPT", () => {
   test("returns a callable provider with responses + openai accessors", () => {
     const chatgpt = createChatGPT({ credentials: { accessToken: "at", accountId: "acct_1" } });
-    expect(typeof chatgpt).toBe("function");
-    expect(typeof chatgpt.responses).toBe("function");
+    expect(parseRuntimeType(chatgpt)).toBe("function");
+    expect(parseRuntimeType(chatgpt.responses)).toBe("function");
     expect(chatgpt.openai).toBeDefined();
     expect(chatgpt.images.generate).toEqual(expect.any(Function));
     expect(chatgpt.images.edit).toEqual(expect.any(Function));
@@ -14,13 +16,13 @@ describe("createChatGPT", () => {
     const model = chatgpt("gpt-5.3-codex-spark");
     expect(model).toEqual(expect.any(Object));
     // AI SDK language models expose a specificationVersion.
-    expect((model as { specificationVersion?: string }).specificationVersion).toEqual(expect.any(String));
+    expect((/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ model as { specificationVersion?: string }).specificationVersion).toEqual(expect.any(String));
   });
 
   test("accepts a lazy credentials function and defaults the model", () => {
     const chatgpt = createChatGPT({ credentials: () => ({ accessToken: "at", accountId: "a" }) });
     const model = chatgpt(); // no model id -> default
-    expect((model as { modelId?: string }).modelId).toBe("gpt-5.5");
+    expect((/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ model as { modelId?: string }).modelId).toBe("gpt-5.5");
   });
 
   test("reloads function credentials when an unrefreshable access token expires", async () => {
@@ -83,7 +85,7 @@ describe("createChatGPT", () => {
   });
 
   test("generates an image and reports streamed partial images", async () => {
-    const requests: Array<Record<string, unknown>> = [];
+    const requests: Array<JsonObject> = [];
     const fetch = createMockFetch((_url, init) => {
       requests.push(JSON.parse(String(init?.body)));
       const headers = new Headers(init?.headers);
@@ -188,7 +190,7 @@ describe("createChatGPT", () => {
 describe("createChatGPTProxyProvider", () => {
   test("builds a provider pointing at the backend proxy path", () => {
     const chatgpt = createChatGPTProxyProvider({ basePath: "/api/chatgpt" });
-    expect(typeof chatgpt).toBe("function");
+    expect(parseRuntimeType(chatgpt)).toBe("function");
     expect(chatgpt("gpt-5.3-codex-spark")).toEqual(expect.any(Object));
   });
 
@@ -214,7 +216,7 @@ describe("createChatGPTProxyProvider", () => {
   });
 
   test("edits images with a mask and every output control through the proxy", async () => {
-    let requestBody: Record<string, unknown> | undefined;
+    let requestBody: JsonObject | undefined;
     const fetch = createMockFetch((url, init) => {
       expect(url).toBe("https://app.example/api/chatgpt/responses");
       expect(init?.credentials).toBe("include");

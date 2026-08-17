@@ -1,12 +1,7 @@
-import {
-  DEFAULT_CODEX_REASONING_EFFORT,
-  formatCodexModelLabel,
-  getCodexContextLimit,
-  getCodexReasoningEfforts,
-  normalizeCodexModelList,
-  selectCodexModel,
-  type CodexReasoningEffort,
-} from "#/lib/codex-models";
+import { hasStringType } from "@autopr/config/runtime-type";
+
+
+import { DEFAULT_CODEX_REASONING_EFFORT, formatCodexModelLabel, getCodexContextLimit, getCodexReasoningEfforts, normalizeCodexModelList, selectCodexModel, type CodexReasoningEffort } from "#/lib/codex-models";
 
 export const AGENT_PROVIDERS = ["openai-codex", "xai"] as const;
 
@@ -21,8 +16,8 @@ export type AgentModelOption = AgentModelSelection & {
   label: string;
 };
 
-export function isAgentProvider(value: unknown): value is AgentProvider {
-  return typeof value === "string" && AGENT_PROVIDERS.includes(value as AgentProvider);
+export function isAgentProvider<ValueValue>(value: ValueValue): value is ValueValue & (AgentProvider) {
+  return hasStringType(value) && AGENT_PROVIDERS.includes(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as AgentProvider);
 }
 
 export function agentModelKey(selection: AgentModelSelection) {
@@ -81,12 +76,12 @@ export function selectAgentReasoningEffort(
   return efforts.includes(DEFAULT_CODEX_REASONING_EFFORT) ? DEFAULT_CODEX_REASONING_EFFORT : efforts[0];
 }
 
-export function isAgentReasoningEffortSupported(
+export function isAgentReasoningEffortSupported<RequestedValue>(
   selection: AgentModelSelection | undefined,
-  requested: unknown,
-): requested is CodexReasoningEffort {
-  return typeof requested === "string"
-    && getAgentReasoningEfforts(selection).includes(requested as CodexReasoningEffort);
+  requested: RequestedValue,
+): requested is RequestedValue & (CodexReasoningEffort) {
+  return hasStringType(requested)
+    && getAgentReasoningEfforts(selection).includes(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ requested as CodexReasoningEffort);
 }
 
 export function getAgentContextLimit(selection: AgentModelSelection | undefined) {

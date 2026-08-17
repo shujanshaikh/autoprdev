@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
 import "@radix-ui/themes/styles.css";
 import "@workos-inc/widgets/styles.css";
 
@@ -12,8 +15,8 @@ import type { ReactNode } from "react";
 import { getSafeRedirectUrl } from "#/lib/safe-redirect";
 
 export const Route = createFileRoute("/github-connect")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    returnTo: getSafeRedirectUrl(typeof search.returnTo === "string" ? search.returnTo : undefined),
+  validateSearch: (search: JsonObject) => ({
+    returnTo: getSafeRedirectUrl(hasStringType(search.returnTo) ? search.returnTo : undefined),
   }),
   component: GithubConnect,
 });
@@ -161,7 +164,7 @@ function GithubConnect() {
 
 async function getPipesWidgetToken() {
   const response = await fetch("/api/workos/widgets/pipes-token");
-  const body = (await response.json().catch(() => undefined)) as {
+  const body = (await response.json().catch(() => undefined)) satisfies {
     token?: string;
     githubAppInstallUrl?: string;
     error?: string;

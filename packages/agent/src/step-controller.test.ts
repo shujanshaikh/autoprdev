@@ -1,7 +1,6 @@
-import type { StepResult, ToolSet } from "ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { createAgentStepController, detectRepeatedToolLoop } from "./step-controller";
+import { createAgentStepController, detectRepeatedToolLoop, type ToolLoopStep } from "./step-controller";
 
 function toolStep(options: {
   toolName?: string;
@@ -20,7 +19,7 @@ function toolStep(options: {
       ? []
       : [{ type: "tool-result", toolCallId, toolName, input: options.input, output: options.output }],
     content,
-  } as unknown as StepResult<ToolSet>;
+  } satisfies ToolLoopStep;
 }
 
 describe("agent step controller", () => {
@@ -72,19 +71,20 @@ describe("agent step controller", () => {
     const compactedMessages = [{ role: "user" as const, content: "checkpoint" }];
     const basePrepare = vi.fn(async () => ({ messages: compactedMessages }));
     const onToolLoopDetected = vi.fn();
+    const detectToolLoop = vi.fn(() => ({
+      kind: "repeated_failure" as const,
+      toolNames: ["bash"],
+      repetitions: 3,
+    }));
     const prepare = createAgentStepController({
       prepareStep: basePrepare,
       onToolLoopDetected,
+      detectToolLoop,
     });
-    const steps = Array.from({ length: 3 }, () => toolStep({
-      input: { command: "pnpm test" },
-      error: "command failed",
-    }));
-
     const result = await prepare({
       messages: [{ role: "user", content: "fix it" }],
-      model: "test-model" as never,
-      steps,
+      model: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ "test-model" as never,
+      steps: [],
       stepNumber: 3,
       experimental_context: undefined,
     });

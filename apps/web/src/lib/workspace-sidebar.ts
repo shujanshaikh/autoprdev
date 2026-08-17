@@ -40,7 +40,7 @@ export function partitionSidebarThreads<T extends SidebarThreadRecord>(
     search: string;
     now?: number;
   },
-): { active: T[]; settled: T[] } {
+) {
   const normalizedSearch = options.search.trim().toLocaleLowerCase();
   const visible = threads.filter((thread) => {
     if (options.projectId && thread.projectId !== options.projectId) return false;

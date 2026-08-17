@@ -22,7 +22,7 @@ describe("withEphemeralGitAuth", () => {
     const token = "test-token-must-not-be-in-proc-environ";
 
     const env = await withEphemeralGitAuth(
-      sandbox as never,
+      /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ sandbox as never,
       token,
       async (gitEnv) => gitEnv,
     );
@@ -49,7 +49,7 @@ describe("withEphemeralGitAuth", () => {
     };
 
     await expect(withEphemeralGitAuth(
-      sandbox as never,
+      /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ sandbox as never,
       "secret-token",
       async () => "done",
     )).rejects.toThrow("Could not remove temporary Git credentials");

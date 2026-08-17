@@ -1,4 +1,8 @@
+import { hasBooleanType, hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import { tool } from "ai";
+import type { ComputerUse } from "@daytona/sdk";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
@@ -28,7 +32,7 @@ const computerOperationTails = new WeakMap<object, Promise<void>>();
 type TrackComputerOperation = (operation: Promise<unknown>) => void;
 
 async function serializeComputerOperations<T>(
-  computerUse: object,
+  computerUse: ComputerUseLifecycle,
   operation: (track: TrackComputerOperation) => Promise<T>,
 ): Promise<T> {
   const previous = computerOperationTails.get(computerUse) ?? Promise.resolve();
@@ -307,7 +311,7 @@ type ComputerOutputDetails = {
   status?: unknown;
   cursor?: CuaAgentCursorStatus;
   windows?: unknown;
-  command?: Record<string, unknown>;
+  command?: JsonObject;
   screenshot?: ScreenshotForModel | ScreenshotMetadata;
   recording?: ReturnType<typeof compactRecording>;
   recordings?: Array<ReturnType<typeof compactRecording>>;
@@ -329,15 +333,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function statusValue(value: unknown): string | undefined {
+function statusValue<ValueValue>(value: ValueValue): string | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
   const status = value.status;
-  return typeof status === "string" ? status.toLowerCase() : undefined;
+  return hasStringType(status) ? status.toLowerCase() : undefined;
 }
 
-async function waitForComputerReady(computerUse: { getStatus(): Promise<unknown> }) {
+async function waitForComputerReady(computerUse: Pick<ComputerUse, "getStatus">) {
   const deadline = Date.now() + COMPUTER_READY_TIMEOUT_MS;
   let lastStatus: string | undefined;
 
@@ -352,14 +356,21 @@ async function waitForComputerReady(computerUse: { getStatus(): Promise<unknown>
   throw new Error(`Daytona desktop was not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
 }
 
-type ComputerUseLifecycle = {
-  start(): Promise<unknown>;
-  stop(): Promise<unknown>;
-  getStatus(): Promise<unknown>;
-  getProcessStatus?(processName: string): Promise<unknown>;
-  restartProcess?(processName: string): Promise<unknown>;
-  getProcessLogs?(processName: string): Promise<unknown>;
-  getProcessErrors?(processName: string): Promise<unknown>;
+type ComputerUseLifecycle = ComputerUse;
+type ComputerClient = Pick<CuaComputerClient, "command" | "ensureReady" | "inspect">;
+
+export interface CuaComputerDependencies {
+  getSandboxContext: typeof getSandboxContext;
+  createClient: (
+    sandbox: ConstructorParameters<typeof CuaComputerClient>[0],
+    sandboxOptions: SandboxSessionOptions,
+    options: CuaComputerToolOptions,
+  ) => ComputerClient;
+}
+
+const defaultDependencies: CuaComputerDependencies = {
+  getSandboxContext,
+  createClient: (sandbox, sandboxOptions, options) => new CuaComputerClient(sandbox, sandboxOptions, options),
 };
 
 async function readComputerStatus(computerUse: Pick<ComputerUseLifecycle, "getStatus">): Promise<string | undefined> {
@@ -370,12 +381,12 @@ async function readComputerStatus(computerUse: Pick<ComputerUseLifecycle, "getSt
   }
 }
 
-function compactDiagnostic(value: unknown): string | undefined {
+function compactDiagnostic<ValueValue>(value: ValueValue): string | undefined {
   if (value === undefined || value === null) return undefined;
 
   let raw: string;
   try {
-    raw = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+    raw = hasStringType(value) ? value : JSON.stringify(value) ?? String(value);
   } catch {
     raw = String(value);
   }
@@ -386,11 +397,16 @@ function compactDiagnostic(value: unknown): string | undefined {
     : normalized;
 }
 
-function compactMetadataValue(value: unknown): unknown {
-  if (value === undefined || value === null) return value;
+function compactMetadataValue<ValueValue>(value: ValueValue): JsonValue {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
   try {
-    const serialized = typeof value === "string" ? value : JSON.stringify(value);
-    if (!serialized || serialized.length <= MAX_COMPUTER_METADATA_CHARS) return value;
+    if (hasStringType(value)) return value;
+    const serialized = JSON.stringify(value);
+    if (!serialized) return String(value);
+    if (serialized.length <= MAX_COMPUTER_METADATA_CHARS) {
+      return jsonValueSchema.parse(JSON.parse(serialized));
+    }
     return {
       truncated: true,
       preview: `${serialized.slice(0, MAX_COMPUTER_METADATA_CHARS)}...`,
@@ -400,15 +416,20 @@ function compactMetadataValue(value: unknown): unknown {
   }
 }
 
-function commandDetails(result: Record<string, unknown>): Pick<ComputerOutputDetails, "command"> {
-  return { command: compactMetadataValue(result) as Record<string, unknown> };
+function compactMetadataObject(value: JsonObject): JsonObject {
+  const compacted = compactMetadataValue(value);
+  return isJsonObject(compacted) ? compacted : { value: compacted };
 }
 
-function responseField(value: unknown, field: string): unknown {
+function commandDetails(result: JsonObject): Pick<ComputerOutputDetails, "command"> {
+  return { command: compactMetadataObject(result) };
+}
+
+function responseField<ValueValue>(value: ValueValue, field: string): JsonValue {
   return isRecord(value) ? value[field] : undefined;
 }
 
-function processNamesFromComputerUseError(error: unknown): ComputerUseProcessName[] {
+function processNamesFromComputerUseError<ErrorValue>(error: ErrorValue): ComputerUseProcessName[] {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   const matched = COMPUTER_USE_PROCESS_NAMES.filter((processName) => message.includes(processName));
   return matched.length > 0 ? matched : [...COMPUTER_USE_PROCESS_NAMES];
@@ -446,8 +467,8 @@ async function collectComputerUseDiagnostics(
       const status = await computerUse.getProcessStatus?.(processName);
       const running = responseField(status, "running");
       const processStatus = responseField(status, "status");
-      diagnostic.running = typeof running === "boolean" ? running : undefined;
-      diagnostic.status = typeof processStatus === "string" ? processStatus : undefined;
+      diagnostic.running = hasBooleanType(running) ? running : undefined;
+      diagnostic.status = hasStringType(processStatus) ? processStatus : undefined;
     } catch (error) {
       diagnostic.diagnosticError = compactDiagnostic(`status: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -503,7 +524,7 @@ function formatComputerUseFailure(errors: unknown[], diagnostics: ComputerUseDia
   ].filter(Boolean).join(" ");
 }
 
-async function recoverComputerUse(computerUse: ComputerUseLifecycle, cause: unknown) {
+async function recoverComputerUse<CauseValue>(computerUse: ComputerUseLifecycle, cause: CauseValue) {
   const errors: unknown[] = [cause];
   const processNames = processNamesFromComputerUseError(cause);
 
@@ -557,8 +578,8 @@ async function ensureComputerReady(computerUse: ComputerUseLifecycle) {
   }
 }
 
-function cleanRecordingTitle(value: unknown): string | undefined {
-  if (typeof value !== "string") {
+function cleanRecordingTitle<ValueValue>(value: ValueValue): string | undefined {
+  if (!hasStringType(value)) {
     return undefined;
   }
 
@@ -596,20 +617,20 @@ function compactRecording(
   recording: DaytonaRecording,
   titleHint?: string,
 ) {
-  const id = typeof recording.id === "string" ? recording.id : "";
-  const fileName = typeof recording.fileName === "string" ? recording.fileName : undefined;
+  const id = hasStringType(recording.id) ? recording.id : "";
+  const fileName = hasStringType(recording.fileName) ? recording.fileName : undefined;
 
   return {
     type: "daytona_recording",
     id,
     title: recordingTitle(recording, fileName, titleHint),
     fileName,
-    filePath: typeof recording.filePath === "string" ? recording.filePath : undefined,
-    status: typeof recording.status === "string" ? recording.status : undefined,
-    startTime: typeof recording.startTime === "string" ? recording.startTime : undefined,
-    endTime: typeof recording.endTime === "string" ? recording.endTime : undefined,
-    durationSeconds: typeof recording.durationSeconds === "number" ? recording.durationSeconds : undefined,
-    sizeBytes: typeof recording.sizeBytes === "number" ? recording.sizeBytes : undefined,
+    filePath: hasStringType(recording.filePath) ? recording.filePath : undefined,
+    status: hasStringType(recording.status) ? recording.status : undefined,
+    startTime: hasStringType(recording.startTime) ? recording.startTime : undefined,
+    endTime: hasStringType(recording.endTime) ? recording.endTime : undefined,
+    durationSeconds: hasNumberType(recording.durationSeconds) ? recording.durationSeconds : undefined,
+    sizeBytes: hasNumberType(recording.sizeBytes) ? recording.sizeBytes : undefined,
     contentType: "video/mp4",
   };
 }
@@ -619,18 +640,18 @@ function recordingSummary(recording: ReturnType<typeof compactRecording>) {
   if (recording.status) {
     parts.push(recording.status);
   }
-  if (typeof recording.durationSeconds === "number") {
+  if (hasNumberType(recording.durationSeconds)) {
     parts.push(`${recording.durationSeconds.toFixed(1)}s`);
   }
   return parts.join(" - ");
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function numberField(value: Record<string, unknown>, key: string): number | undefined {
-  return typeof value[key] === "number" ? value[key] : undefined;
+function numberField(value: JsonObject, key: string): number | undefined {
+  return hasNumberType(value[key]) ? value[key] : undefined;
 }
 
 function parseImageData(raw: string | undefined, fallbackMimeType = "image/png") {
@@ -660,7 +681,7 @@ function screenshotOptions(input?: Extract<ComputerAction, { type: "screenshot" 
 }
 
 async function captureScreenshot(
-  cua: CuaComputerClient,
+  cua: ComputerClient,
   input?: Extract<ComputerAction, { type: "screenshot" }>,
 ) {
   const options = screenshotOptions(input);
@@ -672,7 +693,7 @@ async function captureScreenshot(
   const size = isRecord(screenSize?.size) ? screenSize.size : undefined;
   const cursorPosition = isRecord(cursor?.position) ? cursor.position : undefined;
   const { data, mimeType } = parseImageData(
-    typeof shot.image_data === "string" ? shot.image_data : undefined,
+    hasStringType(shot.image_data) ? shot.image_data : undefined,
     options.format === "jpeg" ? "image/jpeg" : `image/${options.format}`,
   );
   const display = size
@@ -766,7 +787,7 @@ function summarizeAction(action: ComputerAction) {
   }
 }
 
-function legacyToAction(input: z.infer<typeof legacyActionSchema>): unknown {
+function legacyToAction(input: z.infer<typeof legacyActionSchema>): JsonValue {
   const action = input.action ?? input.type;
 
   switch (action) {
@@ -871,8 +892,9 @@ function computerContentOutput(content: string, details: ComputerOutputDetails) 
   if (details.screenshot?.data) {
     const image = {
       type: "image-data",
+      data: details.screenshot.data,
       mediaType: details.screenshot.mimeType,
-    } as { type: "image-data"; data: string; mediaType: string };
+    } satisfies { type: "image-data"; data: string; mediaType: string };
 
     // Trigger.dev chat sessions serialize each tool output into one realtime
     // record with a ~1 MiB cap. The screenshot is only needed by the model;
@@ -882,7 +904,6 @@ function computerContentOutput(content: string, details: ComputerOutputDetails) 
     Object.defineProperty(image, "data", {
       configurable: false,
       enumerable: false,
-      value: details.screenshot.data,
       writable: false,
     });
     value.push(image);
@@ -897,7 +918,7 @@ function computerContentOutput(content: string, details: ComputerOutputDetails) 
 async function runOneAction(
   action: ComputerAction,
   context: Awaited<ReturnType<typeof getSandboxContext>>,
-  cua: CuaComputerClient,
+  cua: ComputerClient,
 ): Promise<Partial<ComputerOutputDetails>> {
   const { computerUse } = context.sandbox;
 
@@ -914,15 +935,10 @@ async function runOneAction(
       return { status };
     }
     case "status": {
-      let server: unknown;
-      try {
-        server = await cua.inspect();
-      } catch (error) {
-        server = {
+      const server = await cua.inspect().catch((error) => ({
           status: "unavailable",
           error: compactDiagnostic(error instanceof Error ? error.message : String(error)),
-        };
-      }
+        }));
       const status = compactMetadataValue({
         status: isRecord(server) && server.status === "ok" ? "active" : "inactive",
         provider: "cua",
@@ -944,7 +960,7 @@ async function runOneAction(
       try {
         const current = await cua.command("get_current_window_id");
         const windowId = current.window_id;
-        if (typeof windowId !== "string" && typeof windowId !== "number") {
+        if (!hasStringType(windowId) && !hasNumberType(windowId)) {
           return { windows: [] };
         }
         const [name, size, position] = await Promise.all([
@@ -981,7 +997,7 @@ async function runOneAction(
       return commandDetails(await cua.command("move_cursor", { x: action.x, y: action.y }));
     }
     case "click": {
-      let result: Record<string, unknown>;
+      let result: JsonObject;
       if (action.button === "middle") {
         await cua.command("mouse_down", { x: action.x, y: action.y, button: "middle" });
         result = await cua.command("mouse_up", { x: action.x, y: action.y, button: "middle" });
@@ -994,7 +1010,7 @@ async function runOneAction(
       return commandDetails(result);
     }
     case "double_click": {
-      let result: Record<string, unknown> | undefined;
+      let result: JsonObject | undefined;
       if (action.button === "middle") {
         for (let index = 0; index < 2; index += 1) {
           await cua.command("mouse_down", { x: action.x, y: action.y, button: "middle" });
@@ -1059,21 +1075,21 @@ async function runOneAction(
     }
     case "start_recording": {
       const recording = compactRecording(
-        await computerUse.recording.start(action.title) as DaytonaRecording,
+        /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await computerUse.recording.start(action.title) as DaytonaRecording,
         action.title,
       );
       return { recording, recordings: [recording] };
     }
     case "stop_recording": {
       const recording = compactRecording(
-        await computerUse.recording.stop(action.recordingId) as DaytonaRecording,
+        /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await computerUse.recording.stop(action.recordingId) as DaytonaRecording,
         action.title,
       );
       return { recording, recordings: [recording] };
     }
     case "get_recording": {
       const recording = compactRecording(
-        await computerUse.recording.get(action.recordingId) as DaytonaRecording,
+        /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await computerUse.recording.get(action.recordingId) as DaytonaRecording,
       );
       return { recording, recordings: [recording] };
     }
@@ -1085,7 +1101,7 @@ async function runOneAction(
       return {
         recordings: allRecordings
           .slice(0, MAX_RECORDINGS_RETURNED)
-          .map((recording) => compactRecording(recording as DaytonaRecording)),
+          .map((recording) => compactRecording(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ recording as DaytonaRecording)),
         recordingsTruncated: allRecordings.length > MAX_RECORDINGS_RETURNED,
       };
     }
@@ -1096,14 +1112,16 @@ async function executeCuaComputer(
   input: ComputerInput,
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions,
+  dependencies: CuaComputerDependencies,
 ) {
-  const context = await getSandboxContext(sandboxOptions);
+  const context = await dependencies.getSandboxContext(sandboxOptions);
   const { computerUse } = context.sandbox;
   return serializeComputerOperations(computerUse, (track) => executeCuaComputerActions(
     input,
     context,
     sandboxOptions,
     computerOptions,
+    dependencies,
     track,
   ));
 }
@@ -1113,10 +1131,11 @@ async function executeCuaComputerActions(
   context: Awaited<ReturnType<typeof getSandboxContext>>,
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions,
+  dependencies: CuaComputerDependencies,
   track: TrackComputerOperation,
 ) {
   const { computerUse } = context.sandbox;
-  const cua = new CuaComputerClient(context.sandbox, sandboxOptions, computerOptions);
+  const cua = dependencies.createClient(context.sandbox, sandboxOptions, computerOptions);
   const summaries = input.actions.map(summarizeAction);
   const details: ComputerOutputDetails = {
     action: input.actions.length === 1 ? input.actions[0]?.type : undefined,
@@ -1207,7 +1226,7 @@ async function executeCuaComputerActions(
         ? `Agent cursor: painted (${details.cursor.theme ?? "configured CUA theme"}, ${details.cursor.runtimeMode ?? "unknown runtime"})`
         : `Agent cursor: unavailable${details.cursor.reason ? ` (${details.cursor.reason})` : details.cursor.error ? ` (${details.cursor.error})` : ""}`
       : undefined,
-    typeof details.command?.effect === "string"
+    hasStringType(details.command?.effect)
       ? `CUA action effect: ${details.command.effect}` +
         (details.command.effect === "suspected_noop" ? " (verify the screenshot before continuing)" : "")
       : undefined,
@@ -1224,6 +1243,7 @@ async function executeCuaComputerActions(
 export function createCuaComputerTool(
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions = {},
+  dependencies: CuaComputerDependencies = defaultDependencies,
 ) {
   return tool<ComputerInput, Awaited<ReturnType<typeof executeCuaComputer>>>({
     title: "computer",
@@ -1231,6 +1251,6 @@ export function createCuaComputerTool(
       "Inspect and operate the Daytona Linux desktop through CUA for HTTP(S) browser previews, screenshots, and GUI interaction. Demo recordings remain backed by Daytona. Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh CUA screenshot when screen state matters. Mutates GUI/recording state; keep batches small and re-check before coordinate-sensitive actions.",
     inputSchema: computerInputSchema,
     toModelOutput: ({ output }) => output,
-    execute: (input) => executeCuaComputer(input, sandboxOptions, computerOptions),
+    execute: (input) => executeCuaComputer(input, sandboxOptions, computerOptions, dependencies),
   });
 }

@@ -1,15 +1,10 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   executeSandboxCommand: vi.fn(),
   getSandboxContext: vi.fn(),
 }));
-
-vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
-vi.mock("../sandbox/execute", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../sandbox/execute")>();
-  return { ...original, executeSandboxCommand: mocks.executeSandboxCommand };
-});
 
 import { createDaytonaBashTool } from "./bash";
 import { createBackgroundProcessScope } from "./background-process-scope";
@@ -24,11 +19,12 @@ async function executeBash(input: {
   const bash = createDaytonaBashTool(
     { cacheKey: "bash-test" },
     createBackgroundProcessScope("bash-test-owner"),
+    { getSandboxContext: mocks.getSandboxContext, executeSandboxCommand: mocks.executeSandboxCommand },
   );
   if (!bash.execute) throw new Error("bash tool is not executable");
-  return await bash.execute(input, { toolCallId: "bash-1", messages: [] }) as {
+  return /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ await bash.execute(input, { toolCallId: "bash-1", messages: [] }) as {
     content: string;
-    details: Record<string, unknown>;
+    details: JsonObject;
   };
 }
 
@@ -90,7 +86,11 @@ describe("Daytona bash tool", () => {
       sessionId: "autopr-shared-test-owner-session",
       cmdId: "cmd-secret",
     });
-    const bash = createDaytonaBashTool({ cacheKey: "bash-test" }, backgroundProcesses);
+    const bash = createDaytonaBashTool(
+      { cacheKey: "bash-test" },
+      backgroundProcesses,
+      { getSandboxContext: mocks.getSandboxContext, executeSandboxCommand: mocks.executeSandboxCommand },
+    );
     if (!bash.execute) throw new Error("bash tool is not executable");
 
     await bash.execute({

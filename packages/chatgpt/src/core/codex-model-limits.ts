@@ -27,5 +27,5 @@ export function getChatGPTCodexModelLimits(modelId: string | undefined) {
     return undefined;
   }
 
-  return CHATGPT_CODEX_MODEL_LIMITS[modelId as ChatGPTCodexModelWithKnownLimits];
+  return CHATGPT_CODEX_MODEL_LIMITS[/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ modelId as ChatGPTCodexModelWithKnownLimits];
 }

@@ -1,22 +1,10 @@
 import { Skeleton } from "@autopr/ui/components/skeleton";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  ArrowUpRight,
-  ExternalLink,
-  GitPullRequest,
-  GitPullRequestClosed,
-  GitPullRequestDraft,
-  Loader2,
-  RefreshCw,
-  Search,
-} from "lucide-react";
+import { ArrowUpRight, ExternalLink, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Loader2, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
-import {
-  type ProjectPullRequest,
-  useProjectPullRequests,
-} from "#/lib/project-pull-requests";
+import { type ProjectPullRequest, useProjectPullRequests } from "#/lib/project-pull-requests";
 import { PullRequestDetail } from "./pull-request-detail";
 
 type Filter = "all" | "open" | "draft" | "closed";
@@ -125,12 +113,12 @@ function PullList({
   onSelect: (pull: ProjectPullRequest) => void;
 }) {
   const counts = useMemo(() => {
-    const tally: Record<Filter, number> = {
+    const tally = {
       all: pulls.length,
       open: 0,
       draft: 0,
       closed: 0,
-    };
+    } satisfies Record<Filter, number>;
     for (const pull of pulls) {
       tally[pullVariant(pull)] += 1;
     }

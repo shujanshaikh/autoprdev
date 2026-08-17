@@ -2,22 +2,9 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import type { Doc } from "@autopr/backend/convex/_generated/dataModel";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "convex/react";
-import {
-  Archive,
-  Folder,
-  MoreHorizontal,
-  Search,
-  SquarePen,
-} from "lucide-react-native";
+import { Archive, Folder, MoreHorizontal, Search, SquarePen } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { OpenAIIcon } from "../components/OpenAIIcon";

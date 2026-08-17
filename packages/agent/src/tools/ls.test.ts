@@ -1,3 +1,4 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -5,17 +6,17 @@ const mocks = vi.hoisted(() => ({
   resolveJailedSandboxPath: vi.fn(),
 }));
 
-vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
-vi.mock("../sandbox/execute", () => ({ resolveJailedSandboxPath: mocks.resolveJailedSandboxPath }));
-
 import { createDaytonaLsTool } from "./ls";
 
 async function executeLs(input: { path?: string; offset?: number; limit?: number }) {
-  const ls = createDaytonaLsTool({ cacheKey: "ls-test" });
+  const ls = createDaytonaLsTool({ cacheKey: "ls-test" }, {
+    getSandboxContext: mocks.getSandboxContext,
+    resolveJailedSandboxPath: mocks.resolveJailedSandboxPath,
+  });
   if (!ls.execute) throw new Error("ls tool is not executable");
-  return await ls.execute(input, { toolCallId: "ls-1", messages: [] }) as {
+  return /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ await ls.execute(input, { toolCallId: "ls-1", messages: [] }) as {
     content: string;
-    details: Record<string, unknown>;
+    details: JsonObject;
   };
 }
 

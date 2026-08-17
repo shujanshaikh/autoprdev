@@ -317,7 +317,7 @@ function withGrepCursor(result) {
   return {
     ...result,
     nextCursor:
-      typeof offset === "number"
+      Number.isFinite(offset)
         ? encodeCursor({
             type: "grep",
             offset,
@@ -328,7 +328,7 @@ function withGrepCursor(result) {
 
 async function waitForIndex(finder, timeoutMs) {
   const waiter =
-    typeof finder.waitForIndexReady === "function"
+    finder.waitForIndexReady instanceof Function
       ? finder.waitForIndexReady.bind(finder)
       : finder.waitForScan.bind(finder);
   const ready = await waiter(timeoutMs);
@@ -936,7 +936,10 @@ async function serveDaemon(parsed) {
         .then(async () => {
           resetIdleTimer();
           const payload = JSON.parse(rawRequest);
-          if (!Array.isArray(payload?.args) || payload.args.some((arg) => typeof arg !== "string")) {
+          if (
+            !Array.isArray(payload?.args) ||
+            payload.args.some((arg) => arg?.constructor !== String)
+          ) {
             throw new Error("Invalid fff daemon request.");
           }
           const requestParsed = parseArgs([process.execPath, CLI_PATH, ...payload.args]);

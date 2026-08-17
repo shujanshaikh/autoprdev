@@ -1,11 +1,11 @@
-import { Toaster } from '@autopr/ui/components/sonner'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AuthKitProvider, useAccessToken, useAuth } from '@workos/authkit-tanstack-react-start/client'
-import { ConvexProviderWithAuth, ConvexReactClient } from 'convex/react'
-import { useCallback, useMemo, useState } from 'react'
+import { Toaster } from '@autopr/ui/components/sonner';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthKitProvider, useAccessToken, useAuth } from '@workos/authkit-tanstack-react-start/client';
+import { ConvexProviderWithAuth, ConvexReactClient } from 'convex/react';
+import { useCallback, useMemo, useState } from 'react';
 
-import { ThemeProvider } from './components/theme-provider'
-import { AUTHKIT_CLIENT_SESSION_POLICY } from './lib/auth-session-policy'
+import { ThemeProvider } from './components/theme-provider';
+import { AUTHKIT_CLIENT_SESSION_POLICY } from './lib/auth-session-policy';
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL
 

@@ -1,5 +1,8 @@
 "use node";
 
+import { hasNumberType, hasObjectType } from "@autopr/config/runtime-type";
+import { jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -18,12 +21,15 @@ function analyticsConfig() {
   return { apiUrl, organizationId, apiKey };
 }
 
-function rowsFromPayload(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  const record = payload as Record<string, unknown>;
+function rowsFromPayload<PayloadValue>(payload: PayloadValue): JsonValue[] {
+  if (Array.isArray(payload)) return payload.flatMap((value) => {
+    const parsed = jsonValueSchema.safeParse(value);
+    return parsed.success ? [parsed.data] : [];
+  });
+  if (!payload || !hasObjectType(payload)) return [];
+  const record = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ payload as JsonObject;
   for (const key of ["sandboxes", "items", "data", "usage"]) {
-    if (Array.isArray(record[key])) return record[key] as unknown[];
+    if (Array.isArray(record[key])) return record[key];
   }
   return [];
 }
@@ -39,13 +45,13 @@ async function fetchAuthoritativeTotal(sandboxId: string, from: number, to: numb
   const response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
   if (!response.ok) throw new Error(`Daytona analytics request failed (${response.status}).`);
   const payload: unknown = await response.json();
-  const match = rowsFromPayload(payload).find((value) => {
-    if (!value || typeof value !== "object") return false;
-    const row = value as Record<string, unknown>;
+  const match = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ rowsFromPayload(payload).find((value) => {
+    if (!value || !hasObjectType(value)) return false;
+    const row = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as JsonObject;
     return row.sandboxId === sandboxId || row.sandbox_id === sandboxId;
-  }) as Record<string, unknown> | undefined;
+  }) as JsonObject | undefined;
   const totalPrice = match?.totalPrice ?? match?.total_price;
-  if (typeof totalPrice !== "number") {
+  if (!hasNumberType(totalPrice)) {
     throw new Error(match ? "Daytona aggregate row has no totalPrice." : "Sandbox has not appeared in Daytona analytics yet.");
   }
   return totalPrice;

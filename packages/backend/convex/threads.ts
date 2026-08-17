@@ -3,38 +3,15 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
-import {
-  collectAssistantPartsBlobKeys,
-  deleteAssistantPartsBlobKeys,
-  type AssistantPartsBlobDeleteCtx,
-} from "./lib/assistantPartsBlobs";
-import {
-  hashAgentPersistenceToken,
-  requireAgentPersistenceGrant,
-  requireAgentSessionPersistenceGrant,
-} from "./lib/agentPersistence";
+import { collectAssistantPartsBlobKeys, deleteAssistantPartsBlobKeys, type AssistantPartsBlobDeleteCtx } from "./lib/assistantPartsBlobs";
+import { hashAgentPersistenceToken, requireAgentPersistenceGrant, requireAgentSessionPersistenceGrant } from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
 import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
 import { threadGitStatusValidator } from "./lib/gitStatus";
-import {
-  gitWorkflowActionValidator,
-  gitWorkflowFailureValidator,
-  gitWorkflowPhaseResultValidator,
-  gitWorkflowPhaseValidator,
-  gitWorkflowPushResultValidator,
-  nextGitWorkflowPhase,
-} from "./lib/gitWorkflow";
-import {
-  createThreadFeatureBranch,
-  createThreadWorktreePath,
-  resolveThreadBaseBranch,
-  resolveThreadWorkspaceMode,
-} from "./lib/threadWorktree";
-import {
-  githubPullRequestLocalBranch,
-  isThreadCompatibleWithGithubPullRequest,
-} from "./lib/githubPullRequest";
+import { gitWorkflowActionValidator, gitWorkflowFailureValidator, gitWorkflowPhaseResultValidator, gitWorkflowPhaseValidator, gitWorkflowPushResultValidator, nextGitWorkflowPhase } from "./lib/gitWorkflow";
+import { createThreadFeatureBranch, createThreadWorktreePath, resolveThreadBaseBranch, resolveThreadWorkspaceMode } from "./lib/threadWorktree";
+import { githubPullRequestLocalBranch, isThreadCompatibleWithGithubPullRequest } from "./lib/githubPullRequest";
 
 const shortError = (message: string) => message.slice(0, 700);
 const longError = (message: string) => message.slice(0, 8_000);
@@ -103,10 +80,14 @@ export const create = mutation({
       baseBranch,
       featureBranch,
       worktreePath,
-      ...(workspaceMode === "worktree" ? {
+      ...(() => {
+  let optionalProperties;
+  if (workspaceMode === "worktree") optionalProperties = {
         worktreeStatus: "pending" as const,
         worktreeUpdatedAt: now,
-      } : {}),
+      };
+  return optionalProperties;
+})(),
       gitStatusInvalidatedAt: now,
       gitStatusInvalidationReason: workspaceMode === "worktree" ? "worktree_created" : "manual",
     });
@@ -354,10 +335,14 @@ export const reserveWorktreeInternal = internalMutation({
       worktreeProvisionAttemptId: args.attemptId,
       worktreeError: undefined,
       worktreeUpdatedAt: now,
-      ...(shouldInvalidate ? {
+      ...(() => {
+  let optionalProperties;
+  if (shouldInvalidate) optionalProperties = {
         gitStatusInvalidatedAt: now,
         gitStatusInvalidationReason: "worktree_created" as const,
-      } : {}),
+      };
+  return optionalProperties;
+})(),
       updatedAt: now,
     });
     return { acquired: true };
@@ -1586,7 +1571,7 @@ export const removeInternal = internalMutation({
       .collect();
 
     await deleteAssistantPartsBlobKeys(
-      ctx as unknown as AssistantPartsBlobDeleteCtx,
+      { runMutation: ctx.runMutation, runQuery: ctx.runQuery } satisfies AssistantPartsBlobDeleteCtx,
       collectAssistantPartsBlobKeys(messages),
     );
     await Promise.all(messages.map((message) => ctx.db.delete(message._id)));

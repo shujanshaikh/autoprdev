@@ -1,21 +1,8 @@
+import { hasObjectType, hasStringType, hasUndefinedType } from "@autopr/config/runtime-type";
+import { jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import type { FetchLike } from "./types.ts";
-import {
-  createChatGPTRealtimeAction,
-  createChatGPTRealtimeRelayMessage,
-  createChatGPTRealtimeToolResult,
-  createChatGPTRealtimeToolUpdate,
-  encodeChatGPTRealtimeEvent,
-  getChatGPTRealtimePayload,
-  parseChatGPTRealtimeEvent,
-  parseChatGPTRealtimeTranscript,
-  parseChatGPTRealtimeToolInvocation,
-  type ChatGPTRealtimeAction,
-  type ChatGPTRealtimeEvent,
-  type ChatGPTRealtimeSessionOptions,
-  type ChatGPTRealtimeState,
-  type ChatGPTRealtimeTranscript,
-  type ChatGPTRealtimeToolInvocation,
-} from "./realtime.ts";
+import { createChatGPTRealtimeAction, createChatGPTRealtimeRelayMessage, createChatGPTRealtimeToolResult, createChatGPTRealtimeToolUpdate, encodeChatGPTRealtimeEvent, getChatGPTRealtimePayload, parseChatGPTRealtimeEvent, parseChatGPTRealtimeTranscript, parseChatGPTRealtimeToolInvocation, type ChatGPTRealtimeAction, type ChatGPTRealtimeEvent, type ChatGPTRealtimeSessionOptions, type ChatGPTRealtimeState, type ChatGPTRealtimeTranscript, type ChatGPTRealtimeToolInvocation } from "./realtime.ts";
 
 export interface ChatGPTRealtimeBargeInOptions {
   /** Input RMS needed to interrupt model speech. Defaults to `0.045`. */
@@ -27,8 +14,8 @@ export interface ChatGPTRealtimeBargeInOptions {
 }
 
 export interface ChatGPTRealtimeToolControls {
-  complete(result: Record<string, unknown>): void;
-  update(status: string, detail?: Record<string, unknown>): void;
+  complete(result: JsonObject): void;
+  update(status: string, detail?: JsonObject): void;
 }
 
 export interface ConnectChatGPTRealtimeOptions {
@@ -70,15 +57,15 @@ export interface ChatGPTRealtimeConnection {
   audioElement: HTMLAudioElement;
   get state(): ChatGPTRealtimeState;
   send(event: ChatGPTRealtimeEvent): void;
-  action(action: ChatGPTRealtimeAction | string, payload?: Record<string, unknown>): void;
+  action(action: ChatGPTRealtimeAction | string, payload?: JsonObject): void;
   startListening(): void;
   stopListening(): void;
   stopSpeaking(): void;
   resumeListening(): void;
   /** Injects a typed user message using the observed private GPT Live protocol. */
-  relayMessage(text: string, metadata?: Record<string, unknown>): void;
-  completeTool(callId: string, result: Record<string, unknown>): void;
-  updateTool(callId: string, status: string, detail?: Record<string, unknown>): void;
+  relayMessage(text: string, metadata?: JsonObject): void;
+  completeTool(callId: string, result: JsonObject): void;
+  updateTool(callId: string, status: string, detail?: JsonObject): void;
   setInputMuted(muted: boolean): void;
   setOutputMuted(muted: boolean): void;
   close(): void;
@@ -94,7 +81,7 @@ export async function connectChatGPTRealtime(
 ): Promise<ChatGPTRealtimeConnection> {
   const fetchImpl = options.fetch ?? globalThis.fetch?.bind(globalThis);
   if (!fetchImpl) throw new TypeError("No fetch implementation available.");
-  if (typeof RTCPeerConnection === "undefined" || !navigator.mediaDevices) {
+  if (hasUndefinedType(RTCPeerConnection) || !navigator.mediaDevices) {
     throw new TypeError("connectChatGPTRealtime() requires browser WebRTC and media APIs.");
   }
   if (options.mediaConstraints?.video) {
@@ -136,7 +123,7 @@ export async function connectChatGPTRealtime(
     state = next;
     options.onStateChange?.(next);
   };
-  const fail = (cause: unknown) => options.onError?.(
+  const fail = <CauseValue>(cause: CauseValue) => options.onError?.(
     cause instanceof Error ? cause : new Error(String(cause)),
   );
 
@@ -183,7 +170,7 @@ export async function connectChatGPTRealtime(
     if (channel.readyState !== "open") throw new Error("Realtime data channel is not open.");
     channel.send(encodeChatGPTRealtimeEvent(event));
   };
-  const action = (name: ChatGPTRealtimeAction | string, payload?: Record<string, unknown>) => {
+  const action = (name: ChatGPTRealtimeAction | string, payload?: JsonObject) => {
     send(createChatGPTRealtimeAction(name, payload));
   };
 
@@ -227,7 +214,11 @@ export async function connectChatGPTRealtime(
 
   if (options.bargeIn !== false && stream.getAudioTracks().length > 0) {
     cleanups.push(startBargeInMonitor(stream, {
-      ...(typeof options.bargeIn === "object" ? options.bargeIn : {}),
+      ...(() => {
+  let optionalProperties;
+  if (hasObjectType(options.bargeIn)) optionalProperties = options.bargeIn;
+  return optionalProperties;
+})(),
       isSpeaking: () => state === "speaking",
       interrupt: () => {
         if (channel.readyState !== "open") return;
@@ -283,12 +274,14 @@ const REALTIME_STATES = new Set<ChatGPTRealtimeState>([
   "listening_intently", "thinking", "speaking",
 ]);
 
-function isRealtimeState(value: unknown): value is ChatGPTRealtimeState {
-  return typeof value === "string" && REALTIME_STATES.has(value as ChatGPTRealtimeState);
+function isRealtimeState<ValueValue>(value: ValueValue): value is ValueValue & (ChatGPTRealtimeState) {
+  return hasStringType(value) && REALTIME_STATES.has(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as ChatGPTRealtimeState);
 }
 
-async function decodeMessageData(data: unknown): Promise<unknown> {
-  return data instanceof Blob ? data.arrayBuffer() : data;
+type RealtimeWireData = ArrayBuffer | JsonValue;
+
+async function decodeMessageData<DataValue>(data: DataValue): Promise<RealtimeWireData> {
+  return data instanceof Blob ? data.arrayBuffer() : jsonValueSchema.parse(data);
 }
 
 function waitForIceGathering(peer: RTCPeerConnection, timeoutMs: number, signal?: AbortSignal): Promise<void> {

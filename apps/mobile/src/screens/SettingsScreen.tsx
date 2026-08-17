@@ -3,18 +3,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Image } from "expo-image";
 import * as WebBrowser from "expo-web-browser";
 import { useMutation, useQuery } from "convex/react";
-import {
-  ChevronRight,
-  FlaskConical,
-  FolderGit2,
-  LogOut,
-  MoonStar,
-  ReceiptText,
-  Smartphone,
-  Sun,
-  Unplug,
-  UserRound,
-} from "lucide-react-native";
+import { ChevronRight, FlaskConical, FolderGit2, LogOut, MoonStar, ReceiptText, Smartphone, Sun, Unplug, UserRound } from "lucide-react-native";
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

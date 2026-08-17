@@ -1,11 +1,10 @@
-import { Daytona } from "@daytona/sdk";
+import { hasObjectType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
+import { Daytona, type Sandbox } from "@daytona/sdk";
 import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 
-import {
-  DEFAULT_SANDBOX_WORKDIR,
-  sandboxRepositoryDirectoryName,
-  sandboxRepositoryPath,
-} from "./repo-path";
+import { DEFAULT_SANDBOX_WORKDIR, sandboxRepositoryDirectoryName, sandboxRepositoryPath } from "./repo-path";
 
 export {
   DEFAULT_SANDBOX_WORKDIR,
@@ -23,127 +22,7 @@ export interface SandboxContext {
   workDir: string;
 }
 
-export interface DaytonaSandbox {
-  id: string;
-  name?: string;
-  snapshot?: string;
-  state?: string;
-  autoArchiveInterval?: number;
-  toolboxProxyUrl?: string;
-  domainAllowList?: string;
-  start(timeout?: number): Promise<void>;
-  setAutoArchiveInterval(interval: number): Promise<void>;
-  updateNetworkSettings(settings: { domainAllowList: string }): Promise<void>;
-  getWorkDir(): Promise<string | undefined>;
-  getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
-  computerUse: {
-    start(): Promise<unknown>;
-    stop(): Promise<unknown>;
-    getStatus(): Promise<unknown>;
-    getProcessStatus?(processName: string): Promise<unknown>;
-    restartProcess?(processName: string): Promise<unknown>;
-    getProcessLogs?(processName: string): Promise<unknown>;
-    getProcessErrors?(processName: string): Promise<unknown>;
-    recording: {
-      start(label?: string): Promise<unknown>;
-      stop(id: string): Promise<unknown>;
-      list(): Promise<unknown>;
-      get(id: string): Promise<unknown>;
-      download(id: string, localPath: string): Promise<void>;
-    };
-  };
-  git: {
-    status(path: string): Promise<unknown>;
-    clone(
-      url: string,
-      path: string,
-      branch?: string,
-      commitId?: string,
-      username?: string,
-      password?: string,
-    ): Promise<unknown>;
-    add(path: string, files: string[]): Promise<unknown>;
-    commit(
-      path: string,
-      message: string,
-      author: string,
-      email: string,
-      allowEmpty?: boolean,
-    ): Promise<{ sha: string }>;
-    push(
-      path: string,
-      username?: string,
-      password?: string,
-      branch?: string,
-      remote?: string,
-      setUpstream?: boolean,
-    ): Promise<unknown>;
-    pull(
-      path: string,
-      username?: string,
-      password?: string,
-      branch?: string,
-      remote?: string,
-    ): Promise<unknown>;
-  };
-  fs: {
-    downloadFile(path: string): Promise<Uint8Array>;
-    uploadFile(file: Uint8Array | Buffer, path: string): Promise<unknown>;
-    deleteFile(path: string, recursive?: boolean): Promise<void>;
-    listFiles(path: string): Promise<unknown[]>;
-    searchFiles(path: string, pattern: string): Promise<{ files: string[] }>;
-  };
-  process: {
-    executeCommand(
-      command: string,
-      cwd?: string,
-      env?: Record<string, string>,
-      timeout?: number,
-    ): Promise<{
-      exitCode?: number;
-      result?: string;
-      stdout?: string;
-      stderr?: string;
-      artifacts?: { stdout?: string };
-    }>;
-    createSession(sessionId: string): Promise<unknown>;
-    executeSessionCommand(
-      sessionId: string,
-      command: {
-        command: string;
-        runAsync?: boolean;
-        suppressInputEcho?: boolean;
-      },
-      timeout?: number,
-    ): Promise<{
-      cmdId: string;
-      exitCode?: number;
-      stdout?: string;
-      stderr?: string;
-      output?: string;
-    }>;
-    getSessionCommand(sessionId: string, commandId: string): Promise<{
-      command: string;
-      exitCode?: number;
-      id: string;
-    }>;
-    getSessionCommandLogs(sessionId: string, commandId: string): Promise<{
-      output?: string;
-      stdout?: string;
-      stderr?: string;
-    }>;
-    sendSessionCommandInput(sessionId: string, commandId: string, data: string): Promise<void>;
-    listSessions(): Promise<Array<{
-      sessionId: string;
-      commands: Array<{
-        command: string;
-        exitCode?: number;
-        id: string;
-      }> | null;
-    }>>;
-    deleteSession(sessionId: string): Promise<unknown>;
-  };
-}
+export type DaytonaSandbox = Sandbox;
 
 export interface SandboxSessionOptions {
   cacheKey?: string;
@@ -171,16 +50,16 @@ const sandboxContextPromises = new Map<string, {
 const sandboxLookupPromises = new Map<string, Promise<DaytonaSandbox>>();
 const recentSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
 
-function errorMessage(error: unknown) {
+function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isDaytonaRateLimitError(error: unknown) {
+function isDaytonaRateLimitError<ErrorValue>(error: ErrorValue) {
   if (error instanceof Error && error.name === "DaytonaRateLimitError") return true;
   const message = errorMessage(error).toLowerCase();
   if (message.includes("too many requests") || message.includes("throttlerexception")) return true;
-  if (!error || typeof error !== "object") return false;
-  const record = error as Record<string, unknown>;
+  if (!error || !hasObjectType(error)) return false;
+  const record = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ error as JsonObject;
   return record.status === 429
     || record.status === "429"
     || record.statusCode === 429
@@ -293,6 +172,12 @@ function createDaytonaClient() {
   });
 }
 
+export interface SandboxDependencies {
+  createDaytonaClient: () => Pick<Daytona, "create" | "delete" | "get"> | Promise<Pick<Daytona, "create" | "delete" | "get">>;
+}
+
+const defaultDependencies: SandboxDependencies = { createDaytonaClient };
+
 async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
   const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
   if (sandbox.domainAllowList === domainAllowList) return sandbox;
@@ -306,9 +191,12 @@ async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
   return sandbox;
 }
 
-export async function createSandbox(options: SandboxSessionOptions = {}): Promise<DaytonaSandbox> {
+export async function createSandbox(
+  options: SandboxSessionOptions = {},
+  dependencies: SandboxDependencies = defaultDependencies,
+): Promise<DaytonaSandbox> {
   const resolved = resolveSessionOptions(options);
-  const daytona = await createDaytonaClient();
+  const daytona = await dependencies.createDaytonaClient();
 
   if (resolved.sandboxId) {
     const sandboxId = resolved.sandboxId;
@@ -366,7 +254,10 @@ export async function deleteSandbox(sandboxId: string): Promise<void> {
 }
 
 
-export async function getSandboxContext(options: SandboxSessionOptions = {}): Promise<SandboxContext> {
+export async function getSandboxContext(
+  options: SandboxSessionOptions = {},
+  dependencies: SandboxDependencies = defaultDependencies,
+): Promise<SandboxContext> {
   const resolved = resolveSessionOptions(options);
   const existingContext = sandboxContextPromises.get(resolved.cacheKey);
 
@@ -375,7 +266,7 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
   }
   if (existingContext) sandboxContextPromises.delete(resolved.cacheKey);
 
-  const createdContext = createSandbox(resolved).then(async (sandbox) => {
+  const createdContext = createSandbox(resolved, dependencies).then(async (sandbox) => {
     if (resolved.workDir) {
       return {
         sandbox,

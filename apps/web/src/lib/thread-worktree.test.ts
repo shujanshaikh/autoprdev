@@ -1,18 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  assessWorktreeCleanup,
-  createSemanticFeatureBranch,
-  createThreadFeatureBranch,
-  createThreadWorktreePath,
-  decideWorktreeProvision,
-  parseGitRemoteHeadNames,
-  parseGitWorktreeList,
-  resolveAvailableThreadFeatureBranch,
-  resolveThreadBaseBranch,
-  resolveThreadExecutionPath,
-  resolveThreadWorkspaceMode,
-} from "@autopr/backend/convex/lib/threadWorktree";
+import { assessWorktreeCleanup, createSemanticFeatureBranch, createThreadFeatureBranch, createThreadWorktreePath, decideWorktreeProvision, parseGitRemoteHeadNames, parseGitWorktreeList, resolveAvailableThreadFeatureBranch, resolveThreadBaseBranch, resolveThreadExecutionPath, resolveThreadWorkspaceMode } from "@autopr/backend/convex/lib/threadWorktree";
 import { threadSandboxCacheKey } from "./trigger-agent-contract";
 
 describe("thread worktree metadata", () => {

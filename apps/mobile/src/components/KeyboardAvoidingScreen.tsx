@@ -1,13 +1,5 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  View,
-  type LayoutChangeEvent,
-  type StyleProp,
-  type ViewStyle,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
 
 /**
  * A screen body that lifts its content clear of the keyboard.

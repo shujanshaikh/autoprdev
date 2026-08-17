@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  sandboxCommandOutput,
-  sandboxCommandStdout,
-  sandboxCommandText,
-} from "@autopr/backend/convex/lib/sandboxCommandOutput";
+import { sandboxCommandOutput, sandboxCommandStdout, sandboxCommandText } from "@autopr/backend/convex/lib/sandboxCommandOutput";
 
 describe("sandbox command output", () => {
   it("does not duplicate stdout aliases from Daytona session commands", () => {

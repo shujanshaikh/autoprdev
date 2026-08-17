@@ -8,17 +8,16 @@
  * @module
  */
 
-import {
-  ActionBuilder,
-  HttpActionBuilder,
-  MutationBuilder,
-  QueryBuilder,
-  GenericActionCtx,
-  GenericMutationCtx,
-  GenericQueryCtx,
-  GenericDatabaseReader,
-  GenericDatabaseWriter,
-} from "convex/server";
+/* eslint-disable */
+/**
+ * Generated utilities for implementing server-side Convex query and mutation functions.
+ *
+ * THIS CODE IS AUTOMATICALLY GENERATED.
+ *
+ * To regenerate, run `npx convex dev`.
+ * @module
+ */
+import { ActionBuilder, HttpActionBuilder, MutationBuilder, QueryBuilder, GenericActionCtx, GenericMutationCtx, GenericQueryCtx, GenericDatabaseReader, GenericDatabaseWriter } from "convex/server";
 import type { DataModel } from "./dataModel.js";
 
 /**

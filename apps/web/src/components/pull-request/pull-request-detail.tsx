@@ -1,31 +1,11 @@
 import { Button } from "@autopr/ui/components/button";
 import { Skeleton } from "@autopr/ui/components/skeleton";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  CircleAlert,
-  Clock3,
-  ExternalLink,
-  GitBranch,
-  GitCommitHorizontal,
-  GitMerge,
-  GitPullRequest,
-  GitPullRequestClosed,
-  MessageSquare,
-  RefreshCw,
-  Users,
-} from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CircleAlert, Clock3, ExternalLink, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequest, GitPullRequestClosed, MessageSquare, RefreshCw, Users } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 
 import { MessageResponse } from "#/components/ai-elements/message";
-import {
-  type ProjectPullRequestActor,
-  type ProjectPullRequestDetail,
-  type ProjectPullRequestTimelineItem,
-  useProjectPullRequest,
-  useProjectPullRequestTimeline,
-} from "#/lib/project-pull-requests";
+import { type ProjectPullRequestActor, type ProjectPullRequestDetail, type ProjectPullRequestTimelineItem, useProjectPullRequest, useProjectPullRequestTimeline } from "#/lib/project-pull-requests";
 
 const PullRequestCodeTab = lazy(() => import("./pull-request-code-tab").then((module) => ({ default: module.PullRequestCodeTab })));
 

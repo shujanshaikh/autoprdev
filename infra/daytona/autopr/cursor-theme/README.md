@@ -17,7 +17,9 @@ theme. It is not a cursor renderer: it makes the real X11 pointer bitmap fully
 transparent while preserving pointer movement and event delivery. This is
 required because an X11 recorder can fetch that hardware bitmap through
 XFixes and draw it over the desktop independently. CUA's mapped overlay window
-therefore remains the only visible pointer in Daytona recordings.
+therefore remains the only visible pointer in Daytona recordings. The desktop
+defaults to Adwaita; the CUA launcher activates `AutoPRHidden` only after its
+overlay-owning Driver backend is ready and restores Adwaita on native fallback.
 
 To preview a change locally, use the compiler from CUA Driver 0.19.3:
 

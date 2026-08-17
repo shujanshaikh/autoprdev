@@ -10,10 +10,13 @@ CUA_LOG_FILE="${CUA_STATE_DIR}/computer-server.log"
 CUA_DRIVER_PID_FILE="${CUA_STATE_DIR}/driver.pid"
 CUA_DRIVER_LOG_FILE="${CUA_STATE_DIR}/driver.log"
 CUA_DRIVER_SOCKET="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}/driver.sock"
+CUA_LOCK_FILE="${CUA_STATE_DIR}/launcher.lock"
 CUA_DRIVER_BIN=""
 
 mkdir -p "$CUA_STATE_DIR" "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 chmod 700 "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+exec 9>"$CUA_LOCK_FILE"
+flock 9
 
 run_command() {
   local payload="$1"
@@ -75,7 +78,13 @@ stop_owned_process() {
     kill -0 "$pid" 2>/dev/null || return 0
     sleep 0.2
   done
-  return 0
+  is_owned_pid "$pid" "$executable" || return 0
+  kill -KILL "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.2
+  done
+  return 1
 }
 
 is_driver_ready() {
@@ -122,6 +131,30 @@ export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
 export CUA_DRIVER_SESSION_ID="${CUA_DRIVER_SESSION_ID:-AutoPR}"
 export BROWSER="${BROWSER:-google-chrome}"
 
+set_cursor_theme() {
+  local theme="$1"
+  export XCURSOR_THEME="$theme"
+  if command -v xfconf-query >/dev/null 2>&1; then
+    xfconf-query -c xsettings -p /Gtk/CursorThemeName -s "$theme" >/dev/null 2>&1 || true
+    xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 32 >/dev/null 2>&1 || true
+  fi
+  if command -v xsetroot >/dev/null 2>&1; then
+    if [ "$theme" = "AutoPRHidden" ]; then
+      xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr 32 >/dev/null 2>&1 || true
+    else
+      xsetroot -cursor_name left_ptr >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+apply_backend_cursor_theme() {
+  if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
+    set_cursor_theme AutoPRHidden
+  else
+    set_cursor_theme Adwaita
+  fi
+}
+
 backend_args=(--backend native)
 CUA_EXPECT_DRIVER=false
 if [ "$(uname -m)" = "x86_64" ] && "$CUA_RUNTIME/bin/python" -c 'import cua_driver' >/dev/null 2>&1; then
@@ -131,6 +164,7 @@ if [ "$(uname -m)" = "x86_64" ] && "$CUA_RUNTIME/bin/python" -c 'import cua_driv
 fi
 
 if is_ready; then
+  apply_backend_cursor_theme
   exit 0
 fi
 
@@ -169,7 +203,10 @@ start_server "${backend_args[@]}"
 # downgrade a healthy Driver-capable sandbox merely because its first cursor
 # frame missed that narrow window.
 for _ in $(seq 1 60); do
-  is_ready && exit 0
+  if is_ready; then
+    apply_backend_cursor_theme
+    exit 0
+  fi
   sleep 0.5
 done
 
@@ -179,14 +216,19 @@ if [ "${backend_args[1]:-}" = "cua-driver" ]; then
   stop_owned_driver
   printf '%s\n' "CUA Driver failed to initialize; falling back to CUA's native X11 handler." >>"$CUA_LOG_FILE"
   CUA_EXPECT_DRIVER=false
+  apply_backend_cursor_theme
   start_server --backend native
 fi
 
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  is_ready && exit 0
+  if is_ready; then
+    apply_backend_cursor_theme
+    exit 0
+  fi
   sleep 0.5
 done
 
+set_cursor_theme Adwaita
 echo "CUA computer-server did not become ready on port ${CUA_PORT}." >&2
 tail -n 40 "$CUA_LOG_FILE" >&2 || true
 exit 1

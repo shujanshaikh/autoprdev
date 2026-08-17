@@ -199,4 +199,26 @@ describe("CUA computer tool timeout quarantine", () => {
       ["scroll_direction", { direction: "down", clicks: 3 }],
     ]);
   });
+
+  it("paces CUA typing when the caller requests a per-key delay", async () => {
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "screenshot") {
+        return { success: true, image_data: "AA==", format: "jpeg" };
+      }
+      return { success: true };
+    });
+    const computer = createCuaComputerTool({ cacheKey: "computer-paced-typing" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    await computer.execute(
+      { actions: [{ type: "type", text: "ab", delayMs: 1 }] },
+      { toolCallId: "computer-paced-typing", messages: [] },
+    );
+
+    const typingCalls = mocks.command.mock.calls.filter(([command]) => command === "type_text");
+    expect(typingCalls).toEqual([
+      ["type_text", { text: "a" }],
+      ["type_text", { text: "b" }],
+    ]);
+  });
 });

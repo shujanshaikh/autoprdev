@@ -174,9 +174,7 @@ index 7c055c191..b2e296894 100644
 +            connection = display.Display()
 +            for window in connection.screen().root.query_tree().children:
 +                title = window.get_wm_name()
-+                if not isinstance(title, str) or not title.startswith(
-+                    "Cua.AgentCursorOverlay."
-+                ):
++                if title != f"Cua.AgentCursorOverlay.{self._session_id}":
 +                    continue
 +                attributes = window.get_attributes()
 +                rectangles = window.shape_get_rectangles(shape.SK.Bounding).rectangles
@@ -227,7 +225,7 @@ index 7c055c191..b2e296894 100644
 +        """Prove the official overlay changes pixels in a desktop capture."""
 +
 +        try:
-+            from PIL import ImageChops, ImageGrab
++            from PIL import ImageGrab
 +
 +            await self._ensure_session()
 +            x, y = await self._point(None, None)
@@ -244,9 +242,9 @@ index 7c055c191..b2e296894 100644
 +
 +            # Shape/mapping metadata was previously treated as proof of paint,
 +            # but it cannot prove that an X11 screen grab (and therefore
-+            # Daytona's recorder) receives the window's pixels. Capture the
-+            # same bounded desktop tile with the official overlay hidden and
-+            # visible, then require a material pixel delta.
++            # Daytona's recorder) receives the window's pixels. Compare two
++            # visible frames against stable hidden frames on both sides so
++            # unrelated video, caret, or application animation is rejected.
 +            await self._driver.set_agent_cursor_enabled(
 +                self._sdk.SetAgentCursorEnabledInput(
 +                    session=self._session_id,
@@ -254,8 +252,31 @@ index 7c055c191..b2e296894 100644
 +                )
 +            )
 +            try:
++                cursor_sync_error = await self._sync_agent_cursor_position(
++                    x, y, wait_for_glide=True
++                )
++                if cursor_sync_error:
++                    raise RuntimeError(cursor_sync_error)
 +                await asyncio.sleep(0.08)
-+                before = await asyncio.to_thread(ImageGrab.grab, bbox=box)
++                hidden_before = await asyncio.to_thread(ImageGrab.grab, bbox=box)
++                await self._driver.set_agent_cursor_enabled(
++                    self._sdk.SetAgentCursorEnabledInput(
++                        session=self._session_id,
++                        enabled=True,
++                    )
++                )
++                await asyncio.sleep(0.08)
++                visible_first = await asyncio.to_thread(ImageGrab.grab, bbox=box)
++                await asyncio.sleep(0.04)
++                visible_second = await asyncio.to_thread(ImageGrab.grab, bbox=box)
++                await self._driver.set_agent_cursor_enabled(
++                    self._sdk.SetAgentCursorEnabledInput(
++                        session=self._session_id,
++                        enabled=False,
++                    )
++                )
++                await asyncio.sleep(0.08)
++                hidden_after = await asyncio.to_thread(ImageGrab.grab, bbox=box)
 +            finally:
 +                # Never leave automation without a pointer if the capture
 +                # probe itself fails (for example during an X server restart).
@@ -265,25 +286,36 @@ index 7c055c191..b2e296894 100644
 +                        enabled=True,
 +                    )
 +                )
-+            cursor_sync_error = await self._sync_agent_cursor_position(
-+                x, y, wait_for_glide=True
-+            )
-+            if cursor_sync_error:
-+                raise RuntimeError(cursor_sync_error)
-+            after = await asyncio.to_thread(ImageGrab.grab, bbox=box)
-+            difference = ImageChops.difference(before.convert("RGB"), after.convert("RGB"))
-+            pixel_data = (
-+                difference.get_flattened_data()
-+                if hasattr(difference, "get_flattened_data")
-+                else difference.getdata()
-+            )
-+            changed_pixels = sum(
-+                1 for pixel in pixel_data if max(pixel) >= 12
-+            )
++            rgb_frames = [
++                frame.convert("RGB")
++                for frame in (hidden_before, visible_first, visible_second, hidden_after)
++            ]
++            pixel_frames = [
++                frame.get_flattened_data()
++                if hasattr(frame, "get_flattened_data")
++                else frame.getdata()
++                for frame in rgb_frames
++            ]
++            changed_pixels = 0
++            unstable_pixels = 0
++            for hidden_a, visible_a, visible_b, hidden_b in zip(*pixel_frames):
++                hidden_delta = max(abs(left - right) for left, right in zip(hidden_a, hidden_b))
++                if hidden_delta > 6:
++                    unstable_pixels += 1
++                    continue
++                visible_delta = min(
++                    max(abs(left - right) for left, right in zip(visible_a, hidden_a)),
++                    max(abs(left - right) for left, right in zip(visible_a, hidden_b)),
++                    max(abs(left - right) for left, right in zip(visible_b, hidden_a)),
++                    max(abs(left - right) for left, right in zip(visible_b, hidden_b)),
++                )
++                if visible_delta >= 12:
++                    changed_pixels += 1
 +            self._cursor_capture_ready = changed_pixels >= 64
 +            self._cursor_capture_evidence = {
-+                "method": "x11_desktop_pixel_delta",
++                "method": "x11_stable_overlay_delta",
 +                "changed_pixels": changed_pixels,
++                "unstable_pixels": unstable_pixels,
 +                "minimum_changed_pixels": 64,
 +                "bounds": {
 +                    "left": left,
@@ -294,7 +326,7 @@ index 7c055c191..b2e296894 100644
 +            }
 +            if not self._cursor_capture_ready:
 +                raise RuntimeError(
-+                    "CUA's overlay window was mapped but did not change captured desktop pixels"
++                    "CUA's overlay window did not change stable captured desktop pixels"
 +                )
 +            return await self.get_agent_cursor_state()
 +        except Exception as error:

@@ -54,6 +54,24 @@ describe("repairUIMessageStreamProtocol", () => {
     ] satisfies UIMessage["parts"]);
   });
 
+  it("reuses the pending text-end when no replacement arrives after a late delta", async () => {
+    const repaired = repairUIMessageStreamProtocol(chunkStream([
+      { type: "text-start", id: "msg_1" },
+      { type: "text-delta", id: "msg_1", delta: "Saved " },
+      { type: "text-end", id: "msg_1" },
+      { type: "text-delta", id: "msg_1", delta: "properly" },
+      { type: "finish" },
+    ]));
+
+    await expect(collect(repaired)).resolves.toEqual([
+      { type: "text-start", id: "msg_1" },
+      { type: "text-delta", id: "msg_1", delta: "Saved " },
+      { type: "text-delta", id: "msg_1", delta: "properly" },
+      { type: "text-end", id: "msg_1" },
+      { type: "finish" },
+    ]);
+  });
+
   it("starts a text part when a durable resume begins with a delta", async () => {
     const repaired = repairUIMessageStreamProtocol(chunkStream([
       { type: "text-delta", id: "msg_resumed", delta: "Resumed" },

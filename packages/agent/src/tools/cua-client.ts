@@ -56,6 +56,7 @@ const CUA_AGENT_CURSOR_COMMANDS = [
 
 const cuaServerStartPromises = new Map<string, Promise<void>>();
 const cuaCursorRecoveryAttemptedAt = new Map<string, number>();
+const cuaCursorRecoveryPromises = new Map<string, Promise<void>>();
 
 export interface CuaComputerOptions {
   display?: string;
@@ -196,6 +197,8 @@ export function parseCuaCommandResponse(body: string): CuaCommandResponse {
 export function cuaBootstrapCommand(): string {
   return [
     "set -eu",
+    'IMAGE_LAUNCHER="/opt/autopr/bin/autopr-cua-computer-server"',
+    'if [ -x "$IMAGE_LAUNCHER" ]; then exec "$IMAGE_LAUNCHER"; fi',
     'if command -v autopr-cua-computer-server >/dev/null 2>&1; then exec autopr-cua-computer-server; fi',
     `CUA_VERSION=${CUA_COMPUTER_SERVER_VERSION}`,
     'CUA_RUNTIME="/home/daytona/.local/share/autopr/cua-${CUA_VERSION}"',
@@ -584,8 +587,10 @@ export class CuaComputerClient {
 
     const recoveryKey = `${this.sandbox.id}:${this.serverPort}:${this.display}`;
     const lastRecovery = cuaCursorRecoveryAttemptedAt.get(recoveryKey) ?? 0;
-    const shouldRecover = Date.now() - lastRecovery >= CUA_CURSOR_RECOVERY_COOLDOWN_MS;
-    if (shouldRecover) {
+    let recovery = cuaCursorRecoveryPromises.get(recoveryKey);
+    let recoveryAttempted = recovery !== undefined;
+    if (!recovery && Date.now() - lastRecovery >= CUA_CURSOR_RECOVERY_COOLDOWN_MS) {
+      recoveryAttempted = true;
       const attemptedAt = Date.now();
       cuaCursorRecoveryAttemptedAt.set(recoveryKey, attemptedAt);
       const cleanup = setTimeout(() => {
@@ -594,15 +599,26 @@ export class CuaComputerClient {
         }
       }, CUA_CURSOR_RECOVERY_COOLDOWN_MS);
       cleanup.unref?.();
+      const pending = startCuaServer(this.sandbox, this.sandboxOptions, {
+        display: this.display,
+        serverPort: this.serverPort,
+      });
+      cuaCursorRecoveryPromises.set(recoveryKey, pending);
+      void pending.finally(() => {
+        if (cuaCursorRecoveryPromises.get(recoveryKey) === pending) {
+          cuaCursorRecoveryPromises.delete(recoveryKey);
+        }
+      }).catch(() => undefined);
+      recovery = pending;
+    }
+
+    if (recovery) {
       try {
         // A healthy native server is still degraded on Driver-capable images.
         // Running the image launcher lets it replace a stale native fallback,
         // restart a Driver whose overlay thread died, and then re-probe the
         // exact session before the next action (especially start_recording).
-        await startCuaServer(this.sandbox, this.sandboxOptions, {
-          display: this.display,
-          serverPort: this.serverPort,
-        });
+        await recovery;
       } catch (error) {
         if (initialStatus) {
           return {
@@ -632,7 +648,7 @@ export class CuaComputerClient {
         return {
           ...recovered,
           cursor: recovered.cursor
-            ? { ...recovered.cursor, recoveryAttempted: shouldRecover }
+            ? { ...recovered.cursor, recoveryAttempted }
             : recovered.cursor,
         };
       } catch (error) {

@@ -2,7 +2,7 @@
 set -u
 
 WALLPAPER="/usr/share/backgrounds/autopr/wallpaper.png"
-CURSOR_THEME="AutoPRHidden"
+CURSOR_THEME="Adwaita"
 CURSOR_SIZE="32"
 VNC_RESOLUTION="${VNC_RESOLUTION:-1920x1080}"
 
@@ -136,11 +136,9 @@ if wait_for_xfconf; then
 fi
 
 if command -v xsetroot >/dev/null 2>&1; then
-  # `-cursor_name` selects X11's built-in visible cursor font and bypasses the
-  # configured Xcursor theme. Load the compiled transparent cursor explicitly
-  # so recorders cannot composite a second stock pointer over CUA's overlay.
-  xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr "$CURSOR_SIZE" \
-    >/dev/null 2>&1 || true
+  # Keep the native/fallback desktop usable. The CUA launcher switches to the
+  # transparent theme only after its overlay-owning Driver backend is ready.
+  xsetroot -cursor_name left_ptr >/dev/null 2>&1 || true
 fi
 
 for dir in Desktop Documents Downloads Music Pictures Public Templates Videos; do

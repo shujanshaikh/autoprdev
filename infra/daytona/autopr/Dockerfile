@@ -133,7 +133,7 @@ RUN apt-get update \
     && rm -rf "$tools_dir" \
     && git lfs install --system \
     && if [ -e /opt/google/chrome/chrome-sandbox ]; then chown root:root /opt/google/chrome/chrome-sandbox && chmod 4755 /opt/google/chrome/chrome-sandbox; fi \
-    && for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3 starship tmux ttyd; do command -v "$executable" >/dev/null; done \
+    && for executable in rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 starship tmux ttyd; do command -v "$executable" >/dev/null; done \
     && test "$(command -v tini)" = /usr/bin/tini \
     && chsh -s "$(command -v zsh)" daytona
 
@@ -295,7 +295,7 @@ ENV DISPLAY=:1 \
     BROWSER=google-chrome \
     STARSHIP_CONFIG=/home/daytona/.config/starship.toml \
     STARSHIP_CACHE=/home/daytona/.cache/starship \
-    XCURSOR_THEME=AutoPRHidden \
+    XCURSOR_THEME=Adwaita \
     XCURSOR_SIZE=32
 
 USER daytona

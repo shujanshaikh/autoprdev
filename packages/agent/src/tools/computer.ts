@@ -5,6 +5,7 @@ import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import {
   CuaComputerClient,
   type CuaAgentCursorStatus,
+  type CuaCommandResponse,
   type CuaComputerOptions,
 } from "./cua-client";
 import { raceWithTimeout } from "./timeout";
@@ -1024,7 +1025,19 @@ async function runOneAction(
       }));
     }
     case "type": {
-      return commandDetails(await cua.command("type_text", { text: action.text }));
+      if (!action.delayMs) {
+        return commandDetails(await cua.command("type_text", { text: action.text }));
+      }
+
+      // The pinned CUA protocol has no delay field, so pace the existing
+      // type_text command without sending unsupported parameters to the server.
+      const characters = Array.from(action.text);
+      let result: CuaCommandResponse | undefined;
+      for (const [index, character] of characters.entries()) {
+        result = await cua.command("type_text", { text: character });
+        if (index < characters.length - 1) await sleep(action.delayMs);
+      }
+      return commandDetails(result ?? { success: true });
     }
     case "keypress": {
       const modifiers = action.modifiers?.map((modifier) => (modifier === "cmd" ? "meta" : modifier));

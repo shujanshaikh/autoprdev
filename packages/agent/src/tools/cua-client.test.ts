@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,12 +35,16 @@ afterEach(() => {
 
 describe("CUA computer-server response parsing", () => {
   it("generates a syntactically valid legacy bootstrap script", () => {
+    const bootstrap = cuaBootstrapCommand();
     const result = spawnSync("bash", ["-n"], {
       encoding: "utf8",
-      input: cuaBootstrapCommand(),
+      input: bootstrap,
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
+    expect(bootstrap.indexOf("/opt/autopr/bin/autopr-cua-computer-server")).toBeLessThan(
+      bootstrap.indexOf("VERSION_RESPONSE"),
+    );
   });
 
   it("launches the image Driver through CUA's overlay-owning daemon mode", () => {
@@ -60,18 +65,50 @@ describe("CUA computer-server response parsing", () => {
       "utf8",
     );
     expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
+    expect(launcher).toContain('flock 9');
+    expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_ready; then'));
+    expect(launcher).toContain('kill -KILL "$pid"');
     expect(launcher).toContain("--driver-mode daemon");
     expect(launcher).toContain("probe_agent_cursor");
     expect(launcher).toContain(".capture_ready == true");
+    expect(launcher).toContain("set_cursor_theme AutoPRHidden");
+    expect(launcher).toContain("set_cursor_theme Adwaita");
     expect(launcher).not.toContain("--driver-mode embedded");
     expect(compatibilityPatch).toContain('"cursor_id": self._session_id');
     expect(compatibilityPatch).toContain("data = self._result_data(state)");
     expect(compatibilityPatch).toContain('data["overlay"] = self._agent_cursor_overlay_window()');
-    expect(compatibilityPatch).toContain('"method": "x11_desktop_pixel_delta"');
+    expect(compatibilityPatch).toContain(
+      'title != f"Cua.AgentCursorOverlay.{self._session_id}"',
+    );
+    expect(compatibilityPatch).toContain('"method": "x11_stable_overlay_delta"');
+    expect(compatibilityPatch).toContain("for hidden_a, visible_a, visible_b, hidden_b");
     expect(compatibilityPatch).toContain("ImageGrab.grab, bbox=box");
-    expect(dockerfile).toContain("XCURSOR_THEME=AutoPRHidden");
-    expect(desktopSession).toContain("xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr");
-    expect(desktopSession).not.toContain("xsetroot -cursor_name");
+    expect(dockerfile).toContain("XCURSOR_THEME=Adwaita");
+    expect(desktopSession).toContain('CURSOR_THEME="Adwaita"');
+    expect(desktopSession).toContain("xsetroot -cursor_name left_ptr");
+    expect(desktopSession).not.toContain("xsetroot -xcf /usr/share/icons/AutoPRHidden");
+  });
+
+  it("rotates the system cue around the gear center", () => {
+    const builder = fileURLToPath(
+      new URL("../../../../infra/daytona/autopr/cursor-theme/build_theme.py", import.meta.url),
+    );
+    const result = spawnSync("python3", [
+      "-c",
+      [
+        "import json, runpy, sys",
+        "animation = runpy.run_path(sys.argv[1])['action_system']()",
+        "layers = [layer for layer in animation['layers'] if layer['nm'].startswith('System')]",
+        "print(json.dumps([[layer['ks']['a']['k'], layer['ks']['p']['k']] for layer in layers]))",
+      ].join("; "),
+      builder,
+    ], { encoding: "utf8" });
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(
+      Array.from({ length: 6 }, () => [[29, 39], [15, 39]]),
+    );
   });
 
   it("installs and validates computer-server's complete pinned CUA runtime", () => {
@@ -290,7 +327,7 @@ describe("CUA client configuration", () => {
             runtime_mode: "daemon",
             render_ready: enabled,
             capture_ready: enabled,
-            capture: { method: "x11_desktop_pixel_delta", changed_pixels: enabled ? 900 : 0 },
+            capture: { method: "x11_stable_overlay_delta", changed_pixels: enabled ? 900 : 0 },
             overlay: { mapped: enabled, painted: enabled, bounding_rectangles: enabled ? 4 : 0 },
           })}\n\n`,
         );
@@ -312,7 +349,7 @@ describe("CUA client configuration", () => {
         runtimeMode: "daemon",
         renderReady: true,
         captureReady: true,
-        capture: { method: "x11_desktop_pixel_delta", changed_pixels: 900 },
+        capture: { method: "x11_stable_overlay_delta", changed_pixels: 900 },
         overlay: { mapped: true, painted: true, bounding_rectangles: 4 },
       },
     });
@@ -385,7 +422,7 @@ describe("CUA client configuration", () => {
             runtime_mode: "daemon",
             render_ready: enabled,
             capture_ready: enabled,
-            capture: { method: "x11_desktop_pixel_delta", changed_pixels: enabled ? 900 : 0 },
+            capture: { method: "x11_stable_overlay_delta", changed_pixels: enabled ? 900 : 0 },
             overlay: { mapped: enabled, painted: enabled },
           })}\n\n`,
         );
@@ -438,7 +475,7 @@ describe("CUA client configuration", () => {
           runtime_mode: "daemon",
           render_ready: false,
           capture_ready: false,
-          capture: { method: "x11_desktop_pixel_delta", changed_pixels: 0 },
+          capture: { method: "x11_stable_overlay_delta", changed_pixels: 0 },
           overlay: { mapped: true, painted: true },
         })}\n\n`);
       }
@@ -501,5 +538,59 @@ describe("CUA client configuration", () => {
     });
     expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1);
     expect(commands).not.toContain("set_agent_cursor_enabled");
+  });
+
+  it("joins an in-flight cursor recovery before concurrent callers can continue", async () => {
+    let finishRecovery: (() => void) | undefined;
+    executeMocks.executeSandboxCommand.mockImplementationOnce(() => new Promise((resolve) => {
+      finishRecovery = () => resolve({
+        exitCode: 0,
+        timedOut: false,
+        stdout: "",
+        stderr: "",
+        output: "",
+      });
+    }));
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/status")) return Response.json({ status: "ok", os_type: "linux" });
+      if (path.endsWith("/commands")) {
+        return Response.json({
+          commands: Object.fromEntries(requiredCommandNames.map((name) => [name, { params: [] }])),
+        });
+      }
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { command?: string }
+        : {};
+      if (body.command === "version") {
+        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+      }
+      return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
+    }));
+
+    const client = new CuaComputerClient({
+      id: "concurrent-recovery-sandbox",
+      getSignedPreviewUrl,
+    } as unknown as DaytonaSandbox, {});
+    const first = client.ensureReady();
+    const second = client.ensureReady();
+    let secondSettled = false;
+    void second.then(() => {
+      secondSettled = true;
+    });
+
+    await vi.waitFor(() => expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
+
+    finishRecovery?.();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ backend: "native" }),
+      expect.objectContaining({ backend: "native" }),
+    ]);
   });
 });

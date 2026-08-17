@@ -45,8 +45,6 @@ export function repairUIMessageStreamProtocol(
       if (chunk.type === "text-delta") {
         // Keep the existing part open when a provider puts its final delta
         // just after text-end.
-        pendingTextEnds.delete(chunk.id);
-
         if (!activeTextParts.has(chunk.id)) {
           controller.enqueue({ type: "text-start", id: chunk.id });
           activeTextParts.add(chunk.id);

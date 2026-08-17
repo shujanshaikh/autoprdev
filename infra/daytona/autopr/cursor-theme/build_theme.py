@@ -153,6 +153,7 @@ def shape_transform() -> dict[str, Any]:
 
 def layer_transform(
     *,
+    anchor: dict[str, Any] | None = None,
     position: dict[str, Any] | None = None,
     scale: dict[str, Any] | None = None,
     rotation: dict[str, Any] | None = None,
@@ -162,7 +163,7 @@ def layer_transform(
         "o": opacity or static(100),
         "r": rotation or static(0),
         "p": position or static([64, 64]),
-        "a": static([64, 64]),
+        "a": anchor or static([64, 64]),
         "s": scale or static([100, 100]),
     }
 
@@ -173,6 +174,7 @@ def shape_layer(
     shapes: Sequence[dict[str, Any]],
     frames: int,
     *,
+    anchor: dict[str, Any] | None = None,
     position: dict[str, Any] | None = None,
     scale: dict[str, Any] | None = None,
     rotation: dict[str, Any] | None = None,
@@ -185,6 +187,7 @@ def shape_layer(
         "nm": name,
         "sr": 1,
         "ks": layer_transform(
+            anchor=anchor,
             position=position,
             scale=scale,
             rotation=rotation,
@@ -264,6 +267,7 @@ def cue_layers(
     frames: int,
     *,
     width: float = 4,
+    anchor: dict[str, Any] | None = None,
     position: dict[str, Any] | None = None,
     scale: dict[str, Any] | None = None,
     rotation: dict[str, Any] | None = None,
@@ -278,6 +282,7 @@ def cue_layers(
                 f"{name} glow {expansion}",
                 [*geometry, stroke(ACCENT, width + expansion, glow_opacity)],
                 frames,
+                anchor=anchor,
                 position=position,
                 scale=scale,
                 rotation=rotation,
@@ -291,6 +296,7 @@ def cue_layers(
             f"{name} outline",
             [*geometry, stroke(WHITE, width + 1.5)],
             frames,
+            anchor=anchor,
             position=position,
             scale=scale,
             rotation=rotation,
@@ -304,6 +310,7 @@ def cue_layers(
             f"{name} color",
             [*geometry, stroke(ACCENT, max(width - 1, 1.5))],
             frames,
+            anchor=anchor,
             position=position,
             scale=scale,
             rotation=rotation,
@@ -578,7 +585,10 @@ def action_system() -> dict[str, Any]:
         geometry,
         frames,
         width=3.5,
-        position=static([50, 64]),
+        # Preserve the unrotated placement while rotating around the gear's
+        # actual center instead of orbiting around the canvas center.
+        anchor=static([29, 39]),
+        position=static([15, 39]),
         rotation=animated([(0, -18), (22, 50), (34, 0), (48, 0)]),
         opacity=animated([(0, 0), (6, 100), (34, 100), (44, 0), (48, 0)]),
     )

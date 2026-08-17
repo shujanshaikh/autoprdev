@@ -43,7 +43,7 @@ describe("Trigger runtime dependencies", () => {
       readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
     ) as { scripts?: Record<string, string>; devDependencies?: Record<string, string> };
 
-    expect(packageJson.devDependencies?.["trigger.dev"]).toBe("4.5.10");
+    expect(packageJson.devDependencies?.["trigger.dev"]).toBe("4.5.11");
     expect(packageJson.scripts?.["trigger:dev"]).toBe(
       "trigger dev --config trigger.config.ts",
     );

@@ -119,7 +119,7 @@ alias work
 test -f /home/daytona/.tmux.conf
 test -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 test -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-for executable in rg fd fdfind fzf bat batcat delta gh lsof nc dig ps pstree sqlite3 ttyd; do
+for executable in rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 ttyd; do
   command -v "$executable"
 done
 /opt/autopr/cua/bin/python -c 'import cua_auto, cua_core; from cua_core.telemetry import record_event; import computer_server'
@@ -127,7 +127,8 @@ PYNPUT_BACKEND=dummy /opt/autopr/cua/bin/python -c 'import computer_server.main'
 if [ "$(uname -m)" = "x86_64" ]; then /opt/autopr/cua/bin/python -c 'from cua_driver import CuaDriver, GetAgentCursorStateInput, SetAgentCursorEnabledInput, SetAgentCursorMotionInput, SetAgentCursorThemeInput; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert all(hasattr(CuaDriverAutomationHandler, name) for name in ("get_agent_cursor_state", "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme", "probe_agent_cursor"))'; fi
 if [ "$(uname -m)" = "x86_64" ]; then test -r /home/daytona/.local/share/cua-driver/cursor-themes/dev.autopr.cursor.neon.cua-theme; fi
 test -s /usr/share/icons/AutoPRHidden/cursors/left_ptr
-rg --fixed-strings 'xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr' /opt/autopr/desktop/autopr-desktop-session
+rg --fixed-strings 'set_cursor_theme AutoPRHidden' /opt/autopr/bin/autopr-cua-computer-server
+rg --fixed-strings 'set_cursor_theme Adwaita' /opt/autopr/bin/autopr-cua-computer-server
 /opt/autopr/cua/bin/cua-computer-server --help >/dev/null
 command -v autopr-cua-computer-server
 CUA_PORT=8765 DISPLAY=:1 autopr-cua-computer-server
@@ -150,7 +151,7 @@ echo "$BROWSER"
 grep -R "Name=Google Chrome" /usr/share/applications/google-chrome.desktop /usr/share/xfce4/helpers/google-chrome.desktop
 grep -R "NoDisplay=true" /usr/share/applications/exo-web-browser.desktop /usr/share/applications/chromium.desktop 2>/dev/null
 grep -R 'XDG_DOCUMENTS_DIR="$HOME"' /home/daytona/.config/user-dirs.dirs
-test "$XCURSOR_THEME" = AutoPRHidden
+test "$XCURSOR_THEME" = Adwaita
 stat -c "%a %U %G" /opt/google/chrome/chrome-sandbox
 test -f /usr/share/backgrounds/autopr/wallpaper.png
 test -x /usr/bin/startxfce4.autopr-original

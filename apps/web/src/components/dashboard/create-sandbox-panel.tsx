@@ -90,8 +90,8 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
     !isCheckingGithubAppInstallation;
 
   return (
-    <section className="rounded-sm border border-border bg-card text-card-foreground">
-      <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5">
+    <section className="flex h-full min-h-0 flex-col rounded-sm border border-border bg-card text-card-foreground sm:h-auto">
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-4 py-2.5">
         <div className="flex items-center gap-4">
           <h2 className="text-sm font-medium text-foreground">
             Create a sandbox
@@ -128,7 +128,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
           onConnect={onConnectGithub}
         />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)_auto] overflow-hidden sm:flex-none sm:grid-rows-none sm:overflow-visible lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <RepoColumn
             isLoading={isLoadingRepos}
             isRefreshing={isRefreshingRepos}
@@ -358,7 +358,7 @@ function RepoColumnPager({
   }, [repositories, currentPage]);
 
   return (
-    <div className="flex h-[22rem] min-w-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
+    <div className="flex min-h-0 min-w-0 flex-col border-b border-border sm:h-[22rem] lg:border-b-0 lg:border-r">
       <ColumnHeader
         label="Repository"
         hint={
@@ -579,7 +579,7 @@ function BranchColumn({
   onSelect: (v: string) => void;
 }) {
   return (
-    <div className="flex h-[22rem] min-w-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
+    <div className="flex min-h-0 min-w-0 flex-col border-b border-border sm:h-[22rem] lg:border-b-0 lg:border-r">
       <ColumnHeader
         label="Branch"
         hint={isLoading ? "loading" : branches.length ? `${branches.length}` : undefined}
@@ -677,10 +677,10 @@ function LaunchColumn({
   onCreate: () => void;
 }) {
   return (
-    <div className="flex h-[22rem] min-w-0 flex-col">
+    <div className="flex min-w-0 flex-col sm:h-[22rem]">
       <ColumnHeader label="Launch" hint={launchReady ? "ready" : "—"} />
       <div className="flex flex-1 flex-col justify-between gap-3 p-3">
-        <dl className="space-y-2 font-mono text-xs">
+        <dl className="hidden space-y-2 font-mono text-xs sm:block">
           <SummaryRow
             label="repo"
             value={selectedRepo?.fullName}

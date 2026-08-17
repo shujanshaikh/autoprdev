@@ -50,9 +50,13 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   computer: [
     "Inspect the repository and terminal state to choose the preview command, localhost URL, route, and UI path yourself.",
     "You may run a dev or preview process inside Daytona when browser testing is useful; do not assume a hard-coded command or URL.",
-    "Use the CUA-backed computer tool with actions[] for small batches of desktop actions; it returns the latest screenshot as image content after relevant screen actions.",
-    "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available. Coordinates are absolute screen pixels.",
-    "Inspect a fresh screenshot before coordinate-sensitive interactions, and verify the resulting screen state before continuing.",
+    "Use the CUA-backed computer tool as a Look -> Act -> Verify loop. It returns the latest screenshot as image content after relevant screen actions.",
+    "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available.",
+    "Treat coordinates as image-space pixels from the most recent returned screenshot, with (0,0) at its top-left. Aim at the center of the visible target instead of its edge.",
+    "Inspect a fresh screenshot immediately before each coordinate-sensitive interaction. After navigation, scrolling, opening or closing a menu/dialog, resizing, or any layout change, discard all earlier coordinates and inspect again.",
+    "Prefer one pointer action per call. Only batch a click with the immediate typing or keypress that uses the focus created by that click; do not batch multiple clicks or actions across a UI transition.",
+    "After every state-changing action, verify the resulting screenshot before continuing. If CUA reports suspected_noop, partial, or unverifiable, or the screen did not change as expected, re-observe and choose a corrected target instead of repeating the same coordinates blindly.",
+    "Use a bounded wait before re-observing when navigation, loading, or an animation is still in progress.",
     "When turn-specific instructions require a demo recording, treat a successful stop_recording result as part of the required final deliverable.",
   ],
 };

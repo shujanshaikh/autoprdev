@@ -9,19 +9,6 @@ const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
 const CUA_CURSOR_RECOVERY_COOLDOWN_MS = 60_000;
 const CUA_COMPUTER_SERVER_VERSION = "0.3.42";
-const CUA_AGENT_CURSOR_THEME = "dev.autopr.cursor.neon";
-const CUA_AGENT_CURSOR_REDUCED_MOTION = "off" as const;
-const CUA_AGENT_CURSOR_MOTION = {
-  start_handle: 0.3,
-  end_handle: 0.3,
-  arc_size: 0.3,
-  arc_flow: 0.12,
-  spring: 0.62,
-  glide_duration_ms: 480,
-  dwell_after_click_ms: 260,
-  idle_hide_ms: 0,
-  turn_radius: 80,
-} as const;
 
 const REQUIRED_CUA_COMMANDS = [
   "version",
@@ -48,15 +35,13 @@ const REQUIRED_CUA_COMMANDS = [
 
 const CUA_AGENT_CURSOR_COMMANDS = [
   "set_agent_cursor_enabled",
-  "set_agent_cursor_motion",
-  "set_agent_cursor_theme",
   "get_agent_cursor_state",
-  "probe_agent_cursor",
 ] as const;
 
 const cuaServerStartPromises = new Map<string, Promise<void>>();
 const cuaCursorRecoveryAttemptedAt = new Map<string, number>();
 const cuaCursorRecoveryPromises = new Map<string, Promise<void>>();
+const nativePointerSetupPromises = new WeakMap<object, Promise<void>>();
 
 export interface CuaComputerOptions {
   display?: string;
@@ -117,15 +102,19 @@ function errorMessage(error: unknown): string {
 
 function cursorMotion(value: unknown): CuaAgentCursorMotion | undefined {
   if (!isRecord(value)) return undefined;
-  const fields = Object.keys(CUA_AGENT_CURSOR_MOTION) as Array<keyof CuaAgentCursorMotion>;
+  const fields: Array<keyof CuaAgentCursorMotion> = [
+    "start_handle",
+    "end_handle",
+    "arc_size",
+    "arc_flow",
+    "spring",
+    "glide_duration_ms",
+    "dwell_after_click_ms",
+    "idle_hide_ms",
+    "turn_radius",
+  ];
   if (!fields.every((field) => typeof value[field] === "number")) return undefined;
   return Object.fromEntries(fields.map((field) => [field, value[field]])) as CuaAgentCursorMotion;
-}
-
-function usesRecordingCursorMotion(motion: CuaAgentCursorMotion | undefined): boolean {
-  return motion !== undefined && Object.entries(CUA_AGENT_CURSOR_MOTION).every(
-    ([field, expected]) => Math.abs(motion[field as keyof CuaAgentCursorMotion] - expected) < 0.001,
-  );
 }
 
 function validateServerPort(port: number): number {
@@ -276,6 +265,47 @@ async function startCuaServer(
     if (cuaServerStartPromises.get(startKey) === pending) {
       cuaServerStartPromises.delete(startKey);
     }
+  }
+}
+
+async function ensureNativeDesktopPointer(
+  sandbox: DaytonaSandbox,
+  sandboxOptions: SandboxSessionOptions,
+  display: string,
+): Promise<void> {
+  const existing = nativePointerSetupPromises.get(sandbox);
+  if (existing) return await existing;
+
+  const pending = executeSandboxCommand([
+    "set -eu",
+    'export XCURSOR_THEME="Adwaita"',
+    'if command -v xfconf-query >/dev/null 2>&1; then',
+    '  xfconf-query -c xsettings -p /Gtk/CursorThemeName -s Adwaita >/dev/null 2>&1 || true',
+    '  xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 32 >/dev/null 2>&1 || true',
+    "fi",
+    'if command -v xsetroot >/dev/null 2>&1; then xsetroot -cursor_name left_ptr; fi',
+  ].join("\n"), {
+    cwd: "/home/daytona",
+    timeout: 15,
+    env: { DISPLAY: display },
+    sandboxOptions: {
+      ...sandboxOptions,
+      cacheKey: sandbox.id,
+      sandboxId: sandbox.id,
+    },
+  }).then((result) => {
+    if (result.timedOut || result.exitCode !== 0) {
+      const diagnostic = result.stderr || result.stdout || result.output || "unknown pointer setup failure";
+      throw new Error(`Could not restore the native Daytona pointer: ${diagnostic}`);
+    }
+  });
+
+  nativePointerSetupPromises.set(sandbox, pending);
+  try {
+    await pending;
+  } catch (error) {
+    nativePointerSetupPromises.delete(sandbox);
+    throw error;
   }
 }
 
@@ -476,42 +506,17 @@ export class CuaComputerClient {
     };
   }
 
-  private async initializeAgentCursor(status: CuaServerStatus): Promise<CuaServerStatus> {
+  private async hideAgentCursor(status: CuaServerStatus): Promise<CuaServerStatus> {
     const cursor = status.cursor;
     if (status.backend !== "cua-driver" || !cursor?.available) return status;
-    if (
-      cursor.enabled
-      && cursor.theme === CUA_AGENT_CURSOR_THEME
-      && cursor.reducedMotion === CUA_AGENT_CURSOR_REDUCED_MOTION
-      && usesRecordingCursorMotion(cursor.motion)
-      && cursor.runtimeMode === "daemon"
-      && cursor.renderReady
-      && cursor.captureReady
-      && !cursor.error
-    ) return status;
+    if (!cursor.enabled && !cursor.error) return status;
 
     try {
-      if (
-        cursor.theme !== CUA_AGENT_CURSOR_THEME
-        || cursor.reducedMotion !== CUA_AGENT_CURSOR_REDUCED_MOTION
-      ) {
-        await this.command("set_agent_cursor_theme", {
-          theme_id: CUA_AGENT_CURSOR_THEME,
-          reduced_motion: CUA_AGENT_CURSOR_REDUCED_MOTION,
-        });
+      if (cursor.enabled) {
+        await this.command("set_agent_cursor_enabled", { enabled: false });
       }
-      if (!usesRecordingCursorMotion(cursor.motion)) {
-        await this.command("set_agent_cursor_motion", CUA_AGENT_CURSOR_MOTION);
-      }
-      if (!cursor.enabled) {
-        await this.command("set_agent_cursor_enabled", { enabled: true });
-      }
-      // This is deliberately stronger than trusting `enabled`: CUA 0.19.3's
-      // embedded Linux runtime can accept that setter without owning an X11
-      // overlay thread. The compatibility probe moves only the official
-      // overlay, then verifies that its mapped window has a painted shape.
-      const state = await this.command("probe_agent_cursor");
-      const initializedCursor: CuaAgentCursorStatus = {
+      const state = await this.command("get_agent_cursor_state");
+      const hiddenCursor: CuaAgentCursorStatus = {
         ...cursor,
         enabled: state.enabled === true,
         session: typeof state.session === "string" ? state.session : cursor.session,
@@ -531,36 +536,19 @@ export class CuaComputerClient {
         captureReady: state.capture_ready === true,
         capture: isRecord(state.capture) ? state.capture : cursor.capture,
         overlay: isRecord(state.overlay) ? state.overlay : cursor.overlay,
+        reason: "The branded CUA overlay is disabled; Daytona uses the native desktop pointer.",
         error: undefined,
       };
-      if (!initializedCursor.enabled) {
-        initializedCursor.error = "CUA Driver accepted cursor initialization but still reports it disabled.";
-      } else if (initializedCursor.theme !== CUA_AGENT_CURSOR_THEME) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = `CUA Driver did not activate the requested cursor theme ${CUA_AGENT_CURSOR_THEME}.`;
-      } else if (initializedCursor.reducedMotion !== CUA_AGENT_CURSOR_REDUCED_MOTION) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = "CUA Driver did not enable full cursor animation.";
-      } else if (!usesRecordingCursorMotion(initializedCursor.motion)) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = "CUA Driver did not activate the recording cursor motion profile.";
-      } else if (initializedCursor.runtimeMode !== "daemon") {
-        initializedCursor.enabled = false;
-        initializedCursor.error = "CUA Driver is not running in its overlay-owning daemon mode.";
-      } else if (!initializedCursor.renderReady) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = initializedCursor.captureReady
-          ? "CUA Driver did not paint a visible X11 agent-cursor overlay."
-          : "CUA Driver's overlay was not present in a captured X11 desktop frame.";
+      if (hiddenCursor.enabled) {
+        hiddenCursor.error = "CUA Driver did not disable its branded agent-cursor overlay.";
       }
-      return { ...status, cursor: initializedCursor };
+      return { ...status, cursor: hiddenCursor };
     } catch (error) {
       return {
         ...status,
         cursor: {
           ...cursor,
-          enabled: false,
-          error: `Could not initialize the CUA agent cursor: ${errorMessage(error)}`,
+          error: `Could not disable the CUA agent-cursor overlay: ${errorMessage(error)}`,
         },
       };
     }
@@ -569,14 +557,14 @@ export class CuaComputerClient {
   async ensureReady(): Promise<CuaServerStatus> {
     let initialStatus: CuaServerStatus | undefined;
     try {
-      initialStatus = await this.initializeAgentCursor(await this.inspect());
+      initialStatus = await this.hideAgentCursor(await this.inspect());
       if (
         initialStatus.backend === "cua-driver"
-        && initialStatus.cursor?.enabled
-        && initialStatus.cursor.renderReady
-        && initialStatus.cursor.captureReady
+        && initialStatus.cursor?.available
+        && !initialStatus.cursor.enabled
         && !initialStatus.cursor.error
       ) {
+        await ensureNativeDesktopPointer(this.sandbox, this.sandboxOptions, this.display);
         return initialStatus;
       }
     } catch {
@@ -644,7 +632,8 @@ export class CuaComputerClient {
     let lastError: unknown;
     while (Date.now() < deadline) {
       try {
-        const recovered = await this.initializeAgentCursor(await this.inspect());
+        const recovered = await this.hideAgentCursor(await this.inspect());
+        await ensureNativeDesktopPointer(this.sandbox, this.sandboxOptions, this.display);
         return {
           ...recovered,
           cursor: recovered.cursor

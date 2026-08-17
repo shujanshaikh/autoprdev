@@ -16,7 +16,9 @@ const COMPUTER_READY_TIMEOUT_MS = 30_000;
 const COMPUTER_READY_POLL_MS = 1_000;
 const COMPUTER_RECOVERY_DELAY_MS = 1_000;
 const MAX_COMPUTER_DIAGNOSTIC_LENGTH = 400;
-const DEFAULT_SCREENSHOT_FORMAT = "jpeg";
+// Lossless screenshots keep small controls and text crisp enough for reliable
+// visual grounding. Callers can still request JPEG when payload size matters.
+const DEFAULT_SCREENSHOT_FORMAT = "png";
 const DEFAULT_SCREENSHOT_QUALITY = 85;
 const MAX_COMPUTER_METADATA_CHARS = 8_000;
 const MAX_RECORDINGS_RETURNED = 25;
@@ -67,7 +69,14 @@ function runBoundedComputerOperation<T>(
 
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["ctrl", "alt", "meta", "cmd", "shift"]);
-const screenCoordinateSchema = z.number().int().min(0).max(100_000);
+const screenCoordinateSchema = z.number().int().min(0).max(100_000).describe(
+  "Image-space pixel coordinate from the most recent screenshot, measured from its top-left corner.",
+);
+const screenPointSchema = z.union([
+  z.tuple([screenCoordinateSchema, screenCoordinateSchema]),
+  z.object({ x: screenCoordinateSchema, y: screenCoordinateSchema }),
+]);
+const scrollDirectionSchema = z.enum(["up", "down", "left", "right"]);
 const browserUrlSchema = z.string().min(1).max(4_096).refine((value) => {
   try {
     const protocol = new URL(value).protocol;
@@ -162,7 +171,7 @@ const computerActionSchema = z.discriminatedUnion("type", [
     type: z.literal("scroll").describe("Scroll at absolute screen coordinates."),
     x: screenCoordinateSchema,
     y: screenCoordinateSchema,
-    direction: z.enum(["up", "down"]),
+    direction: scrollDirectionSchema,
     amount: z.number().int().min(1).max(20).optional(),
   }),
   z.object({
@@ -212,15 +221,23 @@ const legacyActionSchema = z.object({
   startY: screenCoordinateSchema.optional(),
   endX: screenCoordinateSchema.optional(),
   endY: screenCoordinateSchema.optional(),
-  direction: z.enum(["up", "down"]).optional(),
+  path: z.array(screenPointSchema).min(2).max(200).optional(),
+  direction: scrollDirectionSchema.optional(),
   amount: z.number().int().min(1).max(20).optional(),
+  scrollX: z.number().int().min(-100_000).max(100_000).optional(),
+  scrollY: z.number().int().min(-100_000).max(100_000).optional(),
+  scroll_x: z.number().int().min(-100_000).max(100_000).optional(),
+  scroll_y: z.number().int().min(-100_000).max(100_000).optional(),
   ms: z.number().int().min(100).max(10_000).optional(),
   text: z.string().max(64 * 1024).optional(),
   delay: z.number().int().min(0).max(1000).optional(),
   delayMs: z.number().int().min(0).max(1000).optional(),
   key: z.string().min(1).max(128).optional(),
   modifiers: z.array(modifierSchema).max(8).optional(),
-  keys: z.string().min(1).max(256).optional(),
+  keys: z.union([
+    z.string().min(1).max(256),
+    z.array(z.string().min(1).max(128)).min(1).max(8),
+  ]).optional(),
   label: z.string().max(120).optional(),
   title: z.string().max(120).optional(),
   recordingId: z.string().min(1).max(256).optional(),
@@ -306,6 +323,9 @@ type ScreenshotMetadata = Omit<ScreenshotForModel, "data"> & {
 type ComputerOutputDetails = {
   action?: string;
   actions?: string[];
+  completedActions?: string[];
+  remainingActions?: string[];
+  pauseReason?: string;
   display?: { x?: number; y?: number; width?: number; height?: number };
   status?: unknown;
   cursor?: CuaAgentCursorStatus;
@@ -697,16 +717,70 @@ async function captureScreenshot(
   };
 }
 
+type DisplaySize = { width: number; height: number };
+
+function coordinatePoints(action: ComputerAction): Array<{ x: number; y: number; label: string }> {
+  switch (action.type) {
+    case "move":
+    case "click":
+    case "double_click":
+    case "scroll":
+      return [{ x: action.x, y: action.y, label: action.type }];
+    case "drag":
+      return [
+        { x: action.startX, y: action.startY, label: "drag start" },
+        { x: action.endX, y: action.endY, label: "drag end" },
+      ];
+    default:
+      return [];
+  }
+}
+
+function assertCoordinatesWithinDisplay(actions: ComputerAction[], display: DisplaySize): void {
+  for (const action of actions) {
+    for (const point of coordinatePoints(action)) {
+      if (point.x >= display.width || point.y >= display.height) {
+        throw new Error(
+          `CUA ${point.label} coordinate (${point.x}, ${point.y}) is outside the ${display.width}x${display.height} screenshot. Capture a fresh screenshot and use its image-space coordinates.`,
+        );
+      }
+    }
+  }
+}
+
+async function readDisplaySize(cua: CuaComputerClient): Promise<DisplaySize> {
+  const result = await cua.command("get_screen_size");
+  const size = isRecord(result.size) ? result.size : undefined;
+  const width = size ? numberField(size, "width") : undefined;
+  const height = size ? numberField(size, "height") : undefined;
+  if (!width || !height || width <= 0 || height <= 0) {
+    throw new Error("CUA returned an invalid desktop size.");
+  }
+  return { width, height };
+}
+
+function pauseReasonForCommand(command: Record<string, unknown> | undefined): string | undefined {
+  const effect = command?.effect;
+  if (effect === "suspected_noop") {
+    return "CUA suspected that the action had no effect";
+  }
+  if (effect === "partial") {
+    return "CUA reported only a partial action effect";
+  }
+  if (effect === "unverifiable") {
+    return "CUA could not verify the action effect";
+  }
+  return undefined;
+}
+
 function requiresDaytonaDesktop(action: ComputerAction) {
   return !["status", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
 }
 
 function requiresCua(action: ComputerAction) {
-  // Recording remains fully Daytona-owned, but the CUA cursor must be ready
-  // before Daytona captures its first frame. Starting a recording used to be
-  // the one desktop action that skipped CUA readiness, which allowed a lazy
-  // Driver startup (or recovery from a transient native fallback) to happen
-  // after the recording was already underway.
+  // Recording remains fully Daytona-owned, but CUA readiness also normalizes
+  // the visible native pointer and suppresses the branded overlay. Do that
+  // before Daytona captures the first frame, not after recording has started.
   return !["status", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
 }
 
@@ -808,30 +882,47 @@ function legacyToAction(input: z.infer<typeof legacyActionSchema>): unknown {
         button: input.button,
       };
     case "drag":
+      const firstPoint = input.path?.[0];
+      const lastPoint = input.path?.at(-1);
       return {
         type: "drag",
-        startX: input.startX,
-        startY: input.startY,
-        endX: input.endX,
-        endY: input.endY,
+        startX: Array.isArray(firstPoint) ? firstPoint[0] : firstPoint?.x ?? input.startX,
+        startY: Array.isArray(firstPoint) ? firstPoint[1] : firstPoint?.y ?? input.startY,
+        endX: Array.isArray(lastPoint) ? lastPoint[0] : lastPoint?.x ?? input.endX,
+        endY: Array.isArray(lastPoint) ? lastPoint[1] : lastPoint?.y ?? input.endY,
         button: input.button,
       };
-    case "scroll":
+    case "scroll": {
+      const scrollX = input.scrollX ?? input.scroll_x ?? 0;
+      const scrollY = input.scrollY ?? input.scroll_y ?? 0;
+      const useVertical = Math.abs(scrollY) >= Math.abs(scrollX);
+      const delta = useVertical ? scrollY : scrollX;
       return {
         type: "scroll",
         x: input.x,
         y: input.y,
-        direction: input.direction,
-        amount: input.amount,
+        direction: input.direction ?? (useVertical
+          ? delta >= 0 ? "down" : "up"
+          : delta >= 0 ? "right" : "left"),
+        amount: input.amount ?? (delta === 0
+          ? undefined
+          : Math.min(20, Math.max(1, Math.ceil(Math.abs(delta) / 100)))),
       };
+    }
     case "type":
     case "type_text":
       return { type: "type", text: input.text, delayMs: input.delayMs ?? input.delay };
     case "keypress":
     case "press_key":
+      if (Array.isArray(input.keys)) {
+        return { type: "hotkey", keys: input.keys.join("+") };
+      }
       return { type: "keypress", key: input.key, modifiers: input.modifiers };
     case "hotkey":
-      return { type: "hotkey", keys: input.keys };
+      return {
+        type: "hotkey",
+        keys: Array.isArray(input.keys) ? input.keys.join("+") : input.keys,
+      };
     case "start_recording":
       return { type: "start_recording", title: input.title ?? input.label };
     case "stop_recording":
@@ -1158,7 +1249,18 @@ async function executeCuaComputerActions(
 
   details.cursor = cursor;
 
-  for (const action of input.actions) {
+  if (input.actions.some((action) => coordinatePoints(action).length > 0)) {
+    const display = await runBoundedComputerOperation(
+      track,
+      () => readDisplaySize(cua),
+      () => new Error("Timed out validating CUA screenshot coordinates."),
+    );
+    assertCoordinatesWithinDisplay(input.actions, display);
+    details.display = display;
+  }
+
+  const completedActions: string[] = [];
+  for (const [index, action] of input.actions.entries()) {
     const partial = await runBoundedComputerOperation(
       track,
       () => runOneAction(action, context, cua),
@@ -1186,7 +1288,17 @@ async function executeCuaComputerActions(
     if (partial.recordingsTruncated) {
       details.recordingsTruncated = true;
     }
+
+    completedActions.push(summaries[index] ?? action.type);
+    const pauseReason = pauseReasonForCommand(partial.command);
+    if (pauseReason && index < input.actions.length - 1) {
+      details.pauseReason = `${pauseReason}; the remaining actions were not run so the next screenshot can be inspected first.`;
+      details.remainingActions = summaries.slice(index + 1);
+      break;
+    }
   }
+
+  details.completedActions = completedActions;
 
   if (recordings.length > 0) {
     details.recordings = recordings;
@@ -1213,15 +1325,23 @@ async function executeCuaComputerActions(
     details.screenshot
       ? `Screenshot: ${details.screenshot.mimeType}, ${details.screenshot.sizeBytes ?? details.screenshot.data?.length ?? "unknown"} bytes`
       : undefined,
+    details.pauseReason ? `Batch paused: ${details.pauseReason}` : undefined,
+    details.remainingActions?.length
+      ? `Not run: ${details.remainingActions.join(" -> ")}`
+      : undefined,
     details.recording ? recordingSummary(details.recording) : undefined,
     details.cursor
       ? details.cursor.enabled
         ? `Agent cursor: painted (${details.cursor.theme ?? "configured CUA theme"}, ${details.cursor.runtimeMode ?? "unknown runtime"})`
-        : `Agent cursor: unavailable${details.cursor.reason ? ` (${details.cursor.reason})` : details.cursor.error ? ` (${details.cursor.error})` : ""}`
+        : details.cursor.available
+          ? `Agent cursor overlay: disabled; native desktop pointer active${details.cursor.error ? ` (${details.cursor.error})` : ""}`
+          : `Agent cursor: unavailable${details.cursor.reason ? ` (${details.cursor.reason})` : details.cursor.error ? ` (${details.cursor.error})` : ""}`
       : undefined,
     typeof details.command?.effect === "string"
       ? `CUA action effect: ${details.command.effect}` +
-        (details.command.effect === "suspected_noop" ? " (verify the screenshot before continuing)" : "")
+        (["suspected_noop", "partial", "unverifiable"].includes(details.command.effect)
+          ? " (inspect the screenshot before continuing)"
+          : "")
       : undefined,
     !details.recording && details.recordings
       ? `Found ${details.recordings.length} demo recording${details.recordings.length === 1 ? "" : "s"}` +
@@ -1243,7 +1363,7 @@ export function createCuaComputerTool(
 
   return tool<ComputerInput, Awaited<ReturnType<typeof executeCuaComputer>>>({
     title: "computer",
-    description: `Inspect and operate the Daytona Linux desktop through CUA for HTTP(S) browser previews, screenshots, and GUI interaction. ${recordingDescription} Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh CUA screenshot when screen state matters. Mutates GUI state; keep batches small and re-check before coordinate-sensitive actions.`,
+    description: `Inspect and operate the Daytona Linux desktop through CUA for HTTP(S) browser previews, screenshots, and GUI interaction. ${recordingDescription} Coordinates are image-space pixels from the latest returned screenshot, with (0,0) at its top-left. Accepts up to eight ordered actions, including OpenAI-style drag paths, scroll deltas, and key arrays; validates coordinate bounds, pauses uncertain batches, recovers partial desktop services, and returns a fresh screenshot when screen state matters. Follow look, act, verify: keep batches small and never reuse coordinates after navigation, scrolling, dialogs, menus, or layout changes.`,
     inputSchema: computerInputSchema,
     toModelOutput: ({ output }) => output,
     execute: (input) => executeCuaComputer(input, sandboxOptions, computerOptions),

@@ -48,6 +48,16 @@ describe("CUA computer tool input", () => {
       actions: [{ type: "screenshot", format: "webp" }],
     }).success).toBe(false);
   });
+
+  it("accepts standard computer-use drag, scroll-delta, and key-array shapes", () => {
+    expect(safeParse(computer.inputSchema, {
+      actions: [
+        { type: "drag", path: [{ x: 10, y: 20 }, { x: 30, y: 40 }] },
+        { type: "scroll", x: 30, y: 40, scroll_x: 0, scroll_y: 350 },
+        { type: "keypress", keys: ["CTRL", "L"] },
+      ],
+    }).success).toBe(true);
+  });
 });
 
 describe("CUA computer tool timeout quarantine", () => {
@@ -73,8 +83,8 @@ describe("CUA computer tool timeout quarantine", () => {
       backend: "cua-driver",
       cursor: {
         available: true,
-        enabled: true,
-        theme: "dev.autopr.cursor.neon",
+        enabled: false,
+        theme: "cua.default",
         capabilities: [],
       },
     });
@@ -89,9 +99,17 @@ describe("CUA computer tool timeout quarantine", () => {
     vi.useFakeTimers();
     try {
       let finishClick: (() => void) | undefined;
-      mocks.command.mockImplementationOnce(() => new Promise<void>((resolve) => {
-        finishClick = resolve;
-      }));
+      mocks.command.mockImplementation((command: string) => {
+        if (command === "get_screen_size") {
+          return Promise.resolve({ success: true, size: { width: 1920, height: 1080 } });
+        }
+        if (command === "left_click") {
+          return new Promise<void>((resolve) => {
+            finishClick = resolve;
+          });
+        }
+        return Promise.resolve({ success: true });
+      });
       const computer = createCuaComputerTool({ cacheKey: "computer-timeout" });
       if (!computer.execute) throw new Error("computer tool is not executable");
 
@@ -142,7 +160,7 @@ describe("CUA computer tool timeout quarantine", () => {
     expect(mocks.command).not.toHaveBeenCalled();
   });
 
-  it("initializes the visible CUA cursor before starting a Daytona recording", async () => {
+  it("normalizes the desktop pointer before starting a Daytona recording", async () => {
     const computer = createCuaComputerTool(
       { cacheKey: "computer-recording-start" },
       { recordingEnabled: true },
@@ -221,6 +239,94 @@ describe("CUA computer tool timeout quarantine", () => {
       ["move_cursor", { x: 60, y: 70 }],
       ["scroll_direction", { direction: "down", clicks: 3 }],
     ]);
+  });
+
+  it("rejects coordinates outside the current screenshot before sending input", async () => {
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "get_screen_size") {
+        return { success: true, size: { width: 100, height: 80 } };
+      }
+      return { success: true };
+    });
+    const computer = createCuaComputerTool({ cacheKey: "computer-coordinate-bounds" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    await expect(computer.execute(
+      { actions: [{ type: "click", x: 100, y: 20 }] },
+      { toolCallId: "computer-coordinate-bounds", messages: [] },
+    )).rejects.toThrow("outside the 100x80 screenshot");
+
+    expect(mocks.command).not.toHaveBeenCalledWith("left_click", expect.anything());
+  });
+
+  it("normalizes standard computer-use actions onto the CUA command protocol", async () => {
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "get_screen_size") {
+        return { success: true, size: { width: 1920, height: 1080 } };
+      }
+      if (command === "screenshot") {
+        return { success: true, image_data: "AA==", format: "png" };
+      }
+      return { success: true, effect: "confirmed", verified: true };
+    });
+    const computer = createCuaComputerTool({ cacheKey: "computer-standard-actions" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+    type ExecuteInput = Parameters<NonNullable<typeof computer.execute>>[0];
+    const input = (computer.inputSchema as { parse(value: unknown): ExecuteInput }).parse({
+      actions: [
+        { type: "drag", path: [[10, 20], [30, 40]] },
+        { type: "scroll", x: 30, y: 40, scrollX: -250, scrollY: 0 },
+        { type: "keypress", keys: ["CTRL", "L"] },
+      ],
+    });
+
+    await computer.execute(input, { toolCallId: "computer-standard-actions", messages: [] });
+
+    expect(mocks.command).toHaveBeenCalledWith("drag", {
+      path: [[10, 20], [30, 40]],
+      button: "left",
+      duration: 0.5,
+    });
+    expect(mocks.command).toHaveBeenCalledWith("scroll_direction", {
+      direction: "left",
+      clicks: 3,
+    });
+    expect(mocks.command).toHaveBeenCalledWith("hotkey", { keys: ["ctrl", "l"] });
+  });
+
+  it("pauses an uncertain batch and returns a lossless verification screenshot", async () => {
+    mocks.command.mockImplementation(async (command: string, params?: Record<string, unknown>) => {
+      if (command === "get_screen_size") {
+        return { success: true, size: { width: 1920, height: 1080 } };
+      }
+      if (command === "left_click") {
+        return { success: true, effect: "suspected_noop", verified: false };
+      }
+      if (command === "screenshot") {
+        expect(params).toEqual({ format: "png", quality: 85 });
+        return { success: true, image_data: "AA==", format: "png" };
+      }
+      if (command === "get_cursor_position") {
+        return { success: true, position: { x: 10, y: 20 } };
+      }
+      return { success: true };
+    });
+    const computer = createCuaComputerTool({ cacheKey: "computer-uncertain-batch" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    const result = await computer.execute(
+      {
+        actions: [
+          { type: "click", x: 10, y: 20 },
+          { type: "type", text: "must not be typed" },
+        ],
+      },
+      { toolCallId: "computer-uncertain-batch", messages: [] },
+    );
+
+    expect(mocks.command).not.toHaveBeenCalledWith("type_text", expect.anything());
+    expect(JSON.stringify(result)).toContain("Batch paused");
+    expect(mocks.command).toHaveBeenCalledWith("screenshot", { format: "png", quality: 85 });
   });
 
   it("paces CUA typing when the caller requests a per-key delay", async () => {

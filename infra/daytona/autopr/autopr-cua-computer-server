@@ -39,7 +39,7 @@ is_ready() {
     || return 1
   curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/commands" \
     | jq -e --arg require_driver "$CUA_EXPECT_DRIVER" \
-      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or (.commands.get_desktop_state and .commands.set_agent_cursor_enabled and .commands.set_agent_cursor_motion and .commands.set_agent_cursor_theme and .commands.get_agent_cursor_state and .commands.probe_agent_cursor))' >/dev/null \
+      '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_screen_size and ($require_driver != "true" or (.commands.get_desktop_state and .commands.set_agent_cursor_enabled and .commands.get_agent_cursor_state))' >/dev/null \
     || return 1
 
   version_response="$(run_command '{"command":"version"}')" || return 1
@@ -54,9 +54,13 @@ is_ready() {
     | jq -e '.success == true and (.size.width | type == "number") and (.size.height | type == "number")' >/dev/null
 
   if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
-    cursor_response="$(run_command '{"command":"probe_agent_cursor"}')" || return 1
+    cursor_response="$(run_command '{"command":"set_agent_cursor_enabled","params":{"enabled":false}}')" || return 1
     printf '%s' "$cursor_response" \
-      | jq -e '.success == true and .runtime_mode == "daemon" and .enabled == true and .render_ready == true and .capture_ready == true and .overlay.mapped == true and .overlay.painted == true and .capture.changed_pixels >= .capture.minimum_changed_pixels' >/dev/null \
+      | jq -e '.success == true and .enabled == false' >/dev/null \
+      || return 1
+    cursor_response="$(run_command '{"command":"get_agent_cursor_state"}')" || return 1
+    printf '%s' "$cursor_response" \
+      | jq -e '.success == true and .runtime_mode == "daemon" and .enabled == false' >/dev/null \
       || return 1
   fi
 }
@@ -130,7 +134,7 @@ unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE
 export DISPLAY="${DISPLAY:-:1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
-export CUA_DRIVER_SESSION_ID="${CUA_DRIVER_SESSION_ID:-AutoPR}"
+export CUA_DRIVER_SESSION_ID="${CUA_DRIVER_SESSION_ID:-computer-use}"
 export BROWSER="${BROWSER:-google-chrome}"
 
 set_cursor_theme() {
@@ -150,11 +154,9 @@ set_cursor_theme() {
 }
 
 apply_backend_cursor_theme() {
-  if [ "$CUA_EXPECT_DRIVER" = "true" ]; then
-    set_cursor_theme AutoPRHidden
-  else
-    set_cursor_theme Adwaita
-  fi
+  # Keep one honest, system-owned pointer. The CUA overlay is disabled above,
+  # so it cannot lag behind input delivery or render a branded session badge.
+  set_cursor_theme Adwaita
 }
 
 backend_args=(--backend native)

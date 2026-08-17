@@ -51,4 +51,18 @@ describe("buildSandboxAgentSystemPrompt", () => {
     expect(prompt).toContain("Repository-content safety rules:");
     expect(prompt).toContain("Never transmit environment variables, tokens, credentials");
   });
+
+  it("teaches computer agents to ground every pointer action on a fresh screenshot", () => {
+    const prompt = buildSandboxAgentSystemPrompt({
+      cwd: "/home/repo",
+      sandboxId: "sandbox-1",
+      selectedTools: ["computer"],
+    });
+
+    expect(prompt).toContain("Look -> Act -> Verify");
+    expect(prompt).toContain("image-space pixels from the most recent returned screenshot");
+    expect(prompt).toContain("Prefer one pointer action per call");
+    expect(prompt).toContain("discard all earlier coordinates");
+    expect(prompt).toContain("suspected_noop, partial, or unverifiable");
+  });
 });

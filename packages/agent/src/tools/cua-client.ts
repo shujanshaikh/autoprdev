@@ -557,13 +557,9 @@ export class CuaComputerClient {
           },
         };
       } catch (error) {
-        safeStatus = {
-          ...status,
-          cursor: {
-            ...cursor,
-            error: `Could not disable the labeled legacy cursor: ${errorMessage(error)}`,
-          },
-        };
+        throw new Error(
+          `Could not disable the labeled legacy cursor: ${errorMessage(error)}`,
+        );
       }
     } else if (status.backend === "cua-driver" && cursor?.enabled) {
       throw new Error(

@@ -49,7 +49,7 @@ import {
 } from "#/lib/trigger-agent-contract";
 import { setWorkOSAccessTokenHeader } from "#/lib/workos-access-token";
 import {
-  discardUnpersistedAssistantTail,
+  restorePersistedAssistantTail,
   runTriggerSessionReconnectAttempt,
   shouldUseTriggerSessionTransport,
   triggerSessionHydration,
@@ -83,7 +83,10 @@ import {
 } from "#/components/codex-prompt-connection-line";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
-import { activeComputerToolCallId } from "#/components/thread/thread-computer-activity";
+import {
+  activeComputerToolCallId,
+  latestComputerToolCallId,
+} from "#/components/thread/thread-computer-activity";
 import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
@@ -1329,7 +1332,7 @@ function ThreadChatRuntime({
           });
         }
         setMessages((currentMessages) =>
-          discardUnpersistedAssistantTail(currentMessages, initialMessages)
+          restorePersistedAssistantTail(currentMessages, initialMessages)
         );
         clearError();
       }
@@ -1574,6 +1577,10 @@ function ThreadChatRuntime({
     () => activeAssistantMessageId ? activeComputerToolCallId(lastMessage) : undefined,
     [activeAssistantMessageId, lastMessage],
   );
+  const latestComputerToolCall = useMemo(
+    () => latestComputerToolCallId(lastMessage),
+    [lastMessage],
+  );
   const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
@@ -1756,7 +1763,7 @@ function ThreadChatRuntime({
           />
           <ThreadComputerPreview
             projectId={projectId}
-            activityKey={activeAssistantMessageId}
+            activityKey={latestComputerToolCall}
             active={Boolean(activeComputerToolCall)}
           />
         </div>

@@ -68,6 +68,9 @@ describe("CUA computer-server response parsing", () => {
     expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_ready; then'));
     expect(launcher.match(/9>&-/g)).toHaveLength(2);
     expect(launcher).toContain('kill -KILL "$pid"');
+    expect(launcher).toContain('readlink -f "/proc/${pid}/exe"');
+    expect(launcher).toContain("mapfile -d '' -t argv");
+    expect(launcher).not.toContain("grep -Fq \"$executable\"");
     expect(launcher).toContain("--driver-mode daemon");
     expect(launcher).toContain("--cursor-theme cua.default");
     expect(launcher).toContain('{"command":"get_cursor_position"}');
@@ -376,6 +379,62 @@ describe("CUA client configuration", () => {
     expect(executeMocks.executeSandboxCommand.mock.calls[1]?.[0]).toContain(
       "xsetroot -cursor_name left_ptr",
     );
+  });
+
+  it("does not enable the native pointer when disabling a labeled cursor fails", async () => {
+    executeMocks.executeSandboxCommand.mockRejectedValueOnce(new Error("recovery unavailable"));
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const commandNames = [
+      ...requiredCommandNames,
+      "get_desktop_state",
+      ...cursorCommandNames,
+      "set_agent_cursor_enabled",
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/status")) return Response.json({ status: "ok", os_type: "linux" });
+      if (path.endsWith("/commands")) {
+        return Response.json({
+          commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
+        });
+      }
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { command?: string }
+        : {};
+      if (body.command === "version") {
+        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+      }
+      if (body.command === "get_screen_size") {
+        return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
+      }
+      if (body.command === "get_agent_cursor_state") {
+        return new Response(`data: ${JSON.stringify({
+          success: true,
+          session: "legacy-session",
+          implicit: false,
+          label_visible: true,
+          enabled: true,
+          theme: { id: "legacy.labeled" },
+          runtime_mode: "daemon",
+        })}\n\n`);
+      }
+      if (body.command === "set_agent_cursor_enabled") {
+        return new Response('data: {"success":false,"error":"overlay did not stop"}\n\n');
+      }
+      return new Response('data: {"success":true}\n\n');
+    }));
+
+    const client = new CuaComputerClient({
+      id: "legacy-cursor-disable-failure",
+      getSignedPreviewUrl,
+    } as unknown as DaytonaSandbox, {});
+    await expect(client.ensureReady()).rejects.toThrow(
+      "Could not disable the labeled legacy cursor: CUA computer-server command failed: overlay did not stop",
+    );
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1);
   });
 
   it("restores the native pointer when the implicit overlay is unavailable", async () => {

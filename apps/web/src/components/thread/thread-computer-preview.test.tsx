@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +22,14 @@ vi.mock("./daytona-desktop-view", () => ({
 }));
 
 import { ThreadComputerPreview, clampComputerPreviewPosition } from "./thread-computer-preview";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfill) => {
+    resolve = fulfill;
+  });
+  return { promise, resolve };
+}
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class {
@@ -67,5 +75,47 @@ describe("ThreadComputerPreview", () => {
       { width: 800, height: 600 },
       { width: 360, height: 235 },
     )).toEqual({ x: 12, y: 353 });
+  });
+
+  it("scopes pending preview credentials to the project that requested them", async () => {
+    const projectOne = deferred<{ websocketUrl: string; expiresInSeconds: number }>();
+    const projectTwo = deferred<{ websocketUrl: string; expiresInSeconds: number }>();
+    mocks.getDesktopPreview.mockImplementation(({ projectId }: { projectId: string }) =>
+      projectId === "project-1" ? projectOne.promise : projectTwo.promise
+    );
+    const { rerender } = render(
+      <ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />,
+    );
+    await waitFor(() => expect(mocks.getDesktopPreview).toHaveBeenCalledWith({ projectId: "project-1" }));
+
+    rerender(<ThreadComputerPreview projectId="project-2" activityKey="computer-2" active />);
+    await waitFor(() => expect(mocks.getDesktopPreview).toHaveBeenCalledWith({ projectId: "project-2" }));
+    await act(async () => {
+      projectTwo.resolve({ websocketUrl: "wss://project-2.test", expiresInSeconds: 600 });
+      await projectTwo.promise;
+    });
+    expect(await screen.findByText("wss://project-2.test")).toBeTruthy();
+
+    await act(async () => {
+      projectOne.resolve({ websocketUrl: "wss://project-1.test", expiresInSeconds: 600 });
+      await projectOne.promise;
+    });
+    expect(screen.queryByText("wss://project-1.test")).toBeNull();
+    expect(screen.getByText("wss://project-2.test")).toBeTruthy();
+  });
+
+  it("clears expired credentials when their refresh fails", async () => {
+    mocks.getDesktopPreview
+      .mockResolvedValueOnce({
+        websocketUrl: "wss://expired.test",
+        expiresInSeconds: 0,
+      })
+      .mockRejectedValueOnce(new Error("Preview refresh failed"));
+
+    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
+
+    expect(await screen.findByText("Preview refresh failed")).toBeTruthy();
+    expect(screen.queryByText("wss://expired.test")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 });

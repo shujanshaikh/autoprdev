@@ -15,6 +15,15 @@ import {
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 
 type PreviewPosition = { x: number; y: number };
+type DesktopPreviewConnection = {
+  projectId: string;
+  websocketUrl: string;
+  expiresAt: number;
+};
+type DesktopPreviewRequest = {
+  projectId: string;
+  promise: Promise<void>;
+};
 
 type ThreadComputerPreviewProps = {
   projectId: string;
@@ -46,17 +55,21 @@ export function ThreadComputerPreview({
   activityKey,
   active,
 }: ThreadComputerPreviewProps) {
-  const [open, setOpen] = useState(false);
   const [dismissedActivityKey, setDismissedActivityKey] = useState<string>();
   const [position, setPosition] = useState<PreviewPosition>();
-  const [websocketUrl, setWebsocketUrl] = useState<string>();
-  const [previewExpiresAt, setPreviewExpiresAt] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>();
+  const [connection, setConnection] = useState<DesktopPreviewConnection>();
+  const [loadingProjectId, setLoadingProjectId] = useState<string>();
+  const [previewError, setPreviewError] = useState<{ projectId: string; message: string }>();
   const previewRef = useRef<HTMLElement | null>(null);
-  const loadingPromiseRef = useRef<Promise<void> | null>(null);
+  const loadingRequestRef = useRef<DesktopPreviewRequest | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
+
+  const open = Boolean(activityKey && dismissedActivityKey !== activityKey);
+  const currentConnection = connection?.projectId === projectId ? connection : undefined;
+  const websocketUrl = currentConnection?.websocketUrl;
+  const loading = loadingProjectId === projectId;
+  const error = previewError?.projectId === projectId ? previewError.message : undefined;
 
   const constrainPosition = useCallback((nextPosition: PreviewPosition) => {
     const preview = previewRef.current;
@@ -75,45 +88,57 @@ export function ThreadComputerPreview({
   const loadDesktop = useCallback((force = false) => {
     if (
       !force
-      && websocketUrl
-      && Date.now() < previewExpiresAt - PREVIEW_REFRESH_MARGIN_MS
+      && currentConnection
+      && Date.now() < currentConnection.expiresAt - PREVIEW_REFRESH_MARGIN_MS
     ) {
       return Promise.resolve();
     }
 
-    if (loadingPromiseRef.current) {
-      return loadingPromiseRef.current;
+    const existingRequest = loadingRequestRef.current;
+    if (existingRequest?.projectId === projectId) {
+      return existingRequest.promise;
     }
 
-    setLoading(true);
-    setError(undefined);
+    setConnection((current) => current?.projectId === projectId ? undefined : current);
+    setLoadingProjectId(projectId);
+    setPreviewError(undefined);
     const pending = getDesktopPreview({ projectId })
       .then((preview) => {
-        setWebsocketUrl(preview.websocketUrl);
-        setPreviewExpiresAt(Date.now() + preview.expiresInSeconds * 1_000);
+        if (loadingRequestRef.current?.promise !== pending) {
+          return;
+        }
+        setConnection({
+          projectId,
+          websocketUrl: preview.websocketUrl,
+          expiresAt: Date.now() + preview.expiresInSeconds * 1_000,
+        });
       })
       .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : "Could not open the desktop preview.");
+        if (loadingRequestRef.current?.promise === pending) {
+          setPreviewError({
+            projectId,
+            message: cause instanceof Error ? cause.message : "Could not open the desktop preview.",
+          });
+        }
       })
       .finally(() => {
-        if (loadingPromiseRef.current === pending) {
-          loadingPromiseRef.current = null;
+        if (loadingRequestRef.current?.promise === pending) {
+          loadingRequestRef.current = null;
+          setLoadingProjectId(undefined);
         }
-        setLoading(false);
       });
 
-    loadingPromiseRef.current = pending;
+    loadingRequestRef.current = { projectId, promise: pending };
     return pending;
-  }, [getDesktopPreview, previewExpiresAt, projectId, websocketUrl]);
+  }, [currentConnection, getDesktopPreview, projectId]);
 
   useEffect(() => {
-    if (!active || !activityKey || dismissedActivityKey === activityKey) {
+    if (!active || !open || error) {
       return;
     }
 
-    setOpen(true);
     void loadDesktop();
-  }, [active, activityKey, dismissedActivityKey, loadDesktop]);
+  }, [active, error, loadDesktop, open]);
 
   useEffect(() => {
     const preview = previewRef.current;
@@ -135,7 +160,6 @@ export function ThreadComputerPreview({
     if (activityKey) {
       setDismissedActivityKey(activityKey);
     }
-    setOpen(false);
   }, [activityKey]);
 
   const movePreview = useCallback((deltaX: number, deltaY: number) => {

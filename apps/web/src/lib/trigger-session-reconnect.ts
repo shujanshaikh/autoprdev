@@ -3,7 +3,7 @@ import type { UIMessage } from "ai";
 const BASE_RECONNECT_DELAY_MS = 250;
 const MAX_RECONNECT_DELAY_MS = 5_000;
 
-export function discardUnpersistedAssistantTail(
+export function restorePersistedAssistantTail(
   messages: UIMessage[],
   persistedMessages: UIMessage[],
 ) {
@@ -12,8 +12,14 @@ export function discardUnpersistedAssistantTail(
     return messages;
   }
 
-  const persistedMessageIds = new Set(persistedMessages.map((message) => message.id));
-  return persistedMessageIds.has(lastMessage.id) ? messages : messages.slice(0, -1);
+  const persistedMessage = persistedMessages.find((message) => message.id === lastMessage.id);
+  if (!persistedMessage) {
+    return messages.slice(0, -1);
+  }
+  if (persistedMessage === lastMessage) {
+    return messages;
+  }
+  return [...messages.slice(0, -1), persistedMessage];
 }
 
 export function shouldUseTriggerSessionTransport(options: {

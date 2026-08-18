@@ -73,9 +73,29 @@ is_ready() {
 is_owned_pid() {
   local pid="$1"
   local executable="$2"
-  kill -0 "$pid" 2>/dev/null \
-    && [ -r "/proc/${pid}/cmdline" ] \
-    && tr '\0' ' ' <"/proc/${pid}/cmdline" | grep -Fq "$executable"
+  local actual_executable expected_executable interpreter shebang
+  local -a argv=()
+
+  kill -0 "$pid" 2>/dev/null || return 1
+  actual_executable="$(readlink -f "/proc/${pid}/exe" 2>/dev/null)" || return 1
+  expected_executable="$(readlink -f "$executable" 2>/dev/null)" || return 1
+  if [ "$actual_executable" = "$expected_executable" ]; then
+    return 0
+  fi
+
+  # Python console scripts execute through their shebang interpreter. Require
+  # both that interpreter and the exact argv[1] script path instead of matching
+  # an arbitrary command-line substring.
+  [ -r "/proc/${pid}/cmdline" ] && [ -r "$expected_executable" ] || return 1
+  mapfile -d '' -t argv <"/proc/${pid}/cmdline"
+  [ "${argv[1]:-}" = "$executable" ] \
+    || [ "${argv[1]:-}" = "$expected_executable" ] \
+    || return 1
+  IFS= read -r shebang <"$expected_executable" || return 1
+  [[ "$shebang" = '#!'* ]] || return 1
+  interpreter="${shebang#\#!}"
+  interpreter="${interpreter%% *}"
+  [ "$actual_executable" = "$(readlink -f "$interpreter" 2>/dev/null)" ]
 }
 
 stop_owned_process() {

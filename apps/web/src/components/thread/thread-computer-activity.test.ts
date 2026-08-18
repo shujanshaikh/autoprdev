@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
-import { activeComputerToolCallId } from "./thread-computer-activity";
+import {
+  activeComputerToolCallId,
+  latestComputerToolCallId,
+} from "./thread-computer-activity";
 
 function assistantMessage(parts: UIMessage["parts"]): UIMessage {
   return { id: "assistant-1", role: "assistant", parts };
@@ -40,6 +43,7 @@ describe("activeComputerToolCallId", () => {
     ]);
 
     expect(activeComputerToolCallId(message)).toBeUndefined();
+    expect(latestComputerToolCallId(message)).toBe("computer-complete");
   });
 
   it("ignores computer parts in user messages", () => {
@@ -56,5 +60,6 @@ describe("activeComputerToolCallId", () => {
     } as UIMessage;
 
     expect(activeComputerToolCallId(message)).toBeUndefined();
+    expect(latestComputerToolCallId(message)).toBeUndefined();
   });
 });

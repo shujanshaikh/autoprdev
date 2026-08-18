@@ -89,6 +89,11 @@ const browserUrlSchema = z.string().min(1).max(4_096).refine((value) => {
 const screenshotOptionsSchema = {
   format: z.enum(["jpeg", "png"]).optional().describe("CUA screenshot format."),
   quality: z.number().int().min(1).max(95).optional().describe("JPEG compression quality."),
+  // The former Daytona backend accepted these fields. Keep them explicit so
+  // Zod rejects unsupported requests instead of silently stripping them.
+  region: z.never().optional(),
+  scale: z.never().optional(),
+  showCursor: z.never().optional(),
 };
 
 const legacyActionNameSchema = z.enum([

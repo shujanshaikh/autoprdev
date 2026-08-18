@@ -47,6 +47,15 @@ describe("CUA computer tool input", () => {
     expect(safeParse(computer.inputSchema, {
       actions: [{ type: "screenshot", format: "webp" }],
     }).success).toBe(false);
+    for (const unsupported of [
+      { region: { x: 0, y: 0, width: 100, height: 100 } },
+      { scale: 0.5 },
+      { showCursor: false },
+    ]) {
+      expect(safeParse(computer.inputSchema, {
+        actions: [{ type: "screenshot", ...unsupported }],
+      }).success).toBe(false);
+    }
   });
 
   it("accepts standard computer-use drag, scroll-delta, and key-array shapes", () => {

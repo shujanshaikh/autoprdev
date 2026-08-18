@@ -25,12 +25,14 @@ export function repairUIMessageStreamProtocol(
 
   function flushPendingTextEnds(
     controller: TransformStreamDefaultController<UIMessageChunk>,
+    keepId?: string,
   ) {
-    for (const chunk of pendingTextEnds.values()) {
+    for (const [id, chunk] of pendingTextEnds) {
+      if (id === keepId) continue;
       controller.enqueue(chunk);
-      activeTextParts.delete(chunk.id);
+      activeTextParts.delete(id);
+      pendingTextEnds.delete(id);
     }
-    pendingTextEnds.clear();
   }
 
   return stream.pipeThrough(new TransformStream<UIMessageChunk, UIMessageChunk>({
@@ -43,6 +45,10 @@ export function repairUIMessageStreamProtocol(
       }
 
       if (chunk.type === "text-delta") {
+        // A late delta may continue its own just-ended part, but a different
+        // part must close before this one starts to avoid overlapping IDs.
+        flushPendingTextEnds(controller, chunk.id);
+
         // Keep the existing part open when a provider puts its final delta
         // just after text-end.
         if (!activeTextParts.has(chunk.id)) {

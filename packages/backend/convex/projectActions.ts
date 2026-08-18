@@ -278,7 +278,7 @@ function createDaytonaClient() {
 
 async function secureSandboxNetwork(sandbox: DaytonaSandbox) {
   const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
-  if (sandbox.domainAllowList === domainAllowList) return sandbox;
+  if (sandboxDomainAllowList(sandbox.domainAllowList) === domainAllowList) return sandbox;
   await sandbox.updateNetworkSettings({ domainAllowList });
   sandbox.domainAllowList = domainAllowList;
   return sandbox;
@@ -566,7 +566,11 @@ async function ensureSandboxStartedUncoalesced(sandboxId: string) {
         return secureSandboxNetwork(sandbox);
       }
 
-      if (sandbox.domainAllowList !== sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST)) {
+      const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
+      if (
+        domainAllowList
+        && sandboxDomainAllowList(sandbox.domainAllowList) !== domainAllowList
+      ) {
         throw new Error(
           "Refusing to start a sandbox whose network policy is missing or outdated. Recreate the sandbox to apply the configured domain allow-list before startup.",
         );

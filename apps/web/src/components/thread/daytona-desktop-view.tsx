@@ -186,7 +186,7 @@ export function DaytonaDesktopView({
   return (
     <div
       ref={shellRef}
-      className={cn("relative flex h-full w-full items-center justify-center overflow-hidden bg-black", className)}
+      className={cn("relative flex h-full w-full items-center justify-center overflow-hidden bg-background", className)}
     >
       <div
         ref={containerRef}
@@ -201,16 +201,16 @@ export function DaytonaDesktopView({
       />
 
       {showOverlay ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70 px-6 text-center">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background px-6 text-center">
           <div className="max-w-[240px] space-y-3">
-            <span className="mx-auto flex size-9 items-center justify-center border border-white/10 bg-white/[0.04]">
+            <span className="mx-auto flex size-9 items-center justify-center border border-border bg-muted/50">
               {loading || state === "connecting" ? (
-                <Loader2 className="size-4 animate-spin text-white/70" aria-hidden="true" />
+                <Loader2 className="size-4 text-muted-foreground" aria-hidden="true" />
               ) : (
-                <Monitor className="size-4 text-white/70" aria-hidden="true" />
+                <Monitor className="size-4 text-muted-foreground" aria-hidden="true" />
               )}
             </span>
-            <p className="text-sm font-medium text-white">
+            <p className="text-sm font-medium text-foreground">
               {error
                 ? "Desktop connection failed"
                 : loading || state === "connecting"
@@ -218,7 +218,7 @@ export function DaytonaDesktopView({
                 : "Preparing desktop…"}
             </p>
             {error ? (
-              <p className="text-xs leading-relaxed text-white/55">{error}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{error}</p>
             ) : null}
           </div>
         </div>

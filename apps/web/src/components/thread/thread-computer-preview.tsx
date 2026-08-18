@@ -230,27 +230,27 @@ export function ThreadComputerPreview({
     <aside
       ref={previewRef}
       aria-label="Live computer preview"
-      className="absolute z-30 w-[calc(100%-1.5rem)] max-w-[360px] overflow-hidden border border-white/15 bg-black text-white"
+      className="absolute z-30 w-[calc(100%-1.5rem)] max-w-[360px] overflow-hidden border border-border/80 bg-background text-foreground shadow-md"
       style={positionStyle}
     >
-      <header className="flex h-8 items-center border-b border-white/10 bg-black">
+      <header className="flex h-8 items-center border-b border-border/70 bg-muted/50">
         <button
           type="button"
           aria-label="Move desktop preview"
           title="Drag to move. Arrow keys also move the preview."
-          className="flex h-full min-w-0 flex-1 touch-none cursor-grab items-center gap-2 px-2.5 text-left active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/70"
+          className="flex h-full min-w-0 flex-1 touch-none cursor-grab items-center gap-2 px-2.5 text-left active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           onKeyDown={handleMoveKeyDown}
           onPointerDown={startDrag}
         >
-          <GripHorizontal className="size-3.5 shrink-0 text-white/35" aria-hidden="true" />
+          <GripHorizontal className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
           <span
             className={cn(
-              "size-1.5 shrink-0 bg-white/35",
-              active && "bg-emerald-400",
+              "size-1.5 shrink-0 bg-muted-foreground/50",
+              active && "bg-[color:var(--cohere-deep-green)]",
             )}
             aria-hidden="true"
           />
-          <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-white/65">
+          <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             {active ? "Computer active" : "Desktop preview"}
           </span>
         </button>
@@ -258,7 +258,7 @@ export function ThreadComputerPreview({
           type="button"
           aria-label="Close desktop preview"
           onClick={closePreview}
-          className="flex size-8 shrink-0 items-center justify-center border-l border-white/10 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/70"
+          className="flex size-8 shrink-0 items-center justify-center border-l border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <X className="size-3.5" aria-hidden="true" />
         </button>
@@ -266,13 +266,13 @@ export function ThreadComputerPreview({
 
       <div className="relative aspect-video bg-black">
         {error && !websocketUrl ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-5 text-center">
-            <Monitor className="size-4 text-white/45" aria-hidden="true" />
-            <p className="line-clamp-2 text-[11px] leading-relaxed text-white/55">{error}</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background px-5 text-center">
+            <Monitor className="size-4 text-muted-foreground" aria-hidden="true" />
+            <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{error}</p>
             <button
               type="button"
               onClick={() => void loadDesktop(true)}
-              className="inline-flex h-7 items-center gap-1.5 border border-white/15 px-2.5 font-mono text-[9px] uppercase tracking-[0.14em] text-white/70 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/70"
+              className="inline-flex h-7 items-center gap-1.5 border border-border bg-background px-2.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <RotateCw className="size-3" aria-hidden="true" />
               Retry

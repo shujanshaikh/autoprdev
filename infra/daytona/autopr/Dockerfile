@@ -156,7 +156,7 @@ RUN apt-get update \
     && git lfs install --system \
     && if [ -e /opt/google/chrome/chrome-sandbox ]; then chown root:root /opt/google/chrome/chrome-sandbox && chmod 4755 /opt/google/chrome/chrome-sandbox; fi \
     && for browser_package in firefox firefox-esr chromium chromium-browser; do ! dpkg-query -W -f='${db:Status-Abbrev}' "$browser_package" 2>/dev/null | grep -q '^ii'; done \
-    && for executable in bash google-chrome-stable node npm uv rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 tmux ttyd Xvfb x11vnc websockify startxfce4; do command -v "$executable" >/dev/null; done \
+    && for executable in bash google-chrome-stable node npm uv rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 tmux ttyd wmctrl Xvfb x11vnc websockify startxfce4; do command -v "$executable" >/dev/null; done \
     && test "$(command -v tini)" = /usr/bin/tini \
     && test "$(getent passwd daytona | cut -d: -f7)" = /bin/bash
 
@@ -272,6 +272,7 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
         '}' > /etc/opt/chrome/policies/managed/autopr.json; \
     fi \
     && test -x /opt/autopr/bin/google-chrome \
+    && test -f /usr/share/icons/hicolor/48x48/apps/org.xfce.terminal.png \
     && install -d /usr/share/backgrounds/autopr \
     && install -m 0644 /opt/autopr/desktop/assets/wallpaper.png /usr/share/backgrounds/autopr/wallpaper.png \
     && install -d -o daytona -g daytona \

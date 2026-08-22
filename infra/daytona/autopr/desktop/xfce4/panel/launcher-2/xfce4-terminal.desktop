@@ -3,6 +3,6 @@ Version=1.0
 Type=Application
 Name=Terminal
 Exec=xfce4-terminal
-Icon=utilities-terminal
+Icon=org.xfce.terminal
 Terminal=false
 StartupNotify=true

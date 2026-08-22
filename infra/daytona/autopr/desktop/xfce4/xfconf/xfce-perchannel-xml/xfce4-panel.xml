@@ -8,16 +8,16 @@
     <property name="panel-1" type="empty">
       <property name="position" type="string" value="p=12;x=960;y=1080"/>
       <property name="position-locked" type="bool" value="true"/>
-      <property name="length" type="uint" value="8"/>
+      <property name="length" type="uint" value="6"/>
       <property name="length-adjust" type="bool" value="true"/>
-      <property name="size" type="uint" value="52"/>
-      <property name="icon-size" type="uint" value="36"/>
+      <property name="size" type="uint" value="48"/>
+      <property name="icon-size" type="uint" value="32"/>
       <property name="nrows" type="uint" value="1"/>
       <property name="mode" type="uint" value="0"/>
       <property name="autohide-behavior" type="uint" value="0"/>
       <property name="background-style" type="uint" value="0"/>
       <property name="enter-opacity" type="uint" value="100"/>
-      <property name="leave-opacity" type="uint" value="92"/>
+      <property name="leave-opacity" type="uint" value="100"/>
       <property name="plugin-ids" type="array">
         <value type="int" value="1"/>
         <value type="int" value="2"/>

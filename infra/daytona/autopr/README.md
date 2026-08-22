@@ -62,7 +62,8 @@ Because the base is bare Ubuntu, the snapshot installs the exact custom-image de
 - Chrome-compatible wrappers in `/opt/autopr/bin` so AutoPR's browser open path prefers Chrome even when it asks for `chromium`.
 - XFCE application launchers and preferred-browser helpers that show one `Google Chrome` browser entry and no Firefox or Chromium installation.
 - Chrome launches without `--no-sandbox`; the snapshot preserves Chrome's own setuid sandbox permissions instead of forcing the unsupported flag.
-- A minimal XFCE profile under `/home/daytona/.config/xfce4`, with a compact bottom-center dock containing only Chrome and the default terminal.
+- A minimal XFCE profile under `/home/daytona/.config/xfce4`, with a transparent bottom-center launcher strip containing only Chrome and the default terminal.
+- Chrome starts maximized and receives an explicit XFWM maximize state after its first window appears, preventing stale profile geometry from reopening it at half width.
 - XDG user-dir config that collapses Documents, Pictures, Music, Videos, Downloads, Templates, Public, and Desktop into the home folder instead of creating separate visible folders.
 - A desktop startup hook that reapplies the wallpaper whenever Daytona starts XFCE.
 - A clean wallpaper installed at `/usr/share/backgrounds/autopr/wallpaper.png`.
@@ -157,6 +158,8 @@ test -f /home/daytona/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
 grep -F 'value="p=12;x=960;y=1080"' /home/daytona/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
 test -f /home/daytona/.config/xfce4/panel/launcher-1/google-chrome.desktop
 test -f /home/daytona/.config/xfce4/panel/launcher-2/xfce4-terminal.desktop
+grep -F 'Icon=org.xfce.terminal' /home/daytona/.config/xfce4/panel/launcher-2/xfce4-terminal.desktop
+grep -F -- '--start-maximized' /opt/autopr/desktop/browser-launcher
 htop --version
 autopr-fff health --cwd "$REPO_DIR"
 autopr-fff find --cwd "$REPO_DIR" --query thread --limit 10

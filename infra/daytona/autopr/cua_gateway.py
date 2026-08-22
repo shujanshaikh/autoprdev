@@ -31,7 +31,6 @@ from cua_driver import (
     ScrollBy,
     ScrollDirection,
     ScrollInput,
-    StartSessionInput,
     TypeTextInput,
     __version__ as CUA_DRIVER_VERSION,
 )
@@ -46,10 +45,11 @@ from cua_driver._native_contract import (
 
 
 GATEWAY_PACKAGE = "autopr-cua-gateway"
-GATEWAY_VERSION = "1.0.0"
+GATEWAY_VERSION = "1.0.1"
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 1024 * 1024
 SDK_CALL_TIMEOUT_SECONDS = 125
+SDK_CONNECT_TIMEOUT_SECONDS = 12
 WINDOW_ID_PATTERN = re.compile(r"^(?:0x)?[0-9a-fA-F]+$")
 
 COMMANDS = {
@@ -208,7 +208,7 @@ class CuaGatewayRuntime:
         self._thread.start()
         self._driver: Any = None
         self._lock: asyncio.Lock | None = None
-        self._submit(self._initialize()).result(timeout=15)
+        self._submit(self._initialize()).result(timeout=SDK_CONNECT_TIMEOUT_SECONDS + 3)
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
@@ -218,13 +218,28 @@ class CuaGatewayRuntime:
         return asyncio.run_coroutine_threadsafe(coroutine, self._loop)
 
     async def _initialize(self) -> None:
-        self._driver = CuaDriver.connect(self._socket_path)
         self._lock = asyncio.Lock()
-        started = await self._driver.start_session(
-            StartSessionInput(session=None, capture_scope=None, cursor_theme=None)
-        )
-        if not started.active:
-            raise RuntimeError("CUA Driver did not activate its private SDK session")
+        deadline = self._loop.time() + SDK_CONNECT_TIMEOUT_SECONDS
+        retry_delay = 0.1
+        last_error: Exception | None = None
+
+        while self._loop.time() < deadline:
+            try:
+                driver = CuaDriver.connect(self._socket_path)
+                # A socket file can exist before the daemon accepts SDK calls.
+                # Metadata is side-effect-free and validates the actual protocol.
+                remaining = max(0.1, deadline - self._loop.time())
+                await asyncio.wait_for(driver.metadata(), timeout=min(2.0, remaining))
+                self._driver = driver
+                return
+            except Exception as error:
+                last_error = error
+                self._driver = None
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(1.0, retry_delay * 2)
+
+        detail = str(last_error) if last_error else "connection timed out"
+        raise RuntimeError(f"CUA Driver SDK connection failed: {detail}")
 
     def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
         result = self._submit(self._dispatch_serialized(command, params)).result(

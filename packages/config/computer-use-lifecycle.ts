@@ -86,11 +86,11 @@ async function inspectProcesses(computerUse: ComputerUseLifecycle): Promise<Proc
 }
 
 async function inspectComputerUse(computerUse: ComputerUseLifecycle): Promise<ComputerUseSnapshot> {
-  const status = await computerUse.getStatus().then(normalizedStatus).catch(() => undefined);
-  return {
-    status,
-    processes: status === "active" ? [] : await inspectProcesses(computerUse),
-  };
+  const [status, processes] = await Promise.all([
+    computerUse.getStatus().then(normalizedStatus).catch(() => undefined),
+    inspectProcesses(computerUse),
+  ]);
+  return { status, processes };
 }
 
 function coreProcessesReady(snapshot: ComputerUseSnapshot): boolean {
@@ -99,7 +99,11 @@ function coreProcessesReady(snapshot: ComputerUseSnapshot): boolean {
 }
 
 function desktopReady(snapshot: ComputerUseSnapshot): boolean {
-  return snapshot.status === "active" || coreProcessesReady(snapshot);
+  // Daytona's aggregate state can briefly remain `active` after one of the
+  // supervised processes exits. An explicit per-process failure must win over
+  // that stale aggregate state so the failed service can be restarted.
+  if (snapshot.processes.some((process) => process.running === false)) return false;
+  return coreProcessesReady(snapshot) || snapshot.status === "active";
 }
 
 function failedProcesses(snapshot: ComputerUseSnapshot): ComputerUseProcessName[] {
@@ -198,8 +202,8 @@ async function restartFailedProcesses(
 
 /**
  * Ensures Daytona's core desktop services are usable without stopping the whole
- * stack. Aggregate `partial` status is accepted when all four core services are
- * running, and recovery is limited to services explicitly reported as down.
+ * stack. Per-process health takes precedence over Daytona's aggregate state,
+ * and recovery is limited to services explicitly reported as down.
  */
 export async function ensureComputerUseReady(
   computerUse: ComputerUseLifecycle,

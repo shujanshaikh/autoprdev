@@ -99,9 +99,23 @@ describe("DaytonaDesktopView", () => {
         rfb?.dispatchEvent(new CustomEvent("connect"));
         rfb?.dispatchEvent(new CustomEvent("disconnect", { detail: { clean: false } }));
       });
-      await act(() => vi.advanceTimersByTimeAsync(attempt === 2 ? 1_000 : 300));
+      await act(() => vi.advanceTimersByTimeAsync(300));
     }
 
     expect(onReconnectRequired).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.instances).toHaveLength(3);
+  });
+
+  it("recovers when a noVNC handshake never completes", async () => {
+    render(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop.test/websockify",
+    }));
+    await flushDesktopImport();
+
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+    await act(() => vi.advanceTimersByTimeAsync(300));
+
+    expect(mocks.instances).toHaveLength(2);
   });
 });

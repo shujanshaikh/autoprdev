@@ -392,7 +392,7 @@ export function ThreadDiffPanel({
     [activeTabId],
   );
 
-  const loadDesktop = useCallback(() => {
+  const loadDesktop = useCallback((force = false) => {
     if (desktopPreviewRequestRef.current) return desktopPreviewRequestRef.current;
 
     const pending = (async () => {
@@ -405,6 +405,7 @@ export function ThreadDiffPanel({
         setDesktopRuntimeStatus("started");
         setDesktopRawState("started");
       } catch (error) {
+        if (force) setDesktopWebsocketUrl(undefined);
         setDesktopError(error instanceof Error ? error.message : "Could not start the Daytona desktop.");
         void refreshDesktopStatus();
       } finally {
@@ -802,7 +803,7 @@ export function ThreadDiffPanel({
                     websocketUrl={desktopWebsocketUrl}
                     loading={desktopLoading && !desktopWebsocketUrl}
                     className="absolute inset-0"
-                    onReconnectRequired={() => void loadDesktop()}
+                    onReconnectRequired={() => void loadDesktop(true)}
                   />
                 </div>
               </div>

@@ -299,7 +299,6 @@ function previewWebsocketUrl(value: string, pathname: string): string {
   const url = new URL(value);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = pathname;
-  url.search = "";
   url.hash = "";
   return url.toString();
 }

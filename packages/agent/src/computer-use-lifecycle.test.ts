@@ -32,6 +32,26 @@ describe("Daytona computer-use lifecycle", () => {
     expect(computerUse.stop).not.toHaveBeenCalled();
   });
 
+  it("repairs a stopped process even when Daytona still reports the desktop as active", async () => {
+    const statuses = processStatuses({ novnc: false });
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      restartProcess: vi.fn(async (name: string) => {
+        statuses.set(name as ComputerUseProcessName, true);
+      }),
+      start: vi.fn(async () => undefined),
+    };
+
+    await ensureComputerUseReady(computerUse, { cacheMs: 0, pollIntervalMs: 0, timeoutMs: 10 });
+
+    expect(computerUse.restartProcess).toHaveBeenCalledExactlyOnceWith("novnc");
+    expect(computerUse.start).not.toHaveBeenCalled();
+  });
+
   it("restarts only the core process Daytona reports as stopped", async () => {
     const statuses = processStatuses({ x11vnc: false });
     const computerUse = {

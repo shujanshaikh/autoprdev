@@ -120,7 +120,7 @@ export function ThreadComputerPreview({
       })
       .catch((cause: unknown) => {
         if (loadingRequestRef.current?.promise === pending) {
-          if (connectionAtRequest && Date.now() < connectionAtRequest.expiresAt) {
+          if (!force && connectionAtRequest && Date.now() < connectionAtRequest.expiresAt) {
             return;
           }
           setConnection((current) => current?.projectId === projectId ? undefined : current);

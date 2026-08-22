@@ -67,12 +67,14 @@ describe("CUA gateway response parsing", () => {
     expect(pythonSyntax.status).toBe(0);
     expect(gateway).toContain("from cua_driver import (");
     expect(gateway).toContain("CuaDriver.connect(self._socket_path)");
+    expect(gateway).toContain("asyncio.wait_for(driver.metadata()");
     expect(gateway).toContain('ActionTarget.DESKTOP(display_id="primary")');
-    expect(gateway).toContain("StartSessionInput(session=None, capture_scope=None, cursor_theme=None)");
+    expect(gateway).not.toContain("StartSessionInput");
     expect(gateway).toContain("await self._driver.get_desktop_state(");
     expect(gateway).toContain("await self._driver.clipboard_read(");
     expect(gateway).not.toContain("computer_server");
     expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
+    expect(launcher).toContain('status --socket "$CUA_DRIVER_SOCKET"');
     expect(launcher).toContain('"$CUA_RUNTIME/bin/python" "$CUA_GATEWAY"');
     expect(launcher).toContain('flock 9');
     expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_gateway_ready; then'));

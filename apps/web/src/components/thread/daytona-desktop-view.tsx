@@ -6,9 +6,9 @@ const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
 const CONNECTION_RETRY_DELAY_MS = 300;
+const CONNECTION_OPEN_TIMEOUT_MS = 15_000;
 const CONNECTION_STABLE_MS = 10_000;
 const MAX_CONNECTION_ATTEMPTS = 3;
-const MAX_RECOVERY_DELAY_MS = 10_000;
 
 type ConnectionState =
   | { state: "idle" }
@@ -127,8 +127,8 @@ export function DaytonaDesktopView({
     let disposed = false;
     let activeRfb: RfbInstance | null = null;
     let connectionAttempt = 0;
-    let recoveryCycle = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let openingTimer: ReturnType<typeof setTimeout> | undefined;
     let stabilityTimer: ReturnType<typeof setTimeout> | undefined;
     updateConnection({ state: "connecting", phase: "opening" });
     container.replaceChildren();
@@ -145,7 +145,7 @@ export function DaytonaDesktopView({
           connectionAttempt += 1;
           updateConnection({
             state: "connecting",
-            phase: connectionAttempt === 1 && recoveryCycle === 0 ? "opening" : "reconnecting",
+            phase: connectionAttempt === 1 ? "opening" : "reconnecting",
           });
           containerRef.current.replaceChildren();
 
@@ -160,6 +160,10 @@ export function DaytonaDesktopView({
             if (stabilityTimer) clearTimeout(stabilityTimer);
             stabilityTimer = undefined;
           };
+          const clearOpeningTimer = () => {
+            if (openingTimer) clearTimeout(openingTimer);
+            openingTimer = undefined;
+          };
           const removeListeners = () => {
             rfb.removeEventListener("connect", handleConnect);
             rfb.removeEventListener("disconnect", handleDisconnect);
@@ -168,28 +172,35 @@ export function DaytonaDesktopView({
           };
           const reconnect = () => {
             if (!isCurrent()) return;
+            clearOpeningTimer();
             clearStabilityTimer();
             removeListeners();
             activeRfb = null;
             rfbRef.current = null;
             rfb.disconnect();
 
-            let delay = CONNECTION_RETRY_DELAY_MS;
             if (connectionAttempt >= MAX_CONNECTION_ATTEMPTS) {
-              connectionAttempt = 0;
-              recoveryCycle += 1;
-              reconnectRequiredRef.current?.();
-              delay = Math.min(
-                MAX_RECOVERY_DELAY_MS,
-                1_000 * 2 ** Math.min(recoveryCycle - 1, 4),
-              );
+              updateConnection({ state: "connecting", phase: "reconnecting" });
+              if (reconnectRequiredRef.current) {
+                // The current signed URL or Daytona proxy route is no longer
+                // trustworthy. Its owner will replace this component's URL;
+                // retrying the stale URL here creates overlapping RFB clients.
+                reconnectRequiredRef.current();
+              } else {
+                updateConnection({
+                  state: "error",
+                  error: "The desktop stream ended repeatedly.",
+                });
+              }
+              return;
             }
 
             updateConnection({ state: "connecting", phase: "reconnecting" });
-            retryTimer = setTimeout(connect, delay);
+            retryTimer = setTimeout(connect, CONNECTION_RETRY_DELAY_MS);
           };
           const fail = (error: string) => {
             if (!isCurrent()) return;
+            clearOpeningTimer();
             clearStabilityTimer();
             removeListeners();
             activeRfb = null;
@@ -199,6 +210,7 @@ export function DaytonaDesktopView({
           };
           const handleConnect: EventListener = () => {
             if (!isCurrent()) return;
+            clearOpeningTimer();
             applyFixedDesktopMode(rfb, interactive);
             updateConnection({ state: "connected" });
             if (interactive) window.requestAnimationFrame(() => rfb.focus());
@@ -210,7 +222,6 @@ export function DaytonaDesktopView({
             stabilityTimer = setTimeout(() => {
               if (!isCurrent()) return;
               connectionAttempt = 0;
-              recoveryCycle = 0;
               stabilityTimer = undefined;
             }, CONNECTION_STABLE_MS);
           };
@@ -228,6 +239,7 @@ export function DaytonaDesktopView({
           rfb.addEventListener("disconnect", handleDisconnect);
           rfb.addEventListener("securityfailure", handleSecurityFailure);
           rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
+          openingTimer = setTimeout(reconnect, CONNECTION_OPEN_TIMEOUT_MS);
         };
 
         connect();
@@ -243,6 +255,7 @@ export function DaytonaDesktopView({
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (openingTimer) clearTimeout(openingTimer);
       if (stabilityTimer) clearTimeout(stabilityTimer);
       const rfb = activeRfb;
       rfbRef.current = null;

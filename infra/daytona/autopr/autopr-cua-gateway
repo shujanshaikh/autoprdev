@@ -71,7 +71,8 @@ is_driver_ready() {
   [ -n "$CUA_DRIVER_BIN" ] && [ -S "$CUA_DRIVER_SOCKET" ] && [ -s "$CUA_DRIVER_PID_FILE" ] \
     || return 1
   pid="$(cat "$CUA_DRIVER_PID_FILE")"
-  is_owned_pid "$pid" "$CUA_DRIVER_BIN"
+  is_owned_pid "$pid" "$CUA_DRIVER_BIN" \
+    && "$CUA_DRIVER_BIN" status --socket "$CUA_DRIVER_SOCKET" >/dev/null 2>&1
 }
 
 is_gateway_ready() {
@@ -141,7 +142,6 @@ start_driver() {
 }
 
 start_gateway() {
-  : >"$CUA_LOG_FILE"
   CUA_DRIVER_SOCKET="$CUA_DRIVER_SOCKET" \
   nohup "$CUA_RUNTIME/bin/python" "$CUA_GATEWAY" \
     9>&- \
@@ -187,16 +187,27 @@ if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 if ! start_driver; then
-  echo "CUA Driver did not open its private socket." >&2
+  echo "CUA Driver did not answer on its private SDK socket." >&2
   tail -n 40 "$CUA_DRIVER_LOG_FILE" >&2 || true
   exit 1
 fi
+: >"$CUA_LOG_FILE"
 start_gateway
 
+gateway_starts=1
 for _ in $(seq 1 80); do
   if is_gateway_ready; then
     set_cursor_theme
     exit 0
+  fi
+  if ! [ -s "$CUA_PID_FILE" ] \
+    || ! is_owned_pid "$(cat "$CUA_PID_FILE" 2>/dev/null)" "$CUA_GATEWAY"; then
+    if [ "$gateway_starts" -ge 3 ]; then
+      break
+    fi
+    gateway_starts=$((gateway_starts + 1))
+    echo "Restarting CUA gateway after an early exit (attempt ${gateway_starts}/3)." >>"$CUA_LOG_FILE"
+    start_gateway
   fi
   sleep 0.5
 done

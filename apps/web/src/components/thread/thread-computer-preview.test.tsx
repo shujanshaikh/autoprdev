@@ -155,6 +155,23 @@ describe("ThreadComputerPreview", () => {
     expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(2);
   });
 
+  it("shows the refresh failure instead of retaining a disconnected signed URL", async () => {
+    mocks.getDesktopPreview
+      .mockResolvedValueOnce({
+        websocketUrl: "wss://desktop-disconnected.test",
+        expiresInSeconds: 3_600,
+      })
+      .mockRejectedValueOnce(new Error("Desktop services are unavailable"));
+
+    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
+
+    expect(await screen.findByText("wss://desktop-disconnected.test")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
+
+    expect(await screen.findByText("Desktop services are unavailable")).toBeTruthy();
+    expect(screen.queryByText("wss://desktop-disconnected.test")).toBeNull();
+  });
+
   it("refreshes sandbox activity without rotating healthy noVNC credentials", async () => {
     const intervalSpy = vi.spyOn(window, "setInterval");
     render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);

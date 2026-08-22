@@ -16,8 +16,17 @@ vi.mock("@autopr/backend/convex/_generated/api", () => ({
 }));
 
 vi.mock("./daytona-desktop-view", () => ({
-  DaytonaDesktopView: ({ websocketUrl }: { websocketUrl?: string }) => (
-    <div data-testid="desktop-view">{websocketUrl}</div>
+  DaytonaDesktopView: ({
+    websocketUrl,
+    onReconnectRequired,
+  }: {
+    websocketUrl?: string;
+    onReconnectRequired?: () => void;
+  }) => (
+    <div data-testid="desktop-view">
+      {websocketUrl}
+      <button type="button" onClick={onReconnectRequired}>Simulate VNC disconnect</button>
+    </div>
   ),
 }));
 
@@ -117,5 +126,25 @@ describe("ThreadComputerPreview", () => {
     expect(await screen.findByText("Preview refresh failed")).toBeTruthy();
     expect(screen.queryByText("wss://expired.test")).toBeNull();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("replaces the signed WebSocket URL when noVNC requests reconnection", async () => {
+    mocks.getDesktopPreview
+      .mockResolvedValueOnce({
+        websocketUrl: "wss://desktop-first.test",
+        expiresInSeconds: 3_600,
+      })
+      .mockResolvedValueOnce({
+        websocketUrl: "wss://desktop-renewed.test",
+        expiresInSeconds: 3_600,
+      });
+
+    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
+
+    expect(await screen.findByText("wss://desktop-first.test")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
+
+    expect(await screen.findByText("wss://desktop-renewed.test")).toBeTruthy();
+    expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(2);
   });
 });

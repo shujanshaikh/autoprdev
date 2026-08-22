@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
+import { DESKTOP_PREVIEW_HEARTBEAT_MS } from "./daytona-desktop-connection";
 
 type PreviewPosition = { x: number; y: number };
 type DesktopPreviewConnection = {
@@ -99,9 +100,12 @@ export function ThreadComputerPreview({
       return existingRequest.promise;
     }
 
-    setConnection((current) => current?.projectId === projectId ? undefined : current);
+    if (!currentConnection) {
+      setConnection((current) => current?.projectId === projectId ? undefined : current);
+    }
     setLoadingProjectId(projectId);
     setPreviewError(undefined);
+    const connectionAtRequest = currentConnection;
     const pending = getDesktopPreview({ projectId })
       .then((preview) => {
         if (loadingRequestRef.current?.promise !== pending) {
@@ -115,6 +119,10 @@ export function ThreadComputerPreview({
       })
       .catch((cause: unknown) => {
         if (loadingRequestRef.current?.promise === pending) {
+          if (connectionAtRequest && Date.now() < connectionAtRequest.expiresAt) {
+            return;
+          }
+          setConnection((current) => current?.projectId === projectId ? undefined : current);
           setPreviewError({
             projectId,
             message: cause instanceof Error ? cause.message : "Could not open the desktop preview.",
@@ -133,12 +141,17 @@ export function ThreadComputerPreview({
   }, [currentConnection, getDesktopPreview, projectId]);
 
   useEffect(() => {
-    if (!active || !open || error) {
+    if (!open || error) {
       return;
     }
 
     void loadDesktop();
-  }, [active, error, loadDesktop, open]);
+    const heartbeat = window.setInterval(() => {
+      void loadDesktop(true);
+    }, DESKTOP_PREVIEW_HEARTBEAT_MS);
+
+    return () => window.clearInterval(heartbeat);
+  }, [error, loadDesktop, open]);
 
   useEffect(() => {
     const preview = previewRef.current;
@@ -305,9 +318,10 @@ export function ThreadComputerPreview({
         ) : (
           <DaytonaDesktopView
             websocketUrl={websocketUrl}
-            loading={loading}
+            loading={loading && !websocketUrl}
             interactive={false}
             className="absolute inset-0"
+            onReconnectRequired={() => void loadDesktop(true)}
           />
         )}
       </div>

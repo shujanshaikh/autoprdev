@@ -34,7 +34,7 @@ const DEFAULT_SANDBOX_WORKDIR = "/home";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;
-const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
+const DESKTOP_PREVIEW_EXPIRES_SECONDS = 60 * 60;
 const TERMINAL_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const TERMINAL_PROCESS_TIMEOUT_MINUTES = 10;
 const TERMINAL_PORT_MIN = 30_000;
@@ -48,7 +48,6 @@ const TTYD_SHA256 = {
 const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
 const DESKTOP_STATUS_POLL_MS = 1_000;
 const DESKTOP_RECOVERY_DELAY_MS = 1_000;
-const MIN_PAINTED_DESKTOP_BYTES = 2_048;
 const MAX_DESKTOP_DIAGNOSTIC_LENGTH = 400;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const SANDBOX_START_POLL_MS = 1_000;
@@ -128,12 +127,6 @@ type ComputerUseLifecycle = {
   restartProcess?(processName: string): Promise<unknown>;
   getProcessLogs?(processName: string): Promise<unknown>;
   getProcessErrors?(processName: string): Promise<unknown>;
-  screenshot?: {
-    takeCompressed(options?: { format?: string; quality?: number; scale?: number }): Promise<{
-      screenshot?: string;
-      sizeBytes?: number;
-    }>;
-  };
 };
 
 const sandboxStartPromises = new Map<string, Promise<DaytonaSandbox>>();
@@ -405,42 +398,17 @@ async function getDaytonaSandboxRuntimeStatus(sandboxId: string): Promise<Sandbo
   };
 }
 
-function screenshotPayloadBytes(response: { screenshot?: string; sizeBytes?: number }) {
-  if (typeof response.sizeBytes === "number") return response.sizeBytes;
-  if (!response.screenshot) return 0;
-
-  const payload = response.screenshot.replace(/^data:[^,]+,/, "").replace(/\s/g, "");
-  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
-  return Math.max(0, Math.floor(payload.length * 3 / 4) - padding);
-}
-
-async function waitForDesktopReady(computerUse: Pick<ComputerUseLifecycle, "getStatus" | "screenshot">): Promise<void> {
+async function waitForDesktopReady(computerUse: Pick<ComputerUseLifecycle, "getStatus">): Promise<void> {
   const deadline = Date.now() + DESKTOP_STATUS_TIMEOUT_MS;
   let lastStatus: string | undefined;
-  let lastScreenshotBytes: number | undefined;
 
   while (Date.now() < deadline) {
     lastStatus = computerUseStatus(await computerUse.getStatus());
-    if (lastStatus === "active") {
-      if (!computerUse.screenshot) return;
-
-      try {
-        const screenshot = await computerUse.screenshot.takeCompressed({ format: "png", scale: 0.1 });
-        const screenshotBytes = screenshotPayloadBytes(screenshot);
-        lastScreenshotBytes = screenshotBytes;
-        if (screenshotBytes >= MIN_PAINTED_DESKTOP_BYTES) return;
-      } catch {
-        // The screenshot endpoint can trail process readiness during startup.
-      }
-    }
+    if (lastStatus === "active") return;
     await sleep(DESKTOP_STATUS_POLL_MS);
   }
 
-  throw new Error(
-    lastStatus === "active"
-      ? `VNC desktop framebuffer remained blank${lastScreenshotBytes === undefined ? "" : ` (${lastScreenshotBytes} bytes)`}.`
-      : `VNC desktop not ready${lastStatus ? `: ${lastStatus}` : ""}.`,
-  );
+  throw new Error(`VNC desktop not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
 }
 
 async function restartComputerUseProcesses(
@@ -559,11 +527,6 @@ async function ensureDesktopReady(computerUse: ComputerUseLifecycle) {
   const currentStatus = await readComputerUseStatus(computerUse);
 
   if (currentStatus === "active") {
-    try {
-      await waitForDesktopReady(computerUse);
-    } catch (error) {
-      await recoverComputerUse(computerUse, error);
-    }
     return;
   }
 
@@ -705,6 +668,7 @@ async function stopDaytonaSandbox(sandboxId: string) {
 
 async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    await sandbox.refreshActivity();
     await ensureDesktopReady(sandbox.computerUse);
 
     const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);

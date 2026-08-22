@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hasPaintedDesktopFrame } from "./daytona-desktop-view";
+import { hasPaintedDesktopFrame } from "./daytona-desktop-connection";
 
 function frame(data: number[], width: number, height: number) {
   return { data: new Uint8ClampedArray(data), width, height };

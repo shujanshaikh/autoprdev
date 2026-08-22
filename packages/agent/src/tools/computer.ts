@@ -15,7 +15,6 @@ export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
 const COMPUTER_READY_TIMEOUT_MS = 30_000;
 const COMPUTER_READY_POLL_MS = 1_000;
 const COMPUTER_RECOVERY_DELAY_MS = 1_000;
-const MIN_PAINTED_DESKTOP_BYTES = 2_048;
 const MAX_COMPUTER_DIAGNOSTIC_LENGTH = 400;
 // Lossless screenshots keep small controls and text crisp enough for reliable
 // visual grounding. Callers can still request JPEG when payload size matters.
@@ -374,50 +373,19 @@ type ComputerUseLifecycle = {
   restartProcess?(processName: string): Promise<unknown>;
   getProcessLogs?(processName: string): Promise<unknown>;
   getProcessErrors?(processName: string): Promise<unknown>;
-  screenshot?: {
-    takeCompressed(options?: { format?: string; quality?: number; scale?: number }): Promise<{
-      screenshot?: string;
-      sizeBytes?: number;
-    }>;
-  };
 };
 
-function screenshotPayloadBytes(response: { screenshot?: string; sizeBytes?: number }) {
-  if (typeof response.sizeBytes === "number") return response.sizeBytes;
-  if (!response.screenshot) return 0;
-
-  const payload = response.screenshot.replace(/^data:[^,]+,/, "").replace(/\s/g, "");
-  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
-  return Math.max(0, Math.floor(payload.length * 3 / 4) - padding);
-}
-
-async function waitForComputerReady(computerUse: Pick<ComputerUseLifecycle, "getStatus" | "screenshot">) {
+async function waitForComputerReady(computerUse: Pick<ComputerUseLifecycle, "getStatus">) {
   const deadline = Date.now() + COMPUTER_READY_TIMEOUT_MS;
   let lastStatus: string | undefined;
-  let lastScreenshotBytes: number | undefined;
 
   while (Date.now() < deadline) {
     lastStatus = statusValue(await computerUse.getStatus());
-    if (lastStatus === "active") {
-      if (!computerUse.screenshot) return;
-
-      try {
-        const screenshot = await computerUse.screenshot.takeCompressed({ format: "png", scale: 0.1 });
-        const screenshotBytes = screenshotPayloadBytes(screenshot);
-        lastScreenshotBytes = screenshotBytes;
-        if (screenshotBytes >= MIN_PAINTED_DESKTOP_BYTES) return;
-      } catch {
-        // The screenshot endpoint can trail process readiness during startup.
-      }
-    }
+    if (lastStatus === "active") return;
     await sleep(COMPUTER_READY_POLL_MS);
   }
 
-  throw new Error(
-    lastStatus === "active"
-      ? `Daytona desktop framebuffer remained blank${lastScreenshotBytes === undefined ? "" : ` (${lastScreenshotBytes} bytes)`}.`
-      : `Daytona desktop was not ready${lastStatus ? `: ${lastStatus}` : ""}.`,
-  );
+  throw new Error(`Daytona desktop was not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
 }
 
 async function readComputerStatus(computerUse: Pick<ComputerUseLifecycle, "getStatus">): Promise<string | undefined> {
@@ -590,11 +558,6 @@ async function ensureComputerReady(computerUse: ComputerUseLifecycle) {
   const currentStatus = await readComputerStatus(computerUse);
 
   if (currentStatus === "active") {
-    try {
-      await waitForComputerReady(computerUse);
-    } catch (error) {
-      await recoverComputerUse(computerUse, error);
-    }
     return;
   }
 

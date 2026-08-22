@@ -2,6 +2,8 @@ import { cn } from "@autopr/ui/lib/utils";
 import { Loader2, Monitor } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 
+import { hasPaintedDesktopFrame } from "./daytona-desktop-connection";
+
 const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
@@ -9,12 +11,14 @@ const FRAME_PROBE_INTERVAL_MS = 250;
 const FRAME_PROBE_TIMEOUT_MS = 4_000;
 const CONNECTION_RETRY_DELAY_MS = 300;
 const MAX_CONNECTION_ATTEMPTS = 3;
+const MAX_RECOVERY_DELAY_MS = 10_000;
 
 type DaytonaDesktopViewProps = {
   websocketUrl?: string;
   loading?: boolean;
   className?: string;
   interactive?: boolean;
+  onReconnectRequired?: () => void;
 };
 
 type RfbInstance = {
@@ -44,31 +48,17 @@ function applyFixedDesktopMode(rfb: RfbInstance, interactive: boolean) {
   rfb.viewOnly = !interactive;
 }
 
-export function hasPaintedDesktopFrame(frame: Pick<ImageData, "data" | "height" | "width">) {
-  if (frame.width <= 0 || frame.height <= 0 || frame.data.length < 4) return false;
-
-  const sampleStride = Math.max(4, Math.floor(frame.data.length / (4 * 4_096)) * 4);
-  let visibleSamples = 0;
-
-  for (let index = 0; index < frame.data.length; index += sampleStride) {
-    if (Math.max(frame.data[index] ?? 0, frame.data[index + 1] ?? 0, frame.data[index + 2] ?? 0) > 24) {
-      visibleSamples += 1;
-      if (visibleSamples >= 4) return true;
-    }
-  }
-
-  return false;
-}
-
 export function DaytonaDesktopView({
   websocketUrl,
   loading = false,
   className,
   interactive = true,
+  onReconnectRequired,
 }: DaytonaDesktopViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RfbInstance | null>(null);
+  const reconnectRequiredRef = useRef(onReconnectRequired);
   // react-doctor-disable-next-line react-doctor/no-initialize-state -- Frame size depends on measured DOM layout after mount.
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>();
   const [connection, updateConnection] = useReducer(
@@ -78,6 +68,10 @@ export function DaytonaDesktopView({
     ) => next,
     { state: "idle" },
   );
+
+  useEffect(() => {
+    reconnectRequiredRef.current = onReconnectRequired;
+  }, [onReconnectRequired]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -134,6 +128,7 @@ export function DaytonaDesktopView({
     let disposed = false;
     let activeRfb: RfbInstance | null = null;
     let connectionAttempt = 0;
+    let recoveryCycle = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let probeTimer: ReturnType<typeof setTimeout> | undefined;
     updateConnection({ state: "connecting" });
@@ -169,7 +164,7 @@ export function DaytonaDesktopView({
             rfb.removeEventListener("securityfailure", handleSecurityFailure);
             rfb.removeEventListener("credentialsrequired", handleCredentialsRequired);
           };
-          const retryOrFail = (error: string) => {
+          const reconnect = () => {
             if (!isCurrent()) return;
             clearProbe();
             removeListeners();
@@ -177,12 +172,28 @@ export function DaytonaDesktopView({
             rfbRef.current = null;
             rfb.disconnect();
 
+            let delay = CONNECTION_RETRY_DELAY_MS;
             if (connectionAttempt >= MAX_CONNECTION_ATTEMPTS) {
-              updateConnection({ state: "error", error });
-              return;
+              connectionAttempt = 0;
+              recoveryCycle += 1;
+              reconnectRequiredRef.current?.();
+              delay = Math.min(
+                MAX_RECOVERY_DELAY_MS,
+                1_000 * 2 ** Math.min(recoveryCycle - 1, 4),
+              );
             }
 
-            retryTimer = setTimeout(connect, CONNECTION_RETRY_DELAY_MS);
+            updateConnection({ state: "connecting" });
+            retryTimer = setTimeout(connect, delay);
+          };
+          const fail = (error: string) => {
+            if (!isCurrent()) return;
+            clearProbe();
+            removeListeners();
+            activeRfb = null;
+            rfbRef.current = null;
+            rfb.disconnect();
+            updateConnection({ state: "error", error });
           };
           const handleConnect: EventListener = () => {
             const deadline = Date.now() + FRAME_PROBE_TIMEOUT_MS;
@@ -192,6 +203,8 @@ export function DaytonaDesktopView({
               try {
                 if (hasPaintedDesktopFrame(rfb.getImageData())) {
                   clearProbe();
+                  connectionAttempt = 0;
+                  recoveryCycle = 0;
                   updateConnection({ state: "connected" });
                   if (interactive) window.requestAnimationFrame(() => rfb.focus());
                   return;
@@ -201,7 +214,7 @@ export function DaytonaDesktopView({
               }
 
               if (Date.now() >= deadline) {
-                retryOrFail("The desktop connected but did not produce a visible frame.");
+                reconnect();
                 return;
               }
               probeTimer = setTimeout(probeFrame, FRAME_PROBE_INTERVAL_MS);
@@ -211,17 +224,13 @@ export function DaytonaDesktopView({
             probeFrame();
           };
           const handleDisconnect: EventListener = () => {
-            retryOrFail("The VNC connection closed before the desktop became ready.");
+            reconnect();
           };
           const handleSecurityFailure: EventListener = () => {
-            if (!isCurrent()) return;
-            clearProbe();
-            updateConnection({ state: "error", error: "The VNC server rejected the connection." });
+            fail("The VNC server rejected the connection.");
           };
           const handleCredentialsRequired: EventListener = () => {
-            if (!isCurrent()) return;
-            clearProbe();
-            updateConnection({ state: "error", error: "This VNC desktop requires credentials." });
+            fail("This VNC desktop requires credentials.");
           };
 
           rfb.addEventListener("connect", handleConnect);

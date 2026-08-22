@@ -69,7 +69,7 @@ Because the base is bare Ubuntu, the snapshot installs the exact custom-image de
 - A clean wallpaper installed at `/usr/share/backgrounds/autopr/wallpaper.png`.
 - An invisible hardware Xcursor theme. Real pointer motion and input remain active, but Daytona cannot composite the stock black X11 cursor over CUA's animated software cursor.
 - A fixed `1920x1080` noVNC desktop, matching Daytona's computer-use `VNC_RESOLUTION` path, that AutoPR scales inside the desktop panel without resizing the sandbox display.
-- The web preview waits for visibly painted framebuffer pixels and performs bounded reconnects when noVNC initially connects to an empty black frame.
+- The web preview waits for visibly painted framebuffer pixels, reconnects with capped backoff after transient noVNC closes, and renews its one-hour signed Daytona URL every five minutes. Each renewal refreshes sandbox activity so an actively viewed desktop does not fall through the 15-minute auto-stop window.
 - Command-line developer utilities such as htop, jq, tmux, tree, git-lfs, zip/unzip, vim, nano, and the diagnostic tools listed above. They do not add third-party GUI applications.
 
 ## CUA Computer Use

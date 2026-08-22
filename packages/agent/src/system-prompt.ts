@@ -54,10 +54,10 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
     "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available.",
     "Treat coordinates as image-space pixels from the latest returned screenshot, with (0,0) at its top-left. Pass that screenshot's exact observationId with every coordinate action.",
     "The tool rejects stale observation IDs. After navigation, scrolling, dialogs, menus, resizing, or any layout change, inspect the newly returned observation before choosing coordinates.",
-    "Use one action per call. Aim at the center of the visible target, then inspect the stable observation returned by that action before continuing.",
+    "Use one action per call. Aim at the center of the visible target, then inspect the fresh observation returned by that action before continuing.",
     "Use screenshot.windowId or screenshot.region to zoom when text or controls are small. Zoomed coordinates remain relative to the returned image until a full screenshot resets the view.",
     "If CUA reports suspected_noop, partial, or unverifiable, or the screen did not change as expected, choose a corrected target from the new observation instead of repeating old coordinates.",
-    "Use a bounded wait when loading or animation continues after the tool's stability checks.",
+    "Continue immediately when the returned observation is actionable. Use one bounded wait only when the page is visibly still loading or animating.",
     "When turn-specific instructions require a demo recording, treat a successful stop_recording result as part of the required final deliverable.",
   ],
 };

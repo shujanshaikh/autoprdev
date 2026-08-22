@@ -5,14 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDesktopPreview: vi.fn(),
+  refreshDesktopActivity: vi.fn(),
 }));
 
 vi.mock("convex/react", () => ({
-  useAction: () => mocks.getDesktopPreview,
+  useAction: (action: string) => action === "refreshDesktopActivity"
+    ? mocks.refreshDesktopActivity
+    : mocks.getDesktopPreview,
 }));
 
 vi.mock("@autopr/backend/convex/_generated/api", () => ({
-  api: { projectActions: { getDesktopPreview: "getDesktopPreview" } },
+  api: { projectActions: {
+    getDesktopPreview: "getDesktopPreview",
+    refreshDesktopActivity: "refreshDesktopActivity",
+  } },
 }));
 
 vi.mock("./daytona-desktop-view", () => ({
@@ -49,6 +55,7 @@ beforeEach(() => {
     websocketUrl: "wss://desktop.example.test",
     expiresInSeconds: 600,
   });
+  mocks.refreshDesktopActivity.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -146,5 +153,23 @@ describe("ThreadComputerPreview", () => {
 
     expect(await screen.findByText("wss://desktop-renewed.test")).toBeTruthy();
     expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes sandbox activity without rotating healthy noVNC credentials", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
+
+    expect(await screen.findByText("wss://desktop.example.test")).toBeTruthy();
+    const heartbeat = intervalSpy.mock.calls.at(-1)?.[0];
+    if (typeof heartbeat !== "function") throw new Error("desktop heartbeat is missing");
+
+    await act(async () => {
+      heartbeat();
+      await Promise.resolve();
+    });
+
+    expect(mocks.refreshDesktopActivity).toHaveBeenCalledExactlyOnceWith({ projectId: "project-1" });
+    expect(mocks.getDesktopPreview).toHaveBeenCalledOnce();
+    intervalSpy.mockRestore();
   });
 });

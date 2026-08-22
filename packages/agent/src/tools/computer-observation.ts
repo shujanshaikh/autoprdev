@@ -37,11 +37,8 @@ export type CuaObservation = {
   scaleY: number;
   hash: string;
   capturedAt: string;
+  captureDurationMs: number;
   captureKind: "desktop_state" | "legacy_screenshot";
-  stable: boolean;
-  stabilityChecks: number;
-  stabilityMs: number;
-  fingerprint: Buffer;
 };
 
 type RawCapture = {
@@ -57,12 +54,11 @@ type RawCapture = {
 
 type ProcessedCapture = Omit<
   CuaObservation,
-  "id" | "capturedAt" | "stable" | "stabilityChecks" | "stabilityMs"
+  "id" | "capturedAt" | "captureDurationMs"
 >;
 
 const DEFAULT_FORMAT = "png";
 const DEFAULT_QUALITY = 85;
-const STABLE_PIXEL_DIFFERENCE = 1.25;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -196,27 +192,6 @@ function boundedRegion(region: ScreenshotRegion, source: { width: number; height
   };
 }
 
-async function visualFingerprint(buffer: Buffer): Promise<Buffer> {
-  try {
-    return await sharp(buffer)
-      .resize(64, 36, { fit: "fill" })
-      .greyscale()
-      .raw()
-      .toBuffer();
-  } catch {
-    return createHash("sha256").update(buffer).digest();
-  }
-}
-
-function averagePixelDifference(first: Buffer, second: Buffer): number {
-  if (first.length !== second.length) return Number.POSITIVE_INFINITY;
-  let difference = 0;
-  for (let index = 0; index < first.length; index += 1) {
-    difference += Math.abs((first[index] ?? 0) - (second[index] ?? 0));
-  }
-  return difference / Math.max(1, first.length);
-}
-
 async function processCapture(
   cua: CuaComputerClient,
   raw: RawCapture,
@@ -284,7 +259,6 @@ async function processCapture(
     scaleY,
     hash,
     captureKind: raw.captureKind,
-    fingerprint: await visualFingerprint(output),
   };
 }
 
@@ -298,33 +272,17 @@ export async function captureCuaObservation(
   options: {
     sequence: number;
     initialDelayMs?: number;
-    maxChecks?: number;
-    intervalMs?: number;
   },
 ): Promise<CuaObservation> {
-  const startedAt = Date.now();
   if (options.initialDelayMs) await sleep(options.initialDelayMs);
-  const maxChecks = Math.max(1, options.maxChecks ?? 1);
-  const intervalMs = options.intervalMs ?? 250;
-  let capture = await processCapture(cua, await rawCapture(cua), request);
-  let stable = maxChecks === 1;
-  let checks = 1;
-
-  while (!stable && checks < maxChecks) {
-    await sleep(intervalMs);
-    const next = await processCapture(cua, await rawCapture(cua), request);
-    checks += 1;
-    stable = averagePixelDifference(capture.fingerprint, next.fingerprint) <= STABLE_PIXEL_DIFFERENCE;
-    capture = next;
-  }
+  const startedAt = Date.now();
+  const capture = await processCapture(cua, await rawCapture(cua), request);
 
   return {
     ...capture,
     id: `obs-${options.sequence}-${capture.hash.slice(0, 12)}`,
     capturedAt: new Date().toISOString(),
-    stable,
-    stabilityChecks: checks,
-    stabilityMs: Date.now() - startedAt,
+    captureDurationMs: Date.now() - startedAt,
   };
 }
 
@@ -345,6 +303,5 @@ export function observationPointToScreen(
 }
 
 export function screenshotForModel(observation: CuaObservation) {
-  const { fingerprint: _fingerprint, ...screenshot } = observation;
-  return screenshot;
+  return observation;
 }

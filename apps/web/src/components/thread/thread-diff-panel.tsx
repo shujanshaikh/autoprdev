@@ -172,6 +172,7 @@ export function ThreadDiffPanel({
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
   const desktopPreviewRequestRef = useRef<Promise<void> | undefined>(undefined);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
+  const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
 
   useEffect(() => {
@@ -423,11 +424,11 @@ export function ThreadDiffPanel({
     if (!desktopWebsocketUrl || renderedActiveTab !== "desktop") return;
 
     const heartbeat = window.setInterval(() => {
-      void loadDesktop();
+      void refreshDesktopActivity({ projectId }).catch(() => undefined);
     }, DESKTOP_PREVIEW_HEARTBEAT_MS);
 
     return () => window.clearInterval(heartbeat);
-  }, [desktopWebsocketUrl, loadDesktop, renderedActiveTab]);
+  }, [desktopWebsocketUrl, projectId, refreshDesktopActivity, renderedActiveTab]);
 
   return (
     <aside

@@ -65,6 +65,7 @@ export function ThreadComputerPreview({
   const loadingRequestRef = useRef<DesktopPreviewRequest | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
+  const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
 
   const open = Boolean(activityKey && dismissedActivityKey !== activityKey);
   const currentConnection = connection?.projectId === projectId ? connection : undefined;
@@ -147,11 +148,11 @@ export function ThreadComputerPreview({
 
     void loadDesktop();
     const heartbeat = window.setInterval(() => {
-      void loadDesktop(true);
+      void refreshDesktopActivity({ projectId }).catch(() => undefined);
     }, DESKTOP_PREVIEW_HEARTBEAT_MS);
 
     return () => window.clearInterval(heartbeat);
-  }, [error, loadDesktop, open]);
+  }, [error, loadDesktop, open, projectId, refreshDesktopActivity]);
 
   useEffect(() => {
     const preview = previewRef.current;

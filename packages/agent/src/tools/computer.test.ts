@@ -168,7 +168,7 @@ describe("CUA computer execution", () => {
     expect(mocks.command).not.toHaveBeenCalledWith("screenshot", expect.anything());
     expect(observationId(first)).not.toBe(observationId(second));
     expect(metadata(second)).toMatchObject({
-      screenshot: { captureKind: "desktop_state", stable: true },
+      screenshot: { captureKind: "desktop_state" },
     });
   });
 
@@ -224,38 +224,19 @@ describe("CUA computer execution", () => {
     });
   });
 
-  it("waits for consecutive stable CUA observations after an action", async () => {
-    const colors = ["#111111", "#333333", "#555555", "#555555"];
-    const frames = await Promise.all(colors.map(async (background) => (
-      await sharp({ create: { width: 100, height: 80, channels: 3, background } }).png().toBuffer()
-    ).toString("base64")));
-    let captureIndex = 0;
-    mocks.command.mockImplementation(async (command: string) => {
-      if (command === "get_desktop_state") {
-        const frame = frames[Math.min(captureIndex, frames.length - 1)];
-        captureIndex += 1;
-        return {
-          success: true,
-          image_data: frame,
-          screen_width: 100,
-          screen_height: 80,
-          screenshot_width: 100,
-          screenshot_height: 80,
-        };
-      }
-      if (command === "get_cursor_position") return { success: true, position: { x: 0, y: 0 } };
-      return { success: true, effect: "confirmed" };
-    });
-    const computer = createCuaComputerTool({ cacheKey: "stable-screen" });
+  it("captures exactly one CUA frame after an action", async () => {
+    const computer = createCuaComputerTool({ cacheKey: "single-frame" });
     if (!computer.execute) throw new Error("computer tool is not executable");
     const shot = await computer.execute({ type: "screenshot" }, { toolCallId: "shot", messages: [] });
+    mocks.command.mockClear();
     const result = await computer.execute({
       type: "click",
       observationId: observationId(shot),
       x: 10,
       y: 10,
     }, { toolCallId: "click", messages: [] });
-    expect(metadata(result)).toMatchObject({ screenshot: { stable: true, stabilityChecks: 3 } });
+    expect(mocks.command.mock.calls.filter(([command]) => command === "get_desktop_state")).toHaveLength(1);
+    expect(metadata(result)).toMatchObject({ screenshot: { captureKind: "desktop_state" } });
   });
 
   it("uses CUA window, clipboard, and single-request text commands", async () => {

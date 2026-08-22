@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./computer-use-lifecycle": "./computer-use-lifecycle.ts",
     "./tsconfig.base.json": "./tsconfig.base.json",
     "./sandbox-network-policy": "./sandbox-network-policy.ts"
   }

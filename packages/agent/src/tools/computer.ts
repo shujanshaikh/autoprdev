@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { ensureComputerUseReady } from "@autopr/config/computer-use-lifecycle";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import {
@@ -26,16 +27,12 @@ import { raceWithTimeout } from "./timeout";
 
 export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
 
-const COMPUTER_READY_TIMEOUT_MS = 30_000;
-const COMPUTER_READY_POLL_MS = 1_000;
-const COMPUTER_RECOVERY_DELAY_MS = 1_000;
 const MAX_COMPUTER_DIAGNOSTIC_LENGTH = 400;
 const MAX_COMPUTER_METADATA_CHARS = 8_000;
 const MAX_RECORDINGS_RETURNED = 25;
 const MAX_TRAJECTORY_RETURNED = 10;
 const COMPUTER_ACTION_TIMEOUT_MS = 120_000;
 const COMPUTER_START_TIMEOUT_MS = 8 * 60_000;
-const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 const computerOperationTails = new WeakMap<object, Promise<void>>();
 
 type TrackComputerOperation = (operation: Promise<unknown>) => void;
@@ -212,25 +209,6 @@ type ComputerOutputDetails = {
   recentTrajectory?: CuaTrajectoryEvent[];
 };
 
-type ComputerUseProcessName = (typeof COMPUTER_USE_PROCESS_NAMES)[number];
-type ComputerUseDiagnostics = {
-  processName: ComputerUseProcessName;
-  status?: string;
-  running?: boolean;
-  errors?: string;
-  logs?: string;
-  diagnosticError?: string;
-};
-type ComputerUseLifecycle = {
-  start(): Promise<unknown>;
-  stop(): Promise<unknown>;
-  getStatus(): Promise<unknown>;
-  getProcessStatus?(processName: string): Promise<unknown>;
-  restartProcess?(processName: string): Promise<unknown>;
-  getProcessLogs?(processName: string): Promise<unknown>;
-  getProcessErrors?(processName: string): Promise<unknown>;
-};
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -246,25 +224,6 @@ function numberField(value: Record<string, unknown>, key: string): number | unde
 function statusValue(value: unknown): string | undefined {
   if (!isRecord(value)) return undefined;
   return typeof value.status === "string" ? value.status.toLowerCase() : undefined;
-}
-
-async function waitForComputerReady(computerUse: Pick<ComputerUseLifecycle, "getStatus">) {
-  const deadline = Date.now() + COMPUTER_READY_TIMEOUT_MS;
-  let lastStatus: string | undefined;
-  while (Date.now() < deadline) {
-    lastStatus = statusValue(await computerUse.getStatus());
-    if (lastStatus === "active") return;
-    await sleep(COMPUTER_READY_POLL_MS);
-  }
-  throw new Error(`Daytona desktop was not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
-}
-
-async function readComputerStatus(computerUse: Pick<ComputerUseLifecycle, "getStatus">) {
-  try {
-    return statusValue(await computerUse.getStatus());
-  } catch {
-    return undefined;
-  }
 }
 
 function compactDiagnostic(value: unknown): string | undefined {
@@ -289,141 +248,6 @@ function compactMetadataValue(value: unknown): unknown {
     return { truncated: true, preview: `${serialized.slice(0, MAX_COMPUTER_METADATA_CHARS)}...` };
   } catch {
     return { truncated: true, preview: String(value).slice(0, MAX_COMPUTER_METADATA_CHARS) };
-  }
-}
-
-function responseField(value: unknown, field: string): unknown {
-  return isRecord(value) ? value[field] : undefined;
-}
-
-function processNamesFromComputerUseError(error: unknown): ComputerUseProcessName[] {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  const matched = COMPUTER_USE_PROCESS_NAMES.filter((name) => message.includes(name));
-  return matched.length > 0 ? matched : [...COMPUTER_USE_PROCESS_NAMES];
-}
-
-async function restartComputerUseProcesses(
-  computerUse: ComputerUseLifecycle,
-  processNames: ComputerUseProcessName[],
-  errors: unknown[],
-) {
-  if (!computerUse.restartProcess) {
-    errors.push(new Error("Daytona SDK does not expose computerUse.restartProcess."));
-    return;
-  }
-  for (const processName of processNames) {
-    try {
-      await computerUse.restartProcess(processName);
-    } catch (error) {
-      errors.push(new Error(`restart ${processName}: ${error instanceof Error ? error.message : String(error)}`));
-    }
-  }
-}
-
-async function collectComputerUseDiagnostics(
-  computerUse: ComputerUseLifecycle,
-  processNames: ComputerUseProcessName[],
-): Promise<ComputerUseDiagnostics[]> {
-  const diagnostics: ComputerUseDiagnostics[] = [];
-  for (const processName of processNames) {
-    const diagnostic: ComputerUseDiagnostics = { processName };
-    try {
-      const status = await computerUse.getProcessStatus?.(processName);
-      const running = responseField(status, "running");
-      const processStatus = responseField(status, "status");
-      diagnostic.running = typeof running === "boolean" ? running : undefined;
-      diagnostic.status = typeof processStatus === "string" ? processStatus : undefined;
-    } catch (error) {
-      diagnostic.diagnosticError = compactDiagnostic(`status: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    try {
-      const errors = await computerUse.getProcessErrors?.(processName);
-      diagnostic.errors = compactDiagnostic(responseField(errors, "errors"));
-    } catch (error) {
-      diagnostic.diagnosticError = compactDiagnostic(
-        [diagnostic.diagnosticError, `errors: ${error instanceof Error ? error.message : String(error)}`]
-          .filter(Boolean)
-          .join("; "),
-      );
-    }
-    if (!diagnostic.errors) {
-      try {
-        const logs = await computerUse.getProcessLogs?.(processName);
-        diagnostic.logs = compactDiagnostic(responseField(logs, "logs"));
-      } catch (error) {
-        diagnostic.diagnosticError = compactDiagnostic(
-          [diagnostic.diagnosticError, `logs: ${error instanceof Error ? error.message : String(error)}`]
-            .filter(Boolean)
-            .join("; "),
-        );
-      }
-    }
-    diagnostics.push(diagnostic);
-  }
-  return diagnostics;
-}
-
-function formatComputerUseFailure(errors: unknown[], diagnostics: ComputerUseDiagnostics[]) {
-  const attempts = Array.from(new Set(
-    errors.map((error) => error instanceof Error ? error.message : String(error)).filter(Boolean),
-  )).slice(0, 4);
-  const processes = diagnostics.map((diagnostic) => [
-    diagnostic.processName,
-    diagnostic.running === undefined ? undefined : `running=${diagnostic.running}`,
-    diagnostic.status ? `status=${diagnostic.status}` : undefined,
-    diagnostic.errors ? `errors=${diagnostic.errors}` : undefined,
-    !diagnostic.errors && diagnostic.logs ? `logs=${diagnostic.logs}` : undefined,
-    diagnostic.diagnosticError ? `diagnostic=${diagnostic.diagnosticError}` : undefined,
-  ].filter(Boolean).join(" ")).join("; ");
-  return [
-    "Failed to start Daytona desktop after recovery.",
-    attempts.length > 0 ? `attempts: ${attempts.join(" | ")}` : undefined,
-    processes ? `processes: ${processes}` : undefined,
-  ].filter(Boolean).join(" ");
-}
-
-async function recoverComputerUse(computerUse: ComputerUseLifecycle, cause: unknown) {
-  const errors: unknown[] = [cause];
-  const processNames = processNamesFromComputerUseError(cause);
-  await computerUse.stop().catch((error) => {
-    errors.push(new Error(`stop: ${error instanceof Error ? error.message : String(error)}`));
-  });
-  await sleep(COMPUTER_RECOVERY_DELAY_MS);
-  try {
-    await computerUse.start();
-  } catch (error) {
-    errors.push(error);
-    await restartComputerUseProcesses(computerUse, processNames, errors);
-  }
-  try {
-    await waitForComputerReady(computerUse);
-  } catch (error) {
-    errors.push(error);
-    throw new Error(formatComputerUseFailure(
-      errors,
-      await collectComputerUseDiagnostics(computerUse, processNames),
-    ));
-  }
-}
-
-async function ensureComputerReady(computerUse: ComputerUseLifecycle) {
-  const currentStatus = await readComputerStatus(computerUse);
-  if (currentStatus === "active") return;
-  if (currentStatus === "partial" || currentStatus === "error") {
-    await recoverComputerUse(computerUse, new Error(`Daytona desktop status is ${currentStatus}.`));
-    return;
-  }
-  try {
-    await computerUse.start();
-  } catch (error) {
-    if (await readComputerStatus(computerUse) === "active") return;
-    await recoverComputerUse(computerUse, error);
-    return;
-  }
-  try {
-    await waitForComputerReady(computerUse);
-  } catch (error) {
-    await recoverComputerUse(computerUse, error);
   }
 }
 
@@ -619,7 +443,7 @@ async function runOneAction(
   const { computerUse } = context.sandbox;
   switch (action.type) {
     case "start":
-      await ensureComputerReady(computerUse);
+      await ensureComputerUseReady(computerUse);
       await cua.ensureReady();
       return {
         status: compactMetadataValue({
@@ -805,11 +629,9 @@ function screenshotRequest(action: ComputerAction, session: CuaToolSession): Scr
 }
 
 function captureTiming(action: ComputerAction) {
-  if (action.type === "screenshot") return { initialDelayMs: 0, maxChecks: 1, intervalMs: 0 };
-  if (action.type === "open_url") return { initialDelayMs: 750, maxChecks: 6, intervalMs: 350 };
-  if (action.type === "wait") return { initialDelayMs: 0, maxChecks: 2, intervalMs: 250 };
-  if (action.type === "start") return { initialDelayMs: 0, maxChecks: 2, intervalMs: 250 };
-  return { initialDelayMs: 500, maxChecks: 4, intervalMs: 250 };
+  if (action.type === "open_url") return { initialDelayMs: 250 };
+  if (["screenshot", "wait", "start"].includes(action.type)) return { initialDelayMs: 0 };
+  return { initialDelayMs: 100 };
 }
 
 function mergeDetails(details: ComputerOutputDetails, partial: ActionResult): void {
@@ -897,7 +719,7 @@ async function executeCuaComputerAction(
       await runBoundedComputerOperation(
         track,
         async () => {
-          await ensureComputerReady(context.sandbox.computerUse);
+          await ensureComputerUseReady(context.sandbox.computerUse);
           if (requiresCua(action)) details.cursor = (await session.client.ensureReady()).cursor;
         },
         () => new Error("Timed out waiting for the Daytona desktop and CUA computer-server to become ready."),
@@ -923,7 +745,7 @@ async function executeCuaComputerAction(
           sequence: nextObservationSequence(session),
           ...captureTiming(action),
         }),
-        () => new Error("Timed out capturing a stable CUA desktop observation."),
+        () => new Error("Timed out capturing the CUA desktop observation."),
       );
       session.lastObservation = captured;
       outputObservation = captured;
@@ -965,7 +787,7 @@ async function executeCuaComputerAction(
     `Action: ${summary}`,
     details.screenshot
       ? `Observation: ${details.screenshot.id}, ${details.screenshot.width}x${details.screenshot.height}, `
-        + `${details.screenshot.stable ? "stable" : "not stable after bounded checks"}`
+        + `captured in ${details.screenshot.captureDurationMs}ms`
       : undefined,
     details.screenshot?.captureKind === "desktop_state" ? "Capture: atomic CUA desktop state" : undefined,
     details.screenshot?.origin.x || details.screenshot?.origin.y
@@ -995,9 +817,10 @@ export function createCuaComputerTool(
   return tool<ComputerAction, Awaited<ReturnType<typeof executeCuaComputer>>>({
     title: "computer",
     description: `Operate the Daytona Linux desktop through CUA only. ${recordingDescription} `
-      + "Use one action per call. Capture a screenshot first, then pass its exact observationId with every "
+      + "Use one action per call and use open_url directly for browser navigation. Capture a screenshot before "
+      + "coordinate actions, then pass its exact observationId with every "
       + "coordinate action. Screenshot crops and window zooms persist, and all coordinates stay relative to the "
-      + "latest returned image. Every visible action returns a new stable CUA observation.",
+      + "latest returned image. Every visible action returns one fresh CUA observation.",
     inputSchema: computerActionSchema,
     toModelOutput: ({ output }) => output,
     execute: (action) => executeCuaComputer(action, sandboxOptions, computerOptions),

@@ -1,0 +1,10 @@
+.xfce4-panel.background {
+  background-color: rgba(0, 0, 0, 0.82);
+}
+
+.xfce4-panel button {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 5px;
+}

@@ -716,7 +716,10 @@ if [ -z "$ttyd_path" ]; then
     trap - EXIT
   fi
 fi
-shell_path="$(command -v zsh || command -v bash || command -v sh)"
+shell_path="\${SHELL:-}"
+if [ -z "$shell_path" ] || [ ! -x "$shell_path" ]; then
+  shell_path="$(command -v bash || command -v sh)"
+fi
 if curl --silent --output /dev/null --max-time 1 "http://127.0.0.1:${port}/"; then
   exit 42
 fi

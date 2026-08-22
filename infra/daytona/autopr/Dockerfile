@@ -1,9 +1,9 @@
-ARG DAYTONA_BASE_IMAGE=daytonaio/sandbox:0.8.0
+ARG DAYTONA_BASE_IMAGE=ubuntu:24.04
 ARG FFF_NODE_VERSION=0.10.3
 ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
-ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
+ARG UV_VERSION=0.9.26
 ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
 ARG CUA_DRIVER_VERSION=0.20.0
 ARG CUA_CORE_VERSION=0.3.1
@@ -15,8 +15,8 @@ FROM ${DAYTONA_BASE_IMAGE}
 ARG FFF_NODE_VERSION=0.10.3
 ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
-ARG STARSHIP_VERSION=1.25.1
 ARG TTYD_VERSION=1.7.7
+ARG UV_VERSION=0.9.26
 ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
 ARG CUA_DRIVER_VERSION=0.20.0
 ARG CUA_CORE_VERSION=0.3.1
@@ -26,28 +26,44 @@ ARG CUA_SOURCE_REVISION=bb8c86049cad1bf0853c6d25c03c14875d0d047f
 USER root
 SHELL ["/bin/bash", "-lc"]
 
-ENV AUTOPR_FFF_HOME=/opt/autopr/fff \
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    AUTOPR_FFF_HOME=/opt/autopr/fff \
     AUTOPR_FFF_BIN=/opt/autopr/bin \
     FFF_FRECENCY_DB=/home/daytona/.cache/autopr/fff/frecency.mdb \
     FFF_HISTORY_DB=/home/daytona/.cache/autopr/fff/history.mdb
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+      at-spi2-core \
       bat \
       ca-certificates \
       curl \
+      dbus-x11 \
       dnsutils \
       fd-find \
-      fish \
+      ffmpeg \
       fzf \
       git-lfs \
       gnupg \
       htop \
       jq \
       less \
+      libx11-6 \
+      libxext6 \
+      libxfixes3 \
+      libxi6 \
+      libxrandr2 \
+      libxrender1 \
+      libxss1 \
+      libxtst6 \
       lsof \
       nano \
       netcat-openbsd \
+      nodejs \
+      npm \
+      novnc \
       procps \
       python3 \
       python3-pip \
@@ -55,19 +71,23 @@ RUN apt-get update \
       psmisc \
       ripgrep \
       sqlite3 \
+      sudo \
       tini \
       tmux \
       tree \
       unzip \
+      websockify \
       vim \
+      wmctrl \
       x11-apps \
       x11-xserver-utils \
+      x11vnc \
+      xclip \
       xdg-utils \
-      xterm \
+      xfce4 \
+      xfce4-terminal \
+      xvfb \
       zip \
-      zsh \
-      zsh-autosuggestions \
-      zsh-syntax-highlighting \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
       install -m 0755 -d /etc/apt/keyrings; \
       curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-linux.gpg; \
@@ -76,9 +96,17 @@ RUN apt-get update \
       apt-get update; \
       apt-get install -y --no-install-recommends google-chrome-stable; \
     else \
-      echo "Google Chrome stable is only published for amd64; leaving the base browser stack unchanged."; \
+      echo "AutoPR's Chrome-only Daytona desktop requires linux/amd64." >&2; \
+      exit 1; \
     fi \
     && rm -rf /var/lib/apt/lists/* \
+    && existing_user="$(getent passwd 1000 | cut -d: -f1 || true)" \
+    && existing_group="$(getent group 1000 | cut -d: -f1 || true)" \
+    && if [ -n "$existing_group" ] && [ "$existing_group" != daytona ]; then groupmod --new-name daytona "$existing_group"; elif [ -z "$existing_group" ]; then groupadd --gid 1000 daytona; fi \
+    && if [ -n "$existing_user" ] && [ "$existing_user" != daytona ]; then usermod --login daytona --home /home/daytona --move-home --shell /bin/bash --gid daytona "$existing_user"; elif [ -z "$existing_user" ]; then useradd --uid 1000 --gid daytona --create-home --shell /bin/bash daytona; fi \
+    && install -d -m 0755 /etc/sudoers.d \
+    && printf 'daytona ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/daytona \
+    && chmod 0440 /etc/sudoers.d/daytona \
     && ln -sfn /usr/bin/fdfind /usr/local/bin/fd \
     && ln -sfn /usr/bin/batcat /usr/local/bin/bat \
     && architecture="$(dpkg --print-architecture)" \
@@ -88,8 +116,6 @@ RUN apt-get update \
         delta_checksum="8e695c5f586a8c53d6c3b01be0b4a422ed218bfed2a56191caebe373a1c18ab2"; \
         gh_arch="amd64"; \
         gh_checksum="a757f1ba6db18f4de8cbadb244843a5f89bc75b5e7c6fc127d2bd77fbd12ed62"; \
-        starship_target="x86_64-unknown-linux-musl"; \
-        starship_checksum="c6ddd3ecb9c0071a2ad38d98cee748160066b7c4f197421268058f4a5d6f8504"; \
         ttyd_target="x86_64"; \
         ttyd_checksum="8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55"; \
         ;; \
@@ -98,13 +124,11 @@ RUN apt-get update \
         delta_checksum="0bfce159a5cddd5feb3d6db4a616d883ff51253ce08ac7ec11cb1d208cfaab9e"; \
         gh_arch="arm64"; \
         gh_checksum="705a23b70b0f1b7ba4c302fdcef392ce3edaacfa7ce8e85e4d93d72ea800a538"; \
-        starship_target="aarch64-unknown-linux-musl"; \
-        starship_checksum="01517aab398959ea9ea73bdb4f032ea4dbb51dff5c8e5eb05b4a1b9b7ab872b8"; \
         ttyd_target="aarch64"; \
         ttyd_checksum="b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165"; \
         ;; \
       *) \
-        echo "Unsupported architecture for pinned delta, gh, Starship, and ttyd binaries: $architecture" >&2; \
+        echo "Unsupported architecture for pinned delta, gh, and ttyd binaries: $architecture" >&2; \
         exit 1; \
         ;; \
     esac \
@@ -119,21 +143,21 @@ RUN apt-get update \
     && echo "${gh_checksum}  ${tools_dir}/${gh_archive}" | sha256sum -c - \
     && tar -xzf "${tools_dir}/${gh_archive}" -C "$tools_dir" \
     && install -m 0755 "${tools_dir}/gh_${GH_VERSION}_linux_${gh_arch}/bin/gh" /usr/local/bin/gh \
-    && starship_archive="starship-${starship_target}.tar.gz" \
-    && curl -fsSL "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/${starship_archive}" -o "${tools_dir}/${starship_archive}" \
-    && echo "${starship_checksum}  ${tools_dir}/${starship_archive}" | sha256sum -c - \
-    && tar -xzf "${tools_dir}/${starship_archive}" -C "$tools_dir" starship \
-    && install -m 0755 "${tools_dir}/starship" /usr/local/bin/starship \
     && ttyd_binary="ttyd.${ttyd_target}" \
     && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/${ttyd_binary}" -o "${tools_dir}/${ttyd_binary}" \
     && echo "${ttyd_checksum}  ${tools_dir}/${ttyd_binary}" | sha256sum -c - \
     && install -m 0755 "${tools_dir}/${ttyd_binary}" /usr/local/bin/ttyd \
     && rm -rf "$tools_dir" \
+    && python3 -m venv /opt/autopr/uv \
+    && /opt/autopr/uv/bin/pip install --no-cache-dir "uv==${UV_VERSION}" \
+    && ln -s /opt/autopr/uv/bin/uv /usr/local/bin/uv \
+    && ln -s /opt/autopr/uv/bin/uvx /usr/local/bin/uvx \
     && git lfs install --system \
     && if [ -e /opt/google/chrome/chrome-sandbox ]; then chown root:root /opt/google/chrome/chrome-sandbox && chmod 4755 /opt/google/chrome/chrome-sandbox; fi \
-    && for executable in rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 starship tmux ttyd; do command -v "$executable" >/dev/null; done \
+    && for browser_package in firefox firefox-esr chromium chromium-browser; do ! dpkg-query -W -f='${db:Status-Abbrev}' "$browser_package" 2>/dev/null | grep -q '^ii'; done \
+    && for executable in bash google-chrome-stable node npm uv rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 tmux ttyd Xvfb x11vnc websockify startxfce4; do command -v "$executable" >/dev/null; done \
     && test "$(command -v tini)" = /usr/bin/tini \
-    && chsh -s "$(command -v zsh)" daytona
+    && test "$(getent passwd daytona | cut -d: -f7)" = /bin/bash
 
 COPY cua-computer-server-agent-cursor.patch /tmp/autopr-cua-computer-server-agent-cursor.patch
 COPY cursor-theme/build_hidden_xcursor.py /tmp/autopr-build-hidden-xcursor.py
@@ -198,9 +222,7 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
     && install -d -m 0755 /etc/gitconfig.d \
     && install -m 0644 /opt/autopr/source/gitconfig /etc/gitconfig.d/autopr \
     && git config --system --add include.path /etc/gitconfig.d/autopr \
-    && install -m 0644 /opt/autopr/source/starship.toml /opt/autopr/terminal/starship.toml \
     && install -m 0644 /opt/autopr/source/tmux.conf /opt/autopr/terminal/tmux.conf \
-    && install -m 0644 /opt/autopr/source/zshrc /opt/autopr/terminal/zshrc \
     && rm -rf /opt/autopr/desktop \
     && cp -R /opt/autopr/source/desktop /opt/autopr/desktop \
     && node --version \
@@ -240,6 +262,7 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
         '  "RestoreOnStartup": 5' \
         '}' > /etc/opt/chrome/policies/managed/autopr.json; \
     fi \
+    && test -x /opt/autopr/bin/google-chrome \
     && install -d /usr/share/backgrounds/autopr \
     && install -m 0644 /opt/autopr/desktop/assets/wallpaper.png /usr/share/backgrounds/autopr/wallpaper.png \
     && install -d -o daytona -g daytona \
@@ -249,12 +272,8 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
       /home/daytona/.config/Thunar \
       /home/daytona/.config/xfce4 \
       /home/daytona/.cache \
-      /home/daytona/.cache/starship \
-      /home/daytona/.cache/zsh \
       /home/daytona/.local/share/applications \
-    && install -m 0644 -o daytona -g daytona /opt/autopr/terminal/starship.toml /home/daytona/.config/starship.toml \
     && install -m 0644 -o daytona -g daytona /opt/autopr/terminal/tmux.conf /home/daytona/.tmux.conf \
-    && install -m 0644 -o daytona -g daytona /opt/autopr/terminal/zshrc /home/daytona/.zshrc \
     && cp -R /opt/autopr/desktop/autostart/. /home/daytona/.config/autostart/ \
     && cp -R /opt/autopr/desktop/gtk-3.0/. /home/daytona/.config/gtk-3.0/ \
     && cp -R /opt/autopr/desktop/gtk-2.0 /home/daytona/.gtk-2.0 \
@@ -270,20 +289,26 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
     && chown -R daytona:daytona /home/daytona/.config /home/daytona/.gtk-2.0 /home/daytona/.local
 
 ENV PATH=/opt/autopr/bin:${PATH}
-ENV DISPLAY=:1 \
+ENV HOME=/home/daytona \
+    DISPLAY=:1 \
     VNC_RESOLUTION=1920x1080 \
+    VNC_COL_DEPTH=24 \
     VNC_PORT=5901 \
     NO_VNC_PORT=6080 \
+    NOVNC_PORT=6080 \
     VNC_USER=daytona \
-    SHELL=/usr/bin/zsh \
+    SHELL=/bin/bash \
     BROWSER=google-chrome \
-    STARSHIP_CONFIG=/home/daytona/.config/starship.toml \
-    STARSHIP_CACHE=/home/daytona/.cache/starship \
     XCURSOR_THEME=Adwaita \
     XCURSOR_SIZE=32
 
+EXPOSE 5901 6080 8765
+
 USER daytona
 
-RUN mkdir -p /home/daytona/.cache/autopr/fff /home/daytona/.cache/starship /home/daytona/.cache/zsh
+RUN mkdir -p /home/daytona/.cache/autopr/fff \
+    && test "$SHELL" = /bin/bash \
+    && test -x /bin/bash \
+    && ! command -v zsh >/dev/null
 
 ENTRYPOINT ["/usr/bin/tini", "--", "sleep", "infinity"]

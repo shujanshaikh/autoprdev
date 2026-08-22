@@ -137,12 +137,12 @@ describe("CUA computer tool timeout quarantine", () => {
         { toolCallId: "computer-2", messages: [] },
       );
       await vi.advanceTimersByTimeAsync(1_000);
-      expect(getStatus).toHaveBeenCalledTimes(1);
+      expect(getStatus).toHaveBeenCalledTimes(2);
 
       finishClick?.();
       await vi.runAllTimersAsync();
       await expect(retry).resolves.toBeDefined();
-      expect(getStatus).toHaveBeenCalledTimes(2);
+      expect(getStatus).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }

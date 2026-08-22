@@ -5,6 +5,10 @@ import { useEffect, useReducer, useRef, useState } from "react";
 const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
+const FRAME_PROBE_INTERVAL_MS = 250;
+const FRAME_PROBE_TIMEOUT_MS = 4_000;
+const CONNECTION_RETRY_DELAY_MS = 300;
+const MAX_CONNECTION_ATTEMPTS = 3;
 
 type DaytonaDesktopViewProps = {
   websocketUrl?: string;
@@ -20,6 +24,7 @@ type RfbInstance = {
   // noVNC exposes this at runtime but omits it from its published TypeScript declaration.
   viewOnly?: boolean;
   background: string;
+  getImageData: () => ImageData;
   focus: () => void;
   disconnect: () => void;
   addEventListener: (type: string, listener: EventListener) => void;
@@ -37,6 +42,22 @@ function applyFixedDesktopMode(rfb: RfbInstance, interactive: boolean) {
   rfb.scaleViewport = true;
   rfb.resizeSession = false;
   rfb.viewOnly = !interactive;
+}
+
+export function hasPaintedDesktopFrame(frame: Pick<ImageData, "data" | "height" | "width">) {
+  if (frame.width <= 0 || frame.height <= 0 || frame.data.length < 4) return false;
+
+  const sampleStride = Math.max(4, Math.floor(frame.data.length / (4 * 4_096)) * 4);
+  let visibleSamples = 0;
+
+  for (let index = 0; index < frame.data.length; index += sampleStride) {
+    if (Math.max(frame.data[index] ?? 0, frame.data[index + 1] ?? 0, frame.data[index + 2] ?? 0) > 24) {
+      visibleSamples += 1;
+      if (visibleSamples >= 4) return true;
+    }
+  }
+
+  return false;
 }
 
 export function DaytonaDesktopView({
@@ -112,30 +133,9 @@ export function DaytonaDesktopView({
 
     let disposed = false;
     let activeRfb: RfbInstance | null = null;
-    const handleConnect: EventListener = () => {
-      updateConnection({ state: "connected" });
-      if (activeRfb) {
-        applyFixedDesktopMode(activeRfb, interactive);
-      }
-      if (interactive) {
-        window.requestAnimationFrame(() => activeRfb?.focus());
-      }
-    };
-    const handleDisconnect: EventListener = (event) => {
-      const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
-      if (disposed) return;
-      updateConnection(
-        detail?.clean === false
-          ? { state: "error", error: "The VNC connection closed unexpectedly." }
-          : { state: "disconnected" },
-      );
-    };
-    const handleSecurityFailure: EventListener = () => {
-      updateConnection({ state: "error", error: "The VNC server rejected the connection." });
-    };
-    const handleCredentialsRequired: EventListener = () => {
-      updateConnection({ state: "error", error: "This VNC desktop requires credentials." });
-    };
+    let connectionAttempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let probeTimer: ReturnType<typeof setTimeout> | undefined;
     updateConnection({ state: "connecting" });
     container.replaceChildren();
 
@@ -144,16 +144,93 @@ export function DaytonaDesktopView({
         if (disposed || !containerRef.current) return;
 
         const RFB = module.default as RfbConstructor;
-        const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
-        applyFixedDesktopMode(rfb, interactive);
-        rfb.background = "#000000";
 
-        rfb.addEventListener("connect", handleConnect);
-        rfb.addEventListener("disconnect", handleDisconnect);
-        rfb.addEventListener("securityfailure", handleSecurityFailure);
-        rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
-        activeRfb = rfb;
-        rfbRef.current = rfb;
+        const connect = () => {
+          if (disposed || !containerRef.current) return;
+
+          connectionAttempt += 1;
+          updateConnection({ state: "connecting" });
+          containerRef.current.replaceChildren();
+
+          const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
+          activeRfb = rfb;
+          rfbRef.current = rfb;
+          applyFixedDesktopMode(rfb, interactive);
+          rfb.background = "#000000";
+
+          const isCurrent = () => !disposed && activeRfb === rfb;
+          const clearProbe = () => {
+            if (probeTimer) clearTimeout(probeTimer);
+            probeTimer = undefined;
+          };
+          const removeListeners = () => {
+            rfb.removeEventListener("connect", handleConnect);
+            rfb.removeEventListener("disconnect", handleDisconnect);
+            rfb.removeEventListener("securityfailure", handleSecurityFailure);
+            rfb.removeEventListener("credentialsrequired", handleCredentialsRequired);
+          };
+          const retryOrFail = (error: string) => {
+            if (!isCurrent()) return;
+            clearProbe();
+            removeListeners();
+            activeRfb = null;
+            rfbRef.current = null;
+            rfb.disconnect();
+
+            if (connectionAttempt >= MAX_CONNECTION_ATTEMPTS) {
+              updateConnection({ state: "error", error });
+              return;
+            }
+
+            retryTimer = setTimeout(connect, CONNECTION_RETRY_DELAY_MS);
+          };
+          const handleConnect: EventListener = () => {
+            const deadline = Date.now() + FRAME_PROBE_TIMEOUT_MS;
+            const probeFrame = () => {
+              if (!isCurrent()) return;
+
+              try {
+                if (hasPaintedDesktopFrame(rfb.getImageData())) {
+                  clearProbe();
+                  updateConnection({ state: "connected" });
+                  if (interactive) window.requestAnimationFrame(() => rfb.focus());
+                  return;
+                }
+              } catch {
+                // noVNC can expose its canvas just before the first resize lands.
+              }
+
+              if (Date.now() >= deadline) {
+                retryOrFail("The desktop connected but did not produce a visible frame.");
+                return;
+              }
+              probeTimer = setTimeout(probeFrame, FRAME_PROBE_INTERVAL_MS);
+            };
+
+            applyFixedDesktopMode(rfb, interactive);
+            probeFrame();
+          };
+          const handleDisconnect: EventListener = () => {
+            retryOrFail("The VNC connection closed before the desktop became ready.");
+          };
+          const handleSecurityFailure: EventListener = () => {
+            if (!isCurrent()) return;
+            clearProbe();
+            updateConnection({ state: "error", error: "The VNC server rejected the connection." });
+          };
+          const handleCredentialsRequired: EventListener = () => {
+            if (!isCurrent()) return;
+            clearProbe();
+            updateConnection({ state: "error", error: "This VNC desktop requires credentials." });
+          };
+
+          rfb.addEventListener("connect", handleConnect);
+          rfb.addEventListener("disconnect", handleDisconnect);
+          rfb.addEventListener("securityfailure", handleSecurityFailure);
+          rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
+        };
+
+        connect();
       })
       .catch((err) => {
         if (disposed) return;
@@ -165,11 +242,9 @@ export function DaytonaDesktopView({
 
     return () => {
       disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (probeTimer) clearTimeout(probeTimer);
       const rfb = activeRfb;
-      rfb?.removeEventListener("connect", handleConnect);
-      rfb?.removeEventListener("disconnect", handleDisconnect);
-      rfb?.removeEventListener("securityfailure", handleSecurityFailure);
-      rfb?.removeEventListener("credentialsrequired", handleCredentialsRequired);
       rfbRef.current = null;
       activeRfb = null;
       rfb?.disconnect();

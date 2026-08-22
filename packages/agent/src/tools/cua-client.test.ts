@@ -63,6 +63,14 @@ describe("CUA computer-server response parsing", () => {
       new URL("../../../../infra/daytona/autopr/desktop/autopr-desktop-session", import.meta.url),
       "utf8",
     );
+    const panelConfig = readFileSync(
+      new URL("../../../../infra/daytona/autopr/desktop/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml", import.meta.url),
+      "utf8",
+    );
+    const windowManagerConfig = readFileSync(
+      new URL("../../../../infra/daytona/autopr/desktop/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml", import.meta.url),
+      "utf8",
+    );
     expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
     expect(launcher).toContain('flock 9');
     expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_ready; then'));
@@ -95,6 +103,10 @@ describe("CUA computer-server response parsing", () => {
     expect(desktopSession).toContain('CURSOR_THEME="Adwaita"');
     expect(desktopSession).toContain("xsetroot -cursor_name left_ptr");
     expect(desktopSession).not.toContain("xsetroot -xcf /usr/share/icons/AutoPRHidden");
+    expect(desktopSession).toContain("set_transparent_panel");
+    expect(panelConfig).toContain('<property name="background-style" type="uint" value="1"/>');
+    expect(panelConfig.match(/<value type="double" value="0"\/>/g)).toHaveLength(4);
+    expect(windowManagerConfig).toContain('<property name="use_compositing" type="bool" value="true"/>');
   });
 
   it("installs and validates computer-server's complete pinned CUA runtime", () => {

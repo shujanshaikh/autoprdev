@@ -46,6 +46,7 @@ The snapshot installs these tools from the Debian/Ubuntu repositories supplied b
 - procps (`ps`)
 - psmisc (`pstree`)
 - sqlite3
+- build-essential (required to compile `evdev` for the isolated Python 3.13 CUA runtime)
 
 GitHub CLI (`gh`), git-delta (`delta`), and ttyd use pinned official releases because their distro availability and versions vary across supported base-image releases. Their amd64 and arm64 checksums are pinned and verified in the Dockerfile. The original `fdfind` and `batcat` executable names remain available alongside the convenience symlinks.
 

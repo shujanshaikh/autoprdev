@@ -38,6 +38,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       at-spi2-core \
       bat \
+      build-essential \
       ca-certificates \
       curl \
       dbus-x11 \
@@ -162,12 +163,16 @@ RUN apt-get update \
 COPY cua-computer-server-agent-cursor.patch /tmp/autopr-cua-computer-server-agent-cursor.patch
 COPY cursor-theme/build_hidden_xcursor.py /tmp/autopr-build-hidden-xcursor.py
 
-RUN command -v uv >/dev/null \
+RUN set -euxo pipefail \
+    && echo '==> Building the hidden Xcursor theme' \
+    && command -v uv >/dev/null \
     && command -v xcursorgen >/dev/null \
     && python3 /tmp/autopr-build-hidden-xcursor.py --output /usr/share/icons/AutoPRHidden \
     && test -s /usr/share/icons/AutoPRHidden/cursors/left_ptr \
+    && echo '==> Installing the isolated CUA Python 3.13 runtime' \
     && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv python install 3.13 \
     && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv venv /opt/autopr/cua --python 3.13 \
+    && echo '==> Fetching and patching the pinned CUA source' \
     && cua_source="$(mktemp -d)" \
     && git -C "$cua_source" init -q \
     && git -C "$cua_source" remote add origin https://github.com/trycua/cua.git \
@@ -181,6 +186,7 @@ RUN command -v uv >/dev/null \
     && test "$(git -C "$cua_source" rev-parse HEAD)" = "$CUA_SOURCE_REVISION" \
     && git -C "$cua_source" apply --recount --check /tmp/autopr-cua-computer-server-agent-cursor.patch \
     && git -C "$cua_source" apply --recount /tmp/autopr-cua-computer-server-agent-cursor.patch \
+    && echo '==> Building the pinned CUA wheels' \
     && cua_wheels="$(mktemp -d)" \
     && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/core" \
     && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/cua-auto" \
@@ -191,6 +197,7 @@ RUN command -v uv >/dev/null \
     && test -s "$cua_core_wheel" \
     && test -s "$cua_auto_wheel" \
     && test -s "$cua_server_wheel" \
+    && echo '==> Installing CUA and native Python build dependencies' \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
       uv pip install --python /opt/autopr/cua/bin/python --no-cache \
         "$cua_core_wheel" \
@@ -204,11 +211,13 @@ RUN command -v uv >/dev/null \
         "$cua_server_wheel"; \
     fi \
     && CUA_EXPECTED_VERSION="$CUA_COMPUTER_SERVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; assert version("cua-computer-server") == os.environ["CUA_EXPECTED_VERSION"]' \
+    && echo '==> Validating the CUA Driver integration' \
     && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
       CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, get_binary_path; from cua_driver._native_contract import ActionTarget, GetSessionInput; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert get_binary_path().is_file(); assert hasattr(CuaDriver, "get_session"); assert ActionTarget.DESKTOP(display_id="primary").display_id == "primary"; assert GetSessionInput(session=None).session is None; assert hasattr(CuaDriverAutomationHandler, "get_agent_cursor_state")' \
       && /opt/autopr/cua/bin/cua-computer-server --help | grep -q 'cua-driver'; \
     fi \
     && rm -rf "$cua_source" "$cua_wheels" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-hidden-xcursor.py \
+    && echo '==> Validating the final CUA runtime imports' \
     && CUA_EXPECTED_CORE_VERSION="$CUA_CORE_VERSION" CUA_EXPECTED_AUTO_VERSION="$CUA_AUTO_VERSION" PYNPUT_BACKEND=dummy /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; import cua_auto, cua_core; from cua_core.telemetry import record_event; import computer_server.main; assert version("cua-core") == os.environ["CUA_EXPECTED_CORE_VERSION"]; assert version("cua-auto") == os.environ["CUA_EXPECTED_AUTO_VERSION"]'
 
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal

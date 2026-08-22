@@ -1,5 +1,5 @@
 import { cn } from "@autopr/ui/lib/utils";
-import { Loader2, Monitor } from "lucide-react";
+import { Monitor } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import { hasPaintedDesktopFrame } from "./daytona-desktop-connection";
@@ -12,6 +12,12 @@ const FRAME_PROBE_TIMEOUT_MS = 4_000;
 const CONNECTION_RETRY_DELAY_MS = 300;
 const MAX_CONNECTION_ATTEMPTS = 3;
 const MAX_RECOVERY_DELAY_MS = 10_000;
+
+type ConnectionState =
+  | { state: "idle" }
+  | { state: "connecting"; phase: "opening" | "frame" | "reconnecting" }
+  | { state: "connected" }
+  | { state: "error"; error: string };
 
 type DaytonaDesktopViewProps = {
   websocketUrl?: string;
@@ -62,11 +68,8 @@ export function DaytonaDesktopView({
   // react-doctor-disable-next-line react-doctor/no-initialize-state -- Frame size depends on measured DOM layout after mount.
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>();
   const [connection, updateConnection] = useReducer(
-    (
-      _state: { state: "idle" | "connecting" | "connected" | "disconnected" | "error"; error?: string },
-      next: { state: "idle" | "connecting" | "connected" | "disconnected" | "error"; error?: string },
-    ) => next,
-    { state: "idle" },
+    (_state: ConnectionState, next: ConnectionState) => next,
+    { state: "idle" } satisfies ConnectionState,
   );
 
   useEffect(() => {
@@ -131,7 +134,7 @@ export function DaytonaDesktopView({
     let recoveryCycle = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let probeTimer: ReturnType<typeof setTimeout> | undefined;
-    updateConnection({ state: "connecting" });
+    updateConnection({ state: "connecting", phase: "opening" });
     container.replaceChildren();
 
     void import("@novnc/novnc")
@@ -144,7 +147,10 @@ export function DaytonaDesktopView({
           if (disposed || !containerRef.current) return;
 
           connectionAttempt += 1;
-          updateConnection({ state: "connecting" });
+          updateConnection({
+            state: "connecting",
+            phase: connectionAttempt === 1 && recoveryCycle === 0 ? "opening" : "reconnecting",
+          });
           containerRef.current.replaceChildren();
 
           const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
@@ -183,7 +189,7 @@ export function DaytonaDesktopView({
               );
             }
 
-            updateConnection({ state: "connecting" });
+            updateConnection({ state: "connecting", phase: "reconnecting" });
             retryTimer = setTimeout(connect, delay);
           };
           const fail = (error: string) => {
@@ -196,6 +202,7 @@ export function DaytonaDesktopView({
             updateConnection({ state: "error", error });
           };
           const handleConnect: EventListener = () => {
+            updateConnection({ state: "connecting", phase: "frame" });
             const deadline = Date.now() + FRAME_PROBE_TIMEOUT_MS;
             const probeFrame = () => {
               if (!isCurrent()) return;
@@ -261,8 +268,36 @@ export function DaytonaDesktopView({
     };
   }, [interactive, websocketUrl]);
 
-  const { state, error } = connection;
-  const showOverlay = loading || !websocketUrl || state === "connecting" || state === "error";
+  const showOverlay = loading || !websocketUrl || connection.state !== "connected";
+  const loadingPresentation = connection.state === "error"
+    ? {
+        detail: connection.error,
+        progress: "0%",
+        title: "Desktop connection failed",
+      }
+    : !websocketUrl || loading || connection.state === "idle"
+      ? {
+          detail: "Starting the secure desktop session",
+          progress: "25%",
+          title: "Starting desktop",
+        }
+      : connection.state === "connecting" && connection.phase === "frame"
+        ? {
+            detail: "Waiting for the first visible frame",
+            progress: "78%",
+            title: "Preparing desktop",
+          }
+        : connection.state === "connecting" && connection.phase === "reconnecting"
+          ? {
+              detail: "The stream will resume automatically",
+              progress: "42%",
+              title: "Restoring desktop",
+            }
+          : {
+              detail: "Opening the secure desktop stream",
+              progress: "52%",
+              title: "Connecting to desktop",
+            };
   const frameStyle = frameSize
     ? { width: `${frameSize.width}px`, height: `${frameSize.height}px` }
     : { width: "100%", aspectRatio: `${DESKTOP_WIDTH} / ${DESKTOP_HEIGHT}` };
@@ -284,29 +319,29 @@ export function DaytonaDesktopView({
         onMouseDown={interactive ? () => rfbRef.current?.focus() : undefined}
       />
 
-      {showOverlay ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background px-6 text-center">
-          <div className="max-w-[240px] space-y-3">
-            <span className="mx-auto flex size-9 items-center justify-center border border-border bg-muted/50">
-              {loading || state === "connecting" ? (
-                <Loader2 className="size-4 text-muted-foreground" aria-hidden="true" />
-              ) : (
-                <Monitor className="size-4 text-muted-foreground" aria-hidden="true" />
-              )}
-            </span>
-            <p className="text-sm font-medium text-foreground">
-              {error
-                ? "Desktop connection failed"
-                : loading || state === "connecting"
-                ? "Connecting to desktop…"
-                : "Preparing desktop…"}
-            </p>
-            {error ? (
-              <p className="text-xs leading-relaxed text-muted-foreground">{error}</p>
-            ) : null}
+      <div
+        aria-hidden={!showOverlay}
+        className={cn(
+          "pointer-events-none absolute inset-0 flex items-center justify-center bg-background px-6 text-center transition-opacity duration-200 ease-out motion-reduce:transition-none",
+          showOverlay ? "opacity-100" : "opacity-0",
+        )}
+      >
+        <div className="w-full max-w-[260px]">
+          <Monitor className="mx-auto size-4 text-muted-foreground" aria-hidden="true" />
+          <div className="mx-auto mt-5 h-px w-24 overflow-hidden bg-border" aria-hidden="true">
+            <div
+              className="h-full bg-foreground/70 transition-[width] duration-300 ease-out motion-reduce:transition-none"
+              style={{ width: loadingPresentation.progress }}
+            />
           </div>
+          <p className="mt-4 text-sm font-medium text-foreground" role="status" aria-live="polite">
+            {loadingPresentation.title}
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            {loadingPresentation.detail}
+          </p>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

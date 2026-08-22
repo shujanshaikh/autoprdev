@@ -2,20 +2,17 @@ import { cn } from "@autopr/ui/lib/utils";
 import { Monitor } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 
-import { hasPaintedDesktopFrame } from "./daytona-desktop-connection";
-
 const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
-const FRAME_PROBE_INTERVAL_MS = 250;
-const FRAME_PROBE_TIMEOUT_MS = 4_000;
 const CONNECTION_RETRY_DELAY_MS = 300;
+const CONNECTION_STABLE_MS = 10_000;
 const MAX_CONNECTION_ATTEMPTS = 3;
 const MAX_RECOVERY_DELAY_MS = 10_000;
 
 type ConnectionState =
   | { state: "idle" }
-  | { state: "connecting"; phase: "opening" | "frame" | "reconnecting" }
+  | { state: "connecting"; phase: "opening" | "reconnecting" }
   | { state: "connected" }
   | { state: "error"; error: string };
 
@@ -34,7 +31,6 @@ type RfbInstance = {
   // noVNC exposes this at runtime but omits it from its published TypeScript declaration.
   viewOnly?: boolean;
   background: string;
-  getImageData: () => ImageData;
   focus: () => void;
   disconnect: () => void;
   addEventListener: (type: string, listener: EventListener) => void;
@@ -133,7 +129,7 @@ export function DaytonaDesktopView({
     let connectionAttempt = 0;
     let recoveryCycle = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let probeTimer: ReturnType<typeof setTimeout> | undefined;
+    let stabilityTimer: ReturnType<typeof setTimeout> | undefined;
     updateConnection({ state: "connecting", phase: "opening" });
     container.replaceChildren();
 
@@ -160,9 +156,9 @@ export function DaytonaDesktopView({
           rfb.background = "#000000";
 
           const isCurrent = () => !disposed && activeRfb === rfb;
-          const clearProbe = () => {
-            if (probeTimer) clearTimeout(probeTimer);
-            probeTimer = undefined;
+          const clearStabilityTimer = () => {
+            if (stabilityTimer) clearTimeout(stabilityTimer);
+            stabilityTimer = undefined;
           };
           const removeListeners = () => {
             rfb.removeEventListener("connect", handleConnect);
@@ -172,7 +168,7 @@ export function DaytonaDesktopView({
           };
           const reconnect = () => {
             if (!isCurrent()) return;
-            clearProbe();
+            clearStabilityTimer();
             removeListeners();
             activeRfb = null;
             rfbRef.current = null;
@@ -194,7 +190,7 @@ export function DaytonaDesktopView({
           };
           const fail = (error: string) => {
             if (!isCurrent()) return;
-            clearProbe();
+            clearStabilityTimer();
             removeListeners();
             activeRfb = null;
             rfbRef.current = null;
@@ -202,33 +198,21 @@ export function DaytonaDesktopView({
             updateConnection({ state: "error", error });
           };
           const handleConnect: EventListener = () => {
-            updateConnection({ state: "connecting", phase: "frame" });
-            const deadline = Date.now() + FRAME_PROBE_TIMEOUT_MS;
-            const probeFrame = () => {
-              if (!isCurrent()) return;
-
-              try {
-                if (hasPaintedDesktopFrame(rfb.getImageData())) {
-                  clearProbe();
-                  connectionAttempt = 0;
-                  recoveryCycle = 0;
-                  updateConnection({ state: "connected" });
-                  if (interactive) window.requestAnimationFrame(() => rfb.focus());
-                  return;
-                }
-              } catch {
-                // noVNC can expose its canvas just before the first resize lands.
-              }
-
-              if (Date.now() >= deadline) {
-                reconnect();
-                return;
-              }
-              probeTimer = setTimeout(probeFrame, FRAME_PROBE_INTERVAL_MS);
-            };
-
+            if (!isCurrent()) return;
             applyFixedDesktopMode(rfb, interactive);
-            probeFrame();
+            updateConnection({ state: "connected" });
+            if (interactive) window.requestAnimationFrame(() => rfb.focus());
+
+            // A connection that survives this window is healthy. Until then,
+            // preserve the failure count so short-lived proxy connections can
+            // still trigger a fresh signed Daytona URL.
+            clearStabilityTimer();
+            stabilityTimer = setTimeout(() => {
+              if (!isCurrent()) return;
+              connectionAttempt = 0;
+              recoveryCycle = 0;
+              stabilityTimer = undefined;
+            }, CONNECTION_STABLE_MS);
           };
           const handleDisconnect: EventListener = () => {
             reconnect();
@@ -259,7 +243,7 @@ export function DaytonaDesktopView({
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
-      if (probeTimer) clearTimeout(probeTimer);
+      if (stabilityTimer) clearTimeout(stabilityTimer);
       const rfb = activeRfb;
       rfbRef.current = null;
       activeRfb = null;
@@ -281,23 +265,17 @@ export function DaytonaDesktopView({
           progress: "25%",
           title: "Starting desktop",
         }
-      : connection.state === "connecting" && connection.phase === "frame"
+      : connection.state === "connecting" && connection.phase === "reconnecting"
         ? {
-            detail: "Waiting for the first visible frame",
-            progress: "78%",
-            title: "Preparing desktop",
+            detail: "The stream will resume automatically",
+            progress: "42%",
+            title: "Restoring desktop",
           }
-        : connection.state === "connecting" && connection.phase === "reconnecting"
-          ? {
-              detail: "The stream will resume automatically",
-              progress: "42%",
-              title: "Restoring desktop",
-            }
-          : {
-              detail: "Opening the secure desktop stream",
-              progress: "52%",
-              title: "Connecting to desktop",
-            };
+        : {
+            detail: "Opening the secure desktop stream",
+            progress: "52%",
+            title: "Connecting to desktop",
+          };
   const frameStyle = frameSize
     ? { width: `${frameSize.width}px`, height: `${frameSize.height}px` }
     : { width: "100%", aspectRatio: `${DESKTOP_WIDTH} / ${DESKTOP_HEIGHT}` };

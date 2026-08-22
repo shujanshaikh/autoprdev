@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CUA_PORT="${CUA_PORT:-8765}"
+CUA_RUNTIME="/opt/autopr/cua"
+CUA_GATEWAY="/opt/autopr/cua-gateway/cua_gateway.py"
+CUA_STATE_DIR="/tmp/autopr-cua"
+CUA_PID_FILE="${CUA_STATE_DIR}/gateway.pid"
+CUA_LOG_FILE="${CUA_STATE_DIR}/gateway.log"
+CUA_DRIVER_PID_FILE="${CUA_STATE_DIR}/driver.pid"
+CUA_DRIVER_LOG_FILE="${CUA_STATE_DIR}/driver.log"
+CUA_DRIVER_SOCKET="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}/driver.sock"
+CUA_LOCK_FILE="${CUA_STATE_DIR}/launcher.lock"
+CUA_DRIVER_BIN=""
+
+mkdir -p "$CUA_STATE_DIR" "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+chmod 700 "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+exec 9>"$CUA_LOCK_FILE"
+flock 9
+
+run_command() {
+  curl --fail --silent --max-time 10 \
+    -H 'Content-Type: application/json' \
+    --data "$1" \
+    "http://127.0.0.1:${CUA_PORT}/cmd"
+}
+
+is_owned_pid() {
+  local pid="$1"
+  local executable="$2"
+  local actual_executable expected_executable interpreter shebang
+  local -a argv=()
+
+  kill -0 "$pid" 2>/dev/null || return 1
+  actual_executable="$(readlink -f "/proc/${pid}/exe" 2>/dev/null)" || return 1
+  expected_executable="$(readlink -f "$executable" 2>/dev/null)" || return 1
+  if [ "$actual_executable" = "$expected_executable" ]; then
+    return 0
+  fi
+
+  [ -r "/proc/${pid}/cmdline" ] && [ -r "$expected_executable" ] || return 1
+  mapfile -d '' -t argv <"/proc/${pid}/cmdline"
+  [ "${argv[1]:-}" = "$executable" ] \
+    || [ "${argv[1]:-}" = "$expected_executable" ] \
+    || return 1
+  if [ "$actual_executable" = "$(readlink -f "$CUA_RUNTIME/bin/python" 2>/dev/null)" ]; then
+    return 0
+  fi
+  IFS= read -r shebang <"$expected_executable" || return 1
+  [[ "$shebang" = '#!'* ]] || return 1
+  interpreter="${shebang#\#!}"
+  interpreter="${interpreter%% *}"
+  [ "$actual_executable" = "$(readlink -f "$interpreter" 2>/dev/null)" ]
+}
+
+stop_owned_process() {
+  local pid="$1"
+  local executable="$2"
+  is_owned_pid "$pid" "$executable" || return 0
+  kill "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.2
+  done
+  is_owned_pid "$pid" "$executable" || return 0
+  kill -KILL "$pid" 2>/dev/null || true
+}
+
+is_driver_ready() {
+  local pid
+  [ -n "$CUA_DRIVER_BIN" ] && [ -S "$CUA_DRIVER_SOCKET" ] && [ -s "$CUA_DRIVER_PID_FILE" ] \
+    || return 1
+  pid="$(cat "$CUA_DRIVER_PID_FILE")"
+  is_owned_pid "$pid" "$CUA_DRIVER_BIN"
+}
+
+is_gateway_ready() {
+  local cursor_payload cursor_response cursor_x cursor_y screen_response version_response
+  is_driver_ready || return 1
+  [ -s "$CUA_PID_FILE" ] || return 1
+  is_owned_pid "$(cat "$CUA_PID_FILE")" "$CUA_GATEWAY" || return 1
+  curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/status" \
+    | jq -e '.status == "ok" and .os_type == "linux" and .backend == "cua-driver"' >/dev/null \
+    || return 1
+  curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/commands" \
+    | jq -e '.commands.get_desktop_state and .commands.get_agent_cursor_state and .commands.left_click and .commands.type_text' >/dev/null \
+    || return 1
+
+  version_response="$(run_command '{"command":"version"}')" || return 1
+  printf '%s' "$version_response" \
+    | jq -e '.success == true and .package == "autopr-cua-gateway" and .protocol == 1' >/dev/null \
+    || return 1
+  screen_response="$(run_command '{"command":"get_screen_size"}')" || return 1
+  printf '%s' "$screen_response" \
+    | jq -e '.success == true and (.size.width | type == "number") and (.size.height | type == "number")' >/dev/null \
+    || return 1
+
+  cursor_response="$(run_command '{"command":"get_cursor_position"}')" || return 1
+  cursor_x="$(printf '%s' "$cursor_response" | jq -er '.position.x')" || return 1
+  cursor_y="$(printf '%s' "$cursor_response" | jq -er '.position.y')" || return 1
+  cursor_payload="$(jq -nc --argjson x "$cursor_x" --argjson y "$cursor_y" '{command:"move_cursor",params:{x:$x,y:$y}}')" || return 1
+  run_command "$cursor_payload" | jq -e '.success == true' >/dev/null || return 1
+  run_command '{"command":"get_agent_cursor_state"}' \
+    | jq -e '.success == true and .runtime_mode == "daemon" and .enabled == true and .implicit == true and .session == null and .label_visible == false and .theme.id == "cua.default"' >/dev/null \
+    || return 1
+}
+
+stop_gateway() {
+  if [ -s "$CUA_PID_FILE" ]; then
+    stop_owned_process "$(cat "$CUA_PID_FILE")" "$CUA_GATEWAY"
+  fi
+  rm -f "$CUA_PID_FILE"
+}
+
+stop_driver() {
+  if [ -s "$CUA_DRIVER_PID_FILE" ] && [ -n "$CUA_DRIVER_BIN" ]; then
+    stop_owned_process "$(cat "$CUA_DRIVER_PID_FILE")" "$CUA_DRIVER_BIN"
+  fi
+  rm -f "$CUA_DRIVER_PID_FILE" "$CUA_DRIVER_SOCKET"
+}
+
+start_driver() {
+  : >"$CUA_DRIVER_LOG_FILE"
+  rm -f "$CUA_DRIVER_SOCKET"
+  nohup "$CUA_DRIVER_BIN" serve \
+    --socket "$CUA_DRIVER_SOCKET" \
+    --cursor-theme cua.default \
+    --cursor-reduced-motion off \
+    --glide-ms 480 \
+    --dwell-ms 260 \
+    --idle-hide-ms 0 \
+    9>&- \
+    >>"$CUA_DRIVER_LOG_FILE" 2>&1 &
+  echo "$!" >"$CUA_DRIVER_PID_FILE"
+
+  for _ in $(seq 1 40); do
+    is_driver_ready && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+start_gateway() {
+  : >"$CUA_LOG_FILE"
+  CUA_DRIVER_SOCKET="$CUA_DRIVER_SOCKET" \
+  nohup "$CUA_RUNTIME/bin/python" "$CUA_GATEWAY" \
+    9>&- \
+    >>"$CUA_LOG_FILE" 2>&1 &
+  echo "$!" >"$CUA_PID_FILE"
+}
+
+set_cursor_theme() {
+  export XCURSOR_THEME=AutoPRHidden
+  if command -v xfconf-query >/dev/null 2>&1; then
+    xfconf-query -c xsettings -p /Gtk/CursorThemeName -s AutoPRHidden >/dev/null 2>&1 || true
+    xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 32 >/dev/null 2>&1 || true
+  fi
+  if command -v xsetroot >/dev/null 2>&1; then
+    xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr 32 >/dev/null 2>&1 || true
+  fi
+}
+
+# Daytona's signed preview URL is the external authorization boundary. The
+# gateway remains private to the VM and CUA Driver remains private to its socket.
+unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE
+export DISPLAY="${DISPLAY:-:1}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
+export BROWSER="${BROWSER:-google-chrome}"
+export CUA_DRIVER_SOCKET
+
+test -x "$CUA_RUNTIME/bin/python"
+test -r "$CUA_GATEWAY"
+CUA_DRIVER_BIN="$("$CUA_RUNTIME/bin/python" -c 'from cua_driver import get_binary_path; print(get_binary_path())')"
+
+if is_gateway_ready; then
+  set_cursor_theme
+  exit 0
+fi
+
+stop_gateway
+stop_driver
+
+if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port ${CUA_PORT} is already occupied by a non-CUA process." >&2
+  exit 1
+fi
+
+if ! start_driver; then
+  echo "CUA Driver did not open its private socket." >&2
+  tail -n 40 "$CUA_DRIVER_LOG_FILE" >&2 || true
+  exit 1
+fi
+start_gateway
+
+for _ in $(seq 1 80); do
+  if is_gateway_ready; then
+    set_cursor_theme
+    exit 0
+  fi
+  sleep 0.5
+done
+
+echo "AutoPR CUA gateway did not become ready on port ${CUA_PORT}." >&2
+tail -n 40 "$CUA_LOG_FILE" >&2 || true
+tail -n 40 "$CUA_DRIVER_LOG_FILE" >&2 || true
+exit 1

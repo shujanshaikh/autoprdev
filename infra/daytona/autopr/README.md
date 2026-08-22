@@ -1,6 +1,6 @@
 # AutoPR Daytona Snapshot
 
-This snapshot builds a self-contained AutoPR workstation on Ubuntu 24.04. It includes the FFF runtime used by AutoPR search tools, Bash terminals, Daytona's required VNC/Computer Use packages, the CUA computer server used for desktop interaction, and the desktop customization used by AutoPR's Daytona preview.
+This snapshot builds a self-contained AutoPR workstation on Ubuntu 24.04. It includes the FFF runtime used by AutoPR search tools, Bash terminals, Daytona's required VNC/Computer Use packages, a small gateway to the official CUA Driver SDK, and the desktop customization used by AutoPR's Daytona preview.
 
 Create a Daytona snapshot named `autopr-cua` from this Dockerfile, then AutoPR will use it by default. The application still honors `DAYTONA_SNAPSHOT` when you need to override the default.
 
@@ -14,7 +14,7 @@ ubuntu:24.04
 
 The image creates the `daytona` user and installs the complete custom-image package contract itself. It intentionally does not inherit from `daytonaio/sandbox`.
 
-This follows Daytona's [custom-image VNC requirements](https://www.daytona.io/docs/en/vnc-access/#required-packages) and [Dockerfile snapshot workflow](https://www.daytona.io/docs/en/snapshots/#snapshots-from-local-images). The desktop package layout remains aligned with `libs/xfce-cua` in the local official CUA checkout; the AutoPR computer server itself remains pinned separately for reproducibility.
+This follows Daytona's [custom-image VNC requirements](https://www.daytona.io/docs/en/vnc-access/#required-packages) and [Dockerfile snapshot workflow](https://www.daytona.io/docs/en/snapshots/#snapshots-from-local-images). The desktop package layout remains aligned with `libs/xfce-cua` in the local official CUA checkout, while the official Driver SDK is pinned separately for reproducibility.
 
 ## Terminal Profile
 
@@ -46,7 +46,7 @@ The snapshot installs these tools from the Debian/Ubuntu repositories supplied b
 - procps (`ps`)
 - psmisc (`pstree`)
 - sqlite3
-- build-essential (required to compile `evdev` for the isolated Python 3.13 CUA runtime)
+- build-essential
 
 GitHub CLI (`gh`), git-delta (`delta`), and ttyd use pinned official releases because their distro availability and versions vary across supported base-image releases. Their amd64 and arm64 checksums are pinned and verified in the Dockerfile. The original `fdfind` and `batcat` executable names remain available alongside the convenience symlinks.
 
@@ -56,7 +56,7 @@ The snapshot also includes conservative system Git defaults for pruning stale re
 
 ## Desktop Profile
 
-Because the base is bare Ubuntu, the snapshot installs the exact custom-image desktop stack Daytona requires: Xvfb, XFCE, xfce4-terminal, x11vnc, noVNC, D-Bus, and the required X11 libraries. Daytona still owns starting, stopping, health-checking, and recording those processes through its Computer Use API. AutoPR uses the co-located official CUA server for agent interaction.
+Because the base is bare Ubuntu, the snapshot installs the exact custom-image desktop stack Daytona requires: Xvfb, XFCE, xfce4-terminal, x11vnc, noVNC, D-Bus, and the required X11 libraries. Daytona still owns starting, stopping, health-checking, and recording those processes through its Computer Use API. AutoPR uses the co-located official CUA Driver for agent interaction.
 
 - Google Chrome Stable, installed from Google's Linux apt repository on amd64 builders.
 - Chrome-compatible wrappers in `/opt/autopr/bin` so AutoPR's browser open path prefers Chrome even when it asks for `chromium`.
@@ -74,15 +74,15 @@ Because the base is bare Ubuntu, the snapshot installs the exact custom-image de
 
 ## CUA Computer Use
 
-The snapshot installs pinned `uv` 0.9.26 into an isolated bootstrap environment, then uses it to install an isolated Python 3.13 runtime. It pins the official CUA Driver 0.20.0 release commit `bb8c86049cad1bf0853c6d25c03c14875d0d047f`; Ubuntu's system Python is left untouched. The published `cua-computer-server==0.3.42` wheel predates the generated Driver backend even though the current source package still reports `0.3.42`, so the image builds `cua-core==0.3.1`, `cua-auto==0.1.2`, and a small patched computer-server wheel from the same checkout. The patch updates the Driver dependency, uses 0.20's typed per-action desktop target, and moves computer-server onto a transport-owned implicit lifecycle session.
+The snapshot installs pinned `uv` 0.9.26 into an isolated bootstrap environment, then uses it to install an isolated Python 3.13 runtime. That runtime contains only the official `cua-driver==0.20.0` SDK and AutoPR's stdlib-only HTTP gateway; Ubuntu's system Python is left untouched. The old patched `cua-computer-server`, its source checkout, and the `cua-core`/`cua-auto` compatibility dependencies are no longer part of the image.
 
-`autopr-cua-computer-server` starts the service lazily on port `8765`. On amd64 it supervises a private `cua-driver serve` process and connects computer-server through an explicit Unix socket in daemon mode. The daemon owns CUA's Linux overlay runloop and starts the built-in `cua.default` theme with full animation, 480 ms glides, bounded click dwell, and no idle auto-hide. The action handler no longer performs duplicate overlay-only moves or arbitrary post-action sleeps because CUA 0.20 glides its session cursor as part of the canonical action path.
+`autopr-cua-gateway` starts the service lazily on port `8765`. It supervises a private `cua-driver serve` process and connects through `CuaDriver.connect()` over an explicit Unix socket. The daemon owns CUA's Linux overlay runloop and starts the built-in `cua.default` theme with full animation, 480 ms glides, bounded click dwell, and no idle auto-hide. Screenshot, pointer, keyboard, scroll, drag, and clipboard operations use the official typed SDK methods directly. The gateway uses `wmctrl`, `xprop`, and Chrome only for window discovery, focus, maximize, and URL opening because those operations are outside Driver 0.20's portable action contract.
 
-The compatibility session deliberately has no public label. Every action passes `session=None`, allowing CUA 0.20 to reuse the SDK transport's private implicit lifecycle, and selects `ActionTarget.DESKTOP(display_id="primary")` independently per call. Readiness requires an implicit session, a null public session label, `label_visible=false`, the built-in theme, and an enabled daemon cursor. This keeps the official animated pointer while preventing `AutoPR`, `computer-use`, or another product label from appearing beneath it.
+The SDK session deliberately has no public label. Every action passes `session=None`, allowing CUA 0.20 to reuse the SDK transport's private implicit lifecycle, and selects `ActionTarget.DESKTOP(display_id="primary")` independently per call. Readiness requires an implicit session, a null public session label, `label_visible=false`, the built-in theme, and an enabled daemon cursor. This keeps the official animated pointer without adding a product label beneath it.
 
-The X11 overlay is a click-through, top-level software-composited window on Daytona's desktop, so Daytona's unchanged X11 screen recorder captures it together with the rest of the display. Daytona's recorder can also obtain the hardware cursor through XFixes instead of desktop pixels, so the image configures a fully transparent system Xcursor while preserving its coordinates and input delivery; only CUA supplies visible cursor pixels. If Driver initialization fails on amd64, the launcher stops its private daemon and falls back to CUA's native X11 handler so computer use and Daytona recordings remain available; status diagnostics then explicitly report that the agent cursor is unavailable. It binds inside the VM so AutoPR can access it through a short-lived Daytona signed preview URL; the signed URL is never included in model output or persisted tool metadata. Daytona remains responsible for bringing up Xvfb/XFCE/noVNC and for start/stop/download of screen recordings.
+The X11 overlay is a click-through, top-level software-composited window on Daytona's desktop, so Daytona's unchanged X11 screen recorder captures it together with the rest of the display. Daytona's recorder can also obtain the hardware cursor through XFixes instead of desktop pixels, so the image configures a fully transparent system Xcursor while preserving its coordinates and input delivery; only CUA supplies visible cursor pixels. Driver startup now fails clearly instead of silently dropping to a second automation backend with different screenshot and cursor behavior. The gateway binds inside the VM so AutoPR can access it through a short-lived Daytona signed preview URL; the signed URL is never included in model output or persisted tool metadata. Daytona remains responsible for bringing up Xvfb/XFCE/noVNC and for start/stop/download of screen recordings.
 
-The agent runtime probes CUA's status, version, command manifest, and label-safe cursor state before every interaction sequence. It initializes or recovers the Driver before asking Daytona to start a recording, so startup is never part of the captured demo. A native server or an older labeled Driver session gets one bounded recovery attempt. If an older snapshot cannot provide the 0.20 integration, the client disables its labeled cursor when that legacy command exists and restores the native pointer, preserving computer use without showing the unwanted badge. Rebuilding the snapshot is required to receive the full 0.20 path.
+The agent runtime probes the gateway status, protocol, command manifest, desktop size, and label-safe cursor state before every interaction sequence. It initializes or recovers the Driver before asking Daytona to start a recording, so startup is never part of the captured demo. It no longer downloads, launches, or recognizes the old patched server. Rebuilding the snapshot is required to install the gateway.
 
 The desktop setup files live under `desktop/`. Update those files and rebuild the `autopr-cua` snapshot when you want to change the visible desktop.
 
@@ -122,18 +122,16 @@ test -f /home/daytona/.tmux.conf
 for executable in node npm uv rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 ttyd Xvfb x11vnc websockify startxfce4 xfce4-terminal; do
   command -v "$executable"
 done
-/opt/autopr/cua/bin/python -c 'import cua_auto, cua_core; from cua_core.telemetry import record_event; import computer_server'
-PYNPUT_BACKEND=dummy /opt/autopr/cua/bin/python -c 'import computer_server.main'
-if [ "$(uname -m)" = "x86_64" ]; then /opt/autopr/cua/bin/python -c 'from importlib.metadata import version; from cua_driver import CuaDriver; from cua_driver._native_contract import ActionTarget; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == "0.20.0"; assert ActionTarget.DESKTOP(display_id="primary").display_id == "primary"; assert hasattr(CuaDriver, "get_session"); assert hasattr(CuaDriverAutomationHandler, "get_agent_cursor_state")'; fi
+/opt/autopr/cua/bin/python -c 'from importlib.metadata import version; from cua_driver import CuaDriver, get_binary_path; from cua_driver._native_contract import ActionTarget; assert version("cua-driver") == "0.20.0"; assert get_binary_path().is_file(); assert ActionTarget.DESKTOP(display_id="primary").display_id == "primary"; assert hasattr(CuaDriver, "get_desktop_state")'
+/opt/autopr/cua/bin/python -m py_compile /opt/autopr/cua-gateway/cua_gateway.py
 test -s /usr/share/icons/AutoPRHidden/cursors/left_ptr
-rg --fixed-strings 'set_cursor_theme AutoPRHidden' /opt/autopr/bin/autopr-cua-computer-server
-rg --fixed-strings 'set_cursor_theme Adwaita' /opt/autopr/bin/autopr-cua-computer-server
-/opt/autopr/cua/bin/cua-computer-server --help >/dev/null
-command -v autopr-cua-computer-server
-CUA_PORT=8765 DISPLAY=:1 autopr-cua-computer-server
-curl --fail --silent http://127.0.0.1:8765/status | jq -e '.status == "ok" and .os_type == "linux"'
-curl --fail --silent http://127.0.0.1:8765/commands | jq -e '.commands.screenshot and .commands.left_click and .commands.type_text and (.commands.get_desktop_state == null or .commands.get_agent_cursor_state)'
-if [ "$(uname -m)" = "x86_64" ]; then curl --fail --silent -H 'Content-Type: application/json' --data '{"command":"get_agent_cursor_state"}' http://127.0.0.1:8765/cmd | sed -n 's/^data: //p' | jq -e '.success and .runtime_mode == "daemon" and .enabled and .implicit and .session == null and .label_visible == false and .theme.id == "cua.default"'; fi
+rg --fixed-strings 'XCURSOR_THEME=AutoPRHidden' /opt/autopr/bin/autopr-cua-gateway
+command -v autopr-cua-gateway
+CUA_PORT=8765 DISPLAY=:1 autopr-cua-gateway
+curl --fail --silent http://127.0.0.1:8765/status | jq -e '.status == "ok" and .os_type == "linux" and .backend == "cua-driver"'
+curl --fail --silent http://127.0.0.1:8765/commands | jq -e '.commands.screenshot and .commands.left_click and .commands.type_text and .commands.get_desktop_state and .commands.get_agent_cursor_state'
+curl --fail --silent -H 'Content-Type: application/json' --data '{"command":"version"}' http://127.0.0.1:8765/cmd | jq -e '.success and .package == "autopr-cua-gateway" and .driver_version == "0.20.0"'
+curl --fail --silent -H 'Content-Type: application/json' --data '{"command":"get_agent_cursor_state"}' http://127.0.0.1:8765/cmd | jq -e '.success and .runtime_mode == "daemon" and .enabled and .implicit and .session == null and .label_visible == false and .theme.id == "cua.default"'
 rg --version
 fd --version
 bat --version

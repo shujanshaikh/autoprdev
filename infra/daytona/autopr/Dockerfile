@@ -4,11 +4,6 @@ ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
 ARG TTYD_VERSION=1.7.7
 ARG UV_VERSION=0.9.26
-ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
-ARG CUA_DRIVER_VERSION=0.20.0
-ARG CUA_CORE_VERSION=0.3.1
-ARG CUA_AUTO_VERSION=0.1.2
-ARG CUA_SOURCE_REVISION=bb8c86049cad1bf0853c6d25c03c14875d0d047f
 
 FROM ${DAYTONA_BASE_IMAGE}
 
@@ -17,11 +12,7 @@ ARG DELTA_VERSION=0.19.2
 ARG GH_VERSION=2.94.0
 ARG TTYD_VERSION=1.7.7
 ARG UV_VERSION=0.9.26
-ARG CUA_COMPUTER_SERVER_VERSION=0.3.42
 ARG CUA_DRIVER_VERSION=0.20.0
-ARG CUA_CORE_VERSION=0.3.1
-ARG CUA_AUTO_VERSION=0.1.2
-ARG CUA_SOURCE_REVISION=bb8c86049cad1bf0853c6d25c03c14875d0d047f
 
 USER root
 SHELL ["/bin/bash", "-lc"]
@@ -81,6 +72,7 @@ RUN apt-get update \
       vim \
       wmctrl \
       x11-apps \
+      x11-utils \
       x11-xserver-utils \
       x11vnc \
       xclip \
@@ -156,11 +148,10 @@ RUN apt-get update \
     && git lfs install --system \
     && if [ -e /opt/google/chrome/chrome-sandbox ]; then chown root:root /opt/google/chrome/chrome-sandbox && chmod 4755 /opt/google/chrome/chrome-sandbox; fi \
     && for browser_package in firefox firefox-esr chromium chromium-browser; do ! dpkg-query -W -f='${db:Status-Abbrev}' "$browser_package" 2>/dev/null | grep -q '^ii'; done \
-    && for executable in bash google-chrome-stable node npm uv rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 tmux ttyd wmctrl Xvfb x11vnc websockify startxfce4; do command -v "$executable" >/dev/null; done \
+    && for executable in bash google-chrome-stable node npm uv rg fd fdfind fzf bat batcat delta flock gh lsof nc dig ps pstree sqlite3 tmux ttyd wmctrl xprop Xvfb x11vnc websockify startxfce4; do command -v "$executable" >/dev/null; done \
     && test "$(command -v tini)" = /usr/bin/tini \
     && test "$(getent passwd daytona | cut -d: -f7)" = /bin/bash
 
-COPY cua-computer-server-agent-cursor.patch /tmp/autopr-cua-computer-server-agent-cursor.patch
 COPY cursor-theme/build_hidden_xcursor.py /tmp/autopr-build-hidden-xcursor.py
 
 RUN set -euxo pipefail \
@@ -172,62 +163,21 @@ RUN set -euxo pipefail \
     && echo '==> Installing the isolated CUA Python 3.13 runtime' \
     && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv python install 3.13 \
     && UV_PYTHON_INSTALL_DIR=/opt/autopr/python uv venv /opt/autopr/cua --python 3.13 \
-    && echo '==> Fetching and patching the pinned CUA source' \
-    && cua_source="$(mktemp -d)" \
-    && git -C "$cua_source" init -q \
-    && git -C "$cua_source" remote add origin https://github.com/trycua/cua.git \
-    && git -C "$cua_source" sparse-checkout init --cone \
-    && git -C "$cua_source" sparse-checkout set \
-      libs/python/computer-server \
-      libs/python/core \
-      libs/python/cua-auto \
-    && git -C "$cua_source" fetch --depth=1 origin "$CUA_SOURCE_REVISION" \
-    && git -C "$cua_source" checkout -q --detach FETCH_HEAD \
-    && test "$(git -C "$cua_source" rev-parse HEAD)" = "$CUA_SOURCE_REVISION" \
-    && git -C "$cua_source" apply --recount --check /tmp/autopr-cua-computer-server-agent-cursor.patch \
-    && git -C "$cua_source" apply --recount /tmp/autopr-cua-computer-server-agent-cursor.patch \
-    && echo '==> Building the pinned CUA wheels' \
-    && cua_wheels="$(mktemp -d)" \
-    && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/core" \
-    && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/cua-auto" \
-    && uv build --wheel --out-dir "$cua_wheels" "${cua_source}/libs/python/computer-server" \
-    && cua_core_wheel="${cua_wheels}/cua_core-${CUA_CORE_VERSION}-py3-none-any.whl" \
-    && cua_auto_wheel="${cua_wheels}/cua_auto-${CUA_AUTO_VERSION}-py3-none-any.whl" \
-    && cua_server_wheel="${cua_wheels}/cua_computer_server-${CUA_COMPUTER_SERVER_VERSION}-py3-none-any.whl" \
-    && test -s "$cua_core_wheel" \
-    && test -s "$cua_auto_wheel" \
-    && test -s "$cua_server_wheel" \
-    && echo '==> Installing CUA and native Python build dependencies' \
-    && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
-        "$cua_core_wheel" \
-        "$cua_auto_wheel" \
-        "$cua_server_wheel" \
-        "cua-driver==${CUA_DRIVER_VERSION}"; \
-    else \
-      uv pip install --python /opt/autopr/cua/bin/python --no-cache \
-        "$cua_core_wheel" \
-        "$cua_auto_wheel" \
-        "$cua_server_wheel"; \
-    fi \
-    && CUA_EXPECTED_VERSION="$CUA_COMPUTER_SERVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; assert version("cua-computer-server") == os.environ["CUA_EXPECTED_VERSION"]' \
-    && echo '==> Validating the CUA Driver integration' \
-    && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-      CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, get_binary_path; from cua_driver._native_contract import ActionTarget, GetSessionInput; from computer_server.handlers.cua_driver import CuaDriverAutomationHandler; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert get_binary_path().is_file(); assert hasattr(CuaDriver, "get_session"); assert ActionTarget.DESKTOP(display_id="primary").display_id == "primary"; assert GetSessionInput(session=None).session is None; assert hasattr(CuaDriverAutomationHandler, "get_agent_cursor_state")' \
-      && /opt/autopr/cua/bin/cua-computer-server --help | grep -q 'cua-driver'; \
-    fi \
-    && rm -rf "$cua_source" "$cua_wheels" /tmp/autopr-cua-computer-server-agent-cursor.patch /tmp/autopr-build-hidden-xcursor.py \
-    && echo '==> Validating the final CUA runtime imports' \
-    && CUA_EXPECTED_CORE_VERSION="$CUA_CORE_VERSION" CUA_EXPECTED_AUTO_VERSION="$CUA_AUTO_VERSION" PYNPUT_BACKEND=dummy /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; import cua_auto, cua_core; from cua_core.telemetry import record_event; import computer_server.main; assert version("cua-core") == os.environ["CUA_EXPECTED_CORE_VERSION"]; assert version("cua-auto") == os.environ["CUA_EXPECTED_AUTO_VERSION"]'
+    && echo '==> Installing the official CUA Driver SDK' \
+    && uv pip install --python /opt/autopr/cua/bin/python --no-cache "cua-driver==${CUA_DRIVER_VERSION}" \
+    && CUA_EXPECTED_DRIVER_VERSION="$CUA_DRIVER_VERSION" /opt/autopr/cua/bin/python -c 'import os; from importlib.metadata import version; from cua_driver import CuaDriver, get_binary_path; from cua_driver._native_contract import ActionTarget, ClipboardReadInput, GetSessionInput; assert version("cua-driver") == os.environ["CUA_EXPECTED_DRIVER_VERSION"]; assert get_binary_path().is_file(); assert hasattr(CuaDriver, "get_desktop_state"); assert hasattr(CuaDriver, "clipboard_read"); assert ActionTarget.DESKTOP(display_id="primary").display_id == "primary"; assert ClipboardReadInput(include_text=True, session=None).session is None; assert GetSessionInput(session=None).session is None' \
+    && rm -f /tmp/autopr-build-hidden-xcursor.py
 
-RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal
+RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal /opt/autopr/cua-gateway
 
 COPY . /opt/autopr/source/
 
 RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.sh && nvm use default >/dev/null; fi \
     && install -m 0644 /opt/autopr/source/fff-cli.mjs /opt/autopr/fff/cli.mjs \
     && install -m 0755 /opt/autopr/source/autopr-fff /opt/autopr/bin/autopr-fff \
-    && install -m 0755 /opt/autopr/source/autopr-cua-computer-server /opt/autopr/bin/autopr-cua-computer-server \
+    && install -m 0644 /opt/autopr/source/cua_gateway.py /opt/autopr/cua-gateway/cua_gateway.py \
+    && install -m 0755 /opt/autopr/source/autopr-cua-gateway /opt/autopr/bin/autopr-cua-gateway \
+    && /opt/autopr/cua/bin/python -m py_compile /opt/autopr/cua-gateway/cua_gateway.py \
     && install -d -m 0755 /etc/gitconfig.d \
     && install -m 0644 /opt/autopr/source/gitconfig /etc/gitconfig.d/autopr \
     && git config --system --add include.path /etc/gitconfig.d/autopr \
@@ -239,7 +189,7 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
     && cd "$AUTOPR_FFF_HOME" \
     && npm init -y >/dev/null \
     && npm install --omit=dev --no-audit --no-fund "@ff-labs/fff-node@${FFF_NODE_VERSION}" \
-    && chmod +x /opt/autopr/bin/autopr-fff /opt/autopr/bin/autopr-cua-computer-server \
+    && chmod +x /opt/autopr/bin/autopr-fff /opt/autopr/bin/autopr-cua-gateway \
     && chmod +x /opt/autopr/desktop/autopr-desktop-session \
     && chmod +x /opt/autopr/desktop/startxfce4-autopr \
     && if [ -x /usr/bin/startxfce4 ] && [ ! -e /usr/bin/startxfce4.autopr-original ]; then mv /usr/bin/startxfce4 /usr/bin/startxfce4.autopr-original; fi \

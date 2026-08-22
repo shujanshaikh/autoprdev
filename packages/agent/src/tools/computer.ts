@@ -517,8 +517,7 @@ async function runOneAction(
     case "click": {
       const point = mapPoint(observation!, action);
       if (action.button === "middle") {
-        await cua.command("mouse_down", { ...point, button: "middle" });
-        return commandDetails(await cua.command("mouse_up", { ...point, button: "middle" }));
+        return commandDetails(await cua.command("middle_click", point));
       }
       return commandDetails(await cua.command(action.button === "right" ? "right_click" : "left_click", point));
     }
@@ -527,8 +526,7 @@ async function runOneAction(
       if (action.button === "middle") {
         let result: CuaCommandResponse = { success: true };
         for (let index = 0; index < 2; index += 1) {
-          await cua.command("mouse_down", { ...point, button: "middle" });
-          result = await cua.command("mouse_up", { ...point, button: "middle" });
+          result = await cua.command("middle_click", point);
         }
         return commandDetails(result);
       }
@@ -722,7 +720,7 @@ async function executeCuaComputerAction(
           await ensureComputerUseReady(context.sandbox.computerUse);
           if (requiresCua(action)) details.cursor = (await session.client.ensureReady()).cursor;
         },
-        () => new Error("Timed out waiting for the Daytona desktop and CUA computer-server to become ready."),
+        () => new Error("Timed out waiting for the Daytona desktop and CUA gateway to become ready."),
         COMPUTER_START_TIMEOUT_MS,
       );
     }

@@ -32,8 +32,8 @@ afterEach(() => {
   executeMocks.executeSandboxCommand.mockReset();
 });
 
-describe("CUA computer-server response parsing", () => {
-  it("generates a syntactically valid legacy bootstrap script", () => {
+describe("CUA gateway response parsing", () => {
+  it("generates a syntactically valid image-launcher bootstrap script", () => {
     const bootstrap = cuaBootstrapCommand();
     const result = spawnSync("bash", ["-n"], {
       encoding: "utf8",
@@ -41,108 +41,64 @@ describe("CUA computer-server response parsing", () => {
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
-    expect(bootstrap.indexOf("/opt/autopr/bin/autopr-cua-computer-server")).toBeLessThan(
-      bootstrap.indexOf("VERSION_RESPONSE"),
-    );
+    expect(bootstrap).toContain("/opt/autopr/bin/autopr-cua-gateway");
+    expect(bootstrap).toContain("rebuild and roll out the Daytona snapshot");
+    expect(bootstrap).not.toContain("pip install");
   });
 
-  it("keeps CUA's official animated cursor without a public session label", () => {
+  it("uses the official CUA SDK directly behind a thin gateway", () => {
     const launcher = readFileSync(
-      new URL("../../../../infra/daytona/autopr/autopr-cua-computer-server", import.meta.url),
+      new URL("../../../../infra/daytona/autopr/autopr-cua-gateway", import.meta.url),
       "utf8",
     );
-    const compatibilityPatch = readFileSync(
-      new URL("../../../../infra/daytona/autopr/cua-computer-server-agent-cursor.patch", import.meta.url),
+    const gateway = readFileSync(
+      new URL("../../../../infra/daytona/autopr/cua_gateway.py", import.meta.url),
       "utf8",
     );
     const dockerfile = readFileSync(
       new URL("../../../../infra/daytona/autopr/Dockerfile", import.meta.url),
       "utf8",
     );
-    const desktopSession = readFileSync(
-      new URL("../../../../infra/daytona/autopr/desktop/autopr-desktop-session", import.meta.url),
-      "utf8",
-    );
-    const panelConfig = readFileSync(
-      new URL("../../../../infra/daytona/autopr/desktop/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml", import.meta.url),
-      "utf8",
-    );
-    const windowManagerConfig = readFileSync(
-      new URL("../../../../infra/daytona/autopr/desktop/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml", import.meta.url),
-      "utf8",
-    );
+    const pythonSyntax = spawnSync("python3", ["-c", "compile(__import__('sys').stdin.read(), 'cua_gateway.py', 'exec')"], {
+      encoding: "utf8",
+      input: gateway,
+    });
+    expect(pythonSyntax.stderr).toBe("");
+    expect(pythonSyntax.status).toBe(0);
+    expect(gateway).toContain("from cua_driver import (");
+    expect(gateway).toContain("CuaDriver.connect(self._socket_path)");
+    expect(gateway).toContain('ActionTarget.DESKTOP(display_id="primary")');
+    expect(gateway).toContain("StartSessionInput(session=None, capture_scope=None, cursor_theme=None)");
+    expect(gateway).toContain("await self._driver.get_desktop_state(");
+    expect(gateway).toContain("await self._driver.clipboard_read(");
+    expect(gateway).not.toContain("computer_server");
     expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
+    expect(launcher).toContain('"$CUA_RUNTIME/bin/python" "$CUA_GATEWAY"');
     expect(launcher).toContain('flock 9');
-    expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_ready; then'));
+    expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_gateway_ready; then'));
     expect(launcher.match(/9>&-/g)).toHaveLength(2);
     expect(launcher).toContain('kill -KILL "$pid"');
     expect(launcher).toContain('readlink -f "/proc/${pid}/exe"');
     expect(launcher).toContain("mapfile -d '' -t argv");
-    expect(launcher).not.toContain("grep -Fq \"$executable\"");
-    expect(launcher).toContain("--driver-mode daemon");
     expect(launcher).toContain("--cursor-theme cua.default");
     expect(launcher).toContain('{"command":"get_cursor_position"}');
     expect(launcher).toContain("{command:\"move_cursor\",params:{x:$x,y:$y}}");
     expect(launcher).toContain(".implicit == true");
     expect(launcher).toContain(".session == null");
     expect(launcher).toContain(".label_visible == false");
-    expect(launcher).not.toContain('"command":"set_agent_cursor_enabled"');
-    expect(launcher).toContain("set_cursor_theme AutoPRHidden");
-    expect(launcher).toContain("set_cursor_theme Adwaita");
     expect(launcher).not.toContain("CUA_DRIVER_SESSION_ID");
-    expect(launcher).not.toContain("--driver-mode embedded");
-    expect(compatibilityPatch).toContain("self._session_id: Optional[str] = None");
-    expect(compatibilityPatch).toContain(
-      'self._contract_type("ActionTarget").DESKTOP(display_id="primary")',
-    );
-    expect(compatibilityPatch).toContain('"label_visible": state.session is not None');
-    expect(compatibilityPatch).not.toContain("probe_agent_cursor");
     expect(dockerfile).toContain("ARG CUA_DRIVER_VERSION=0.20.0");
-    expect(dockerfile).toContain("ARG CUA_SOURCE_REVISION=bb8c86049cad1bf0853c6d25c03c14875d0d047f");
-    expect(dockerfile).not.toContain("autopr-build-cursor-theme");
-    expect(desktopSession).toContain('CURSOR_THEME="Adwaita"');
-    expect(desktopSession).toContain("xsetroot -cursor_name left_ptr");
-    expect(desktopSession).not.toContain("xsetroot -xcf /usr/share/icons/AutoPRHidden");
-    expect(desktopSession).toContain("set_transparent_panel");
-    expect(panelConfig).toContain('<property name="background-style" type="uint" value="1"/>');
-    expect(panelConfig.match(/<value type="double" value="0"\/>/g)).toHaveLength(4);
-    expect(windowManagerConfig).toContain('<property name="use_compositing" type="bool" value="true"/>');
+    expect(dockerfile).toContain('"cua-driver==${CUA_DRIVER_VERSION}"');
+    expect(dockerfile).toContain("/opt/autopr/cua-gateway/cua_gateway.py");
+    expect(dockerfile).not.toContain("cua-computer-server");
+    expect(dockerfile).not.toContain("cua_source");
+    expect(dockerfile).not.toContain("git apply");
   });
 
-  it("installs and validates computer-server's complete pinned CUA runtime", () => {
-    const dockerfile = readFileSync(
-      new URL("../../../../infra/daytona/autopr/Dockerfile", import.meta.url),
-      "utf8",
-    );
-    const compatibilityPatch = readFileSync(
-      new URL("../../../../infra/daytona/autopr/cua-computer-server-agent-cursor.patch", import.meta.url),
-      "utf8",
-    );
-    expect(dockerfile).toContain('uv build --wheel --out-dir "$cua_wheels"');
-    expect(dockerfile).toContain('cua_core-${CUA_CORE_VERSION}-py3-none-any.whl');
-    expect(dockerfile).toContain('cua_auto-${CUA_AUTO_VERSION}-py3-none-any.whl');
-    expect(dockerfile).toContain(
-      'cua_computer_server-${CUA_COMPUTER_SERVER_VERSION}-py3-none-any.whl',
-    );
-    expect(dockerfile).toContain('uv pip install --python /opt/autopr/cua/bin/python --no-cache');
-    expect(dockerfile).not.toContain("--no-editable");
-    expect(dockerfile).toContain("import cua_auto, cua_core");
-    expect(dockerfile).toContain("from cua_core.telemetry import record_event");
-    expect(dockerfile).toContain("PYNPUT_BACKEND=dummy");
-    expect(dockerfile).not.toContain("cursor_theme_inspection");
-    expect(dockerfile).not.toContain("cua-cursor-theme");
-    expect(compatibilityPatch).toContain('"cua-driver>=0.20.0,<0.21.0"');
-    expect(compatibilityPatch).toContain('cua-core = { path = "../core" }');
-    expect(compatibilityPatch).toContain('cua-auto = { path = "../cua-auto" }');
-    expect(dockerfile.indexOf('rm -rf "$cua_source"')).toBeLessThan(
-      dockerfile.indexOf("import cua_auto, cua_core"),
-    );
-    expect(dockerfile.indexOf('rm -rf "$cua_source" "$cua_wheels"')).toBeLessThan(
-      dockerfile.indexOf("import cua_auto, cua_core"),
-    );
-  });
-
-  it("parses the first successful SSE data frame", () => {
+  it("parses gateway JSON and legacy SSE during snapshot rollout", () => {
+    expect(parseCuaCommandResponse(
+      '{"success":true,"size":{"width":1920,"height":1080}}',
+    )).toMatchObject({ success: true, size: { width: 1920, height: 1080 } });
     expect(parseCuaCommandResponse(
       ': keep-alive\ndata: {"success":true,"size":{"width":1920,"height":1080}}\n\n',
     )).toEqual({
@@ -153,15 +109,15 @@ describe("CUA computer-server response parsing", () => {
 
   it("surfaces CUA command failures", () => {
     expect(() => parseCuaCommandResponse(
-      'data: {"success":false,"error":"X11 display is unavailable"}\n\n',
-    )).toThrow("CUA computer-server command failed: X11 display is unavailable");
+      '{"success":false,"error":"X11 display is unavailable"}',
+    )).toThrow("CUA gateway command failed: X11 display is unavailable");
   });
 
-  it("rejects malformed and missing SSE payloads", () => {
+  it("rejects malformed and missing command payloads", () => {
+    expect(() => parseCuaCommandResponse("not-json"))
+      .toThrow("CUA gateway returned no JSON command result");
     expect(() => parseCuaCommandResponse("data: not-json\n\n"))
-      .toThrow("CUA computer-server returned invalid JSON");
-    expect(() => parseCuaCommandResponse('{"success":true}'))
-      .toThrow("CUA computer-server returned no SSE data frame");
+      .toThrow("CUA gateway returned invalid JSON");
   });
 });
 
@@ -169,26 +125,26 @@ describe("CUA client configuration", () => {
   const sandbox = {} as DaytonaSandbox;
   const requiredCommandNames = [
     "version", "open", "get_current_window_id", "get_application_windows", "get_window_name", "get_window_size",
-    "get_window_position", "activate_window", "maximize_window", "move_cursor", "left_click", "right_click", "mouse_down",
-    "mouse_up", "double_click", "drag", "scroll_direction", "type_text", "press_key",
+    "get_window_position", "activate_window", "maximize_window", "move_cursor", "left_click", "middle_click", "right_click",
+    "double_click", "drag", "scroll_direction", "type_text", "press_key",
     "hotkey", "screenshot", "get_cursor_position", "get_screen_size", "copy_to_clipboard", "set_clipboard",
   ];
   const cursorCommandNames = [
     "get_agent_cursor_state",
   ];
 
-  it("rejects privileged and invalid computer-server ports", () => {
+  it("rejects privileged and invalid gateway ports", () => {
     expect(() => new CuaComputerClient(sandbox, {}, { serverPort: 80 }))
-      .toThrow("Invalid CUA computer-server port: 80");
+      .toThrow("Invalid CUA gateway port: 80");
     expect(() => new CuaComputerClient(sandbox, {}, { serverPort: 65_536 }))
-      .toThrow("Invalid CUA computer-server port: 65536");
+      .toThrow("Invalid CUA gateway port: 65536");
   });
 
   it("rejects unsafe request timeouts", () => {
     expect(() => new CuaComputerClient(sandbox, {}, { requestTimeoutMs: 500 }))
-      .toThrow("Invalid CUA request timeout: 500");
+      .toThrow("Invalid CUA gateway request timeout: 500");
     expect(() => new CuaComputerClient(sandbox, {}, { requestTimeoutMs: 120_001 }))
-      .toThrow("Invalid CUA request timeout: 120001");
+      .toThrow("Invalid CUA gateway request timeout: 120001");
   });
 
   it("fails closed on Driver refusals while preserving suspected no-op evidence", async () => {
@@ -271,9 +227,15 @@ describe("CUA client configuration", () => {
       }
       const body = typeof init?.body === "string" ? JSON.parse(init.body) as { command?: string } : {};
       if (body.command === "get_screen_size") {
-        return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
+        return Response.json({ success: true, size: { width: 1920, height: 1080 } });
       }
-      return new Response('data: {"success":true,"protocol":1,"package":"0.3.42"}\n\n');
+      return Response.json({
+        success: true,
+        protocol: 1,
+        package: "autopr-cua-gateway",
+        version: "1.0.0",
+        driver_version: "0.20.0",
+      });
     }));
 
     const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
@@ -319,7 +281,7 @@ describe("CUA client configuration", () => {
         return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
       }
       if (command === "version") {
-        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+        return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
       }
       if (command === "get_agent_cursor_state") {
         return new Response(
@@ -362,7 +324,7 @@ describe("CUA client configuration", () => {
     expect(commands).not.toContain("probe_agent_cursor");
   });
 
-  it("disables a labeled legacy cursor when an older snapshot cannot migrate in place", async () => {
+  it("disables a labeled cursor when the gateway cannot prove it is safe", async () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
     const commandNames = [
       ...requiredCommandNames,
@@ -390,7 +352,7 @@ describe("CUA client configuration", () => {
           }
         : {};
       if (body.command === "version") {
-        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+        return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
       }
       if (body.command === "get_screen_size") {
         return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
@@ -455,7 +417,7 @@ describe("CUA client configuration", () => {
         ? JSON.parse(init.body) as { command?: string }
         : {};
       if (body.command === "version") {
-        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+        return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
       }
       if (body.command === "get_screen_size") {
         return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
@@ -482,7 +444,7 @@ describe("CUA client configuration", () => {
       getSignedPreviewUrl,
     } as unknown as DaytonaSandbox, {});
     await expect(client.ensureReady()).rejects.toThrow(
-      "Could not disable the labeled legacy cursor: CUA computer-server command failed: overlay did not stop",
+      "Could not disable the labeled legacy cursor: CUA gateway command failed: overlay did not stop",
     );
     expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(1);
   });
@@ -505,7 +467,7 @@ describe("CUA client configuration", () => {
         ? JSON.parse(init.body) as { command?: string }
         : {};
       if (body.command === "version") {
-        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+        return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
       }
       if (body.command === "get_screen_size") {
         return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
@@ -562,7 +524,7 @@ describe("CUA client configuration", () => {
         : {};
       commands.push(body.command ?? "");
       if (body.command === "version") {
-        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+        return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
       }
       return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
     }));
@@ -611,7 +573,7 @@ describe("CUA client configuration", () => {
         ? JSON.parse(init.body) as { command?: string }
         : {};
       if (body.command === "version") {
-        return new Response('data: {"success":true,"package":"0.3.42"}\n\n');
+        return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
       }
       return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
     }));

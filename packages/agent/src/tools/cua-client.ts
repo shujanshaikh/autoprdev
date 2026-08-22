@@ -9,7 +9,7 @@ const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
 const CUA_CURSOR_RECOVERY_COOLDOWN_MS = 60_000;
 const CUA_READY_CACHE_MS = 10_000;
-const CUA_COMPUTER_SERVER_VERSION = "0.3.42";
+const CUA_GATEWAY_PACKAGE = "autopr-cua-gateway";
 
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 502, 503, 504]);
 const REFRESHABLE_PREVIEW_HTTP_STATUSES = new Set([401, 403, 404]);
@@ -41,9 +41,8 @@ const REQUIRED_CUA_COMMANDS = [
   "maximize_window",
   "move_cursor",
   "left_click",
+  "middle_click",
   "right_click",
-  "mouse_down",
-  "mouse_up",
   "double_click",
   "drag",
   "scroll_direction",
@@ -146,14 +145,14 @@ function cursorMotion(value: unknown): CuaAgentCursorMotion | undefined {
 
 function validateServerPort(port: number): number {
   if (!Number.isInteger(port) || port < 1_024 || port > 65_535) {
-    throw new Error(`Invalid CUA computer-server port: ${port}`);
+    throw new Error(`Invalid CUA gateway port: ${port}`);
   }
   return port;
 }
 
 function validateRequestTimeout(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 120_000) {
-    throw new Error(`Invalid CUA request timeout: ${timeoutMs}`);
+    throw new Error(`Invalid CUA gateway request timeout: ${timeoutMs}`);
   }
   return Math.ceil(timeoutMs);
 }
@@ -177,7 +176,7 @@ async function fetchWithTimeout(
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error(`CUA computer-server request timed out after ${timeoutMs}ms.`);
+      throw new Error(`CUA gateway request timed out after ${timeoutMs}ms.`);
     }
     throw error;
   } finally {
@@ -186,71 +185,36 @@ async function fetchWithTimeout(
 }
 
 export function parseCuaCommandResponse(body: string): CuaCommandResponse {
-  for (const line of body.split(/\r?\n/)) {
-    if (!line.startsWith("data: ")) continue;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line.slice(6));
-    } catch (error) {
-      throw new Error(`CUA computer-server returned invalid JSON: ${errorMessage(error)}`);
-    }
-
-    if (!isRecord(parsed)) {
-      throw new Error("CUA computer-server returned a non-object command result.");
-    }
-    if (parsed.success !== true) {
-      const detail = typeof parsed.error === "string" ? parsed.error : "unknown CUA command failure";
-      throw new Error(`CUA computer-server command failed: ${detail}`);
-    }
-
-    return parsed as CuaCommandResponse;
+  const trimmed = body.trim();
+  const dataFrame = body.split(/\r?\n/).find((line) => line.startsWith("data: "));
+  const payload = trimmed.startsWith("{") ? trimmed : dataFrame?.slice(6);
+  if (!payload) {
+    throw new Error("CUA gateway returned no JSON command result.");
   }
 
-  throw new Error("CUA computer-server returned no SSE data frame.");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch (error) {
+    throw new Error(`CUA gateway returned invalid JSON: ${errorMessage(error)}`);
+  }
+  if (!isRecord(parsed)) {
+    throw new Error("CUA gateway returned a non-object command result.");
+  }
+  if (parsed.success !== true) {
+    const detail = typeof parsed.error === "string" ? parsed.error : "unknown CUA command failure";
+    throw new Error(`CUA gateway command failed: ${detail}`);
+  }
+  return parsed as CuaCommandResponse;
 }
 
 export function cuaBootstrapCommand(): string {
   return [
     "set -eu",
-    'IMAGE_LAUNCHER="/opt/autopr/bin/autopr-cua-computer-server"',
+    'IMAGE_LAUNCHER="/opt/autopr/bin/autopr-cua-gateway"',
     'if [ -x "$IMAGE_LAUNCHER" ]; then exec "$IMAGE_LAUNCHER"; fi',
-    'if command -v autopr-cua-computer-server >/dev/null 2>&1; then exec autopr-cua-computer-server; fi',
-    `CUA_VERSION=${CUA_COMPUTER_SERVER_VERSION}`,
-    'CUA_RUNTIME="/home/daytona/.local/share/autopr/cua-${CUA_VERSION}"',
-    'if [ ! -x "$CUA_RUNTIME/bin/cua-computer-server" ]; then',
-    '  PYTHON_BIN="$(command -v python3 || true)"',
-    '  if [ -n "$PYTHON_BIN" ] && "$PYTHON_BIN" -c \'import sys; assert (3, 12) <= sys.version_info < (3, 14)\' 2>/dev/null; then',
-    '    "$PYTHON_BIN" -m venv --clear "$CUA_RUNTIME"',
-    '    "$CUA_RUNTIME/bin/pip" install --disable-pip-version-check --no-cache-dir "cua-computer-server==${CUA_VERSION}"',
-    '  elif command -v uv >/dev/null 2>&1; then',
-    '    CUA_PYTHON_DIR="/home/daytona/.local/share/autopr/python"',
-    '    UV_PYTHON_INSTALL_DIR="$CUA_PYTHON_DIR" uv python install 3.13',
-    '    UV_PYTHON_INSTALL_DIR="$CUA_PYTHON_DIR" uv venv --clear "$CUA_RUNTIME" --python 3.13',
-    '    uv pip install --python "$CUA_RUNTIME/bin/python" --no-cache "cua-computer-server==${CUA_VERSION}"',
-    '  else',
-    '    echo "CUA needs Python 3.12/3.13 or uv to provision it" >&2',
-    '    exit 127',
-    '  fi',
-    "fi",
-    'SERVER="$CUA_RUNTIME/bin/cua-computer-server"',
-    'mkdir -p /tmp/autopr-cua "$XDG_RUNTIME_DIR"',
-    'chmod 700 "$XDG_RUNTIME_DIR"',
-    'cua_command() { curl --fail --silent --max-time 10 -H "Content-Type: application/json" --data "$1" "http://127.0.0.1:${CUA_PORT}/cmd" | sed -n \'s/^data: //p\'; }',
-    'VERSION_RESPONSE="$(cua_command \'{"command":"version"}\' || true)"',
-    'SCREEN_RESPONSE="$(cua_command \'{"command":"get_screen_size"}\' || true)"',
-    "if curl --fail --silent --max-time 2 \"http://127.0.0.1:${CUA_PORT}/status\" | jq -e '.status == \"ok\" and .os_type == \"linux\"' >/dev/null 2>&1 \\",
-    "  && printf \"%s\" \"$VERSION_RESPONSE\" | jq -e --arg expected \"$CUA_VERSION\" '.success == true and .package == $expected' >/dev/null 2>&1 \\",
-    "  && printf \"%s\" \"$SCREEN_RESPONSE\" | jq -e '.success == true and (.size.width | type == \"number\") and (.size.height | type == \"number\")' >/dev/null 2>&1; then exit 0; fi",
-    'if [ -s /tmp/autopr-cua/computer-server.pid ]; then',
-    '  OLD_PID="$(cat /tmp/autopr-cua/computer-server.pid)"',
-    '  if kill -0 "$OLD_PID" 2>/dev/null && [ -r "/proc/${OLD_PID}/cmdline" ] && tr "\\0" " " <"/proc/${OLD_PID}/cmdline" | grep -Fq "$SERVER"; then kill "$OLD_PID" 2>/dev/null || true; sleep 1; fi',
-    "fi",
-    'if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then echo "CUA port is already occupied" >&2; exit 1; fi',
-    'unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE',
-    'export BROWSER="${BROWSER:-google-chrome}"',
-    'nohup "$SERVER" --host 0.0.0.0 --port "$CUA_PORT" --backend native --log-level warning >/tmp/autopr-cua/computer-server.log 2>&1 &',
-    'echo "$!" >/tmp/autopr-cua/computer-server.pid',
+    'echo "AutoPR CUA gateway is missing from this sandbox image; rebuild and roll out the Daytona snapshot." >&2',
+    "exit 127",
   ].join("\n");
 }
 
@@ -281,7 +245,7 @@ async function startCuaServer(
 
     if (result.timedOut || result.exitCode !== 0) {
       const diagnostic = result.stderr || result.stdout || result.output || "unknown startup failure";
-      throw new Error(`Could not start CUA computer-server in Daytona: ${diagnostic}`);
+      throw new Error(`Could not start the CUA gateway in Daytona: ${diagnostic}`);
     }
   })();
 
@@ -432,7 +396,7 @@ export class CuaComputerClient {
       }
     }
 
-    throw lastError ?? new Error(`CUA computer-server ${path} request failed.`);
+    throw lastError ?? new Error(`CUA gateway ${path} request failed.`);
   }
 
   private async getJson(path: string): Promise<unknown> {
@@ -442,7 +406,7 @@ export class CuaComputerClient {
       true,
     );
     if (!response.ok) {
-      throw new Error(`CUA computer-server ${path} failed with HTTP ${response.status}.`);
+      throw new Error(`CUA gateway ${path} failed with HTTP ${response.status}.`);
     }
     return await response.json();
   }
@@ -450,7 +414,7 @@ export class CuaComputerClient {
   async status(): Promise<CuaServerStatus> {
     const payload = await this.getJson("/status");
     if (!isRecord(payload) || payload.status !== "ok") {
-      throw new Error("CUA computer-server status response was invalid.");
+      throw new Error("CUA gateway status response was invalid.");
     }
     return payload as CuaServerStatus;
   }
@@ -461,7 +425,7 @@ export class CuaComputerClient {
       {
         method: "POST",
         headers: {
-          Accept: "text/plain",
+          Accept: "application/json",
           "Content-Type": "application/json",
         },
         body: JSON.stringify(params && Object.keys(params).length > 0
@@ -470,11 +434,19 @@ export class CuaComputerClient {
       },
       IDEMPOTENT_CUA_COMMANDS.has(command),
     );
+    const body = await response.text();
     if (!response.ok) {
       this.invalidateConnection();
-      throw new Error(`CUA computer-server command ${command} failed with HTTP ${response.status}.`);
+      try {
+        parseCuaCommandResponse(body);
+      } catch (error) {
+        throw new Error(
+          `CUA gateway command ${command} failed with HTTP ${response.status}: ${errorMessage(error)}`,
+        );
+      }
+      throw new Error(`CUA gateway command ${command} failed with HTTP ${response.status}.`);
     }
-    const result = parseCuaCommandResponse(await response.text());
+    const result = parseCuaCommandResponse(body);
     if (result.effect === "refused") {
       const detail = typeof result.text === "string"
         ? result.text
@@ -554,26 +526,26 @@ export class CuaComputerClient {
     ]);
 
     if (status.os_type && status.os_type !== "linux") {
-      throw new Error(`Expected CUA computer-server on Linux, received ${status.os_type}.`);
+      throw new Error(`Expected the CUA gateway on Linux, received ${status.os_type}.`);
     }
     const commandManifest = isRecord(commands) ? commands.commands : undefined;
     if (!isRecord(commandManifest)) {
-      throw new Error("CUA computer-server command manifest was invalid.");
+      throw new Error("CUA gateway command manifest was invalid.");
     }
     const missing = REQUIRED_CUA_COMMANDS.filter((command) => !(command in commandManifest));
     if (missing.length > 0) {
-      throw new Error(`CUA computer-server is missing required commands: ${missing.join(", ")}.`);
+      throw new Error(`CUA gateway is missing required commands: ${missing.join(", ")}.`);
     }
     this.commandNames = new Set(Object.keys(commandManifest));
-    if (version.package !== CUA_COMPUTER_SERVER_VERSION) {
+    if (version.package !== CUA_GATEWAY_PACKAGE) {
       const received = typeof version.package === "string" ? version.package : "unknown";
       throw new Error(
-        `Expected CUA computer-server ${CUA_COMPUTER_SERVER_VERSION}, received ${received}.`,
+        `Expected ${CUA_GATEWAY_PACKAGE}, received ${received}.`,
       );
     }
     const size = isRecord(screen.size) ? screen.size : undefined;
     if (typeof size?.width !== "number" || typeof size.height !== "number") {
-      throw new Error("CUA computer-server could not read the Daytona desktop size.");
+      throw new Error("CUA gateway could not read the Daytona desktop size.");
     }
     const backend = "get_desktop_state" in commandManifest ? "cua-driver" : "native";
     let cursor = this.cursorStatus(backend, commandManifest);
@@ -739,7 +711,7 @@ export class CuaComputerClient {
     }
 
     throw new Error(
-      `CUA computer-server did not become ready: ${errorMessage(lastError ?? "readiness timeout")}`,
+      `CUA gateway did not become ready: ${errorMessage(lastError ?? "readiness timeout")}`,
     );
   }
 }

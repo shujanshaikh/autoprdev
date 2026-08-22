@@ -70,7 +70,9 @@ describe("CUA gateway response parsing", () => {
     expect(gateway).toContain("asyncio.wait_for(driver.metadata()");
     expect(gateway).toContain('await self._driver.call_tool(\n                    "launch_app"');
     expect(gateway).toContain('ActionTarget.DESKTOP(display_id="primary")');
-    expect(gateway).not.toContain("StartSessionInput");
+    expect(gateway).toContain("StartSessionInput");
+    expect(gateway).toContain("CaptureScope.DESKTOP");
+    expect(gateway).toContain('result.get("error_code") == "session_ended"');
     expect(gateway).toContain("await self._driver.get_desktop_state(");
     expect(gateway).toContain("await self._driver.clipboard_read(");
     expect(gateway).not.toContain("computer_server");
@@ -86,6 +88,7 @@ describe("CUA gateway response parsing", () => {
     expect(launcher).toContain('{"command":"get_cursor_position"}');
     expect(launcher).toContain("{command:\"move_cursor\",params:{x:$x,y:$y}}");
     expect(launcher).toContain(".implicit == true");
+    expect(launcher).toContain('(.enabled | type) == "boolean"');
     expect(launcher).toContain(".session == null");
     expect(launcher).toContain(".label_visible == false");
     expect(launcher).toContain('.runtime_mode == "embedded"');
@@ -325,6 +328,64 @@ describe("CUA client configuration", () => {
     expect(commands).not.toContain("set_agent_cursor_theme");
     expect(commands).not.toContain("set_agent_cursor_motion");
     expect(commands).not.toContain("probe_agent_cursor");
+  });
+
+  it("accepts the cursorless embedded session without restarting a healthy gateway", async () => {
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/status")) return Response.json({ status: "ok", os_type: "linux" });
+      if (path.endsWith("/commands")) {
+        return Response.json({
+          commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
+        });
+      }
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { command?: string }
+        : {};
+      if (body.command === "version") {
+        return Response.json({ success: true, package: "autopr-cua-gateway" });
+      }
+      if (body.command === "get_screen_size") {
+        return Response.json({ success: true, size: { width: 1920, height: 1080 } });
+      }
+      if (body.command === "get_agent_cursor_state") {
+        return Response.json({
+          success: true,
+          session: null,
+          implicit: true,
+          label_visible: false,
+          enabled: false,
+          theme: { id: "cua.default" },
+          runtime_mode: "embedded",
+        });
+      }
+      return Response.json({ success: true });
+    }));
+
+    const client = new CuaComputerClient({
+      id: "embedded-cursorless-sandbox",
+      getSignedPreviewUrl,
+    } as unknown as DaytonaSandbox, {});
+
+    await expect(client.ensureReady()).resolves.toMatchObject({
+      backend: "cua-driver",
+      cursor: {
+        available: true,
+        enabled: false,
+        implicit: true,
+        labelVisible: false,
+        runtimeMode: "embedded",
+      },
+    });
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledOnce();
+    expect(executeMocks.executeSandboxCommand.mock.calls[0]?.[0]).toContain(
+      "xsetroot -cursor_name left_ptr",
+    );
   });
 
   it("disables a labeled cursor when the gateway cannot prove it is safe", async () => {

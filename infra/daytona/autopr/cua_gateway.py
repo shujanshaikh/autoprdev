@@ -40,12 +40,14 @@ from cua_driver._native_contract import (
     ActionTarget,
     ClipboardReadInput,
     ClipboardWriteInput,
+    CaptureScope,
     GetSessionInput,
+    StartSessionInput,
 )
 
 
 GATEWAY_PACKAGE = "autopr-cua-gateway"
-GATEWAY_VERSION = "1.1.0"
+GATEWAY_VERSION = "1.2.0"
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 1024 * 1024
 SDK_CALL_TIMEOUT_SECONDS = 125
@@ -82,6 +84,10 @@ COMMANDS = {
 
 
 class GatewayInputError(ValueError):
+    pass
+
+
+class SessionEndedError(RuntimeError):
     pass
 
 
@@ -178,7 +184,11 @@ def _structured_result(result: Any) -> dict[str, Any]:
         detail = result.text or "CUA Driver command failed"
         if result.error_code:
             detail = f"{detail} ({result.error_code})"
-        return {"success": False, "error": detail}
+        return {
+            "success": False,
+            "error": detail,
+            "error_code": result.error_code,
+        }
 
     data: dict[str, Any] = {}
     if result.structured_json:
@@ -223,6 +233,17 @@ class CuaGatewayRuntime:
         driver = CuaDriver.create()
         await asyncio.wait_for(driver.metadata(), timeout=5)
         self._driver = driver
+        await self._start_implicit_session()
+
+    async def _start_implicit_session(self) -> None:
+        await asyncio.wait_for(
+            self._driver.start_session(StartSessionInput(
+                session=None,
+                capture_scope=CaptureScope.DESKTOP,
+                cursor_theme=None,
+            )),
+            timeout=5,
+        )
 
     def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
         result = self._submit(self._dispatch_serialized(command, params)).result(
@@ -236,7 +257,17 @@ class CuaGatewayRuntime:
         if self._lock is None:
             raise RuntimeError("CUA Driver is not initialized")
         async with self._lock:
-            return await self._dispatch(command, params)
+            try:
+                result = await self._dispatch(command, params)
+            except SessionEndedError:
+                await self._start_implicit_session()
+                return await self._dispatch(command, params)
+
+            if result.get("success") is False and result.get("error_code") == "session_ended":
+                await self._start_implicit_session()
+                return await self._dispatch(command, params)
+
+            return result
 
     @staticmethod
     def _target() -> Any:
@@ -246,6 +277,8 @@ class CuaGatewayRuntime:
         result = await self._driver.get_cursor_position(GetCursorPositionInput(session=None))
         data = _structured_result(result)
         if not data.get("success"):
+            if data.get("error_code") == "session_ended":
+                raise SessionEndedError(str(data.get("error")))
             raise RuntimeError(str(data.get("error", "CUA Driver cannot read the cursor")))
         return float(data["x"]), float(data["y"])
 

@@ -132,4 +132,63 @@ describe("Daytona computer-use lifecycle", () => {
     expect(computerUse.restartProcess.mock.calls).toEqual([["x11vnc"], ["novnc"]]);
     expect(computerUse.start).not.toHaveBeenCalled();
   });
+
+  it("waits for x11vnc before restarting noVNC and returning the stream", async () => {
+    const statuses = processStatuses();
+    const events: string[] = [];
+    const probes = new Map([[5901, 0], [6080, 0]]);
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      restartProcess: vi.fn(async (name: string) => {
+        events.push(`restart:${name}`);
+      }),
+      start: vi.fn(async () => undefined),
+    };
+
+    await recoverComputerUseStream(computerUse, {
+      pollIntervalMs: 0,
+      timeoutMs: 20,
+      probePort: async (port) => {
+        events.push(`probe:${port}`);
+        const attempts = probes.get(port) ?? 0;
+        probes.set(port, attempts + 1);
+        return attempts > 0;
+      },
+    });
+
+    expect(events).toEqual([
+      "restart:x11vnc",
+      "probe:5901",
+      "probe:5901",
+      "restart:novnc",
+      "probe:6080",
+      "probe:6080",
+    ]);
+  });
+
+  it("does not restart noVNC when x11vnc never binds its socket", async () => {
+    const statuses = processStatuses();
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      getProcessErrors: vi.fn(async () => ({ errors: "caught signal: 11" })),
+      restartProcess: vi.fn(async () => undefined),
+      start: vi.fn(async () => undefined),
+    };
+
+    await expect(recoverComputerUseStream(computerUse, {
+      pollIntervalMs: 0,
+      timeoutMs: 0,
+      probePort: async () => false,
+    })).rejects.toThrow(/x11vnc did not accept connections on port 5901.*caught signal: 11/);
+
+    expect(computerUse.restartProcess).toHaveBeenCalledExactlyOnceWith("x11vnc");
+  });
 });

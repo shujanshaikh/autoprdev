@@ -574,18 +574,23 @@ export class CuaComputerClient {
     const cursor = status.cursor;
     return status.backend === "cua-driver"
       && cursor?.available === true
-      && cursor.enabled
       && cursor.implicit === true
       && cursor.labelVisible === false
       && cursor.session === undefined
       && cursor.theme === "cua.default"
       && (cursor.runtimeMode === "embedded" || cursor.runtimeMode === "daemon")
+      && (cursor.enabled || cursor.runtimeMode === "embedded")
       && !cursor.error;
   }
 
   private async useSafePointer(status: CuaServerStatus): Promise<CuaServerStatus> {
     if (this.isLabelSafeCursor(status)) {
-      await ensureDesktopPointer(this.sandbox, this.sandboxOptions, this.display, "overlay");
+      await ensureDesktopPointer(
+        this.sandbox,
+        this.sandboxOptions,
+        this.display,
+        status.cursor?.enabled ? "overlay" : "native",
+      );
       return status;
     }
 

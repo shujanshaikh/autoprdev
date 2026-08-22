@@ -75,7 +75,7 @@ is_gateway_ready() {
 
   version_response="$(run_command '{"command":"version"}')" || return 1
   printf '%s' "$version_response" \
-    | jq -e '.success == true and .package == "autopr-cua-gateway" and .version == "1.1.0" and .protocol == 1' >/dev/null \
+    | jq -e '.success == true and .package == "autopr-cua-gateway" and .version == "1.2.0" and .protocol == 1' >/dev/null \
     || return 1
   screen_response="$(run_command '{"command":"get_screen_size"}')" || return 1
   printf '%s' "$screen_response" \
@@ -88,7 +88,7 @@ is_gateway_ready() {
   cursor_payload="$(jq -nc --argjson x "$cursor_x" --argjson y "$cursor_y" '{command:"move_cursor",params:{x:$x,y:$y}}')" || return 1
   run_command "$cursor_payload" | jq -e '.success == true' >/dev/null || return 1
   run_command '{"command":"get_agent_cursor_state"}' \
-    | jq -e '.success == true and .runtime_mode == "embedded" and .enabled == true and .implicit == true and .session == null and .label_visible == false and .theme.id == "cua.default"' >/dev/null \
+    | jq -e '.success == true and .runtime_mode == "embedded" and (.enabled | type) == "boolean" and .implicit == true and .session == null and .label_visible == false and .theme.id == "cua.default"' >/dev/null \
     || return 1
 }
 

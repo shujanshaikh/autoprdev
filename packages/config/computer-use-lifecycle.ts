@@ -20,7 +20,9 @@ export type EnsureComputerUseReadyOptions = {
 export type RecoverComputerUseStreamOptions = Pick<
   EnsureComputerUseReadyOptions,
   "pollIntervalMs" | "timeoutMs"
->;
+> & {
+  probePort?: (port: number) => Promise<boolean>;
+};
 
 type ProcessSnapshot = {
   processName: ComputerUseProcessName;
@@ -38,6 +40,8 @@ const DEFAULT_CACHE_MS = 10_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_DIAGNOSTIC_LENGTH = 400;
+const VNC_SERVER_PORT = 5_901;
+const NOVNC_SERVER_PORT = 6_080;
 const readyUntil = new WeakMap<object, number>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -135,6 +139,24 @@ async function waitForReady(
   }
 
   return snapshot;
+}
+
+async function waitForPort(
+  probePort: (port: number) => Promise<boolean>,
+  port: number,
+  deadline: number,
+  pollIntervalMs: number,
+): Promise<boolean> {
+  while (true) {
+    try {
+      if (await probePort(port)) return true;
+    } catch {
+      // The next probe can succeed while Daytona finishes binding the process.
+    }
+
+    if (Date.now() >= deadline) return false;
+    await delay(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())));
+  }
 }
 
 async function processDiagnostic(computerUse: ComputerUseLifecycle, process: ProcessSnapshot): Promise<string> {
@@ -258,12 +280,31 @@ export async function recoverComputerUseStream(
   }
 
   const errors: unknown[] = [];
-  await restartFailedProcesses(computerUse, ["x11vnc", "novnc"], errors);
-  const snapshot = await waitForReady(
-    computerUse,
-    Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-    Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS),
-  );
+  const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+  const deadline = Date.now() + timeoutMs;
+
+  await restartFailedProcesses(computerUse, ["x11vnc"], errors);
+  if (
+    options.probePort
+    && !await waitForPort(options.probePort, VNC_SERVER_PORT, deadline, pollIntervalMs)
+  ) {
+    errors.push(new Error(`x11vnc did not accept connections on port ${VNC_SERVER_PORT}.`));
+  } else {
+    // noVNC must start after x11vnc is accepting downstream connections. A
+    // running process flag alone can arrive before either socket is bound.
+    await restartFailedProcesses(computerUse, ["novnc"], errors);
+    if (
+      options.probePort
+      && !await waitForPort(options.probePort, NOVNC_SERVER_PORT, deadline, pollIntervalMs)
+    ) {
+      errors.push(new Error(`noVNC did not accept connections on port ${NOVNC_SERVER_PORT}.`));
+    }
+  }
+
+  const snapshot = options.probePort
+    ? await inspectComputerUse(computerUse)
+    : await waitForReady(computerUse, timeoutMs, pollIntervalMs);
   if (errors.length > 0 || !desktopReady(snapshot)) {
     throw await readinessError(computerUse, snapshot, errors);
   }

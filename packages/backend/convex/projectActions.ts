@@ -456,7 +456,18 @@ async function getDaytonaDesktopPreview(
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
     await sandbox.refreshActivity();
     if (recoverStream) {
-      await recoverComputerUseStream(sandbox.computerUse, { timeoutMs: 20_000 });
+      await recoverComputerUseStream(sandbox.computerUse, {
+        timeoutMs: 20_000,
+        probePort: async (port) => {
+          const result = await sandbox.process.executeCommand(
+            `nc -z -w 1 127.0.0.1 ${port}`,
+            undefined,
+            undefined,
+            5,
+          );
+          return result.exitCode === 0;
+        },
+      });
     } else {
       await ensureComputerUseReady(sandbox.computerUse, { cacheMs: 0, timeoutMs: 20_000 });
     }

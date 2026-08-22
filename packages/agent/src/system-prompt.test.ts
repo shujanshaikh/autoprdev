@@ -60,9 +60,10 @@ describe("buildSandboxAgentSystemPrompt", () => {
     });
 
     expect(prompt).toContain("Look -> Act -> Verify");
-    expect(prompt).toContain("image-space pixels from the most recent returned screenshot");
-    expect(prompt).toContain("Prefer one pointer action per call");
-    expect(prompt).toContain("discard all earlier coordinates");
+    expect(prompt).toContain("image-space pixels from the latest returned screenshot");
+    expect(prompt).toContain("Use one action per call");
+    expect(prompt).toContain("exact observationId");
+    expect(prompt).toContain("rejects stale observation IDs");
     expect(prompt).toContain("suspected_noop, partial, or unverifiable");
   });
 });

@@ -8,15 +8,37 @@ const CUA_SERVER_READY_POLL_MS = 500;
 const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
 const CUA_CURSOR_RECOVERY_COOLDOWN_MS = 60_000;
+const CUA_READY_CACHE_MS = 10_000;
 const CUA_COMPUTER_SERVER_VERSION = "0.3.42";
+
+const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 502, 503, 504]);
+const REFRESHABLE_PREVIEW_HTTP_STATUSES = new Set([401, 403, 404]);
+const IDEMPOTENT_CUA_COMMANDS = new Set([
+  "version",
+  "get_desktop_state",
+  "get_capture_scope_state",
+  "get_current_window_id",
+  "get_application_windows",
+  "get_window_name",
+  "get_window_size",
+  "get_window_position",
+  "get_cursor_position",
+  "get_screen_size",
+  "get_agent_cursor_state",
+  "copy_to_clipboard",
+  "screenshot",
+]);
 
 const REQUIRED_CUA_COMMANDS = [
   "version",
   "open",
   "get_current_window_id",
+  "get_application_windows",
   "get_window_name",
   "get_window_size",
   "get_window_position",
+  "activate_window",
+  "maximize_window",
   "move_cursor",
   "left_click",
   "right_click",
@@ -31,6 +53,8 @@ const REQUIRED_CUA_COMMANDS = [
   "screenshot",
   "get_cursor_position",
   "get_screen_size",
+  "copy_to_clipboard",
+  "set_clipboard",
 ] as const;
 
 const CUA_AGENT_CURSOR_COMMANDS = [
@@ -323,6 +347,9 @@ export class CuaComputerClient {
   private baseUrl?: string;
   private baseUrlExpiresAt = 0;
   private baseUrlPromise?: Promise<string>;
+  private commandNames?: Set<string>;
+  private readyStatus?: CuaServerStatus;
+  private readyStatusExpiresAt = 0;
   private readonly display: string;
   private readonly serverPort: number;
   private readonly requestTimeoutMs: number;
@@ -363,11 +390,56 @@ export class CuaComputerClient {
     return appendUrlPath(this.baseUrl!, path);
   }
 
+  private invalidateConnection(): void {
+    this.baseUrl = undefined;
+    this.baseUrlExpiresAt = 0;
+    this.readyStatus = undefined;
+    this.readyStatusExpiresAt = 0;
+  }
+
+  private rememberReady(status: CuaServerStatus): CuaServerStatus {
+    this.readyStatus = status;
+    this.readyStatusExpiresAt = Date.now() + CUA_READY_CACHE_MS;
+    return status;
+  }
+
+  private async request(
+    path: string,
+    init: RequestInit,
+    retryTransientFailure: boolean,
+  ): Promise<{ response: Response; retries: number }> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetchWithTimeout(
+          await this.url(path),
+          init,
+          this.requestTimeoutMs,
+        );
+        const refreshPreview = REFRESHABLE_PREVIEW_HTTP_STATUSES.has(response.status);
+        const retryTransient = retryTransientFailure && RETRYABLE_HTTP_STATUSES.has(response.status);
+        if (attempt === 0 && (refreshPreview || retryTransient)) {
+          this.invalidateConnection();
+          continue;
+        }
+        return { response, retries: attempt };
+      } catch (error) {
+        lastError = error;
+        this.invalidateConnection();
+        if (attempt === 0 && retryTransientFailure) continue;
+        throw error;
+      }
+    }
+
+    throw lastError ?? new Error(`CUA computer-server ${path} request failed.`);
+  }
+
   private async getJson(path: string): Promise<unknown> {
-    const response = await fetchWithTimeout(
-      await this.url(path),
+    const { response } = await this.request(
+      path,
       { headers: { Accept: "application/json" } },
-      this.requestTimeoutMs,
+      true,
     );
     if (!response.ok) {
       throw new Error(`CUA computer-server ${path} failed with HTTP ${response.status}.`);
@@ -384,8 +456,8 @@ export class CuaComputerClient {
   }
 
   async command(command: string, params?: Record<string, unknown>): Promise<CuaCommandResponse> {
-    const response = await fetchWithTimeout(
-      await this.url("/cmd"),
+    const { response, retries } = await this.request(
+      "/cmd",
       {
         method: "POST",
         headers: {
@@ -396,9 +468,10 @@ export class CuaComputerClient {
           ? { command, params }
           : { command }),
       },
-      this.requestTimeoutMs,
+      IDEMPOTENT_CUA_COMMANDS.has(command),
     );
     if (!response.ok) {
+      this.invalidateConnection();
       throw new Error(`CUA computer-server command ${command} failed with HTTP ${response.status}.`);
     }
     const result = parseCuaCommandResponse(await response.text());
@@ -408,7 +481,11 @@ export class CuaComputerClient {
         : `CUA reported action effect ${result.effect}`;
       throw new Error(`CUA command ${command} was refused: ${detail}`);
     }
-    return result;
+    return retries > 0 ? { ...result, transport_retries: retries } : result;
+  }
+
+  supports(command: string): boolean {
+    return this.commandNames?.has(command) === true;
   }
 
   private cursorStatus(
@@ -487,6 +564,7 @@ export class CuaComputerClient {
     if (missing.length > 0) {
       throw new Error(`CUA computer-server is missing required commands: ${missing.join(", ")}.`);
     }
+    this.commandNames = new Set(Object.keys(commandManifest));
     if (version.package !== CUA_COMPUTER_SERVER_VERSION) {
       const received = typeof version.package === "string" ? version.package : "unknown";
       throw new Error(
@@ -572,11 +650,15 @@ export class CuaComputerClient {
   }
 
   async ensureReady(): Promise<CuaServerStatus> {
+    if (this.readyStatus && Date.now() < this.readyStatusExpiresAt) {
+      return this.readyStatus;
+    }
+
     let initialStatus: CuaServerStatus | undefined;
     try {
       initialStatus = await this.inspect();
       if (this.isLabelSafeCursor(initialStatus)) {
-        return await this.useSafePointer(initialStatus);
+        return this.rememberReady(await this.useSafePointer(initialStatus));
       }
     } catch {
       // The server is installed in the AutoPR snapshot and started lazily. The
@@ -620,7 +702,7 @@ export class CuaComputerClient {
       } catch (error) {
         if (initialStatus) {
           const safeInitialStatus = await this.useSafePointer(initialStatus);
-          return {
+          return this.rememberReady({
             ...safeInitialStatus,
             cursor: safeInitialStatus.cursor
               ? {
@@ -631,12 +713,12 @@ export class CuaComputerClient {
                     : `CUA Driver cursor recovery failed: ${errorMessage(error)}`,
                 }
               : safeInitialStatus.cursor,
-          };
+          });
         }
         throw error;
       }
     } else if (initialStatus) {
-      return await this.useSafePointer(initialStatus);
+      return this.rememberReady(await this.useSafePointer(initialStatus));
     }
 
     const deadline = Date.now() + CUA_SERVER_READY_TIMEOUT_MS;
@@ -644,12 +726,12 @@ export class CuaComputerClient {
     while (Date.now() < deadline) {
       try {
         const recovered = await this.useSafePointer(await this.inspect());
-        return {
+        return this.rememberReady({
           ...recovered,
           cursor: recovered.cursor
             ? { ...recovered.cursor, recoveryAttempted }
             : recovered.cursor,
-        };
+        });
       } catch (error) {
         lastError = error;
         await new Promise((resolve) => setTimeout(resolve, CUA_SERVER_READY_POLL_MS));

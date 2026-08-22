@@ -168,10 +168,10 @@ describe("CUA computer-server response parsing", () => {
 describe("CUA client configuration", () => {
   const sandbox = {} as DaytonaSandbox;
   const requiredCommandNames = [
-    "version", "open", "get_current_window_id", "get_window_name", "get_window_size",
-    "get_window_position", "move_cursor", "left_click", "right_click", "mouse_down",
+    "version", "open", "get_current_window_id", "get_application_windows", "get_window_name", "get_window_size",
+    "get_window_position", "activate_window", "maximize_window", "move_cursor", "left_click", "right_click", "mouse_down",
     "mouse_up", "double_click", "drag", "scroll_direction", "type_text", "press_key",
-    "hotkey", "screenshot", "get_cursor_position", "get_screen_size",
+    "hotkey", "screenshot", "get_cursor_position", "get_screen_size", "copy_to_clipboard", "set_clipboard",
   ];
   const cursorCommandNames = [
     "get_agent_cursor_state",
@@ -212,6 +212,44 @@ describe("CUA client configuration", () => {
       effect: "suspected_noop",
       verified: false,
     });
+  });
+
+  it("refreshes the signed URL and retries one safe CUA observation request", async () => {
+    const getSignedPreviewUrl = vi.fn()
+      .mockResolvedValueOnce({ url: "https://cua.test/expired/" })
+      .mockResolvedValueOnce({ url: "https://cua.test/fresh/" });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response(
+        'data: {"success":true,"size":{"width":1920,"height":1080}}\n\n',
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CuaComputerClient(
+      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
+      {},
+    );
+
+    await expect(client.command("get_screen_size")).resolves.toMatchObject({
+      success: true,
+      transport_retries: 1,
+    });
+    expect(getSignedPreviewUrl).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/expired/cmd");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/fresh/cmd");
+  });
+
+  it("does not replay a mutating CUA command after an ambiguous transient failure", async () => {
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const fetchMock = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CuaComputerClient(
+      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
+      {},
+    );
+
+    await expect(client.command("left_click", { x: 1, y: 2 }))
+      .rejects.toThrow("failed with HTTP 503");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("shares one signed preview URL across concurrent inspection requests", async () => {

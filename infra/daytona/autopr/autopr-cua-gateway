@@ -7,11 +7,7 @@ CUA_GATEWAY="/opt/autopr/cua-gateway/cua_gateway.py"
 CUA_STATE_DIR="/tmp/autopr-cua"
 CUA_PID_FILE="${CUA_STATE_DIR}/gateway.pid"
 CUA_LOG_FILE="${CUA_STATE_DIR}/gateway.log"
-CUA_DRIVER_PID_FILE="${CUA_STATE_DIR}/driver.pid"
-CUA_DRIVER_LOG_FILE="${CUA_STATE_DIR}/driver.log"
-CUA_DRIVER_SOCKET="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}/driver.sock"
 CUA_LOCK_FILE="${CUA_STATE_DIR}/launcher.lock"
-CUA_DRIVER_BIN=""
 
 mkdir -p "$CUA_STATE_DIR" "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 chmod 700 "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
@@ -66,18 +62,8 @@ stop_owned_process() {
   kill -KILL "$pid" 2>/dev/null || true
 }
 
-is_driver_ready() {
-  local pid
-  [ -n "$CUA_DRIVER_BIN" ] && [ -S "$CUA_DRIVER_SOCKET" ] && [ -s "$CUA_DRIVER_PID_FILE" ] \
-    || return 1
-  pid="$(cat "$CUA_DRIVER_PID_FILE")"
-  is_owned_pid "$pid" "$CUA_DRIVER_BIN" \
-    && "$CUA_DRIVER_BIN" status --socket "$CUA_DRIVER_SOCKET" >/dev/null 2>&1
-}
-
 is_gateway_ready() {
   local cursor_payload cursor_response cursor_x cursor_y screen_response version_response
-  is_driver_ready || return 1
   [ -s "$CUA_PID_FILE" ] || return 1
   is_owned_pid "$(cat "$CUA_PID_FILE")" "$CUA_GATEWAY" || return 1
   curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/status" \
@@ -89,7 +75,7 @@ is_gateway_ready() {
 
   version_response="$(run_command '{"command":"version"}')" || return 1
   printf '%s' "$version_response" \
-    | jq -e '.success == true and .package == "autopr-cua-gateway" and .protocol == 1' >/dev/null \
+    | jq -e '.success == true and .package == "autopr-cua-gateway" and .version == "1.1.0" and .protocol == 1' >/dev/null \
     || return 1
   screen_response="$(run_command '{"command":"get_screen_size"}')" || return 1
   printf '%s' "$screen_response" \
@@ -102,7 +88,7 @@ is_gateway_ready() {
   cursor_payload="$(jq -nc --argjson x "$cursor_x" --argjson y "$cursor_y" '{command:"move_cursor",params:{x:$x,y:$y}}')" || return 1
   run_command "$cursor_payload" | jq -e '.success == true' >/dev/null || return 1
   run_command '{"command":"get_agent_cursor_state"}' \
-    | jq -e '.success == true and .runtime_mode == "daemon" and .enabled == true and .implicit == true and .session == null and .label_visible == false and .theme.id == "cua.default"' >/dev/null \
+    | jq -e '.success == true and .runtime_mode == "embedded" and .enabled == true and .implicit == true and .session == null and .label_visible == false and .theme.id == "cua.default"' >/dev/null \
     || return 1
 }
 
@@ -113,36 +99,7 @@ stop_gateway() {
   rm -f "$CUA_PID_FILE"
 }
 
-stop_driver() {
-  if [ -s "$CUA_DRIVER_PID_FILE" ] && [ -n "$CUA_DRIVER_BIN" ]; then
-    stop_owned_process "$(cat "$CUA_DRIVER_PID_FILE")" "$CUA_DRIVER_BIN"
-  fi
-  rm -f "$CUA_DRIVER_PID_FILE" "$CUA_DRIVER_SOCKET"
-}
-
-start_driver() {
-  : >"$CUA_DRIVER_LOG_FILE"
-  rm -f "$CUA_DRIVER_SOCKET"
-  nohup "$CUA_DRIVER_BIN" serve \
-    --socket "$CUA_DRIVER_SOCKET" \
-    --cursor-theme cua.default \
-    --cursor-reduced-motion off \
-    --glide-ms 480 \
-    --dwell-ms 260 \
-    --idle-hide-ms 0 \
-    9>&- \
-    >>"$CUA_DRIVER_LOG_FILE" 2>&1 &
-  echo "$!" >"$CUA_DRIVER_PID_FILE"
-
-  for _ in $(seq 1 40); do
-    is_driver_ready && return 0
-    sleep 0.25
-  done
-  return 1
-}
-
 start_gateway() {
-  CUA_DRIVER_SOCKET="$CUA_DRIVER_SOCKET" \
   nohup "$CUA_RUNTIME/bin/python" "$CUA_GATEWAY" \
     9>&- \
     >>"$CUA_LOG_FILE" 2>&1 &
@@ -167,11 +124,9 @@ export DISPLAY="${DISPLAY:-:1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
 export BROWSER="${BROWSER:-google-chrome}"
-export CUA_DRIVER_SOCKET
 
 test -x "$CUA_RUNTIME/bin/python"
 test -r "$CUA_GATEWAY"
-CUA_DRIVER_BIN="$("$CUA_RUNTIME/bin/python" -c 'from cua_driver import get_binary_path; print(get_binary_path())')"
 
 if is_gateway_ready; then
   set_cursor_theme
@@ -179,18 +134,12 @@ if is_gateway_ready; then
 fi
 
 stop_gateway
-stop_driver
 
 if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "Port ${CUA_PORT} is already occupied by a non-CUA process." >&2
   exit 1
 fi
 
-if ! start_driver; then
-  echo "CUA Driver did not answer on its private SDK socket." >&2
-  tail -n 40 "$CUA_DRIVER_LOG_FILE" >&2 || true
-  exit 1
-fi
 : >"$CUA_LOG_FILE"
 start_gateway
 
@@ -214,5 +163,4 @@ done
 
 echo "AutoPR CUA gateway did not become ready on port ${CUA_PORT}." >&2
 tail -n 40 "$CUA_LOG_FILE" >&2 || true
-tail -n 40 "$CUA_DRIVER_LOG_FILE" >&2 || true
 exit 1

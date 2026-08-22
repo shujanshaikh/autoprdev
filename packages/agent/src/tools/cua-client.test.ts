@@ -66,30 +66,31 @@ describe("CUA gateway response parsing", () => {
     expect(pythonSyntax.stderr).toBe("");
     expect(pythonSyntax.status).toBe(0);
     expect(gateway).toContain("from cua_driver import (");
-    expect(gateway).toContain("CuaDriver.connect(self._socket_path)");
+    expect(gateway).toContain("CuaDriver.create()");
     expect(gateway).toContain("asyncio.wait_for(driver.metadata()");
+    expect(gateway).toContain('await self._driver.call_tool(\n                    "launch_app"');
     expect(gateway).toContain('ActionTarget.DESKTOP(display_id="primary")');
     expect(gateway).not.toContain("StartSessionInput");
     expect(gateway).toContain("await self._driver.get_desktop_state(");
     expect(gateway).toContain("await self._driver.clipboard_read(");
     expect(gateway).not.toContain("computer_server");
-    expect(launcher).toContain('nohup "$CUA_DRIVER_BIN" serve');
-    expect(launcher).toContain('status --socket "$CUA_DRIVER_SOCKET"');
+    expect(launcher).not.toContain('nohup "$CUA_DRIVER_BIN" serve');
+    expect(launcher).not.toContain("CUA_DRIVER_SOCKET");
     expect(launcher).toContain('"$CUA_RUNTIME/bin/python" "$CUA_GATEWAY"');
     expect(launcher).toContain('flock 9');
     expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_gateway_ready; then'));
-    expect(launcher.match(/9>&-/g)).toHaveLength(2);
+    expect(launcher.match(/9>&-/g)).toHaveLength(1);
     expect(launcher).toContain('kill -KILL "$pid"');
     expect(launcher).toContain('readlink -f "/proc/${pid}/exe"');
     expect(launcher).toContain("mapfile -d '' -t argv");
-    expect(launcher).toContain("--cursor-theme cua.default");
     expect(launcher).toContain('{"command":"get_cursor_position"}');
     expect(launcher).toContain("{command:\"move_cursor\",params:{x:$x,y:$y}}");
     expect(launcher).toContain(".implicit == true");
     expect(launcher).toContain(".session == null");
     expect(launcher).toContain(".label_visible == false");
+    expect(launcher).toContain('.runtime_mode == "embedded"');
     expect(launcher).not.toContain("CUA_DRIVER_SESSION_ID");
-    expect(dockerfile).toContain("ARG CUA_DRIVER_VERSION=0.20.0");
+    expect(dockerfile).toContain("ARG CUA_DRIVER_VERSION=0.21.0");
     expect(dockerfile).toContain('"cua-driver==${CUA_DRIVER_VERSION}"');
     expect(dockerfile).toContain("/opt/autopr/cua-gateway/cua_gateway.py");
     expect(dockerfile).not.toContain("cua-computer-server");
@@ -255,7 +256,7 @@ describe("CUA client configuration", () => {
     expect(getSignedPreviewUrl).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts an unlabeled implicit 0.20 cursor and masks the hardware pointer", async () => {
+  it("accepts an unlabeled implicit embedded cursor and masks the hardware pointer", async () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
     const commandNames = [...requiredCommandNames, "get_desktop_state", ...cursorCommandNames];
     const commands: string[] = [];
@@ -294,7 +295,7 @@ describe("CUA client configuration", () => {
             label_visible: false,
             enabled: true,
             theme: { id: "cua.default" },
-            runtime_mode: "daemon",
+            runtime_mode: "embedded",
           })}\n\n`,
         );
       }
@@ -310,7 +311,7 @@ describe("CUA client configuration", () => {
         implicit: true,
         labelVisible: false,
         theme: "cua.default",
-        runtimeMode: "daemon",
+        runtimeMode: "embedded",
       },
     });
     await expect(client.ensureReady()).resolves.toMatchObject({

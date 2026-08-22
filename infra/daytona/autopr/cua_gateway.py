@@ -34,7 +34,7 @@ from cua_driver import (
     TypeTextInput,
     __version__ as CUA_DRIVER_VERSION,
 )
-# Driver 0.20 ships these generated types but omits their root-package
+# Driver 0.21 ships these generated types but omits their root-package
 # re-exports. Keeping the wheel pinned makes this SDK contract deterministic.
 from cua_driver._native_contract import (
     ActionTarget,
@@ -45,11 +45,10 @@ from cua_driver._native_contract import (
 
 
 GATEWAY_PACKAGE = "autopr-cua-gateway"
-GATEWAY_VERSION = "1.0.1"
+GATEWAY_VERSION = "1.1.0"
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 1024 * 1024
 SDK_CALL_TIMEOUT_SECONDS = 125
-SDK_CONNECT_TIMEOUT_SECONDS = 12
 WINDOW_ID_PATTERN = re.compile(r"^(?:0x)?[0-9a-fA-F]+$")
 
 COMMANDS = {
@@ -199,16 +198,15 @@ def _images(result: Any) -> list[dict[str, str]]:
 
 
 class CuaGatewayRuntime:
-    """Own one CUA transport and keep all SDK calls on its asyncio loop."""
+    """Own one embedded CUA runtime and keep all SDK calls on its asyncio loop."""
 
-    def __init__(self, socket_path: str) -> None:
-        self._socket_path = socket_path
+    def __init__(self) -> None:
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, name="cua-sdk", daemon=True)
         self._thread.start()
         self._driver: Any = None
         self._lock: asyncio.Lock | None = None
-        self._submit(self._initialize()).result(timeout=SDK_CONNECT_TIMEOUT_SECONDS + 3)
+        self._submit(self._initialize()).result(timeout=15)
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
@@ -219,27 +217,12 @@ class CuaGatewayRuntime:
 
     async def _initialize(self) -> None:
         self._lock = asyncio.Lock()
-        deadline = self._loop.time() + SDK_CONNECT_TIMEOUT_SECONDS
-        retry_delay = 0.1
-        last_error: Exception | None = None
-
-        while self._loop.time() < deadline:
-            try:
-                driver = CuaDriver.connect(self._socket_path)
-                # A socket file can exist before the daemon accepts SDK calls.
-                # Metadata is side-effect-free and validates the actual protocol.
-                remaining = max(0.1, deadline - self._loop.time())
-                await asyncio.wait_for(driver.metadata(), timeout=min(2.0, remaining))
-                self._driver = driver
-                return
-            except Exception as error:
-                last_error = error
-                self._driver = None
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(1.0, retry_delay * 2)
-
-        detail = str(last_error) if last_error else "connection timed out"
-        raise RuntimeError(f"CUA Driver SDK connection failed: {detail}")
+        # The official application boundary is an SDK-owned same-process
+        # runtime. This avoids a daemon socket, a second readiness loop, and a
+        # separate runtime generation that can wedge while the desktop is live.
+        driver = CuaDriver.create()
+        await asyncio.wait_for(driver.metadata(), timeout=5)
+        self._driver = driver
 
     def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
         result = self._submit(self._dispatch_serialized(command, params)).result(
@@ -434,22 +417,19 @@ class CuaGatewayRuntime:
                 "enabled": state.cursor_visible,
                 "label_visible": state.session is not None,
                 "theme": {"id": "cua.default"},
-                "runtime_mode": "daemon",
+                "runtime_mode": "embedded",
             }
         if command == "open":
             target = _string(params, "target")
             parsed = urlparse(target)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 raise GatewayInputError("target must be an absolute HTTP(S) URL")
-            browser = os.environ.get("BROWSER", "google-chrome")
-            subprocess.Popen(
-                [browser, "--new-tab", target],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
+            return _structured_result(
+                await self._driver.call_tool(
+                    "launch_app",
+                    json.dumps({"urls": [target]}, separators=(",", ":")),
+                )
             )
-            return {"success": True, "target": target}
         if command == "get_application_windows":
             app = params.get("app")
             windows = _windows()
@@ -575,11 +555,7 @@ def main() -> None:
     )
     host = os.environ.get("CUA_GATEWAY_HOST", "0.0.0.0")
     port = int(os.environ.get("CUA_PORT", "8765"))
-    socket_path = os.environ.get("CUA_DRIVER_SOCKET")
-    if not socket_path:
-        raise RuntimeError("CUA_DRIVER_SOCKET is required")
-
-    runtime = CuaGatewayRuntime(socket_path)
+    runtime = CuaGatewayRuntime()
     server = GatewayServer((host, port), runtime)
 
     def stop_server(_signum: int, _frame: Any) -> None:

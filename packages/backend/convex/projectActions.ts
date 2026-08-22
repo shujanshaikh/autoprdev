@@ -2,7 +2,10 @@
 
 import * as daytonaSdk from "@daytona/sdk";
 import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
-import { ensureComputerUseReady } from "@autopr/config/computer-use-lifecycle";
+import {
+  ensureComputerUseReady,
+  recoverComputerUseStream,
+} from "@autopr/config/computer-use-lifecycle";
 import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 import { ConvexError, v } from "convex/values";
 
@@ -446,10 +449,17 @@ async function stopDaytonaSandbox(sandboxId: string) {
   return "stopped" as const;
 }
 
-async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
+async function getDaytonaDesktopPreview(
+  sandboxId: string,
+  recoverStream: boolean,
+): Promise<DesktopPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
     await sandbox.refreshActivity();
-    await ensureComputerUseReady(sandbox.computerUse, { cacheMs: 0, timeoutMs: 20_000 });
+    if (recoverStream) {
+      await recoverComputerUseStream(sandbox.computerUse, { timeoutMs: 20_000 });
+    } else {
+      await ensureComputerUseReady(sandbox.computerUse, { cacheMs: 0, timeoutMs: 20_000 });
+    }
 
     const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
     const url = normalizePreviewUrl(preview.url);
@@ -1169,6 +1179,7 @@ export const stopSandbox = action({
 export const getDesktopPreview = action({
   args: {
     projectId: v.string(),
+    recoverStream: v.optional(v.boolean()),
   },
   returns: v.object({
     url: v.string(),
@@ -1189,7 +1200,10 @@ export const getDesktopPreview = action({
     });
 
     try {
-      const preview = await getDaytonaDesktopPreview(project.sandboxId);
+      const preview = await getDaytonaDesktopPreview(
+        project.sandboxId,
+        args.recoverStream === true,
+      );
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,

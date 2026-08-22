@@ -17,6 +17,11 @@ export type EnsureComputerUseReadyOptions = {
   timeoutMs?: number;
 };
 
+export type RecoverComputerUseStreamOptions = Pick<
+  EnsureComputerUseReadyOptions,
+  "pollIntervalMs" | "timeoutMs"
+>;
+
 type ProcessSnapshot = {
   processName: ComputerUseProcessName;
   running?: boolean;
@@ -236,6 +241,32 @@ export async function ensureComputerUseReady(
 
   if (!desktopReady(snapshot)) throw await readinessError(computerUse, snapshot, errors);
   if (cacheMs > 0) readyUntil.set(computerUse, Date.now() + cacheMs);
+}
+
+/**
+ * Replaces only the two VNC transport processes after a client proves that a
+ * nominally running stream cannot reach its downstream server. The desktop
+ * and its applications stay alive while x11vnc and noVNC are reattached.
+ */
+export async function recoverComputerUseStream(
+  computerUse: ComputerUseLifecycle,
+  options: RecoverComputerUseStreamOptions = {},
+): Promise<void> {
+  invalidateComputerUseReadiness(computerUse);
+  if (!computerUse.restartProcess) {
+    throw new Error("Daytona cannot restart the failed desktop stream processes.");
+  }
+
+  const errors: unknown[] = [];
+  await restartFailedProcesses(computerUse, ["x11vnc", "novnc"], errors);
+  const snapshot = await waitForReady(
+    computerUse,
+    Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+    Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS),
+  );
+  if (errors.length > 0 || !desktopReady(snapshot)) {
+    throw await readinessError(computerUse, snapshot, errors);
+  }
 }
 
 export function invalidateComputerUseReadiness(computerUse: ComputerUseLifecycle): void {

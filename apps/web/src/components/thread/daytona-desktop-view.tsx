@@ -21,6 +21,8 @@ type DaytonaDesktopViewProps = {
   loading?: boolean;
   className?: string;
   interactive?: boolean;
+  connectionRevision?: number;
+  onConnectionStable?: () => void;
   onReconnectRequired?: () => void;
 };
 
@@ -55,12 +57,15 @@ export function DaytonaDesktopView({
   loading = false,
   className,
   interactive = true,
+  connectionRevision = 0,
+  onConnectionStable,
   onReconnectRequired,
 }: DaytonaDesktopViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RfbInstance | null>(null);
   const reconnectRequiredRef = useRef(onReconnectRequired);
+  const connectionStableRef = useRef(onConnectionStable);
   // react-doctor-disable-next-line react-doctor/no-initialize-state -- Frame size depends on measured DOM layout after mount.
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>();
   const [connection, updateConnection] = useReducer(
@@ -71,6 +76,10 @@ export function DaytonaDesktopView({
   useEffect(() => {
     reconnectRequiredRef.current = onReconnectRequired;
   }, [onReconnectRequired]);
+
+  useEffect(() => {
+    connectionStableRef.current = onConnectionStable;
+  }, [onConnectionStable]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -170,14 +179,14 @@ export function DaytonaDesktopView({
             rfb.removeEventListener("securityfailure", handleSecurityFailure);
             rfb.removeEventListener("credentialsrequired", handleCredentialsRequired);
           };
-          const reconnect = () => {
+          const reconnect = (disconnectClient = true) => {
             if (!isCurrent()) return;
             clearOpeningTimer();
             clearStabilityTimer();
             removeListeners();
             activeRfb = null;
             rfbRef.current = null;
-            rfb.disconnect();
+            if (disconnectClient) rfb.disconnect();
 
             if (connectionAttempt >= MAX_CONNECTION_ATTEMPTS) {
               updateConnection({ state: "connecting", phase: "reconnecting" });
@@ -223,10 +232,14 @@ export function DaytonaDesktopView({
               if (!isCurrent()) return;
               connectionAttempt = 0;
               stabilityTimer = undefined;
+              connectionStableRef.current?.();
             }, CONNECTION_STABLE_MS);
           };
           const handleDisconnect: EventListener = () => {
-            reconnect();
+            // noVNC already moved this RFB into its disconnected state. Calling
+            // disconnect again produces the repeated "Tried changing state"
+            // warning and does not help recovery.
+            reconnect(false);
           };
           const handleSecurityFailure: EventListener = () => {
             fail("The VNC server rejected the connection.");
@@ -239,7 +252,7 @@ export function DaytonaDesktopView({
           rfb.addEventListener("disconnect", handleDisconnect);
           rfb.addEventListener("securityfailure", handleSecurityFailure);
           rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
-          openingTimer = setTimeout(reconnect, CONNECTION_OPEN_TIMEOUT_MS);
+          openingTimer = setTimeout(() => reconnect(), CONNECTION_OPEN_TIMEOUT_MS);
         };
 
         connect();
@@ -263,7 +276,7 @@ export function DaytonaDesktopView({
       rfb?.disconnect();
       container.replaceChildren();
     };
-  }, [interactive, websocketUrl]);
+  }, [connectionRevision, interactive, websocketUrl]);
 
   const showOverlay = loading || !websocketUrl || connection.state !== "connected";
   const loadingPresentation = connection.state === "error"

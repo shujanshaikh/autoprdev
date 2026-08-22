@@ -579,7 +579,7 @@ export class CuaComputerClient {
       && cursor.labelVisible === false
       && cursor.session === undefined
       && cursor.theme === "cua.default"
-      && cursor.runtimeMode === "daemon"
+      && (cursor.runtimeMode === "embedded" || cursor.runtimeMode === "daemon")
       && !cursor.error;
   }
 
@@ -668,7 +668,7 @@ export class CuaComputerClient {
     if (recovery) {
       try {
         // A healthy native or labeled legacy server is still degraded on a
-        // 0.20-capable image. Let the image launcher replace it before the next
+        // implicit-session-capable image. Let the image launcher replace it before the next
         // action, especially before Daytona starts recording.
         await recovery;
       } catch (error) {

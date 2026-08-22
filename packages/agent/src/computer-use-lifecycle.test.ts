@@ -1,6 +1,7 @@
 import {
   COMPUTER_USE_PROCESS_NAMES,
   ensureComputerUseReady,
+  recoverComputerUseStream,
   type ComputerUseProcessName,
 } from "@autopr/config/computer-use-lifecycle";
 import { describe, expect, it, vi } from "vitest";
@@ -112,5 +113,23 @@ describe("Daytona computer-use lifecycle", () => {
 
     expect(computerUse.restartProcess).toHaveBeenCalledExactlyOnceWith("novnc");
     expect(computerUse.stop).not.toHaveBeenCalled();
+  });
+
+  it("reattaches the VNC transport without restarting the desktop session", async () => {
+    const statuses = processStatuses();
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      restartProcess: vi.fn(async () => undefined),
+      start: vi.fn(async () => undefined),
+    };
+
+    await recoverComputerUseStream(computerUse, { pollIntervalMs: 0, timeoutMs: 10 });
+
+    expect(computerUse.restartProcess.mock.calls).toEqual([["x11vnc"], ["novnc"]]);
+    expect(computerUse.start).not.toHaveBeenCalled();
   });
 });

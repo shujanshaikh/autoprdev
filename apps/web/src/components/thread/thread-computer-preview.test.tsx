@@ -24,13 +24,15 @@ vi.mock("@autopr/backend/convex/_generated/api", () => ({
 vi.mock("./daytona-desktop-view", () => ({
   DaytonaDesktopView: ({
     websocketUrl,
+    connectionRevision,
     onReconnectRequired,
   }: {
     websocketUrl?: string;
+    connectionRevision?: number;
     onReconnectRequired?: () => void;
   }) => (
     <div data-testid="desktop-view">
-      {websocketUrl}
+      {websocketUrl}:{connectionRevision}
       <button type="button" onClick={onReconnectRequired}>Simulate VNC disconnect</button>
     </div>
   ),
@@ -72,7 +74,7 @@ describe("ThreadComputerPreview", () => {
 
     expect(await screen.findByRole("complementary", { name: "Live computer preview" })).toBeTruthy();
     await waitFor(() => expect(mocks.getDesktopPreview).toHaveBeenCalledWith({ projectId: "project-1" }));
-    expect(await screen.findByText("wss://desktop.example.test")).toBeTruthy();
+    expect(await screen.findByText("wss://desktop.example.test:1")).toBeTruthy();
 
     rerender(<ThreadComputerPreview projectId="project-1" activityKey="run-1" active={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Close desktop preview" }));
@@ -110,14 +112,14 @@ describe("ThreadComputerPreview", () => {
       projectTwo.resolve({ websocketUrl: "wss://project-2.test", expiresInSeconds: 600 });
       await projectTwo.promise;
     });
-    expect(await screen.findByText("wss://project-2.test")).toBeTruthy();
+    expect(await screen.findByText("wss://project-2.test:1")).toBeTruthy();
 
     await act(async () => {
       projectOne.resolve({ websocketUrl: "wss://project-1.test", expiresInSeconds: 600 });
       await projectOne.promise;
     });
-    expect(screen.queryByText("wss://project-1.test")).toBeNull();
-    expect(screen.getByText("wss://project-2.test")).toBeTruthy();
+    expect(screen.queryByText("wss://project-1.test:1")).toBeNull();
+    expect(screen.getByText("wss://project-2.test:1")).toBeTruthy();
   });
 
   it("clears expired credentials when their refresh fails", async () => {
@@ -131,7 +133,7 @@ describe("ThreadComputerPreview", () => {
     render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
 
     expect(await screen.findByText("Preview refresh failed")).toBeTruthy();
-    expect(screen.queryByText("wss://expired.test")).toBeNull();
+    expect(screen.queryByText("wss://expired.test:1")).toBeNull();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
@@ -148,11 +150,29 @@ describe("ThreadComputerPreview", () => {
 
     render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
 
-    expect(await screen.findByText("wss://desktop-first.test")).toBeTruthy();
+    expect(await screen.findByText("wss://desktop-first.test:1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
 
-    expect(await screen.findByText("wss://desktop-renewed.test")).toBeTruthy();
+    expect(await screen.findByText("wss://desktop-renewed.test:2")).toBeTruthy();
     expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(2);
+    expect(mocks.getDesktopPreview).toHaveBeenLastCalledWith({
+      projectId: "project-1",
+      recoverStream: true,
+    });
+  });
+
+  it("rebuilds an RFB connection for an unchanged URL and bounds automatic recovery", async () => {
+    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
+
+    expect(await screen.findByText("wss://desktop.example.test:1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
+    expect(await screen.findByText("wss://desktop.example.test:2")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
+    expect(await screen.findByText("wss://desktop.example.test:3")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
+
+    expect(await screen.findByText(/desktop stream could not be restored/i)).toBeTruthy();
+    expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(3);
   });
 
   it("shows the refresh failure instead of retaining a disconnected signed URL", async () => {
@@ -165,18 +185,18 @@ describe("ThreadComputerPreview", () => {
 
     render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
 
-    expect(await screen.findByText("wss://desktop-disconnected.test")).toBeTruthy();
+    expect(await screen.findByText("wss://desktop-disconnected.test:1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
 
     expect(await screen.findByText("Desktop services are unavailable")).toBeTruthy();
-    expect(screen.queryByText("wss://desktop-disconnected.test")).toBeNull();
+    expect(screen.queryByText("wss://desktop-disconnected.test:1")).toBeNull();
   });
 
   it("refreshes sandbox activity without rotating healthy noVNC credentials", async () => {
     const intervalSpy = vi.spyOn(window, "setInterval");
     render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
 
-    expect(await screen.findByText("wss://desktop.example.test")).toBeTruthy();
+    expect(await screen.findByText("wss://desktop.example.test:1")).toBeTruthy();
     const heartbeat = intervalSpy.mock.calls.at(-1)?.[0];
     if (typeof heartbeat !== "function") throw new Error("desktop heartbeat is missing");
 

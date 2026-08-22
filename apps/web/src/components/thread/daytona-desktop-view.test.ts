@@ -103,6 +103,7 @@ describe("DaytonaDesktopView", () => {
     }
 
     expect(onReconnectRequired).toHaveBeenCalledTimes(1);
+    expect(mocks.instances.every((instance) => !instance.disconnect.mock.calls.length)).toBe(true);
     await act(() => vi.advanceTimersByTimeAsync(30_000));
     expect(mocks.instances).toHaveLength(3);
   });
@@ -117,5 +118,22 @@ describe("DaytonaDesktopView", () => {
     await act(() => vi.advanceTimersByTimeAsync(300));
 
     expect(mocks.instances).toHaveLength(2);
+  });
+
+  it("opens a fresh RFB client when recovery returns the same signed URL", async () => {
+    const { rerender } = render(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop.test/websockify",
+      connectionRevision: 1,
+    }));
+    await flushDesktopImport();
+
+    rerender(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop.test/websockify",
+      connectionRevision: 2,
+    }));
+    await flushDesktopImport();
+
+    expect(mocks.instances).toHaveLength(2);
+    expect(mocks.instances[0]?.disconnect).toHaveBeenCalledOnce();
   });
 });

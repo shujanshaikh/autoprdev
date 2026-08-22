@@ -2,9 +2,25 @@
 set -euo pipefail
 
 CUA_PORT="${CUA_PORT:-8765}"
+DISPLAY="${DISPLAY:-:1}"
 CUA_RUNTIME="/opt/autopr/cua"
 CUA_GATEWAY="/opt/autopr/cua-gateway/cua_gateway.py"
-CUA_STATE_DIR="/tmp/autopr-cua"
+if ! [[ "$CUA_PORT" =~ ^[0-9]+$ ]]; then
+  echo "CUA_PORT must be an integer." >&2
+  exit 2
+fi
+CUA_PORT_NUMBER=$((10#$CUA_PORT))
+if [ "$CUA_PORT_NUMBER" -lt 1024 ] || [ "$CUA_PORT_NUMBER" -gt 65535 ]; then
+  echo "CUA_PORT must be between 1024 and 65535." >&2
+  exit 2
+fi
+if ! [[ "$DISPLAY" =~ ^([[:alnum:]_.-]+)?:[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "DISPLAY must identify one X11 display." >&2
+  exit 2
+fi
+CUA_PORT="$CUA_PORT_NUMBER"
+CUA_DISPLAY_KEY="${DISPLAY//:/_}"
+CUA_STATE_DIR="/tmp/autopr-cua/${CUA_PORT}-${CUA_DISPLAY_KEY}"
 CUA_PID_FILE="${CUA_STATE_DIR}/gateway.pid"
 CUA_LOG_FILE="${CUA_STATE_DIR}/gateway.log"
 CUA_LOCK_FILE="${CUA_STATE_DIR}/launcher.lock"
@@ -120,7 +136,7 @@ set_cursor_theme() {
 # Daytona's signed preview URL is the external authorization boundary. The
 # gateway remains private to the VM and CUA Driver remains private to its socket.
 unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE
-export DISPLAY="${DISPLAY:-:1}"
+export DISPLAY
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/daytona/.local/share}"
 export BROWSER="${BROWSER:-google-chrome}"

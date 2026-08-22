@@ -163,17 +163,19 @@ function appendUrlPath(baseUrl: string, path: string): string {
   return url.toString();
 }
 
-async function fetchWithTimeout(
+async function fetchTextWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
-): Promise<Response> {
+): Promise<{ body: string; response: Response }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   timer.unref?.();
 
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const body = await response.text();
+    return { body, response };
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error(`CUA gateway request timed out after ${timeoutMs}ms.`);
@@ -371,12 +373,12 @@ export class CuaComputerClient {
     path: string,
     init: RequestInit,
     retryTransientFailure: boolean,
-  ): Promise<{ response: Response; retries: number }> {
+  ): Promise<{ body: string; response: Response; retries: number }> {
     let lastError: unknown;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await fetchWithTimeout(
+        const { body, response } = await fetchTextWithTimeout(
           await this.url(path),
           init,
           this.requestTimeoutMs,
@@ -387,7 +389,7 @@ export class CuaComputerClient {
           this.invalidateConnection();
           continue;
         }
-        return { response, retries: attempt };
+        return { body, response, retries: attempt };
       } catch (error) {
         lastError = error;
         this.invalidateConnection();
@@ -400,7 +402,7 @@ export class CuaComputerClient {
   }
 
   private async getJson(path: string): Promise<unknown> {
-    const { response } = await this.request(
+    const { body, response } = await this.request(
       path,
       { headers: { Accept: "application/json" } },
       true,
@@ -408,7 +410,7 @@ export class CuaComputerClient {
     if (!response.ok) {
       throw new Error(`CUA gateway ${path} failed with HTTP ${response.status}.`);
     }
-    return await response.json();
+    return JSON.parse(body) as unknown;
   }
 
   async status(): Promise<CuaServerStatus> {
@@ -420,7 +422,7 @@ export class CuaComputerClient {
   }
 
   async command(command: string, params?: Record<string, unknown>): Promise<CuaCommandResponse> {
-    const { response, retries } = await this.request(
+    const { body, response, retries } = await this.request(
       "/cmd",
       {
         method: "POST",
@@ -434,7 +436,6 @@ export class CuaComputerClient {
       },
       IDEMPOTENT_CUA_COMMANDS.has(command),
     );
-    const body = await response.text();
     if (!response.ok) {
       this.invalidateConnection();
       try {
@@ -660,6 +661,11 @@ export class CuaComputerClient {
       const pending = startCuaServer(this.sandbox, this.sandboxOptions, {
         display: this.display,
         serverPort: this.serverPort,
+      }).catch((error: unknown) => {
+        if (cuaCursorRecoveryAttemptedAt.get(recoveryKey) === attemptedAt) {
+          cuaCursorRecoveryAttemptedAt.delete(recoveryKey);
+        }
+        throw error;
       });
       cuaCursorRecoveryPromises.set(recoveryKey, pending);
       void pending.finally(() => {

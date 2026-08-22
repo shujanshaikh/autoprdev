@@ -6,12 +6,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import signal
 import subprocess
 import threading
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Awaitable, Mapping
@@ -50,6 +51,7 @@ GATEWAY_PACKAGE = "autopr-cua-gateway"
 GATEWAY_VERSION = "1.2.0"
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 1024 * 1024
+REQUEST_BODY_TIMEOUT_SECONDS = 10
 SDK_CALL_TIMEOUT_SECONDS = 125
 WINDOW_ID_PATTERN = re.compile(r"^(?:0x)?[0-9a-fA-F]+$")
 
@@ -246,9 +248,16 @@ class CuaGatewayRuntime:
         )
 
     def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
-        result = self._submit(self._dispatch_serialized(command, params)).result(
-            timeout=SDK_CALL_TIMEOUT_SECONDS
-        )
+        future = self._submit(self._dispatch_serialized(command, params))
+        try:
+            result = future.result(timeout=SDK_CALL_TIMEOUT_SECONDS)
+        except FutureTimeoutError as error:
+            # Cancelling the submitted coroutine releases the serialization lock
+            # and prevents a timed-out GUI action from continuing behind the HTTP error.
+            future.cancel()
+            raise TimeoutError(
+                f"CUA Driver command timed out after {SDK_CALL_TIMEOUT_SECONDS} seconds"
+            ) from error
         if result is None:
             raise RuntimeError("CUA gateway returned no result")
         return result
@@ -356,9 +365,19 @@ class CuaGatewayRuntime:
             path = params.get("path")
             if not isinstance(path, list) or len(path) < 2:
                 raise GatewayInputError("path must contain at least two points")
-            start, end = path[0], path[-1]
-            if not isinstance(start, list) or not isinstance(end, list) or len(start) != 2 or len(end) != 2:
-                raise GatewayInputError("each drag point must be [x, y]")
+            points: list[tuple[float, float]] = []
+            for point in path:
+                if not isinstance(point, list) or len(point) != 2:
+                    raise GatewayInputError("each drag point must be [x, y]")
+                x, y = point
+                if (
+                    isinstance(x, bool)
+                    or isinstance(y, bool)
+                    or not isinstance(x, (int, float))
+                    or not isinstance(y, (int, float))
+                ):
+                    raise GatewayInputError("each drag point must contain numeric coordinates")
+                points.append((float(x), float(y)))
             button = {
                 "left": ClickButton.LEFT,
                 "middle": ClickButton.MIDDLE,
@@ -369,19 +388,40 @@ class CuaGatewayRuntime:
             duration = params.get("duration", 0.5)
             if isinstance(duration, bool) or not isinstance(duration, (int, float)):
                 raise GatewayInputError("duration must be a number")
-            return _structured_result(await self._driver.drag(DragInput(
-                from_x=float(start[0]),
-                from_y=float(start[1]),
-                to_x=float(end[0]),
-                to_y=float(end[1]),
-                target=self._target(),
-                scope=None,
-                session=None,
-                duration_ms=max(0, min(10_000, int(float(duration) * 1000))),
-                steps=min(200, max(1, len(path) - 1)),
-                button=button,
-                modifier=None,
-            )))
+            duration_ms = max(0, min(10_000, int(float(duration) * 1000)))
+            segments = list(zip(points, points[1:]))
+            distances = [math.hypot(end[0] - start[0], end[1] - start[1]) for start, end in segments]
+            total_distance = sum(distances)
+            allocated_duration_ms = 0
+            result: dict[str, Any] = {"success": True}
+            cumulative_distance = 0.0
+            for index, ((start, end), distance) in enumerate(zip(segments, distances)):
+                cumulative_distance += distance
+                if index == len(segments) - 1:
+                    segment_duration_ms = duration_ms - allocated_duration_ms
+                elif total_distance > 0:
+                    next_duration_ms = round(duration_ms * cumulative_distance / total_distance)
+                    segment_duration_ms = next_duration_ms - allocated_duration_ms
+                else:
+                    next_duration_ms = round(duration_ms * (index + 1) / len(segments))
+                    segment_duration_ms = next_duration_ms - allocated_duration_ms
+                allocated_duration_ms += segment_duration_ms
+                result = _structured_result(await self._driver.drag(DragInput(
+                    from_x=start[0],
+                    from_y=start[1],
+                    to_x=end[0],
+                    to_y=end[1],
+                    target=self._target(),
+                    scope=None,
+                    session=None,
+                    duration_ms=segment_duration_ms,
+                    steps=1,
+                    button=button,
+                    modifier=None,
+                )))
+                if not result.get("success"):
+                    return result
+            return result
         if command == "scroll_direction":
             direction = {
                 "up": ScrollDirection.UP,
@@ -564,7 +604,17 @@ class GatewayHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", "0"))
             if content_length < 1 or content_length > MAX_REQUEST_BYTES:
                 raise GatewayInputError("invalid request body size")
-            payload = json.loads(self.rfile.read(content_length))
+            try:
+                self.connection.settimeout(REQUEST_BODY_TIMEOUT_SECONDS)
+                body = self.rfile.read(content_length)
+            except TimeoutError:
+                self.close_connection = True
+                self._json(HTTPStatus.REQUEST_TIMEOUT, {
+                    "success": False,
+                    "error": "request body timed out",
+                })
+                return
+            payload = json.loads(body)
             payload = _record(payload, "body")
             command = _string(payload, "command")
             if command not in COMMANDS:

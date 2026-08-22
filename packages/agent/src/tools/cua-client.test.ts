@@ -28,6 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   executeMocks.executeSandboxCommand.mockReset();
 });
@@ -73,6 +74,10 @@ describe("CUA gateway response parsing", () => {
     expect(gateway).toContain("StartSessionInput");
     expect(gateway).toContain("CaptureScope.DESKTOP");
     expect(gateway).toContain('result.get("error_code") == "session_ended"');
+    expect(gateway).toContain("future.cancel()");
+    expect(gateway).toContain("self.connection.settimeout(REQUEST_BODY_TIMEOUT_SECONDS)");
+    expect(gateway).toContain("segments = list(zip(points, points[1:]))");
+    expect(gateway).not.toContain("start, end = path[0], path[-1]");
     expect(gateway).toContain("await self._driver.get_desktop_state(");
     expect(gateway).toContain("await self._driver.clipboard_read(");
     expect(gateway).not.toContain("computer_server");
@@ -80,6 +85,7 @@ describe("CUA gateway response parsing", () => {
     expect(launcher).not.toContain("CUA_DRIVER_SOCKET");
     expect(launcher).toContain('"$CUA_RUNTIME/bin/python" "$CUA_GATEWAY"');
     expect(launcher).toContain('flock 9');
+    expect(launcher).toContain('CUA_STATE_DIR="/tmp/autopr-cua/${CUA_PORT}-${CUA_DISPLAY_KEY}"');
     expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_gateway_ready; then'));
     expect(launcher.match(/9>&-/g)).toHaveLength(1);
     expect(launcher).toContain('kill -KILL "$pid"');
@@ -212,6 +218,36 @@ describe("CUA client configuration", () => {
     await expect(client.command("left_click", { x: 1, y: 2 }))
       .rejects.toThrow("failed with HTTP 503");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the request timeout active while consuming the response body", async () => {
+    vi.useFakeTimers();
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(new DOMException("aborted", "AbortError"));
+          }, { once: true });
+        },
+      });
+      return new Response(stream);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CuaComputerClient(
+      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
+      {},
+      { requestTimeoutMs: 1_000 },
+    );
+
+    const command = client.command("left_click", { x: 1, y: 2 });
+    const rejected = expect(command).rejects.toThrow(
+      "CUA gateway request timed out after 1000ms",
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("shares one signed preview URL across concurrent inspection requests", async () => {
@@ -662,5 +698,22 @@ describe("CUA client configuration", () => {
       expect.objectContaining({ backend: "native" }),
       expect.objectContaining({ backend: "native" }),
     ]);
+  });
+
+  it("allows an immediate recovery retry after startup fails", async () => {
+    executeMocks.executeSandboxCommand.mockRejectedValue(new Error("transient startup failure"));
+    const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("gateway unavailable");
+    }));
+    const client = new CuaComputerClient({
+      id: "failed-recovery-retry-sandbox",
+      getSignedPreviewUrl,
+    } as unknown as DaytonaSandbox, {});
+
+    await expect(client.ensureReady()).rejects.toThrow("transient startup failure");
+    await expect(client.ensureReady()).rejects.toThrow("transient startup failure");
+
+    expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,7 +4,11 @@ import {
   recoverComputerUseStream,
   type ComputerUseProcessName,
 } from "@autopr/config/computer-use-lifecycle";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function processStatuses(initial: Partial<Record<ComputerUseProcessName, boolean>> = {}) {
   return new Map<ComputerUseProcessName, boolean>(
@@ -115,6 +119,56 @@ describe("Daytona computer-use lifecycle", () => {
     expect(computerUse.stop).not.toHaveBeenCalled();
   });
 
+  it("bounds status requests that never settle", async () => {
+    vi.useFakeTimers();
+    const never = new Promise<never>(() => undefined);
+    const computerUse = {
+      getStatus: vi.fn(() => never),
+      getProcessStatus: vi.fn(() => never),
+      start: vi.fn(async () => undefined),
+    };
+
+    const readiness = ensureComputerUseReady(computerUse, {
+      cacheMs: 0,
+      pollIntervalMs: 0,
+      timeoutMs: 25,
+    });
+    const rejected = expect(readiness).rejects.toThrow("Daytona desktop did not become ready");
+    await vi.advanceTimersByTimeAsync(25);
+    await vi.runAllTimersAsync();
+
+    await rejected;
+  });
+
+  it("bounds diagnostics after readiness times out", async () => {
+    vi.useFakeTimers();
+    const never = new Promise<never>(() => undefined);
+    const statuses = processStatuses({ novnc: false });
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "partial" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      getProcessErrors: vi.fn(() => never),
+      getProcessLogs: vi.fn(() => never),
+      restartProcess: vi.fn(async () => undefined),
+      start: vi.fn(async () => undefined),
+    };
+
+    const readiness = ensureComputerUseReady(computerUse, {
+      cacheMs: 0,
+      pollIntervalMs: 0,
+      timeoutMs: 0,
+    });
+    const rejected = expect(readiness).rejects.toThrow(
+      /errors_error=.*timed out.*logs_error=.*timed out/i,
+    );
+    await vi.runAllTimersAsync();
+
+    await rejected;
+  });
+
   it("reattaches the VNC transport without restarting the desktop session", async () => {
     const statuses = processStatuses();
     const computerUse = {
@@ -190,5 +244,23 @@ describe("Daytona computer-use lifecycle", () => {
     })).rejects.toThrow(/x11vnc did not accept connections on port 5901.*caught signal: 11/);
 
     expect(computerUse.restartProcess).toHaveBeenCalledExactlyOnceWith("x11vnc");
+  });
+
+  it("requires explicit transport process health after stream recovery", async () => {
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: name === "x11vnc" || name === "novnc" ? undefined : true,
+        status: name === "x11vnc" || name === "novnc" ? "starting" : "running",
+      })),
+      restartProcess: vi.fn(async () => undefined),
+      start: vi.fn(async () => undefined),
+    };
+
+    await expect(recoverComputerUseStream(computerUse, {
+      pollIntervalMs: 0,
+      timeoutMs: 0,
+    })).rejects.toThrow(/x11vnc.*status=starting.*novnc.*status=starting/);
   });
 });

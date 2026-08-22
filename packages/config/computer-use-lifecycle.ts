@@ -39,6 +39,7 @@ type ComputerUseSnapshot = {
 const DEFAULT_CACHE_MS = 10_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DIAGNOSTIC_TIMEOUT_MS = 1_000;
 const MAX_DIAGNOSTIC_LENGTH = 400;
 const VNC_SERVER_PORT = 5_901;
 const NOVNC_SERVER_PORT = 6_080;
@@ -75,12 +76,36 @@ function compactDiagnostic(value: unknown): string | undefined {
     : normalized;
 }
 
-async function inspectProcesses(computerUse: ComputerUseLifecycle): Promise<ProcessSnapshot[]> {
+async function beforeDeadline<T>(operation: Promise<T>, deadline: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), Math.max(0, deadline - Date.now()));
+  });
+
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function diagnosticBeforeTimeout<T>(operation: Promise<T>, message: string): Promise<T> {
+  return beforeDeadline(operation, Date.now() + DIAGNOSTIC_TIMEOUT_MS, message);
+}
+
+async function inspectProcesses(
+  computerUse: ComputerUseLifecycle,
+  deadline: number,
+): Promise<ProcessSnapshot[]> {
   if (!computerUse.getProcessStatus) return [];
 
   return Promise.all(COMPUTER_USE_PROCESS_NAMES.map(async (processName): Promise<ProcessSnapshot> => {
     try {
-      const response = await computerUse.getProcessStatus?.(processName);
+      const response = await beforeDeadline(
+        Promise.resolve().then(() => computerUse.getProcessStatus!(processName)),
+        deadline,
+        `Timed out reading ${processName} status.`,
+      );
       const running = responseField(response, "running");
       const status = responseField(response, "status");
       return {
@@ -94,10 +119,17 @@ async function inspectProcesses(computerUse: ComputerUseLifecycle): Promise<Proc
   }));
 }
 
-async function inspectComputerUse(computerUse: ComputerUseLifecycle): Promise<ComputerUseSnapshot> {
+async function inspectComputerUse(
+  computerUse: ComputerUseLifecycle,
+  deadline: number,
+): Promise<ComputerUseSnapshot> {
   const [status, processes] = await Promise.all([
-    computerUse.getStatus().then(normalizedStatus).catch(() => undefined),
-    inspectProcesses(computerUse),
+    beforeDeadline(
+      Promise.resolve().then(() => computerUse.getStatus()),
+      deadline,
+      "Timed out reading Daytona desktop status.",
+    ).then(normalizedStatus).catch(() => undefined),
+    inspectProcesses(computerUse, deadline),
   ]);
   return { status, processes };
 }
@@ -115,6 +147,12 @@ function desktopReady(snapshot: ComputerUseSnapshot): boolean {
   return coreProcessesReady(snapshot) || snapshot.status === "active";
 }
 
+function transportProcessesReady(snapshot: ComputerUseSnapshot): boolean {
+  return ["x11vnc", "novnc"].every((processName) => snapshot.processes.some(
+    (process) => process.processName === processName && process.running === true,
+  ));
+}
+
 function failedProcesses(snapshot: ComputerUseSnapshot): ComputerUseProcessName[] {
   return snapshot.processes
     .filter((process) => process.running === false)
@@ -127,15 +165,15 @@ function delay(ms: number): Promise<void> {
 
 async function waitForReady(
   computerUse: ComputerUseLifecycle,
-  timeoutMs: number,
+  deadline: number,
   pollIntervalMs: number,
+  ready: (snapshot: ComputerUseSnapshot) => boolean = desktopReady,
 ): Promise<ComputerUseSnapshot> {
-  const deadline = Date.now() + timeoutMs;
-  let snapshot = await inspectComputerUse(computerUse);
+  let snapshot = await inspectComputerUse(computerUse, deadline);
 
-  while (!desktopReady(snapshot) && Date.now() < deadline) {
-    await delay(pollIntervalMs);
-    snapshot = await inspectComputerUse(computerUse);
+  while (!ready(snapshot) && Date.now() < deadline) {
+    await delay(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())));
+    snapshot = await inspectComputerUse(computerUse, deadline);
   }
 
   return snapshot;
@@ -149,7 +187,11 @@ async function waitForPort(
 ): Promise<boolean> {
   while (true) {
     try {
-      if (await probePort(port)) return true;
+      if (await beforeDeadline(
+        Promise.resolve().then(() => probePort(port)),
+        deadline,
+        `Timed out probing desktop port ${port}.`,
+      )) return true;
     } catch {
       // The next probe can succeed while Daytona finishes binding the process.
     }
@@ -169,7 +211,10 @@ async function processDiagnostic(computerUse: ComputerUseLifecycle, process: Pro
 
   try {
     const errors = compactDiagnostic(responseField(
-      await computerUse.getProcessErrors?.(process.processName),
+      await diagnosticBeforeTimeout(
+        Promise.resolve().then(() => computerUse.getProcessErrors?.(process.processName)),
+        `Timed out reading ${process.processName} errors.`,
+      ),
       "errors",
     ));
     if (errors) parts.push(`errors=${errors}`);
@@ -180,7 +225,10 @@ async function processDiagnostic(computerUse: ComputerUseLifecycle, process: Pro
   if (!parts.some((part) => part?.startsWith("errors="))) {
     try {
       const logs = compactDiagnostic(responseField(
-        await computerUse.getProcessLogs?.(process.processName),
+        await diagnosticBeforeTimeout(
+          Promise.resolve().then(() => computerUse.getProcessLogs?.(process.processName)),
+          `Timed out reading ${process.processName} logs.`,
+        ),
         "logs",
       ));
       if (logs) parts.push(`logs=${logs}`);
@@ -211,6 +259,7 @@ async function restartFailedProcesses(
   computerUse: ComputerUseLifecycle,
   processNames: ComputerUseProcessName[],
   errors: unknown[],
+  deadline: number,
 ): Promise<void> {
   if (processNames.length === 0) return;
   if (!computerUse.restartProcess) {
@@ -220,7 +269,11 @@ async function restartFailedProcesses(
 
   for (const processName of processNames) {
     try {
-      await computerUse.restartProcess(processName);
+      await beforeDeadline(
+        Promise.resolve().then(() => computerUse.restartProcess!(processName)),
+        deadline,
+        `Timed out restarting ${processName}.`,
+      );
     } catch (error) {
       errors.push(new Error(`restart ${processName}: ${errorMessage(error)}`));
     }
@@ -241,24 +294,29 @@ export async function ensureComputerUseReady(
 
   const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+  const deadline = Date.now() + timeoutMs;
   const errors: unknown[] = [];
-  let snapshot = await inspectComputerUse(computerUse);
+  let snapshot = await inspectComputerUse(computerUse, deadline);
 
   if (!desktopReady(snapshot)) {
     const failed = failedProcesses(snapshot);
     if (failed.length > 0) {
-      await restartFailedProcesses(computerUse, failed, errors);
+      await restartFailedProcesses(computerUse, failed, errors, deadline);
     } else {
       try {
         // Daytona start is idempotent for services that are already running.
         // Unlike stop/start, it does not intentionally drop healthy VNC clients.
-        await computerUse.start();
+        await beforeDeadline(
+          Promise.resolve().then(() => computerUse.start()),
+          deadline,
+          "Timed out starting the Daytona desktop.",
+        );
       } catch (error) {
         errors.push(error);
       }
     }
 
-    snapshot = await waitForReady(computerUse, timeoutMs, pollIntervalMs);
+    snapshot = await waitForReady(computerUse, deadline, pollIntervalMs);
   }
 
   if (!desktopReady(snapshot)) throw await readinessError(computerUse, snapshot, errors);
@@ -284,7 +342,7 @@ export async function recoverComputerUseStream(
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   const deadline = Date.now() + timeoutMs;
 
-  await restartFailedProcesses(computerUse, ["x11vnc"], errors);
+  await restartFailedProcesses(computerUse, ["x11vnc"], errors, deadline);
   if (
     options.probePort
     && !await waitForPort(options.probePort, VNC_SERVER_PORT, deadline, pollIntervalMs)
@@ -293,7 +351,7 @@ export async function recoverComputerUseStream(
   } else {
     // noVNC must start after x11vnc is accepting downstream connections. A
     // running process flag alone can arrive before either socket is bound.
-    await restartFailedProcesses(computerUse, ["novnc"], errors);
+    await restartFailedProcesses(computerUse, ["novnc"], errors, deadline);
     if (
       options.probePort
       && !await waitForPort(options.probePort, NOVNC_SERVER_PORT, deadline, pollIntervalMs)
@@ -302,10 +360,13 @@ export async function recoverComputerUseStream(
     }
   }
 
-  const snapshot = options.probePort
-    ? await inspectComputerUse(computerUse)
-    : await waitForReady(computerUse, timeoutMs, pollIntervalMs);
-  if (errors.length > 0 || !desktopReady(snapshot)) {
+  const snapshot = await waitForReady(
+    computerUse,
+    deadline,
+    pollIntervalMs,
+    transportProcessesReady,
+  );
+  if (errors.length > 0 || !transportProcessesReady(snapshot)) {
     throw await readinessError(computerUse, snapshot, errors);
   }
 }

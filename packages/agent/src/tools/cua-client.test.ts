@@ -84,9 +84,21 @@ describe("CUA gateway response parsing", () => {
     expect(launcher).not.toContain('nohup "$CUA_DRIVER_BIN" serve');
     expect(launcher).not.toContain("CUA_DRIVER_SOCKET");
     expect(launcher).toContain('"$CUA_RUNTIME/bin/python" "$CUA_GATEWAY"');
-    expect(launcher).toContain('flock 9');
+    expect(launcher).toContain('flock -w "$CUA_STARTUP_TIMEOUT_SECONDS" 9');
     expect(launcher).toContain('CUA_STATE_DIR="/tmp/autopr-cua/${CUA_PORT}-${CUA_DISPLAY_KEY}"');
-    expect(launcher.indexOf('flock 9')).toBeLessThan(launcher.indexOf('if is_gateway_ready; then'));
+    expect(launcher).toContain("CUA_STARTUP_DEADLINE");
+    expect(launcher).toContain("CUA_ATTEMPT_TIMEOUT_SECONDS");
+    expect(launcher).toContain('readiness_curl 2 --fail --silent');
+    expect(launcher).toContain('while [ "$SECONDS" -lt "$CUA_STARTUP_DEADLINE" ]');
+    expect(launcher).not.toContain("seq 1 80");
+    const startupLoop = launcher.slice(launcher.indexOf("gateway_starts=1"));
+    expect(startupLoop.indexOf("stop_gateway")).toBeLessThan(
+      startupLoop.indexOf("start_gateway", startupLoop.indexOf("stop_gateway")),
+    );
+    expect(startupLoop).toContain(
+      'echo "AutoPR CUA gateway did not become ready on port ${CUA_PORT}." >&2\nstop_gateway',
+    );
+    expect(launcher.indexOf('flock -w')).toBeLessThan(launcher.indexOf('if is_gateway_ready; then'));
     expect(launcher.match(/9>&-/g)).toHaveLength(1);
     expect(launcher).toContain('kill -KILL "$pid"');
     expect(launcher).toContain('readlink -f "/proc/${pid}/exe"');

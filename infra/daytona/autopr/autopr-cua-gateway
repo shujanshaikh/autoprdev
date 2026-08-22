@@ -5,6 +5,8 @@ CUA_PORT="${CUA_PORT:-8765}"
 DISPLAY="${DISPLAY:-:1}"
 CUA_RUNTIME="/opt/autopr/cua"
 CUA_GATEWAY="/opt/autopr/cua-gateway/cua_gateway.py"
+CUA_STARTUP_TIMEOUT_SECONDS=120
+CUA_ATTEMPT_TIMEOUT_SECONDS=40
 if ! [[ "$CUA_PORT" =~ ^[0-9]+$ ]]; then
   echo "CUA_PORT must be an integer." >&2
   exit 2
@@ -28,10 +30,22 @@ CUA_LOCK_FILE="${CUA_STATE_DIR}/launcher.lock"
 mkdir -p "$CUA_STATE_DIR" "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 chmod 700 "${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"
 exec 9>"$CUA_LOCK_FILE"
-flock 9
+flock -w "$CUA_STARTUP_TIMEOUT_SECONDS" 9
+CUA_STARTUP_DEADLINE=$((SECONDS + CUA_STARTUP_TIMEOUT_SECONDS))
+
+readiness_curl() {
+  local max_seconds="$1"
+  local remaining_seconds=$((CUA_STARTUP_DEADLINE - SECONDS))
+  shift
+  [ "$remaining_seconds" -gt 0 ] || return 1
+  if [ "$max_seconds" -gt "$remaining_seconds" ]; then
+    max_seconds="$remaining_seconds"
+  fi
+  curl --max-time "$max_seconds" "$@"
+}
 
 run_command() {
-  curl --fail --silent --max-time 10 \
+  readiness_curl 2 --fail --silent \
     -H 'Content-Type: application/json' \
     --data "$1" \
     "http://127.0.0.1:${CUA_PORT}/cmd"
@@ -82,10 +96,10 @@ is_gateway_ready() {
   local cursor_payload cursor_response cursor_x cursor_y screen_response version_response
   [ -s "$CUA_PID_FILE" ] || return 1
   is_owned_pid "$(cat "$CUA_PID_FILE")" "$CUA_GATEWAY" || return 1
-  curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/status" \
+  readiness_curl 2 --fail --silent "http://127.0.0.1:${CUA_PORT}/status" \
     | jq -e '.status == "ok" and .os_type == "linux" and .backend == "cua-driver"' >/dev/null \
     || return 1
-  curl --fail --silent --max-time 2 "http://127.0.0.1:${CUA_PORT}/commands" \
+  readiness_curl 2 --fail --silent "http://127.0.0.1:${CUA_PORT}/commands" \
     | jq -e '.commands.get_desktop_state and .commands.get_agent_cursor_state and .commands.left_click and .commands.type_text' >/dev/null \
     || return 1
 
@@ -160,23 +174,31 @@ fi
 start_gateway
 
 gateway_starts=1
-for _ in $(seq 1 80); do
+gateway_attempt_deadline=$((SECONDS + CUA_ATTEMPT_TIMEOUT_SECONDS))
+while [ "$SECONDS" -lt "$CUA_STARTUP_DEADLINE" ]; do
   if is_gateway_ready; then
     set_cursor_theme
     exit 0
   fi
+  if [ "$SECONDS" -ge "$CUA_STARTUP_DEADLINE" ]; then
+    break
+  fi
   if ! [ -s "$CUA_PID_FILE" ] \
-    || ! is_owned_pid "$(cat "$CUA_PID_FILE" 2>/dev/null)" "$CUA_GATEWAY"; then
+    || ! is_owned_pid "$(cat "$CUA_PID_FILE" 2>/dev/null)" "$CUA_GATEWAY" \
+    || [ "$SECONDS" -ge "$gateway_attempt_deadline" ]; then
     if [ "$gateway_starts" -ge 3 ]; then
       break
     fi
     gateway_starts=$((gateway_starts + 1))
-    echo "Restarting CUA gateway after an early exit (attempt ${gateway_starts}/3)." >>"$CUA_LOG_FILE"
+    echo "Restarting CUA gateway after a failed readiness attempt (${gateway_starts}/3)." >>"$CUA_LOG_FILE"
+    stop_gateway
     start_gateway
+    gateway_attempt_deadline=$((SECONDS + CUA_ATTEMPT_TIMEOUT_SECONDS))
   fi
   sleep 0.5
 done
 
 echo "AutoPR CUA gateway did not become ready on port ${CUA_PORT}." >&2
+stop_gateway
 tail -n 40 "$CUA_LOG_FILE" >&2 || true
 exit 1

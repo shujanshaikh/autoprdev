@@ -591,6 +591,36 @@ export const updateGeneratedTitle = mutation({
   },
 });
 
+export const updateRegeneratedTitle = mutation({
+  args: {
+    threadId: v.string(),
+    title: v.string(),
+    expectedTitle: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const title = args.title.trim();
+    if (!title || title.length > 200) {
+      throw new ConvexError({ code: "INVALID_THREAD_TITLE" });
+    }
+
+    if (thread.title !== args.expectedTitle) return false;
+
+    await ctx.db.patch(thread._id, { title, updatedAt: Date.now() });
+    return true;
+  },
+});
+
 export const setPinned = mutation({
   args: {
     threadId: v.string(),
@@ -614,6 +644,7 @@ export const setPinned = mutation({
       ...(args.pinned ? {
         settledOverride: undefined,
         settledAt: undefined,
+        snoozedUntil: undefined,
         updatedAt: now,
       } : {}),
     });
@@ -710,6 +741,7 @@ export const setSettlement = mutation({
       settledOverride: args.settled ? "settled" : "active",
       settledAt: args.settled ? now : undefined,
       pinnedAt: args.settled ? undefined : thread.pinnedAt,
+      snoozedUntil: undefined,
       updatedAt: now,
     });
     return null;
@@ -841,6 +873,7 @@ export const markAgentSessionTurnStartedInternal = internalMutation({
       currentRunId: args.runId,
       currentRunTransport: "session",
       isLive: true,
+      snoozedUntil: undefined,
       settledOverride: undefined,
       settledAt: undefined,
       triggerSessionCreatedAt: thread.triggerSessionCreatedAt ?? now,
@@ -902,6 +935,7 @@ export const markRunStarted = mutation({
       currentRunId: args.runId,
       currentRunTransport: "task",
       isLive: true,
+      snoozedUntil: undefined,
       settledOverride: undefined,
       settledAt: undefined,
       agentRunIssue: undefined,

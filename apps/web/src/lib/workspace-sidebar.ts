@@ -58,7 +58,11 @@ export function partitionSidebarThreads<T extends SidebarThreadRecord>(
   const settled: T[] = [];
 
   for (const thread of visible) {
-    if (thread.snoozedUntil && thread.snoozedUntil > (options.now ?? Date.now())) {
+    if (
+      !thread.isLive
+      && thread.snoozedUntil
+      && thread.snoozedUntil > (options.now ?? Date.now())
+    ) {
       snoozed.push(thread);
     } else if (isSidebarThreadSettled(thread, options.now)) {
       settled.push(thread);

@@ -90,6 +90,16 @@ describe("workspace sidebar thread partition", () => {
     expect(result.active.map((item) => item.threadId)).toEqual(["awake", "regular"]);
     expect(result.snoozed.map((item) => item.threadId)).toEqual(["waking-first", "sleeping"]);
   });
+
+  it("keeps running work visible even when an old snooze deadline remains", () => {
+    const result = partitionSidebarThreads(
+      [thread({ threadId: "running", isLive: true, snoozedUntil: NOW + DAY_MS })],
+      { projectId: null, search: "", now: NOW },
+    );
+
+    expect(result.active.map((item) => item.threadId)).toEqual(["running"]);
+    expect(result.snoozed).toEqual([]);
+  });
 });
 
 describe("thread snooze presets", () => {

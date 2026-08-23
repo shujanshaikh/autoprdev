@@ -394,8 +394,11 @@ async function POST(
       });
       let updated: boolean;
       if (regenerating) {
-        await convexMutation(api.threads.updateTitle, { threadId, title });
-        updated = true;
+        updated = await convexMutation(api.threads.updateRegeneratedTitle, {
+          threadId,
+          title,
+          expectedTitle: thread.title,
+        });
       } else {
         updated = await convexMutation(api.threads.updateGeneratedTitle, { threadId, title });
       }

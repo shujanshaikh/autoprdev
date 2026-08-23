@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
 
 const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
@@ -91,6 +92,32 @@ describe("E2B sandbox adapter", () => {
       "/opt/autopr/bin/autopr-desktop start",
       expect.objectContaining({ timeoutMs: 120_000 }),
     );
+  });
+
+  it("signs expiring preview routes through the E2B preview gateway", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-23T12:00:00.000Z"));
+    const sdk = sdkSandbox();
+    const secret = "a".repeat(64);
+    sdk.files.read.mockResolvedValueOnce(`${secret}\n`);
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+
+    const preview = await sandbox.getSignedPreviewUrl(6_080, 600);
+    const expiresAt = Math.floor(Date.now() / 1_000) + 600;
+    const signature = createHmac("sha256", secret)
+      .update(`${expiresAt}:6080`)
+      .digest("base64url");
+
+    expect(sdk.files.read).toHaveBeenCalledWith("/home/daytona/.autopr/preview-secret");
+    expect(sdk.commands.run).toHaveBeenCalledWith(
+      "/opt/autopr/bin/autopr-desktop process-status preview",
+      expect.objectContaining({ timeoutMs: 30_000 }),
+    );
+    expect(sdk.getHost).toHaveBeenCalledWith(6_090);
+    expect(preview).toEqual({
+      url: `https://6090-e2b-test.e2b.test/v1/${expiresAt}/6080/${signature}`,
+    });
+    vi.useRealTimers();
   });
 
   it("converts the requested archive interval to E2B timeout milliseconds", async () => {

@@ -686,6 +686,36 @@ export const releaseSandboxEnvironmentUpdateInternal = internalMutation({
   },
 });
 
+export const renewSandboxEnvironmentUpdateInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    operationId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    // An expired owner may renew only until a newer acquisition atomically
+    // replaces its operation ID. That makes rollback safe without a heartbeat.
+    if (project.sandboxEnvironmentUpdateLock?.operationId !== args.operationId) {
+      return false;
+    }
+    await ctx.db.patch(project._id, {
+      sandboxEnvironmentUpdateLock: {
+        operationId: args.operationId,
+        expiresAt: Date.now() + SANDBOX_ENVIRONMENT_LOCK_MS,
+      },
+    });
+    return true;
+  },
+});
+
 export const upsertSandboxEnvironmentVariablesInternal = internalMutation({
   args: {
     authorId: v.string(),
@@ -737,7 +767,8 @@ export const upsertSandboxSecretsInternal = internalMutation({
     if (!project || project.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
-    if (project.sandboxEnvironmentUpdateLock?.operationId !== args.operationId) {
+    const lock = project.sandboxEnvironmentUpdateLock;
+    if (lock?.operationId !== args.operationId || lock.expiresAt <= Date.now()) {
       throw new ConvexError({ code: "SANDBOX_ENVIRONMENT_UPDATE_LOCK_LOST" });
     }
     const updatedNames = new Set(args.secrets.map((secret) => secret.envName));
@@ -774,9 +805,13 @@ export const removeSandboxEnvironmentVariableInternal = internalMutation({
     if (!project || project.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
+    const lock = project.sandboxEnvironmentUpdateLock;
+    const ownsActiveLock = lock !== undefined
+      && lock.operationId === args.operationId
+      && lock.expiresAt > Date.now();
     if (
       resolvedSandboxProvider(project.sandboxProvider) === "e2b"
-      && project.sandboxEnvironmentUpdateLock?.operationId !== args.operationId
+      && !ownsActiveLock
     ) {
       throw new ConvexError({ code: "SANDBOX_ENVIRONMENT_UPDATE_LOCK_LOST" });
     }

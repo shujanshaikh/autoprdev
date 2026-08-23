@@ -16,6 +16,10 @@ const E2B_REQUEST_TIMEOUT_MS = 120_000;
 const E2B_BACKGROUND_COMMAND_TIMEOUT_MS = 24 * 60 * 60_000;
 const E2B_DESKTOP_COMMAND = "/opt/autopr/bin/autopr-desktop";
 const E2B_RECORDINGS_DIR = "/home/daytona/.autopr/recordings";
+const E2B_PREVIEW_GATEWAY_PORT = 6_090;
+const E2B_PREVIEW_SECRET_FILE = "/home/daytona/.autopr/preview-secret";
+const E2B_PREVIEW_DEFAULT_TTL_SECONDS = 5 * 60;
+const E2B_PREVIEW_MAX_TTL_SECONDS = 24 * 60 * 60;
 export const E2B_ENV_MANIFEST = "/home/daytona/.autopr/environment.json";
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -133,6 +137,16 @@ function assertRecordingId(id: string): string {
   return id;
 }
 
+async function e2bPreviewSignature(secret: string, value: string): Promise<string> {
+  const nodeCrypto = "node:crypto";
+  const { createHmac } = await import(nodeCrypto) as unknown as {
+    createHmac(algorithm: string, key: string): {
+      update(data: string): { digest(encoding: "base64url"): string };
+    };
+  };
+  return createHmac("sha256", secret).update(value).digest("base64url");
+}
+
 export class E2BSandboxAdapter implements SandboxAdapter {
   readonly id: string;
   readonly snapshot?: string;
@@ -184,8 +198,47 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     return E2B_SANDBOX_WORKDIR;
   }
 
-  async getSignedPreviewUrl(port: number): Promise<{ url: string }> {
-    return { url: `https://${this.sdk.getHost(port)}` };
+  async getSignedPreviewUrl(
+    port: number,
+    expiresInSeconds = E2B_PREVIEW_DEFAULT_TTL_SECONDS,
+  ): Promise<{ url: string }> {
+    if (!Number.isInteger(port) || port < 1 || port > 65_535 || port === E2B_PREVIEW_GATEWAY_PORT) {
+      throw new Error("E2B preview port must be an integer between 1 and 65535.");
+    }
+    if (
+      !Number.isInteger(expiresInSeconds)
+      || expiresInSeconds < 1
+      || expiresInSeconds > E2B_PREVIEW_MAX_TTL_SECONDS
+    ) {
+      throw new Error("E2B preview expiry must be between 1 second and 24 hours.");
+    }
+
+    const gatewayStatus = await runCommand(
+      this.sdk,
+      `${E2B_DESKTOP_COMMAND} process-status preview`,
+      { timeoutMs: 30_000 },
+    );
+    if (gatewayStatus.exitCode !== 0) {
+      const restarted = await runCommand(
+        this.sdk,
+        `${E2B_DESKTOP_COMMAND} restart preview`,
+        { timeoutMs: 30_000 },
+      );
+      if (restarted.exitCode !== 0) {
+        throw new Error(restarted.stderr || "Could not start the E2B preview gateway.");
+      }
+    }
+
+    const secret = (await this.sdk.files.read(E2B_PREVIEW_SECRET_FILE)).trim();
+    if (!/^[a-f0-9]{64}$/.test(secret)) {
+      throw new Error("The E2B preview gateway secret is unavailable.");
+    }
+    const expiresAt = Math.floor(Date.now() / 1_000) + expiresInSeconds;
+    const signature = await e2bPreviewSignature(secret, `${expiresAt}:${port}`);
+
+    return {
+      url: `https://${this.sdk.getHost(E2B_PREVIEW_GATEWAY_PORT)}/v1/${expiresAt}/${port}/${signature}`,
+    };
   }
 
   readonly computerUse = {

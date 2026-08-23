@@ -109,6 +109,10 @@ for (const instruction of instructions) {
 }
 
 export const autoprE2BTemplate = template
+  .copy("infra/e2b/autopr/preview-gateway.mjs", "/opt/autopr/preview-gateway.mjs", {
+    mode: 0o644,
+    user: "root",
+  })
   .copy("infra/e2b/autopr/autopr-desktop", "/opt/autopr/bin/autopr-desktop", {
     mode: 0o755,
     user: "root",

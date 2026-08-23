@@ -332,6 +332,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function renewSandboxEnvironmentUpdate(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  operationId: string,
+): Promise<boolean> {
+  return await ctx.runMutation(internal.projects.renewSandboxEnvironmentUpdateInternal, {
+    authorId,
+    projectId,
+    operationId,
+  });
+}
+
+async function requireSandboxEnvironmentUpdate(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  operationId: string,
+): Promise<void> {
+  if (!await renewSandboxEnvironmentUpdate(ctx, authorId, projectId, operationId)) {
+    throw new ConvexError({ code: "SANDBOX_ENVIRONMENT_UPDATE_LOCK_LOST" });
+  }
+}
+
 function desktopWebsocketUrl(value: string): string {
   return previewWebsocketUrl(value, "/websockify");
 }
@@ -633,7 +657,11 @@ async function refreshProviderDesktopActivity(provider: SandboxProvider, sandbox
   await sandbox.setAutoArchiveInterval(SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES);
 }
 
-async function startIsolatedTerminalPreview(sandbox: ProviderSandbox, workDir: string) {
+async function startIsolatedTerminalPreview(
+  sandbox: ProviderSandbox,
+  workDir: string,
+  loopbackOnly = false,
+) {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < TERMINAL_PORT_ATTEMPTS; attempt += 1) {
@@ -677,7 +705,7 @@ fi
 terminal_log="/tmp/autopr-terminal-${port}.log"
 nohup timeout ${TERMINAL_PROCESS_TIMEOUT_MINUTES}m "$ttyd_path" \
   --port ${port} \
-  --writable \
+${loopbackOnly ? "  --interface lo \\\n" : ""}  --writable \
   --once \
   --cwd ${shellQuote(workDir)} \
   "$shell_path" -l \
@@ -773,7 +801,7 @@ async function getProviderTerminalPreview(
   if (provider === "daytona") return await getDaytonaTerminalPreview(sandboxId, workDir);
   const sandbox = await ensureProviderSandboxStarted(provider, sandboxId);
   await onE2BStarted?.();
-  const port = await startIsolatedTerminalPreview(sandbox, workDir);
+  const port = await startIsolatedTerminalPreview(sandbox, workDir, true);
   const preview = await sandbox.getSignedPreviewUrl(port, TERMINAL_PREVIEW_EXPIRES_SECONDS);
   const url = normalizePreviewUrl(preview.url);
   return {
@@ -1647,6 +1675,7 @@ export const importSandboxEnvironmentVariables = action({
           ...updatedSecrets,
         ];
         const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
         await sandbox.fs.uploadFile(
           new TextEncoder().encode(JSON.stringify(Object.fromEntries(
             allSecrets.map((secret) => [secret.envName, secret.secretName]),
@@ -1654,6 +1683,7 @@ export const importSandboxEnvironmentVariables = action({
           E2B_ENV_MANIFEST,
         );
         manifestUpdated = true;
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
         await ctx.runMutation(internal.projects.upsertSandboxSecretsInternal, {
           authorId: identity.subject,
           projectId: args.projectId,
@@ -1673,7 +1703,9 @@ export const importSandboxEnvironmentVariables = action({
           if (manifestUpdated) {
             try {
               const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
-              await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
+              if (await renewSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId)) {
+                await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
+              }
             } catch (rollbackError) {
               rollbackErrors.push(rollbackError);
             }
@@ -1782,9 +1814,11 @@ export const removeSandboxEnvironmentVariable = action({
         lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
       )));
       let manifestUpdated = false;
+      let secretDestroyed = false;
       try {
         if (!lockedSecret && !lockedVariable) return null;
         const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
         await sandbox.fs.uploadFile(
           new TextEncoder().encode(JSON.stringify(Object.fromEntries(
             remaining.map((secret) => [secret.envName, secret.secretName]),
@@ -1792,23 +1826,37 @@ export const removeSandboxEnvironmentVariable = action({
           E2B_ENV_MANIFEST,
         );
         manifestUpdated = true;
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
+        if (lockedSecret) {
+          await E2BSecret.destroy(lockedSecret.secretId);
+          secretDestroyed = true;
+        }
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
         await ctx.runMutation(internal.projects.removeSandboxEnvironmentVariableInternal, {
           authorId: identity.subject,
           projectId: args.projectId,
           envName: args.envName,
           operationId,
         });
-        if (lockedSecret) await E2BSecret.destroy(lockedSecret.secretId).catch(() => undefined);
         return null;
       } catch (error) {
-        if (manifestUpdated) {
-          await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId)
-            .then((sandbox) => sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST))
-            .catch(() => undefined);
+        const rollbackErrors: unknown[] = [];
+        if (manifestUpdated && !secretDestroyed) {
+          try {
+            const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+            if (await renewSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId)) {
+              await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
+            }
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError);
+          }
         }
+        const failure = rollbackErrors.length > 0
+          ? new AggregateError([error, ...rollbackErrors], "E2B environment deletion and rollback failed.")
+          : error;
         throw new ConvexError({
           code: "E2B_ENV_DELETE_FAILED",
-          message: errorMessage(error),
+          message: errorMessage(failure),
         });
       } finally {
         await ctx.runMutation(internal.projects.releaseSandboxEnvironmentUpdateInternal, {

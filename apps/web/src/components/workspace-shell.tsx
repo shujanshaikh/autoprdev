@@ -1,4 +1,5 @@
 import { api } from "@autopr/backend/convex/_generated/api";
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,8 @@ interface WorkspaceSandboxCost {
   sandboxName?: string;
   repoFullName?: string;
   status: "active" | "pending_finalization" | "finalized";
+  sandboxProvider?: SandboxProvider;
+  costSource?: "authoritative" | "estimated";
   latestTotalPrice?: number;
   finalTotalPrice?: number;
   sandboxCreatedAt: number;
@@ -79,6 +82,7 @@ function WorkspaceCreateSandboxDialog({
     { repoFullName: string; branchName: string } | undefined
   >();
   const [repoSearch, setRepoSearch] = useState("");
+  const [selectedSandboxProvider, setSelectedSandboxProvider] = useState<SandboxProvider>("daytona");
   const [isConnectingGithub, setIsConnectingGithub] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -185,6 +189,7 @@ function WorkspaceCreateSandboxDialog({
               defaultBranch: selectedRepo.defaultBranch,
             },
             branch: selectedBranch,
+            sandboxProvider: selectedSandboxProvider,
           }),
         }),
       );
@@ -237,6 +242,7 @@ function WorkspaceCreateSandboxDialog({
             branches={branches}
             selectedRepoFullName={selectedRepoFullName}
             selectedBranch={selectedBranch}
+            selectedSandboxProvider={selectedSandboxProvider}
             repoSearch={repoSearch}
             selectedRepo={selectedRepo}
             githubAppInstallation={githubAppInstallation}
@@ -248,6 +254,7 @@ function WorkspaceCreateSandboxDialog({
             onBranchChange={(branchName) =>
               setSelectedBranchOverride({ repoFullName: selectedRepoFullName, branchName })
             }
+            onSandboxProviderChange={setSelectedSandboxProvider}
             onCreate={() => createProjectMutation.mutate()}
           />
         </div>

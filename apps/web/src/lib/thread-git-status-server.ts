@@ -1,6 +1,11 @@
 import "@tanstack/react-start/server-only";
 
-import { getSandboxWithoutStarting, type DaytonaSandbox } from "@autopr/agent/sandbox";
+import {
+  getSandboxWithoutStarting,
+  SandboxRuntimeNotStartedError,
+  type DaytonaSandbox,
+  type SandboxProvider,
+} from "@autopr/agent/sandbox";
 import {
   attachGitNumstat,
   classifyGitStatus,
@@ -11,6 +16,8 @@ import {
 } from "@autopr/backend/convex/lib/gitStatus";
 import { sandboxCommandOutput } from "@autopr/backend/convex/lib/sandboxCommandOutput";
 import { withEphemeralGitAuth } from "#/lib/sandbox-git-auth";
+
+export { SandboxRuntimeNotStartedError } from "@autopr/agent/sandbox";
 
 type CommandResult = {
   exitCode: number;
@@ -66,21 +73,13 @@ async function optionalOutput(sandbox: DaytonaSandbox, worktreePath: string, arg
 
 export interface ReadThreadGitStatusOptions {
   sandboxId: string;
+  sandboxProvider?: SandboxProvider;
   worktreePath: string;
   baseBranch: string;
   repositoryUrl: string;
   refreshRemote: boolean;
   githubToken?: string;
   pullRequest?: GithubPullRequestSummary;
-}
-
-export class SandboxRuntimeNotStartedError extends Error {
-  readonly code = "SANDBOX_RUNTIME_NOT_STARTED";
-
-  constructor(state?: string) {
-    super(`The Daytona sandbox is not running${state ? ` (state: ${state})` : ""}.`);
-    this.name = "SandboxRuntimeNotStartedError";
-  }
 }
 
 export class ThreadGitFileNotChangedError extends Error {
@@ -102,10 +101,11 @@ export type ThreadGitFileDiff = {
 /** Reads a single, currently changed file without allowing arbitrary paths. */
 export async function readThreadGitFileDiff(options: {
   sandboxId: string;
+  sandboxProvider?: SandboxProvider;
   worktreePath: string;
   file: string;
 }): Promise<ThreadGitFileDiff> {
-  const sandbox = await getSandboxWithoutStarting(options.sandboxId);
+  const sandbox = await getSandboxWithoutStarting(options.sandboxId, options.sandboxProvider);
   if (sandbox.state && sandbox.state !== "started" && sandbox.state !== "running") {
     throw new SandboxRuntimeNotStartedError(sandbox.state);
   }
@@ -151,7 +151,7 @@ export async function readThreadGitFileDiff(options: {
  */
 export async function readThreadGitStatus(options: ReadThreadGitStatusOptions): Promise<ThreadGitStatus> {
   const checkedAt = Date.now();
-  const sandbox = await getSandboxWithoutStarting(options.sandboxId);
+  const sandbox = await getSandboxWithoutStarting(options.sandboxId, options.sandboxProvider);
   if (sandbox.state && sandbox.state !== "started" && sandbox.state !== "running") {
     throw new SandboxRuntimeNotStartedError(sandbox.state);
   }

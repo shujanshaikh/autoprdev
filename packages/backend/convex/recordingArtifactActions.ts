@@ -2,6 +2,7 @@
 
 import { Daytona } from "@daytona/sdk";
 import { ConvexError, v } from "convex/values";
+import { Sandbox as E2BSandbox } from "e2b";
 
 import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
@@ -20,6 +21,7 @@ const RECORDING_PREVIEW_EXPIRES_SECONDS = 5 * 60;
 const RECORDING_READY_ATTEMPTS = 10;
 const RECORDING_READY_RETRY_MS = 1_000;
 const MAX_RECORDING_BYTES = 250 * 1024 * 1024;
+const E2B_RECORDINGS_DIR = "/home/daytona/.autopr/recordings";
 
 type DaytonaRecording = {
   fileName?: string;
@@ -80,7 +82,7 @@ function normalizeRecording(value: unknown): DaytonaRecording {
 function isPlayableRecording(recording: DaytonaRecording) {
   return Boolean(
     recording.fileName?.trim()
-      && (!recording.status || recording.status === "completed")
+      && (!recording.status || recording.status === "completed" || recording.status === "stopped")
       && (recording.endTime || typeof recording.durationSeconds === "number" || typeof recording.sizeBytes === "number"),
   );
 }
@@ -96,6 +98,35 @@ async function getPlayableRecording(sandbox: Awaited<ReturnType<Daytona["get"]>>
   for (let attempt = 1; attempt <= RECORDING_READY_ATTEMPTS; attempt += 1) {
     try {
       latest = normalizeRecording(await sandbox.computerUse.recording.get(recordingId));
+      if (isPlayableRecording(latest)) return latest;
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < RECORDING_READY_ATTEMPTS) await delay(RECORDING_READY_RETRY_MS);
+  }
+
+  if (lastError && !latest.fileName) throw lastError;
+  throw new Error(`Recording is not ready for playback yet.${latest.status ? ` Current status: ${latest.status}.` : ""}`);
+}
+
+function assertE2BRecordingId(recordingId: string) {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(recordingId)) {
+    throw new Error("Invalid E2B recording ID.");
+  }
+  return recordingId;
+}
+
+async function getPlayableE2BRecording(sandbox: E2BSandbox, recordingId: string) {
+  const id = assertE2BRecordingId(recordingId);
+  let latest: DaytonaRecording = {};
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= RECORDING_READY_ATTEMPTS; attempt += 1) {
+    try {
+      latest = normalizeRecording(JSON.parse(
+        await sandbox.files.read(`${E2B_RECORDINGS_DIR}/${id}.json`),
+      ));
       if (isPlayableRecording(latest)) return latest;
     } catch (error) {
       lastError = error;
@@ -174,6 +205,22 @@ async function fetchRecordingSource(sourceUrl: string) {
   }
 }
 
+async function readE2BRecordingSource(sandbox: E2BSandbox, recordingId: string) {
+  const bytes = await sandbox.files.read(
+    `${E2B_RECORDINGS_DIR}/${assertE2BRecordingId(recordingId)}.mp4`,
+    { format: "bytes" },
+  );
+  if (bytes.byteLength > MAX_RECORDING_BYTES) {
+    throw new Error("Recording exceeds the maximum upload size.");
+  }
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return {
+    blob: new Blob([copy.buffer], { type: "video/mp4" }),
+    sizeBytes: copy.byteLength,
+  };
+}
+
 export const ensureUploaded = action({
   args: {
     projectId: v.string(),
@@ -212,22 +259,36 @@ export const ensureUploaded = action({
       };
     }
 
-    const daytona = new Daytona({
-      apiKey: process.env.DAYTONA_API_KEY,
-      apiUrl: process.env.DAYTONA_API_URL,
-    });
-    const sandbox = await daytona.get(project.sandboxId);
-    const recording = await getPlayableRecording(sandbox, args.recordingId);
+    let recording: DaytonaRecording;
+    let readSource: () => Promise<{ blob: Blob; sizeBytes: number }>;
+    if (project.sandboxProvider === "e2b") {
+      const sandbox = await E2BSandbox.connect(project.sandboxId, {
+        timeoutMs: 15 * 60_000,
+        requestTimeoutMs: 120_000,
+      });
+      recording = await getPlayableE2BRecording(sandbox, args.recordingId);
+      readSource = () => readE2BRecordingSource(sandbox, args.recordingId);
+    } else {
+      const daytona = new Daytona({
+        apiKey: process.env.DAYTONA_API_KEY,
+        apiUrl: process.env.DAYTONA_API_URL,
+      });
+      const sandbox = await daytona.get(project.sandboxId);
+      recording = await getPlayableRecording(sandbox, args.recordingId);
+      const preview = await sandbox.getSignedPreviewUrl(
+        RECORDING_DASHBOARD_PORT,
+        RECORDING_PREVIEW_EXPIRES_SECONDS,
+      );
+      const sourceFileName = recording.fileName?.trim();
+      if (!sourceFileName) throw new Error("Recording file name is not available yet.");
+      const sourceUrl = recordingDashboardVideoUrl(preview.url, sourceFileName);
+      readSource = () => fetchRecordingSource(sourceUrl);
+    }
     const sourceFileName = recording.fileName?.trim();
     if (!sourceFileName) throw new Error("Recording file name is not available yet.");
     if (typeof recording.sizeBytes === "number" && recording.sizeBytes > MAX_RECORDING_BYTES) {
       throw new Error("Recording exceeds the maximum upload size.");
     }
-    const preview = await sandbox.getSignedPreviewUrl(
-      RECORDING_DASHBOARD_PORT,
-      RECORDING_PREVIEW_EXPIRES_SECONDS,
-    );
-    const sourceUrl = recordingDashboardVideoUrl(preview.url, sourceFileName);
     const r2Key = existing?.r2Key ?? recordingObjectKey(authorId, args.threadId, args.recordingId);
     const fileName = safeFileName(args.recordingId, sourceFileName);
     const contentType = "video/mp4";
@@ -253,7 +314,7 @@ export const ensureUploaded = action({
     }
 
     try {
-      const { blob, sizeBytes } = await fetchRecordingSource(sourceUrl);
+      const { blob, sizeBytes } = await readSource();
 
       try {
         await r2.store(ctx as unknown as R2StoreCtx, blob, {

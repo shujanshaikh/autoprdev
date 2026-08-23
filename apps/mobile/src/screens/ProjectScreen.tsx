@@ -109,6 +109,7 @@ export function ProjectScreen({ navigation, route }: Props) {
   const { projectId } = route.params;
   const theme = useAppTheme();
   const project = useQuery(api.projects.get, { projectId });
+  const sandboxProviderName = project?.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const threads = useQuery(api.threads.listByProject, { projectId });
   const createThread = useMutation(api.threads.create);
   const setSettlement = useMutation(api.threads.setSettlement);
@@ -578,7 +579,7 @@ export function ProjectScreen({ navigation, route }: Props) {
           label="Delete project"
           onPress={() => Alert.alert(
             `Delete ${project.repoFullName}?`,
-            "The Daytona sandbox, conversations, and project record will be removed.",
+            `The ${sandboxProviderName} sandbox, conversations, and project record will be removed.`,
             [
               { text: "Cancel", style: "cancel" },
               {

@@ -8,6 +8,10 @@ import {
   type AssistantPartsBlobDeleteCtx,
 } from "./lib/assistantPartsBlobs";
 import { requireUserId } from "./lib/auth";
+import {
+  resolvedSandboxProvider,
+  sandboxProviderValidator,
+} from "./lib/sandboxProvider";
 import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
@@ -49,6 +53,7 @@ export const ensureForGithubRepoInternal = internalMutation({
     projectId: v.string(),
     created: v.boolean(),
     sandboxStatus: sandboxStatusValidator,
+    sandboxProvider: sandboxProviderValidator,
   }),
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -67,6 +72,7 @@ export const ensureForGithubRepoInternal = internalMutation({
         projectId: existing.projectId,
         created: false,
         sandboxStatus: existing.sandboxStatus as SandboxStatus,
+        sandboxProvider: resolvedSandboxProvider(existing.sandboxProvider),
       };
     }
 
@@ -81,6 +87,7 @@ export const ensureForGithubRepoInternal = internalMutation({
       repoName: args.repoName,
       repoBranch: args.repoBranch,
       sandboxCacheKey: projectId,
+      sandboxProvider: "daytona",
       sandboxStatus: "creating",
       createdAt: now,
       updatedAt: now,
@@ -91,6 +98,7 @@ export const ensureForGithubRepoInternal = internalMutation({
       projectId,
       created: true,
       sandboxStatus: "creating" as const,
+      sandboxProvider: "daytona" as const,
     };
   },
 });
@@ -105,6 +113,7 @@ export const ensureForGithubSelection = mutation({
     repoName: v.string(),
     defaultBranch: v.string(),
     repoBranch: v.string(),
+    sandboxProvider: sandboxProviderValidator,
   },
   returns: v.object({
     projectId: v.string(),
@@ -112,6 +121,7 @@ export const ensureForGithubSelection = mutation({
     sandboxStatus: sandboxStatusValidator,
     sandboxId: v.optional(v.string()),
     sandboxWorkDir: v.optional(v.string()),
+    sandboxProvider: sandboxProviderValidator,
   }),
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
@@ -154,6 +164,7 @@ export const ensureForGithubSelection = mutation({
         sandboxStatus: existing.sandboxStatus as SandboxStatus,
         sandboxId: existing.sandboxId,
         sandboxWorkDir: existing.sandboxWorkDir,
+        sandboxProvider: resolvedSandboxProvider(existing.sandboxProvider),
       };
     }
 
@@ -173,6 +184,7 @@ export const ensureForGithubSelection = mutation({
       currentBranch: args.repoBranch,
       branchSwitchStatus: "idle",
       sandboxCacheKey: projectId,
+      sandboxProvider: args.sandboxProvider,
       sandboxStatus: "creating",
       createdAt: now,
       updatedAt: now,
@@ -183,6 +195,7 @@ export const ensureForGithubSelection = mutation({
       projectId,
       created: true,
       sandboxStatus: "creating" as const,
+      sandboxProvider: args.sandboxProvider,
     };
   },
 });
@@ -192,9 +205,12 @@ export const markSandboxReadyInternal = internalMutation({
     authorId: v.string(),
     projectId: v.string(),
     sandboxId: v.string(),
+    sandboxProvider: sandboxProviderValidator,
     sandboxName: v.optional(v.string()),
     sandboxSnapshot: v.optional(v.string()),
     sandboxWorkDir: v.optional(v.string()),
+    e2bCpuCount: v.optional(v.number()),
+    e2bMemoryMB: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -212,6 +228,7 @@ export const markSandboxReadyInternal = internalMutation({
       sandboxName: args.sandboxName,
       sandboxSnapshot: args.sandboxSnapshot,
       sandboxWorkDir: args.sandboxWorkDir,
+      sandboxProvider: args.sandboxProvider,
       sandboxStatus: "ready",
       sandboxRuntimeStatus: "started",
       sandboxRuntimeCheckedAt: Date.now(),
@@ -225,6 +242,9 @@ export const markSandboxReadyInternal = internalMutation({
       sandboxId: args.sandboxId,
       sandboxName: args.sandboxName,
       repoFullName: project.repoFullName,
+      sandboxProvider: args.sandboxProvider,
+      e2bCpuCount: args.e2bCpuCount,
+      e2bMemoryMB: args.e2bMemoryMB,
       sandboxCreatedAt: project.createdAt,
     });
 
@@ -251,6 +271,7 @@ export const getSandboxBindingTargetInternal = internalQuery({
       projectId: project.projectId,
       repoName: project.repoName,
       cloneUrl: project.cloneUrl,
+      sandboxProvider: resolvedSandboxProvider(project.sandboxProvider),
     };
   },
 });
@@ -526,6 +547,7 @@ export const getDesktopSandboxInternal = internalQuery({
   },
   returns: v.object({
     sandboxId: v.string(),
+    sandboxProvider: sandboxProviderValidator,
     repoName: v.string(),
     sandboxWorkDir: v.optional(v.string()),
     sandboxRuntimeStatus: v.optional(sandboxRuntimeStatusValidator),
@@ -547,6 +569,7 @@ export const getDesktopSandboxInternal = internalQuery({
 
     return {
       sandboxId: project.sandboxId,
+      sandboxProvider: resolvedSandboxProvider(project.sandboxProvider),
       repoName: project.repoName,
       sandboxWorkDir: project.sandboxWorkDir,
       sandboxRuntimeStatus: project.sandboxRuntimeStatus,
@@ -562,6 +585,7 @@ export const getSandboxEnvironmentInternal = internalQuery({
   },
   returns: v.object({
     sandboxId: v.string(),
+    sandboxProvider: sandboxProviderValidator,
     repoFullName: v.string(),
     sandboxSecrets: v.array(sandboxSecretValidator),
     sandboxEnvironmentVariables: v.array(sandboxEnvironmentVariableValidator),
@@ -582,6 +606,7 @@ export const getSandboxEnvironmentInternal = internalQuery({
 
     return {
       sandboxId: project.sandboxId,
+      sandboxProvider: resolvedSandboxProvider(project.sandboxProvider),
       repoFullName: project.repoFullName,
       sandboxSecrets: project.sandboxSecrets ?? [],
       sandboxEnvironmentVariables: project.sandboxEnvironmentVariables ?? [],
@@ -617,6 +642,38 @@ export const upsertSandboxEnvironmentVariablesInternal = internalMutation({
       sandboxEnvironmentVariables,
       sandboxSecrets: (project.sandboxSecrets ?? []).filter(
         (secret) => !updatedNames.has(secret.envName),
+      ),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const upsertSandboxSecretsInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    secrets: v.array(sandboxSecretValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    const updatedNames = new Set(args.secrets.map((secret) => secret.envName));
+    const sandboxSecrets = (project.sandboxSecrets ?? []).filter(
+      (secret) => !updatedNames.has(secret.envName),
+    );
+    sandboxSecrets.push(...args.secrets);
+    sandboxSecrets.sort((left, right) => left.envName.localeCompare(right.envName));
+    await ctx.db.patch(project._id, {
+      sandboxSecrets,
+      sandboxEnvironmentVariables: (project.sandboxEnvironmentVariables ?? []).filter(
+        (variable) => !updatedNames.has(variable.envName),
       ),
       updatedAt: Date.now(),
     });
@@ -673,6 +730,7 @@ export const getForRemovalInternal = internalQuery({
       projectId: project.projectId,
       sandboxId: project.sandboxId,
       sandboxName: project.sandboxName,
+      sandboxProvider: resolvedSandboxProvider(project.sandboxProvider),
       repoFullName: project.repoFullName,
       createdAt: project.createdAt,
       sandboxSecrets: project.sandboxSecrets ?? [],

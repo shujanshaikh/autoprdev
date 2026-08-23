@@ -3,7 +3,7 @@ import {
   CodingHarness,
   COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
   createAgentStepController,
-  createDaytonaTools,
+  createSandboxTools,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
   withSandboxAgentProjectContext,
@@ -52,6 +52,7 @@ const agentChatClientDataSchema = z.object({
   threadId: z.string().min(1),
   sandboxCacheKey: z.string().min(1),
   sandboxId: z.string().min(1).optional(),
+  sandboxProvider: z.enum(["daytona", "e2b"]).default("daytona"),
   sandboxWorkDir: z.string().min(1).optional(),
   repoUrl: z.string().min(1).optional(),
   repoBranch: z.string().min(1).optional(),
@@ -119,6 +120,7 @@ function requireClientData(
 
 function sandboxOptions(clientData: AgentChatClientData): SandboxSessionOptions {
   return {
+    provider: clientData.sandboxProvider,
     cacheKey: clientData.sandboxCacheKey,
     sandboxId: clientData.sandboxId,
     workDir: clientData.sandboxWorkDir,
@@ -142,8 +144,9 @@ function demoInstructions(clientData: AgentChatClientData) {
 }
 
 function modelInstructions(clientData: AgentChatClientData) {
+  const provider = clientData.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   return [
-    "This chat is streamed through a durable Trigger.dev Session. The Daytona sandbox is prepared before you answer and all tools operate inside that sandbox.",
+    `This chat is streamed through a durable Trigger.dev Session. The ${provider} sandbox is prepared before you answer and all tools operate inside that sandbox.`,
     clientData.repoUrl ? `Repository: ${clientData.repoUrl}` : undefined,
     clientData.repoBranch ? `Repository branch: ${clientData.repoBranch}` : undefined,
     clientData.sandboxWorkDir
@@ -170,7 +173,7 @@ export const agentChatTask = chat.agent({
   },
   tools: ({ chatId, clientData }) => {
     const trusted = requireClientData(clientData, chatId);
-    return createDaytonaTools(sandboxOptions(trusted), {
+    return createSandboxTools(sandboxOptions(trusted), {
       computer: { recordingEnabled: Boolean(trusted.demoEnabled) },
     });
   },

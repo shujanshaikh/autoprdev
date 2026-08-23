@@ -3,10 +3,11 @@ import "@tanstack/react-start/server-only";
 import {
   createSandbox,
   deleteSandbox,
-  DEFAULT_SANDBOX_WORKDIR,
+  sandboxDefaultWorkDir,
   sandboxRepositoryDirectoryName,
   sandboxRepositoryPath,
   type DaytonaSandbox,
+  type SandboxProvider,
 } from "@autopr/agent/sandbox";
 import {
   autoprSandboxLabels,
@@ -90,6 +91,7 @@ async function resolveProjectRepoLocation(
     repoName?: string;
     repoUrl?: string;
     sandboxWorkDir?: string;
+    sandboxProvider?: SandboxProvider;
   } = {},
 ) {
   const explicitRepoPath = options.sandboxWorkDir?.trim();
@@ -105,7 +107,7 @@ async function resolveProjectRepoLocation(
     repoName: options.repoName,
     repoUrl: options.repoUrl,
   });
-  const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
+  const repoPath = sandboxRepositoryPath(sandboxDefaultWorkDir(options.sandboxProvider ?? "daytona"), repoDir);
 
   return {
     repoPath,
@@ -119,13 +121,16 @@ export async function createProjectSandbox(options: {
   githubToken: string;
   branch: string;
   repoName: string;
+  sandboxProvider: SandboxProvider;
 }): Promise<{
   sandboxId: string;
   sandboxName?: string;
   sandboxSnapshot?: string;
   sandboxWorkDir: string;
+  sandboxProvider: SandboxProvider;
 }> {
   const sandbox = await createSandbox({
+    provider: options.sandboxProvider,
     cacheKey: options.projectId,
     name: autoprSandboxName(options.projectId),
     labels: autoprSandboxLabels(options.projectId),
@@ -134,13 +139,14 @@ export async function createProjectSandbox(options: {
     repoName: options.repoName,
     repoUrl: options.cloneUrl,
   });
-  const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
+  const workDir = sandboxDefaultWorkDir(options.sandboxProvider);
+  const repoPath = sandboxRepositoryPath(workDir, repoDir);
 
   const clone = await runAuthenticatedSandboxCommand(
     sandbox,
     options.githubToken,
     `git clone --branch ${shellEscape(options.branch)} --single-branch -- ${shellEscape(options.cloneUrl)} ${shellEscape(repoPath)}`,
-    DEFAULT_SANDBOX_WORKDIR,
+    workDir,
   );
   if (typeof clone.exitCode === "number" && clone.exitCode !== 0) {
     throw new SandboxGitCommandError(
@@ -154,11 +160,12 @@ export async function createProjectSandbox(options: {
     sandboxName: sandbox.name,
     sandboxSnapshot: sandbox.snapshot,
     sandboxWorkDir: repoPath,
+    sandboxProvider: options.sandboxProvider,
   };
 }
 
-export async function deleteProjectSandbox(sandboxId: string): Promise<void> {
-  await deleteSandbox(sandboxId);
+export async function deleteProjectSandbox(sandboxId: string, sandboxProvider: SandboxProvider = "daytona"): Promise<void> {
+  await deleteSandbox(sandboxId, sandboxProvider);
 }
 
 export async function switchProjectSandboxBranch(options: {
@@ -167,8 +174,9 @@ export async function switchProjectSandboxBranch(options: {
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
 }): Promise<void> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedBranch = shellEscape(options.branch);
   const quotedRepoPath = shellEscape(repoPath);
@@ -198,8 +206,9 @@ export async function materializeGithubPullRequestWorktree(options: {
   headBranch: string;
   expectedHeadSha: string;
   githubToken: string;
+  sandboxProvider?: SandboxProvider;
 }): Promise<{ headSha: string; upstreamBranch: string }> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   return withEphemeralGitAuth(sandbox, options.githubToken, async (env) => {
     const runGit = async (cwd: string, args: string, allowFailure = false) => {
       const result = await sandbox.process.executeCommand(`git ${args}`, cwd, env, 120);
@@ -331,8 +340,9 @@ export async function prepareProjectSandboxCommit(options: {
   sandboxId: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
 }): Promise<PreparedProjectSandboxCommit> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
 
@@ -375,8 +385,9 @@ export async function commitPreparedProjectSandboxChanges(options: {
   authorEmail: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
 }): Promise<{ branch: string; commitSha: string; diagnostics?: string }> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
   const branch = sandboxCommandOutput(
@@ -424,8 +435,9 @@ export async function inspectProjectSandboxGit(options: {
   sandboxId: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
 }) {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
   const [branchResult, headResult, statusResult] = await Promise.all([
@@ -447,8 +459,9 @@ export async function createProjectSandboxFeatureBranch(options: {
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
 }) {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
   const currentBranch = sandboxCommandOutput(
@@ -494,8 +507,9 @@ export async function validatePreparedProjectSandboxCommit(options: {
   sandboxId: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
 }) {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const result = await sandbox.process.executeCommand("git diff --cached --check", repoPath, undefined, 120);
   const diagnostics = redactGitDiagnostic(sandboxCommandOutput({ result: result.result, stderr: result.stderr }));
@@ -545,6 +559,7 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
   target?: { remoteUrl: string; remoteBranch: string; canPush: boolean; isFork: boolean };
 }) {
   if (options.target && !options.target.canPush) {
@@ -554,7 +569,7 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
       : "Your GitHub account cannot push to this pull request branch.",
     );
   }
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const { branch, commitSha, remoteSha } = await inspectRemoteBranch(
     sandbox,
@@ -611,8 +626,9 @@ export async function readProjectSandboxPullRequestContext(options: {
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
 }): Promise<ProjectSandboxPullRequestContext> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const remoteBase = `refs/remotes/origin/${options.baseBranch}`;
   const fetchBase = await runAuthenticatedSandboxCommand(
@@ -665,9 +681,10 @@ export async function pullProjectSandboxBranch(options: {
   githubToken: string;
   repoName?: string;
   sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
   target?: { remoteUrl: string; remoteBranch: string };
 }): Promise<{ branch: string; commitSha: string }> {
-  const sandbox = await createSandbox({ sandboxId: options.sandboxId });
+  const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
   const currentBranch = sandboxCommandOutput(

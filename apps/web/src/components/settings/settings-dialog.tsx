@@ -13,6 +13,7 @@ import { CodexLogo } from "#/components/icons/codex-logo";
 import type { SandboxStatus, SandboxRuntimeStatus } from "#/components/dashboard/types";
 import type { CodexStatus } from "#/lib/codex-status";
 import type { GrokStatus } from "#/lib/grok-status";
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 import { GrokConnectPanel } from "#/components/dashboard/grok-connect-panel";
 import { SettingsStats } from "./settings-stats";
 import { SettingsProjects } from "./settings-projects";
@@ -23,6 +24,7 @@ export interface WorkspaceProject {
   projectId: string;
   repoFullName: string;
   sandboxStatus: SandboxStatus;
+  sandboxProvider?: SandboxProvider;
   sandboxRuntimeStatus?: SandboxRuntimeStatus | null;
   currentBranch?: string | null;
   repoBranch?: string | null;
@@ -38,6 +40,8 @@ export interface WorkspaceSandboxCost {
   sandboxName?: string;
   repoFullName?: string;
   status: "active" | "pending_finalization" | "finalized";
+  sandboxProvider?: SandboxProvider;
+  costSource?: "authoritative" | "estimated";
   latestTotalPrice?: number;
   finalTotalPrice?: number;
   sandboxCreatedAt: number;

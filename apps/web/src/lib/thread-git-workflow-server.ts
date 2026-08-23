@@ -150,6 +150,7 @@ export async function runThreadGitWorkflow(options: {
     }, { status: 409 });
   }
   const sandboxId = project.sandboxId;
+  const sandboxProvider = project.sandboxProvider ?? "daytona";
 
   const begin = await convexMutation(api.threads.beginGitOperation, {
     threadId: options.threadId,
@@ -293,6 +294,7 @@ export async function runThreadGitWorkflow(options: {
     branch: async () => {
       const inspected = await inspectProjectSandboxGit({
         sandboxId,
+        sandboxProvider,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
       });
@@ -315,6 +317,7 @@ export async function runThreadGitWorkflow(options: {
         if (inspected.hasChanges) {
           const prepared = await prepareProjectSandboxCommit({
             sandboxId,
+            sandboxProvider,
             repoName: project.repoName,
             sandboxWorkDir: workspace.worktreePath,
           });
@@ -340,6 +343,7 @@ export async function runThreadGitWorkflow(options: {
         }
         const created = await createProjectSandboxFeatureBranch({
           sandboxId,
+          sandboxProvider,
           baseBranch,
           preferredBranch,
           githubToken: sandboxToken,
@@ -358,6 +362,7 @@ export async function runThreadGitWorkflow(options: {
     validate: async (checkpoint) => {
       const inspected = await inspectProjectSandboxGit({
         sandboxId,
+        sandboxProvider,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
       });
@@ -370,11 +375,13 @@ export async function runThreadGitWorkflow(options: {
         if (!inspected.hasChanges) throw new SandboxNoChangesError("There are no workspace changes to commit.");
         const prepared = await prepareProjectSandboxCommit({
           sandboxId,
+          sandboxProvider,
           repoName: project.repoName,
           sandboxWorkDir: workspace.worktreePath,
         });
         diagnostics = (await validatePreparedProjectSandboxCommit({
           sandboxId,
+          sandboxProvider,
           repoName: project.repoName,
           sandboxWorkDir: workspace.worktreePath,
         })).diagnostics;
@@ -399,6 +406,7 @@ export async function runThreadGitWorkflow(options: {
     commit: async (checkpoint) => {
       const inspected = await inspectProjectSandboxGit({
         sandboxId,
+        sandboxProvider,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
       });
@@ -409,6 +417,7 @@ export async function runThreadGitWorkflow(options: {
       if (inspected.hasChanges) {
         const result = await commitPreparedProjectSandboxChanges({
           sandboxId,
+          sandboxProvider,
           commitMessage,
           authorName: identity.name,
           authorEmail: identity.email,
@@ -439,6 +448,7 @@ export async function runThreadGitWorkflow(options: {
       if (!pushSandboxToken) throw new GithubConnectionError("GitHub credentials are required to push changes.");
       const pushResult = await pushProjectSandboxBranchIfNeeded({
         sandboxId,
+        sandboxProvider,
         githubToken: pushSandboxToken,
         repoName: project.repoName,
         sandboxWorkDir: workspace.worktreePath,
@@ -471,6 +481,7 @@ export async function runThreadGitWorkflow(options: {
       if (!token || !sandboxToken) throw new GithubConnectionError("GitHub credentials are required to create a pull request.");
       const pullRequestContext = await readProjectSandboxPullRequestContext({
         sandboxId,
+        sandboxProvider,
         baseBranch: checkpoint.baseBranch ?? baseBranch,
         githubToken: sandboxToken,
         repoName: project.repoName,

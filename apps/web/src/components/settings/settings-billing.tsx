@@ -34,6 +34,7 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
     sandboxCosts?.filter((r) => r.status === "active").length ?? 0;
   const finalizedCount =
     sandboxCosts?.filter((r) => r.status === "finalized").length ?? 0;
+  const hasEstimates = sandboxCosts?.some((row) => row.costSource === "estimated") ?? false;
 
   return (
     <div className="flex flex-col gap-4">
@@ -54,6 +55,12 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
           loading={sandboxCosts === undefined}
         />
       </div>
+
+      {hasEstimates ? (
+        <p className="font-mono text-[10px] text-muted-foreground">
+          E2B totals are estimates from metered CPU, memory, and running time.
+        </p>
+      ) : null}
 
       <section className="min-w-0 rounded-sm border border-border bg-card">
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 min-[420px]:px-4">
@@ -124,6 +131,10 @@ function BillingRow({ row }: { row: WorkspaceSandboxCost }) {
       <div className="min-w-0">
         <p className="truncate font-mono text-[13px]">
           {row.repoFullName ?? row.sandboxName ?? "Unnamed sandbox"}
+        </p>
+        <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+          {row.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
+          {row.costSource === "estimated" ? " · estimated" : ""}
         </p>
       </div>
 

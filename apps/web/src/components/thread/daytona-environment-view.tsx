@@ -42,6 +42,7 @@ function actionError(error: unknown, fallback: string): string {
 
 export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProps) {
   const project = useQuery(api.projects.get, { projectId });
+  const sandboxProviderName = project?.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const importEnvironmentVariables = useAction(api.projectActions.importSandboxEnvironmentVariables);
   const removeEnvironmentVariable = useAction(api.projectActions.removeSandboxEnvironmentVariable);
   const variables = useMemo(() => {
@@ -184,7 +185,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
       setDraftVariables([emptyDraftVariable()]);
       setVisibleValueIds(new Set());
       setNotice(
-        `${result.importedCount} ${result.importedCount === 1 ? "variable" : "variables"} saved.${result.restarted ? " Daytona restarted the sandbox so new processes can read them." : " Start a new terminal or restart the app process to read the updates."}`,
+        `${result.importedCount} ${result.importedCount === 1 ? "variable" : "variables"} saved.${result.restarted ? ` ${sandboxProviderName} restarted the sandbox so new processes can read them.` : " Start a new terminal or restart the app process to read the updates."}`,
       );
     } catch (saveError) {
       setError(actionError(saveError, "Could not save the environment variables."));
@@ -200,7 +201,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
     try {
       await removeEnvironmentVariable({ projectId, envName: name });
       setConfirmRemoveName(undefined);
-      setNotice(`${name} was detached from the sandbox and deleted from Daytona.`);
+      setNotice(`${name} was detached from the sandbox and deleted from ${sandboxProviderName}.`);
     } catch (removeError) {
       setError(actionError(removeError, "Could not remove the sandbox secret."));
     } finally {
@@ -339,7 +340,7 @@ export function DaytonaEnvironmentView({ projectId }: DaytonaEnvironmentViewProp
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <ShieldCheck className="size-3.5" aria-hidden="true" />
-                Values are stored in the Daytona sandbox environment, not the AutoPR database.
+                Values are stored in the {sandboxProviderName} sandbox environment, not the AutoPR database.
               </p>
               <Button type="submit" size="sm" disabled={saving} className="h-8 gap-1.5 px-3">
                 {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}

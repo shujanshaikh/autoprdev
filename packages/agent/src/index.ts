@@ -27,10 +27,19 @@ export {
   createSandboxCacheKey,
   type BootstrappedRepositorySandbox,
   type SandboxContext,
+  type SandboxAdapter,
   type SandboxSessionOptions,
+  type SandboxProvider,
 } from "./sandbox";
-export { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
-export { createDaytonaTools, type CuaComputerToolOptions, type DaytonaTools } from "./tools";
+export { prepareDaytonaSandbox, prepareSandbox, type PreparedSandbox } from "./steps";
+export {
+  createDaytonaTools,
+  createE2BTools,
+  createSandboxTools,
+  type CuaComputerToolOptions,
+  type DaytonaTools,
+  type SandboxTools,
+} from "./tools";
 export {
   COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
   DEMO_RECORDING_INSTRUCTIONS,

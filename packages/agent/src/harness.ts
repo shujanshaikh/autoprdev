@@ -3,15 +3,15 @@ import {
   buildSandboxAgentSystemPrompt,
 } from "./system-prompt";
 import { loadSandboxProjectInstructions } from "./project-instructions";
-import { createDaytonaTools, type CuaComputerToolOptions, type DaytonaTools } from "./tools";
-import { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
+import { createSandboxTools, type CuaComputerToolOptions, type SandboxTools } from "./tools";
+import { prepareSandbox, type PreparedSandbox } from "./steps";
 import type { SandboxSessionOptions } from "./sandbox";
 
 export type CodingHarnessPhase = "idle" | "preparing" | "running" | "settling";
 
 export interface CodingHarnessContext {
   sandbox: PreparedSandbox;
-  tools: DaytonaTools;
+  tools: SandboxTools;
   toolNames: string[];
   instructionFiles: Array<{ path: string; content: string }>;
   unavailableSelectedTools: string[];
@@ -57,7 +57,7 @@ export class CodingHarnessBusyError extends Error {
 }
 
 /**
- * Small orchestration harness for Daytona-backed coding agents.
+ * Small orchestration harness for sandbox-backed coding agents.
  *
  * Inspired by Pi's harness split, this class keeps sandbox/tool/prompt preparation
  * deterministic and observable while leaving the concrete model runtime to the app.
@@ -90,8 +90,8 @@ export class CodingHarness {
     await this.setPhase("preparing");
 
     try {
-      const sandbox = await prepareDaytonaSandbox(this.options);
-      const tools = createDaytonaTools(this.options, {
+      const sandbox = await prepareSandbox(this.options);
+      const tools = createSandboxTools(this.options, {
         computer: this.options.computer,
       });
       const toolSelection = selectTools(tools, this.options.selectedTools);
@@ -105,6 +105,7 @@ export class CodingHarness {
           });
       const instructions = buildSandboxAgentSystemPrompt({
         cwd: sandbox.workDir,
+        sandboxProvider: sandbox.provider,
         sandboxId: sandbox.sandboxId,
         sandboxName: sandbox.sandboxName,
         snapshot: sandbox.snapshot,
@@ -209,9 +210,9 @@ function describeCodingHarnessEvent(event: CodingHarnessEvent): string {
 }
 
 function selectTools(
-  tools: DaytonaTools,
+  tools: SandboxTools,
   selectedTools: string[] | undefined,
-): { tools: DaytonaTools; toolNames: string[]; unavailableToolNames: string[] } {
+): { tools: SandboxTools; toolNames: string[]; unavailableToolNames: string[] } {
   const availableToolNames = Object.keys(tools);
   const requestedToolNames = selectedTools ? dedupeToolNames(selectedTools) : availableToolNames;
   const availableToolNameSet = new Set(availableToolNames);
@@ -222,7 +223,7 @@ function selectTools(
   const selectedToolEntries = Object.entries(tools).filter(([toolName]) => selectedToolSet.has(toolName));
 
   return {
-    tools: Object.fromEntries(selectedToolEntries) as DaytonaTools,
+    tools: Object.fromEntries(selectedToolEntries) as SandboxTools,
     toolNames,
     unavailableToolNames,
   };

@@ -1,4 +1,13 @@
 export const DEFAULT_SANDBOX_WORKDIR = "/home";
+// The E2B template intentionally reuses the proven Daytona image and user so
+// both providers expose the same filesystem layout to the agent.
+export const E2B_SANDBOX_WORKDIR = "/home/daytona";
+
+export type SandboxProvider = "daytona" | "e2b";
+
+export function sandboxDefaultWorkDir(provider: SandboxProvider): string {
+  return provider === "e2b" ? E2B_SANDBOX_WORKDIR : DEFAULT_SANDBOX_WORKDIR;
+}
 
 function repoNameFromUrl(repoUrl?: string): string | undefined {
   if (!repoUrl) {

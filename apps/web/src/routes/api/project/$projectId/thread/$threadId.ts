@@ -138,6 +138,7 @@ async function GET(
       try {
         const diff = await readThreadGitFileDiff({
           sandboxId: project.sandboxId,
+          sandboxProvider: project.sandboxProvider ?? "daytona",
           worktreePath: worktree.worktreePath,
           file: requestedDiffFile,
         });
@@ -208,6 +209,7 @@ async function GET(
 
       const status = await readThreadGitStatus({
         sandboxId: project.sandboxId,
+        sandboxProvider: project.sandboxProvider ?? "daytona",
         worktreePath: worktree.worktreePath,
         baseBranch: worktree.baseBranch,
         repositoryUrl: project.cloneUrl,
@@ -444,6 +446,7 @@ async function POST(
           : await getGithubRepositoryToken(project.repoOwner, project.repoName);
         const result = await pullProjectSandboxBranch({
           sandboxId,
+          sandboxProvider: project.sandboxProvider ?? "daytona",
           branch: worktree.featureBranch,
           githubToken,
           repoName: project.repoName,

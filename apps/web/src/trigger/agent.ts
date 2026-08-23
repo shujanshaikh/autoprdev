@@ -197,6 +197,7 @@ async function runAgentTask(
 ) {
   const persistence = getAssistantPersistenceOptions(options);
   const sandboxOptions: SandboxSessionOptions = {
+    provider: options.sandboxProvider,
     cacheKey: options.sandboxCacheKey,
     sandboxId: options.sandboxId,
     workDir: options.sandboxWorkDir,
@@ -205,13 +206,14 @@ async function runAgentTask(
     repoName: options.repoName,
   };
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
+  const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const harness = new CodingHarness({
     ...sandboxOptions,
     computer: { recordingEnabled: demoRecordingEnabled },
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
-      "This chat is streamed through a durable Trigger.dev task. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
+      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
       options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,

@@ -27,7 +27,7 @@ const bashEnvironmentSchema = z
   );
 
 const bashInputSchema = z.object({
-  command: z.string().max(100_000).optional().describe("Required. Shell command to execute inside the Daytona sandbox."),
+  command: z.string().max(100_000).optional().describe("Required. Shell command to execute inside the selected sandbox."),
   cwd: z.string().max(4_096).optional().describe("Working directory in the sandbox. Relative paths resolve from the sandbox workdir."),
   timeout: z.number().int().min(1).max(MAX_BASH_TIMEOUT_SECONDS).optional().describe(
     `Foreground timeout in seconds. Defaults to ${DEFAULT_BASH_TIMEOUT_SECONDS}; maximum ${MAX_BASH_TIMEOUT_SECONDS}. Ignored after a background command starts.`,
@@ -37,7 +37,7 @@ const bashInputSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Use true for long-running commands such as dev servers, preview servers, watchers, and tail -f. Starts the command asynchronously in a persistent Daytona session and returns immediately with session and command metadata.",
+      "Use true for long-running commands such as dev servers, preview servers, watchers, and tail -f. Starts the command asynchronously in a persistent sandbox session and returns immediately with session and command metadata.",
     ),
 });
 
@@ -77,7 +77,7 @@ async function executeDaytonaBash(
   const backgroundLaunchFailed = isBackground && typeof result.exitCode === "number" && result.exitCode !== 0;
   const timeoutSummary = result.timeout
     ? `Command timed out after ${result.timeout} second${result.timeout === 1 ? "" : "s"}.`
-    : "Daytona timed out while waiting for the command to finish.";
+    : "The sandbox timed out while waiting for the command to finish.";
 
   const envNames = Object.keys(input.env ?? {});
 
@@ -117,16 +117,18 @@ async function executeDaytonaBash(
   };
 }
 
-export function createDaytonaBashTool(
+export function createSandboxBashTool(
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
 ) {
   return tool({
     title: "bash",
     description:
-      "Run shell commands inside Daytona with a 120-second default foreground timeout and tail-preserving bounded output. Use for package scripts, tests, type checks, installs, and Git inspection. Commands mutate state when the command does; use isBackground=true for servers/watchers and manage them with process. Environment values are never echoed. Do not retry a failed command unchanged without using the final diagnostic.",
+      "Run shell commands inside the selected sandbox with a 120-second default foreground timeout and tail-preserving bounded output. Use for package scripts, tests, type checks, installs, and Git inspection. Commands mutate state when the command does; use isBackground=true for servers/watchers and manage them with process. Environment values are never echoed. Do not retry a failed command unchanged without using the final diagnostic.",
     inputSchema: bashInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaBash(input, sandboxOptions, backgroundProcesses),
   });
 }
+
+export const createDaytonaBashTool = createSandboxBashTool;

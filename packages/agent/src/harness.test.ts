@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  createDaytonaTools: vi.fn(),
+  createSandboxTools: vi.fn(),
   loadSandboxProjectInstructions: vi.fn(),
-  prepareDaytonaSandbox: vi.fn(),
+  prepareSandbox: vi.fn(),
 }));
 
 vi.mock("./tools", () => ({
-  createDaytonaTools: mocks.createDaytonaTools,
+  createSandboxTools: mocks.createSandboxTools,
 }));
 
 vi.mock("./project-instructions", () => ({
@@ -15,7 +15,7 @@ vi.mock("./project-instructions", () => ({
 }));
 
 vi.mock("./steps", () => ({
-  prepareDaytonaSandbox: mocks.prepareDaytonaSandbox,
+  prepareSandbox: mocks.prepareSandbox,
 }));
 
 import { CodingHarness, CodingHarnessBusyError, type CodingHarnessEvent } from "./harness";
@@ -23,13 +23,14 @@ import { CodingHarness, CodingHarnessBusyError, type CodingHarnessEvent } from "
 describe("CodingHarness", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.prepareDaytonaSandbox.mockResolvedValue({
+    mocks.prepareSandbox.mockResolvedValue({
+      provider: "daytona",
       sandboxId: "sandbox-1",
       sandboxName: "autopr-test",
       snapshot: "autopr-cua",
       workDir: "/workspace/repo",
     });
-    mocks.createDaytonaTools.mockReturnValue({
+    mocks.createSandboxTools.mockReturnValue({
       read: { description: "read" },
       bash: { description: "bash" },
       process: { description: "process" },
@@ -52,7 +53,7 @@ describe("CodingHarness", () => {
       return "complete";
     })).resolves.toBe("complete");
 
-    expect(mocks.prepareDaytonaSandbox).toHaveBeenCalledOnce();
+    expect(mocks.prepareSandbox).toHaveBeenCalledOnce();
     expect(harness.getPhase()).toBe("idle");
     expect(events.map((event) => event.type)).toEqual([
       "phase_change",
@@ -66,7 +67,7 @@ describe("CodingHarness", () => {
     ]);
 
     await harness.run(async () => undefined);
-    expect(mocks.prepareDaytonaSandbox).toHaveBeenCalledOnce();
+    expect(mocks.prepareSandbox).toHaveBeenCalledOnce();
   });
 
   it("deduplicates selected tools and reports unavailable names", async () => {
@@ -84,7 +85,7 @@ describe("CodingHarness", () => {
 
   it("returns to idle after preparation failure and can retry", async () => {
     const failure = new Error("sandbox unavailable");
-    mocks.prepareDaytonaSandbox.mockRejectedValueOnce(failure);
+    mocks.prepareSandbox.mockRejectedValueOnce(failure);
     const harness = new CodingHarness({ cacheKey: "harness-retry" });
     const events: CodingHarnessEvent[] = [];
     harness.on((event) => {
@@ -98,7 +99,7 @@ describe("CodingHarness", () => {
     await expect(harness.prepare()).resolves.toMatchObject({
       sandbox: { sandboxId: "sandbox-1" },
     });
-    expect(mocks.prepareDaytonaSandbox).toHaveBeenCalledTimes(2);
+    expect(mocks.prepareSandbox).toHaveBeenCalledTimes(2);
   });
 
   it("isolates listener failures from the agent run", async () => {

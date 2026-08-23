@@ -3,6 +3,11 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
+import { estimatedE2BPrice } from "./lib/e2bPricing";
+import {
+  resolvedSandboxProvider,
+  sandboxProviderValidator,
+} from "./lib/sandboxProvider";
 
 const ACTIVE_SYNC_INTERVAL_MS = 5 * 60_000;
 const FINALIZATION_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
@@ -31,12 +36,17 @@ export const upsertWhenSandboxReadyInternal = internalMutation({
     sandboxId: v.string(),
     sandboxName: v.optional(v.string()),
     repoFullName: v.optional(v.string()),
+    sandboxProvider: sandboxProviderValidator,
+    e2bCpuCount: v.optional(v.number()),
+    e2bMemoryMB: v.optional(v.number()),
     sandboxCreatedAt: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const daytonaOrganizationId = requireDaytonaOrganizationId();
+    const daytonaOrganizationId = args.sandboxProvider === "daytona"
+      ? requireDaytonaOrganizationId()
+      : undefined;
     const existing = await ctx.db
       .query("sandboxCosts")
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
@@ -48,7 +58,13 @@ export const upsertWhenSandboxReadyInternal = internalMutation({
         projectId: args.projectId,
         sandboxName: args.sandboxName,
         repoFullName: args.repoFullName,
+        sandboxProvider: args.sandboxProvider,
         daytonaOrganizationId,
+        costSource: args.sandboxProvider === "e2b" ? "estimated" : "authoritative",
+        e2bCpuCount: args.e2bCpuCount,
+        e2bMemoryMB: args.e2bMemoryMB,
+        e2bRunningMs: args.sandboxProvider === "e2b" ? existing.e2bRunningMs ?? 0 : undefined,
+        e2bMeteringStartedAt: args.sandboxProvider === "e2b" ? now : undefined,
         status: "active",
         deletedAt: undefined,
         finalizedAt: undefined,
@@ -63,7 +79,13 @@ export const upsertWhenSandboxReadyInternal = internalMutation({
         sandboxId: args.sandboxId,
         sandboxName: args.sandboxName,
         repoFullName: args.repoFullName,
+        sandboxProvider: args.sandboxProvider,
         daytonaOrganizationId,
+        costSource: args.sandboxProvider === "e2b" ? "estimated" : "authoritative",
+        e2bCpuCount: args.e2bCpuCount,
+        e2bMemoryMB: args.e2bMemoryMB,
+        e2bRunningMs: args.sandboxProvider === "e2b" ? 0 : undefined,
+        e2bMeteringStartedAt: args.sandboxProvider === "e2b" ? now : undefined,
         status: "active",
         sandboxCreatedAt: args.sandboxCreatedAt,
         finalizationAttempts: 0,
@@ -137,6 +159,95 @@ export const recordSyncSuccessInternal = internalMutation({
   },
 });
 
+export const recordE2BSyncSuccessInternal = internalMutation({
+  args: {
+    sandboxId: v.string(),
+    meteredUntil: v.number(),
+    startedAt: v.number(),
+    running: v.boolean(),
+    cpuCount: v.number(),
+    memoryMB: v.number(),
+    finalize: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row) return null;
+    const now = Date.now();
+    const startedAt = row.e2bMeteringStartedAt ?? (
+      args.running
+        ? Math.max(args.startedAt, row.lastSyncedAt ?? args.startedAt)
+        : undefined
+    );
+    const additionalMs = startedAt === undefined
+      ? 0
+      : Math.max(0, args.meteredUntil - startedAt);
+    const runningMs = (row.e2bRunningMs ?? 0) + additionalMs;
+    const totalPrice = estimatedE2BPrice(runningMs, args.cpuCount, args.memoryMB);
+    await ctx.db.patch(row._id, {
+      sandboxProvider: "e2b",
+      costSource: "estimated",
+      e2bCpuCount: args.cpuCount,
+      e2bMemoryMB: args.memoryMB,
+      e2bRunningMs: runningMs,
+      e2bMeteringStartedAt: !args.finalize && args.running ? args.meteredUntil : undefined,
+      latestTotalPrice: totalPrice,
+      finalTotalPrice: args.finalize ? totalPrice : undefined,
+      status: args.finalize ? "finalized" : row.status,
+      lastSyncedAt: now,
+      finalizedAt: args.finalize ? now : undefined,
+      syncError: undefined,
+      nextSyncAt: args.finalize ? undefined : now + ACTIVE_SYNC_INTERVAL_MS,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const startE2BMeteringInternal = internalMutation({
+  args: { sandboxId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return null;
+    if (row.e2bMeteringStartedAt === undefined) {
+      await ctx.db.patch(row._id, { e2bMeteringStartedAt: Date.now(), updatedAt: Date.now() });
+    }
+    return null;
+  },
+});
+
+export const stopE2BMeteringInternal = internalMutation({
+  args: { sandboxId: v.string(), stoppedAt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return null;
+    const runningMs = (row.e2bRunningMs ?? 0) + (
+      row.e2bMeteringStartedAt === undefined ? 0 : Math.max(0, args.stoppedAt - row.e2bMeteringStartedAt)
+    );
+    const cpuCount = row.e2bCpuCount ?? 2;
+    const memoryMB = row.e2bMemoryMB ?? 2_048;
+    await ctx.db.patch(row._id, {
+      e2bRunningMs: runningMs,
+      e2bMeteringStartedAt: undefined,
+      latestTotalPrice: estimatedE2BPrice(runningMs, cpuCount, memoryMB),
+      lastSyncedAt: args.stoppedAt,
+      updatedAt: args.stoppedAt,
+    });
+    return null;
+  },
+});
+
 export const recordSyncFailureInternal = internalMutation({
   args: {
     sandboxId: v.string(),
@@ -174,6 +285,7 @@ export const markPendingFinalizationInternal = internalMutation({
     sandboxId: v.string(),
     sandboxName: v.optional(v.string()),
     repoFullName: v.optional(v.string()),
+    sandboxProvider: sandboxProviderValidator,
     sandboxCreatedAt: v.number(),
   },
   returns: v.null(),
@@ -190,7 +302,9 @@ export const markPendingFinalizationInternal = internalMutation({
         sandboxId: args.sandboxId,
         sandboxName: args.sandboxName,
         repoFullName: args.repoFullName,
-        daytonaOrganizationId: requireDaytonaOrganizationId(),
+        sandboxProvider: args.sandboxProvider,
+        daytonaOrganizationId: args.sandboxProvider === "daytona" ? requireDaytonaOrganizationId() : undefined,
+        costSource: args.sandboxProvider === "e2b" ? "estimated" : "authoritative",
         status: "pending_finalization",
         sandboxCreatedAt: args.sandboxCreatedAt,
         deletedAt: now,

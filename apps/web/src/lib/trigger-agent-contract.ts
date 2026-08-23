@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 
 export const AGENT_TASK_ID = "autopr-agent";
 export const AGENT_CHAT_TASK_ID = "autopr-chat-agent";
@@ -67,6 +68,7 @@ export interface AgentTaskOptions {
   threadId?: string;
   sandboxCacheKey: string;
   sandboxId?: string;
+  sandboxProvider?: SandboxProvider;
   sandboxWorkDir?: string;
   repoUrl?: string;
   repoBranch?: string;
@@ -102,6 +104,7 @@ export interface AgentChatClientData extends Record<string, unknown> {
   threadId: string;
   sandboxCacheKey: string;
   sandboxId?: string;
+  sandboxProvider: SandboxProvider;
   sandboxWorkDir?: string;
   repoUrl?: string;
   repoBranch?: string;

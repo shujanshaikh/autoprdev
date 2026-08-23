@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  *sername*) printf '%s\n' "${AUTOPR_GIT_USERNAME:-x-access-token}" ;;
+  *assword*) printf '%s\n' "${AUTOPR_GIT_PASSWORD:-}" ;;
+  *) exit 1 ;;
+esac

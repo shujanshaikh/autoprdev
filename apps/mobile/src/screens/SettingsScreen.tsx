@@ -256,7 +256,8 @@ export function SettingsScreen({ navigation }: Props) {
                     {row.repoFullName ?? row.sandboxName ?? "Sandbox"}
                   </Text>
                   <Text style={[styles.rowBody, { color: theme.muted }]}>
-                    {row.status.replace(/_/g, " ")}
+                    {row.sandboxProvider === "e2b" ? "E2B" : "Daytona"} · {row.status.replace(/_/g, " ")}
+                    {row.costSource === "estimated" ? " · estimated" : ""}
                   </Text>
                 </View>
                 <Text style={[styles.billingValue, { color: theme.ink }]}>${costFor(row).toFixed(4)}</Text>

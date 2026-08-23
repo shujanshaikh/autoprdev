@@ -16,7 +16,8 @@
     "check-types": "turbo check-types",
     "dev:web": "turbo -F web dev",
     "dev:server": "turbo -F @autopr/backend dev",
-    "dev:setup": "turbo -F @autopr/backend dev:setup"
+    "dev:setup": "turbo -F @autopr/backend dev:setup",
+    "build:e2b-template": "tsx infra/e2b/autopr/build.ts"
   },
   "dependencies": {
     "dotenv": "catalog:",
@@ -25,6 +26,8 @@
   "devDependencies": {
     "@autopr/config": "workspace:*",
     "@types/node": "^20",
+    "e2b": "2.45.0",
+    "tsx": "^4.20.6",
     "turbo": "^2.8.12",
     "typescript": "catalog:"
   },

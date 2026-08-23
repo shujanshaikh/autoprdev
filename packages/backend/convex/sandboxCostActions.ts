@@ -4,6 +4,7 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import { resolvedSandboxProvider } from "./lib/sandboxProvider";
 
 function analyticsConfig() {
   const apiUrl = process.env.DAYTONA_ANALYTICS_API_URL;
@@ -51,6 +52,21 @@ async function fetchAuthoritativeTotal(sandboxId: string, from: number, to: numb
   return totalPrice;
 }
 
+async function fetchE2BMeteringSnapshot(sandboxId: string) {
+  const { Sandbox } = await import("e2b");
+  const info = await Sandbox.getInfo(sandboxId, { requestTimeoutMs: 120_000 });
+  const now = Date.now();
+  return {
+    cpuCount: info.cpuCount,
+    memoryMB: info.memoryMB,
+    startedAt: info.startedAt.getTime(),
+    running: info.state === "running",
+    meteredUntil: info.state === "running"
+      ? now
+      : Math.min(now, info.endAt.getTime()),
+  };
+}
+
 export const syncOneSandboxCost = internalAction({
   args: { sandboxId: v.string(), finalize: v.boolean() },
   returns: v.null(),
@@ -58,6 +74,15 @@ export const syncOneSandboxCost = internalAction({
     const row = await ctx.runQuery(internal.sandboxCosts.getBySandboxIdInternal, { sandboxId: args.sandboxId });
     if (!row || (args.finalize ? row.status !== "pending_finalization" : row.status !== "active")) return null;
     try {
+      if (resolvedSandboxProvider(row.sandboxProvider) === "e2b") {
+        const snapshot = await fetchE2BMeteringSnapshot(row.sandboxId);
+        await ctx.runMutation(internal.sandboxCosts.recordE2BSyncSuccessInternal, {
+          sandboxId: row.sandboxId,
+          ...snapshot,
+          finalize: args.finalize,
+        });
+        return null;
+      }
       const totalPrice = await fetchAuthoritativeTotal(row.sandboxId, row.sandboxCreatedAt, Date.now());
       await ctx.runMutation(internal.sandboxCosts.recordSyncSuccessInternal, {
         sandboxId: row.sandboxId,
@@ -67,7 +92,7 @@ export const syncOneSandboxCost = internalAction({
     } catch (error) {
       await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
         sandboxId: row.sandboxId,
-        error: error instanceof Error ? error.message : "Daytona analytics sync failed.",
+        error: error instanceof Error ? error.message : "Sandbox cost sync failed.",
         finalize: args.finalize,
       });
     }

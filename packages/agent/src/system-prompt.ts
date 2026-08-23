@@ -1,14 +1,14 @@
 const DEFAULT_TOOL_SNIPPETS: Record<string, string> = {
-  sandboxInfo: "Inspect the current Daytona sandbox id, snapshot, and working directory",
+  sandboxInfo: "Inspect the current sandbox provider, id, template, and working directory",
   read: "Read file contents with line offsets",
   ls: "List directory contents",
   find: "Find files using fff fuzzy search or glob filtering",
   grep: "Search file contents using fff indexed grep",
   edit: "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
   write: "Create or overwrite files with complete content",
-  bash: "Execute shell commands inside the Daytona sandbox",
+  bash: "Execute shell commands inside the selected sandbox",
   process: "Poll, interact with, and terminate background shell commands",
-  computer: "Use CUA inside the Daytona Linux desktop for browser testing, screenshots, and mouse/keyboard interaction; demo-enabled turns can also use Daytona recording actions",
+  computer: "Use CUA inside the selected Linux desktop for browser testing, screenshots, and mouse/keyboard interaction; demo-enabled turns can also use recording actions",
 };
 
 const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
@@ -39,7 +39,7 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   ],
   bash: [
     "Use bash for package installs, scripts, tests, and commands that require a shell.",
-    "For long-running commands such as dev servers, preview servers, watchers, and tail -f, set isBackground: true so the command runs in Daytona background mode instead of being killed by foreground execution cleanup.",
+    "For long-running commands such as dev servers, preview servers, watchers, and tail -f, set isBackground: true so the command runs in sandbox background mode instead of being killed by foreground execution cleanup.",
     "Prefer the package manager and scripts already present in the repository.",
     "When a command fails, read the error, adjust based on evidence, and avoid repeating the same command unchanged.",
   ],
@@ -49,7 +49,7 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   ],
   computer: [
     "Inspect the repository and terminal state to choose the preview command, localhost URL, route, and UI path yourself.",
-    "You may run a dev or preview process inside Daytona when browser testing is useful; do not assume a hard-coded command or URL.",
+    "You may run a dev or preview process inside the sandbox when browser testing is useful; do not assume a hard-coded command or URL.",
     "Use the CUA-backed computer tool as a Look -> Act -> Verify loop. Each call accepts one strict CUA action and returns the latest screenshot after visible actions.",
     "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available.",
     "Treat coordinates as image-space pixels from the latest returned screenshot, with (0,0) at its top-left. Pass that screenshot's exact observationId with every coordinate action.",
@@ -75,6 +75,7 @@ export interface BuildSystemPromptContextFile {
 
 export interface BuildSystemPromptOptions {
   cwd: string;
+  sandboxProvider?: "daytona" | "e2b";
   sandboxId: string;
   sandboxName?: string;
   snapshot?: string;
@@ -100,12 +101,13 @@ export function buildSandboxAgentSystemPrompt(options: BuildSystemPromptOptions)
   const metadata = formatSandboxMetadata(options);
   const modelDescriptor = formatModelDescriptor(options.modelId);
   const providerName = options.modelProviderName?.trim() || "connected AI subscription";
+  const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
 
   if (options.customPrompt) {
     return `${options.customPrompt}\n\n${REPOSITORY_SAFETY_POLICY}${append}${metadata}`;
   }
 
-  return `You are AutoPR, a senior coding agent running through the user's ${providerName}${modelDescriptor}. You share a repository with the user and operate only inside a Daytona sandbox.
+  return `You are AutoPR, a senior coding agent running through the user's ${providerName}${modelDescriptor}. You share a repository with the user and operate only inside a sandbox provided by ${sandboxProviderName}.
 
 Goal:
 Handle the user's request end to end with the smallest correct, maintainable change.
@@ -121,7 +123,7 @@ ${toolsList}
 
 Constraints:
 ${REPOSITORY_SAFETY_POLICY}
-- Treat the Daytona sandbox as the execution environment. Do not imply that commands ran on the user's local machine.
+- Treat the ${sandboxProviderName} sandbox as the execution environment. Do not imply that commands ran on the user's local machine.
 - Treat the current working directory as the source of truth for relative paths.
 - Follow applicable repository instructions and established patterns for files you touch.
 - Preserve unrelated user work. Never revert it or use destructive Git commands unless the user explicitly asks.
@@ -264,6 +266,7 @@ function formatSandboxMetadata(options: BuildSystemPromptOptions): string {
 
   return `\n\nCurrent date: ${date}
 Sandbox ID: ${options.sandboxId}${sandboxName}${snapshot}
+Sandbox provider: ${options.sandboxProvider ?? "daytona"}
 Current working directory: ${cwd}`;
 }
 

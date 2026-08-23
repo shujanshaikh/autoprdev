@@ -135,7 +135,7 @@ function buildAutoprFffCommand(subcommand: string, flags: Record<string, FffFlag
   const notFoundJson = JSON.stringify({
     ok: false,
     error:
-      `autopr-fff helper was not found in the agent process PATH or known Daytona snapshot locations. Checked: ${checkedLocations}.`,
+      `autopr-fff helper was not found in the agent process PATH or known sandbox template locations. Checked: ${checkedLocations}.`,
   });
   const nodeNotFoundJson = JSON.stringify({
     ok: false,
@@ -186,7 +186,7 @@ function extractJsonObject(value: string | undefined): string | undefined {
 function formatFffFailure(message: string): string {
   const trimmed = message.trim().slice(0, 4_000);
   const prefix =
-    "fff search failed inside the Daytona sandbox. Make sure the AutoPR Daytona snapshot or sandbox PATH includes the autopr-fff runtime.";
+    "fff search failed inside the selected sandbox. Make sure its AutoPR template and PATH include the autopr-fff runtime.";
 
   if (!trimmed) {
     return prefix;

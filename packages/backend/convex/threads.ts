@@ -591,6 +591,96 @@ export const updateGeneratedTitle = mutation({
   },
 });
 
+export const setPinned = mutation({
+  args: {
+    threadId: v.string(),
+    pinned: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      pinnedAt: args.pinned ? now : undefined,
+      ...(args.pinned ? {
+        settledOverride: undefined,
+        settledAt: undefined,
+        updatedAt: now,
+      } : {}),
+    });
+    return null;
+  },
+});
+
+export const setUnread = mutation({
+  args: {
+    threadId: v.string(),
+    unread: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    await ctx.db.patch(thread._id, {
+      unreadAt: args.unread ? Date.now() : undefined,
+    });
+    return null;
+  },
+});
+
+export const setSnoozedUntil = mutation({
+  args: {
+    threadId: v.string(),
+    snoozedUntil: v.union(v.number(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    if (args.snoozedUntil !== null && thread.isLive) {
+      throw new ConvexError({
+        code: "THREAD_IS_RUNNING",
+        message: "A running thread cannot be snoozed.",
+      });
+    }
+
+    const now = Date.now();
+    if (args.snoozedUntil !== null && args.snoozedUntil <= now) {
+      throw new ConvexError({ code: "INVALID_SNOOZE_TIME" });
+    }
+
+    await ctx.db.patch(thread._id, {
+      snoozedUntil: args.snoozedUntil ?? undefined,
+    });
+    return null;
+  },
+});
+
 export const setSettlement = mutation({
   args: {
     threadId: v.string(),
@@ -619,6 +709,7 @@ export const setSettlement = mutation({
     await ctx.db.patch(thread._id, {
       settledOverride: args.settled ? "settled" : "active",
       settledAt: args.settled ? now : undefined,
+      pinnedAt: args.settled ? undefined : thread.pinnedAt,
       updatedAt: now,
     });
     return null;

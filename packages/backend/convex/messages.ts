@@ -274,6 +274,25 @@ export const listByThread = query({
   },
 });
 
+export const listUserMessagesForTitle = query({
+  args: {
+    threadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    await requireOwnedThread(ctx, args.threadId, identity.subject);
+
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .order("asc")
+      .filter((q) => q.eq(q.field("role"), "user"))
+      .take(20);
+  },
+});
+
 export const listByThreadForHydrationInternal = internalQuery({
   args: {
     authorId: v.string(),

@@ -43,18 +43,19 @@ export function threadTitleRetryDelayMs(attempt: number) {
 export async function requestGeneratedThreadTitle(options: {
   projectId: string;
   threadId: string;
-  message: string;
   signal?: AbortSignal;
-}) {
+} & (
+  | { message: string; regenerate?: false }
+  | { regenerate: true }
+)) {
   const response = await fetch(
     `/api/project/${encodeURIComponent(options.projectId)}/thread/${encodeURIComponent(options.threadId)}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        action: "generate_title",
-        message: options.message,
-      }),
+      body: JSON.stringify(options.regenerate
+        ? { action: "regenerate_title" }
+        : { action: "generate_title", message: options.message }),
       signal: options.signal,
     },
   );

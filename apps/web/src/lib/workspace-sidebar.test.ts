@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   partitionSidebarThreads,
+  resolveSnoozePresets,
   resolveNewThreadProjectId,
   SIDEBAR_AUTO_SETTLE_DAYS,
 } from "./workspace-sidebar";
@@ -36,6 +37,7 @@ describe("workspace sidebar thread partition", () => {
       { projectId: null, search: "", now: NOW },
     );
 
+    expect(result.pinned).toEqual([]);
     expect(result.active.map((item) => item.threadId)).toEqual(["live"]);
     expect(result.settled.map((item) => item.threadId)).toEqual(["old"]);
   });
@@ -69,6 +71,47 @@ describe("workspace sidebar thread partition", () => {
     );
 
     expect(result.active.map((item) => item.threadId)).toEqual(["match"]);
+  });
+
+  it("keeps pins above regular threads and snoozed work ordered by wake time", () => {
+    const result = partitionSidebarThreads(
+      [
+        thread({ threadId: "regular", createdAt: NOW - 100 }),
+        thread({ threadId: "first-pin", pinnedAt: NOW - 20 }),
+        thread({ threadId: "latest-pin", pinnedAt: NOW - 10 }),
+        thread({ threadId: "sleeping", snoozedUntil: NOW + DAY_MS }),
+        thread({ threadId: "waking-first", snoozedUntil: NOW + 1_000 }),
+        thread({ threadId: "awake", snoozedUntil: NOW - 1, createdAt: NOW }),
+      ],
+      { projectId: null, search: "", now: NOW },
+    );
+
+    expect(result.pinned.map((item) => item.threadId)).toEqual(["latest-pin", "first-pin"]);
+    expect(result.active.map((item) => item.threadId)).toEqual(["awake", "regular"]);
+    expect(result.snoozed.map((item) => item.threadId)).toEqual(["waking-first", "sleeping"]);
+  });
+});
+
+describe("thread snooze presets", () => {
+  it("offers short, evening, tomorrow, and next-week wake times", () => {
+    const now = new Date(2026, 3, 8, 10, 0, 0, 0);
+    const presets = resolveSnoozePresets(now);
+
+    expect(presets.map((preset) => preset.id)).toEqual([
+      "hour",
+      "three-hours",
+      "evening",
+      "tomorrow",
+      "next-week",
+    ]);
+    expect(new Date(presets.find((preset) => preset.id === "tomorrow")!.snoozedUntil).getHours()).toBe(9);
+    expect(new Date(presets.find((preset) => preset.id === "next-week")!.snoozedUntil).getDay()).toBe(1);
+  });
+
+  it("drops this evening when it is less than an hour away", () => {
+    const presets = resolveSnoozePresets(new Date(2026, 3, 8, 17, 30, 0, 0));
+
+    expect(presets.map((preset) => preset.id)).not.toContain("evening");
   });
 });
 

@@ -33,6 +33,11 @@ export type AssistantUsageStep = {
   };
 };
 
+export type AssistantUsageSource = {
+  modelId: string;
+  step: AssistantUsageStep;
+};
+
 function emptyTokenUsage(): AssistantTokenUsageMetadata {
   return {
     inputTokens: 0,
@@ -81,9 +86,13 @@ export function createAssistantUsageMetadata(
   modelId: string,
   startedAt: number,
   completedAt = Date.now(),
-  additionalUsageSteps: readonly AssistantUsageStep[] = [],
+  additionalUsageSteps: readonly AssistantUsageSource[] = [],
 ): AssistantUsageMetadata {
-  const stepUsages = [...steps, ...additionalUsageSteps].map((step) => tokenUsageFromStep(step, modelId));
+  const stepUsages = [
+    ...steps.map((step) => tokenUsageFromStep(step, modelId)),
+    ...additionalUsageSteps.map((source) =>
+      tokenUsageFromStep(source.step, source.modelId)),
+  ];
   const contextStep = steps.at(-1);
 
   return {

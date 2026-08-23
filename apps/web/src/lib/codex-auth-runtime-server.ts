@@ -345,24 +345,26 @@ export type CodexResponsesModelCredentials =
       chatgptCookieHeader?: never;
     };
 
-export async function createCodexResponsesModel(options: {
+export type CodexResponsesModelOptions = {
   modelId: string;
   reasoningEffort: string;
-} & CodexResponsesModelCredentials): Promise<CodexResponsesModel> {
-  // Resolve the session cookie lazily and cache it per model instance: a grant
-  // is redeemed at most once per turn, and token refreshes within the turn
-  // reuse the cached cookie instead of extra Vault reads.
+};
+
+/** Creates models that share one lazy redemption of the per-turn credential grant. */
+export function createCodexResponsesModelFactory(
+  credentials: CodexResponsesModelCredentials,
+) {
   let cookieHeaderPromise: Promise<string> | undefined;
   const resolveCookieHeader = () => {
     if (!cookieHeaderPromise) {
       const pending = (async () => {
-        if (typeof options.chatgptCookieHeader === "string") {
-          return options.chatgptCookieHeader;
+        if (typeof credentials.chatgptCookieHeader === "string") {
+          return credentials.chatgptCookieHeader;
         }
 
         return (await resolveCodexAgentGrant(
-          options.credentialsGrantId,
-          options.credentialsGrantContext,
+          credentials.credentialsGrantId,
+          credentials.credentialsGrantContext,
         )).sessionCookieHeader;
       })();
       cookieHeaderPromise = pending;
@@ -398,14 +400,22 @@ export async function createCodexResponsesModel(options: {
   const proxyFetch = (async (input, init) =>
     (await resolveSessionProxyFetch())(input, init)) as typeof fetch;
 
-  const chatgpt = createChatGPTProxyProvider({
-    basePath: chatGPTAuth.basePath,
-    defaultModel: options.modelId,
-    fetch: proxyFetch,
-    headers: {
-      "x-login-with-chatgpt-reasoning-effort": options.reasoningEffort,
-    },
-  });
+  return (options: CodexResponsesModelOptions): CodexResponsesModel => {
+    const chatgpt = createChatGPTProxyProvider({
+      basePath: chatGPTAuth.basePath,
+      defaultModel: options.modelId,
+      fetch: proxyFetch,
+      headers: {
+        "x-login-with-chatgpt-reasoning-effort": options.reasoningEffort,
+      },
+    });
 
-  return chatgpt.responses(options.modelId);
+    return chatgpt.responses(options.modelId);
+  };
+}
+
+export async function createCodexResponsesModel(
+  options: CodexResponsesModelOptions & CodexResponsesModelCredentials,
+): Promise<CodexResponsesModel> {
+  return createCodexResponsesModelFactory(options)(options);
 }

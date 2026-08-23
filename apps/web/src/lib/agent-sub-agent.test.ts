@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
+  agentProviderOptions: vi.fn(() => ({ openai: { store: false } })),
   harnessOptions: [] as Array<Record<string, unknown>>,
   withSandboxAgentProjectContext: vi.fn((messages: unknown) => messages),
 }));
@@ -36,7 +37,7 @@ vi.mock("#/lib/agent-context-compaction", () => ({
 }));
 
 vi.mock("#/lib/agent-auth-runtime-server", () => ({
-  agentProviderOptions: () => ({ openai: { store: false } }),
+  agentProviderOptions: mocks.agentProviderOptions,
   agentSystemPrompt: (_model: unknown, instructions: string) => instructions,
 }));
 
@@ -79,24 +80,26 @@ describe("agent sub-agent runtime", () => {
       return { text: "  Child result  " };
     });
     const onUsageStep = vi.fn();
+    const childModel = {} as LanguageModel;
+    const selectedModel = {
+      provider: "openai-codex" as const,
+      modelId: "gpt-5.6-luna",
+      reasoningEffort: "max",
+      credentialsGrantId: "grant-1",
+      credentialsGrantContext: {
+        userId: "user-1",
+        taskId: "autopr-agent" as const,
+        contextId: "thread-1",
+      },
+    };
     const runner = createAgentSubAgentRunner({
       sandboxOptions: {
         cacheKey: "sandbox-key",
         sandboxId: "sandbox-1",
         workDir: "/workspace/repo",
       },
-      model: {} as LanguageModel,
-      selectedModel: {
-        provider: "openai-codex",
-        modelId: "gpt-5.5",
-        reasoningEffort: "high",
-        credentialsGrantId: "grant-1",
-        credentialsGrantContext: {
-          userId: "user-1",
-          taskId: "autopr-agent",
-          contextId: "thread-1",
-        },
-      },
+      model: childModel,
+      selectedModel,
       onUsageStep,
     });
 
@@ -109,7 +112,7 @@ describe("agent sub-agent runtime", () => {
       sandboxId: "sandbox-1",
       workDir: "/workspace/repo",
       computer: false,
-      modelId: "gpt-5.5",
+      modelId: "gpt-5.6-luna",
     });
     expect(mocks.harnessOptions[0]).not.toHaveProperty("subAgent");
     expect(mocks.withSandboxAgentProjectContext).toHaveBeenCalledWith(
@@ -117,5 +120,13 @@ describe("agent sub-agent runtime", () => {
       "repository context",
     );
     expect(onUsageStep).toHaveBeenCalledWith(usageStep);
+    expect(mocks.generateText).toHaveBeenCalledWith(expect.objectContaining({
+      model: childModel,
+      providerOptions: { openai: { store: false } },
+    }));
+    expect(mocks.agentProviderOptions).toHaveBeenCalledWith(
+      selectedModel,
+      "child instructions",
+    );
   });
 });

@@ -25,7 +25,7 @@ import {
 } from "#/lib/agent-run-issue";
 import {
   createAssistantUsageMetadata,
-  type AssistantUsageStep,
+  type AssistantUsageSource,
   type AssistantUsageMetadata,
 } from "#/lib/agent-usage";
 import {
@@ -41,7 +41,7 @@ import {
 import {
   agentProviderOptions,
   agentSystemPrompt,
-  createAgentResponsesModel,
+  createAgentResponseModels,
   revokeAgentModelGrant,
 } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit, isAgentReasoningEffortSupported } from "#/lib/agent-models";
@@ -294,10 +294,17 @@ export const agentChatTask = chat.agent({
         trusted.model.promptCacheKey ?? modelPromptCacheKey(trusted),
     };
     const startedAt = Date.now();
-    const subAgentUsageSteps: AssistantUsageStep[] = [];
-    const { instructions, repositoryContext, sandbox } = await harness.prepare();
+    const subAgentUsageSteps: AssistantUsageSource[] = [];
+    const [{ instructions, repositoryContext, sandbox }, responseModels] = await Promise.all([
+      harness.prepare(),
+      createAgentResponseModels(selectedModel),
+    ]);
     const model = wrapLanguageModel({
-      model: await createAgentResponsesModel(selectedModel),
+      model: responseModels.parent,
+      middleware: createContextOverflowRecoveryMiddleware(),
+    });
+    const subAgentModel = wrapLanguageModel({
+      model: responseModels.subAgent,
       middleware: createContextOverflowRecoveryMiddleware(),
     });
     subAgentBinding.bind(createAgentSubAgentRunner({
@@ -306,11 +313,14 @@ export const agentChatTask = chat.agent({
         sandboxId: sandbox.sandboxId,
         workDir: sandbox.workDir,
       },
-      model,
-      selectedModel,
+      model: subAgentModel,
+      selectedModel: responseModels.subAgentOptions,
       parentAbortSignal: signal,
       onUsageStep: (step) => {
-        subAgentUsageSteps.push(step);
+        subAgentUsageSteps.push({
+          modelId: responseModels.subAgentOptions.modelId,
+          step,
+        });
       },
     }));
 

@@ -44,7 +44,7 @@ const DEFAULT_MAX_REALTIME_BODY_BYTES = 256 * 1024;
 const SERVICE_TIER_HEADER = "x-login-with-chatgpt-service-tier";
 const REASONING_EFFORT_HEADER = "x-login-with-chatgpt-reasoning-effort";
 const SERVICE_TIERS = new Set<CodexServiceTier>(["auto", "default", "flex", "priority", "fast"]);
-const REASONING_EFFORTS = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh"]);
+const REASONING_EFFORTS = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
 
 export interface ResponsesProxyPolicy {
   /**

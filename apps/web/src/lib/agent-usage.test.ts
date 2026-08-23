@@ -17,11 +17,14 @@ describe("createAssistantUsageMetadata", () => {
       1_000,
       6_000,
       [{
-        usage: {
-          inputTokens: 60,
-          outputTokens: 15,
-          totalTokens: 75,
-          inputTokenDetails: { cacheReadTokens: 10 },
+        modelId: "gpt-5.4-mini",
+        step: {
+          usage: {
+            inputTokens: 60,
+            outputTokens: 15,
+            totalTokens: 75,
+            inputTokenDetails: { cacheReadTokens: 10 },
+          },
         },
       }],
     );
@@ -38,6 +41,7 @@ describe("createAssistantUsageMetadata", () => {
       totalTokens: 120,
       cachedInputTokens: 40,
     });
+    expect(metadata.usage.cost.total).toBeCloseTo(0.00102575);
     expect(metadata.run).toEqual({
       startedAt: 1_000,
       completedAt: 6_000,

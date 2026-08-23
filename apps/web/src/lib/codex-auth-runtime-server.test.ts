@@ -100,6 +100,7 @@ import {
   chatGPTAuth,
   CodexConnectionError,
   createCodexAgentGrant,
+  createCodexResponsesModelFactory,
   createCodexResponsesModel,
   resolveCodexAgentGrant,
   vaultObjectName,
@@ -196,6 +197,46 @@ describe("Codex agent grants", () => {
     const sessionRequest = proxyFetchSpy.mock.calls[0]?.[0];
     expect(sessionRequest?.headers.get("cookie")).toBe("lwc_session=signed-session");
     expect(proxiedFetch).toHaveBeenCalledWith("/api/chatgpt/models", undefined);
+
+    proxyFetchSpy.mockRestore();
+  });
+
+  it("shares one credential redemption across parent and sub-agent models", async () => {
+    const proxiedFetch = vi.fn(async () => Response.json({ output: [] }));
+    const proxyFetchSpy = vi
+      .spyOn(chatGPTAuth, "proxyFetch")
+      .mockReturnValue(proxiedFetch as typeof fetch);
+    const grantId = await createCodexAgentGrant({
+      ...expectedContext,
+      sessionCookieHeader: "lwc_session=signed-session",
+    });
+    const createModel = createCodexResponsesModelFactory({
+      credentialsGrantId: grantId,
+      credentialsGrantContext: expectedContext,
+    });
+
+    createModel({ modelId: "gpt-5.6-sol", reasoningEffort: "high" });
+    createModel({ modelId: "gpt-5.6-luna", reasoningEffort: "max" });
+
+    const parentProvider = createChatGPTProxyProvider.mock.calls.at(-2)?.[0];
+    const childProvider = createChatGPTProxyProvider.mock.calls.at(-1)?.[0];
+    expect(parentProvider).toMatchObject({
+      defaultModel: "gpt-5.6-sol",
+      headers: { "x-login-with-chatgpt-reasoning-effort": "high" },
+    });
+    expect(childProvider).toMatchObject({
+      defaultModel: "gpt-5.6-luna",
+      headers: { "x-login-with-chatgpt-reasoning-effort": "max" },
+    });
+
+    await Promise.all([
+      parentProvider?.fetch?.("/api/chatgpt/responses"),
+      childProvider?.fetch?.("/api/chatgpt/responses"),
+    ]);
+
+    expect(objectsByName.size).toBe(0);
+    expect(proxyFetchSpy).toHaveBeenCalledTimes(1);
+    expect(proxiedFetch).toHaveBeenCalledTimes(2);
 
     proxyFetchSpy.mockRestore();
   });

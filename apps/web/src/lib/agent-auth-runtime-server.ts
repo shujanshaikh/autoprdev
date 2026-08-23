@@ -1,12 +1,22 @@
 import "@tanstack/react-start/server-only";
 
-import { createCodexResponsesModel, revokeCodexAgentGrant } from "#/lib/codex-auth-runtime-server";
+import {
+  createCodexResponsesModel,
+  createCodexResponsesModelFactory,
+  revokeCodexAgentGrant,
+} from "#/lib/codex-auth-runtime-server";
 import { createGrokResponsesModel, revokeGrokAgentGrant } from "#/lib/grok-auth-runtime-server";
 import { isAgentReasoningEffortSupported } from "#/lib/agent-models";
 import type { AgentModelOptions } from "#/lib/trigger-agent-contract";
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue | undefined };
 type ProviderOptions = Record<string, { [key: string]: JsonValue | undefined }>;
+
+export const SUB_AGENT_CODEX_MODEL = {
+  provider: "openai-codex",
+  modelId: "gpt-5.6-luna",
+  reasoningEffort: "max",
+} as const;
 
 export function createAgentResponsesModel(options: AgentModelOptions) {
   if (options.provider !== "xai") {
@@ -17,6 +27,36 @@ export function createAgentResponsesModel(options: AgentModelOptions) {
     ? options.reasoningEffort
     : undefined;
   return createGrokResponsesModel({ ...options, reasoningEffort });
+}
+
+/** Creates the parent model and a cheaper child model without redeeming the grant twice. */
+export async function createAgentResponseModels(options: AgentModelOptions) {
+  if (options.provider === "xai") {
+    const model = await createAgentResponsesModel(options);
+    return {
+      parent: model,
+      subAgent: model,
+      subAgentOptions: options,
+    };
+  }
+
+  const createModel = createCodexResponsesModelFactory({
+    credentialsGrantId: options.credentialsGrantId,
+    credentialsGrantContext: options.credentialsGrantContext,
+  });
+  const subAgentOptions: AgentModelOptions = {
+    ...options,
+    ...SUB_AGENT_CODEX_MODEL,
+    promptCacheKey: options.promptCacheKey
+      ? `${options.promptCacheKey}:sub-agent`
+      : undefined,
+  };
+
+  return {
+    parent: createModel(options),
+    subAgent: createModel(subAgentOptions),
+    subAgentOptions,
+  };
 }
 
 export function revokeAgentModelGrant(options: AgentModelOptions) {
@@ -48,7 +88,11 @@ export function agentProviderOptions(
       instructions,
       parallelToolCalls: true,
       promptCacheKey: options.promptCacheKey,
-      reasoningEffort: options.reasoningEffort,
+      // The installed AI SDK schema stops at xhigh. The authenticated proxy
+      // injects max from the per-model transport header instead.
+      reasoningEffort: options.reasoningEffort === "max"
+        ? undefined
+        : options.reasoningEffort,
       reasoningSummary: "auto",
       include: ["reasoning.encrypted_content"],
     },

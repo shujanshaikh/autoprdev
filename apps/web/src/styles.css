@@ -253,6 +253,44 @@
     0 0 0 1px color-mix(in srgb, var(--project-selected-strong, var(--ring)) 18%, transparent);
 }
 
+.autopr-sub-agent-activity {
+  border-color: color-mix(in srgb, var(--project-strong-line, var(--border)) 72%, transparent);
+  background: color-mix(in srgb, var(--project-panel-soft, var(--card)) 88%, transparent);
+  box-shadow: inset 0 1px color-mix(in srgb, white 16%, transparent);
+}
+
+.dark .autopr-sub-agent-activity {
+  border-color: color-mix(in srgb, white 8%, transparent);
+  background: color-mix(in srgb, var(--project-panel-soft, var(--card)) 94%, white 2%);
+  box-shadow: inset 0 1px rgb(255 255 255 / 4%);
+}
+
+/* The branch is repository context for the prompt, so it sits on a narrower
+   continuation of the composer surface instead of floating as a loose label. */
+.autopr-composer-context-strip {
+  isolation: isolate;
+}
+
+.autopr-composer-context-strip::before {
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--project-strong-line, var(--border)) 70%, transparent);
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--project-panel-soft, var(--card)) 86%, transparent);
+  box-shadow: 0 14px 30px -22px rgb(0 0 0 / 55%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
+  mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
+  content: "";
+}
+
+.dark .autopr-composer-context-strip::before {
+  border-color: color-mix(in srgb, white 7%, transparent);
+  background: color-mix(in srgb, var(--project-panel-soft, var(--card)) 94%, white 2%);
+  box-shadow: 0 16px 34px -22px rgb(0 0 0 / 82%);
+}
+
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .autopr-chat-composer,
   .autopr-chat-composer:has([data-slot="input-group-control"]:focus-visible) {

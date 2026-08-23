@@ -19,7 +19,7 @@ import {
 } from "#/lib/agent-context-compaction";
 import {
   createAssistantUsageMetadata,
-  type AssistantUsageStep,
+  type AssistantUsageSource,
   type AssistantUsageMetadata,
 } from "#/lib/agent-usage";
 import {
@@ -34,7 +34,7 @@ import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import {
   agentProviderOptions,
   agentSystemPrompt,
-  createAgentResponsesModel,
+  createAgentResponseModels,
   revokeAgentModelGrant,
 } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit } from "#/lib/agent-models";
@@ -238,7 +238,7 @@ async function runAgentTask(
   let persistenceFinished = false;
   let streamFinished = false;
   const runStartedAt = Date.now();
-  const subAgentUsageSteps: AssistantUsageStep[] = [];
+  const subAgentUsageSteps: AssistantUsageSource[] = [];
 
   if (options.assistantMessageId) {
     await agentUIStream.append({
@@ -249,8 +249,13 @@ async function runAgentTask(
 
   try {
     await harness.run(async ({ instructions, repositoryContext, sandbox, tools }) => {
+      const responseModels = await createAgentResponseModels(selectedModel);
       const model = wrapLanguageModel({
-        model: await createAgentResponsesModel(selectedModel),
+        model: responseModels.parent,
+        middleware: createContextOverflowRecoveryMiddleware(),
+      });
+      const subAgentModel = wrapLanguageModel({
+        model: responseModels.subAgent,
         middleware: createContextOverflowRecoveryMiddleware(),
       });
       subAgentBinding.bind(createAgentSubAgentRunner({
@@ -259,11 +264,14 @@ async function runAgentTask(
           sandboxId: sandbox.sandboxId,
           workDir: sandbox.workDir,
         },
-        model,
-        selectedModel,
+        model: subAgentModel,
+        selectedModel: responseModels.subAgentOptions,
         parentAbortSignal: signal,
         onUsageStep: (step) => {
-          subAgentUsageSteps.push(step);
+          subAgentUsageSteps.push({
+            modelId: responseModels.subAgentOptions.modelId,
+            step,
+          });
         },
       }));
       const result = streamText({

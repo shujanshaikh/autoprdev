@@ -13,7 +13,7 @@ import {
   SidebarTrigger,
 } from "@autopr/ui/components/sidebar";
 import { TooltipProvider } from "@autopr/ui/components/tooltip";
-import { useNavigate, useRouter } from "@tanstack/react-router";
+import { useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   useMutation as useReactMutation,
   useQuery as useReactQuery,
@@ -32,7 +32,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { SettingsDialog, type WorkspaceUserSettings } from "#/components/settings/settings-dialog";
 import { CreateSandboxPanel } from "#/components/dashboard/create-sandbox-panel";
 import { DeleteDialog } from "#/components/dashboard/delete-dialog";
 import {
@@ -43,6 +42,13 @@ import {
 } from "#/components/dashboard/types";
 import { RouteTransition } from "#/components/route-transition";
 import {
+  SettingsPage,
+  SettingsSidebar,
+  type SettingsTab,
+  type WorkspaceSandboxCost,
+  type WorkspaceUserSettings,
+} from "#/components/settings/settings-workspace";
+import {
   WorkspaceSidebar,
   type WorkspaceProject,
   type WorkspaceThread,
@@ -52,21 +58,6 @@ import { useGrokStatus } from "#/lib/grok-status";
 
 const EMPTY_REPOSITORIES: GithubRepository[] = [];
 const EMPTY_BRANCHES: GithubBranch[] = [];
-
-interface WorkspaceSandboxCost {
-  _id: string;
-  projectId: string;
-  sandboxId: string;
-  sandboxName?: string;
-  repoFullName?: string;
-  status: "active" | "pending_finalization" | "finalized";
-  sandboxProvider?: SandboxProvider;
-  costSource?: "authoritative" | "estimated";
-  latestTotalPrice?: number;
-  finalTotalPrice?: number;
-  sandboxCreatedAt: number;
-  deletedAt?: number;
-}
 
 function WorkspaceCreateSandboxDialog({
   open,
@@ -266,31 +257,41 @@ function WorkspaceCreateSandboxDialog({
 export function WorkspaceShell({
   activeProjectId,
   activeThreadId,
+  settingsTab,
   children,
 }: {
   activeProjectId?: string;
   activeThreadId?: string;
-  children: ReactNode | ((props: { openCreateProject: () => void }) => ReactNode);
+  settingsTab?: SettingsTab;
+  children?: ReactNode | ((props: { openCreateProject: () => void }) => ReactNode);
 }) {
   const navigate = useNavigate();
   const router = useRouter();
+  const canGoBack = useCanGoBack();
   const { isAuthenticated } = useConvexAuth();
-  const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip") as WorkspaceProject[] | undefined;
-  const threads = useQuery(api.threads.listForSidebar, isAuthenticated ? {} : "skip") as WorkspaceThread[] | undefined;
+  const projects = useQuery(
+    api.projects.list,
+    isAuthenticated && (!settingsTab || settingsTab === "overview") ? {} : "skip",
+  ) as WorkspaceProject[] | undefined;
+  const threads = useQuery(
+    api.threads.listForSidebar,
+    isAuthenticated && !settingsTab ? {} : "skip",
+  ) as WorkspaceThread[] | undefined;
   const sandboxCosts = useQuery(
     api.sandboxCosts.listForCurrentUser,
-    isAuthenticated ? {} : "skip",
+    isAuthenticated && (settingsTab === "overview" || settingsTab === "billing")
+      ? {}
+      : "skip",
   ) as WorkspaceSandboxCost[] | undefined;
   const userSettings = useQuery(
     api.userSettings.get,
-    isAuthenticated ? {} : "skip",
+    isAuthenticated && settingsTab === "labs" ? {} : "skip",
   ) as WorkspaceUserSettings | undefined;
   const removeProjectWithSandbox = useAction(api.projectActions.removeWithSandbox);
   const setDemoRecordingExperimentEnabled = useConvexMutation(
     api.userSettings.setDemoRecordingExperimentEnabled,
   );
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [projectIdToDelete, setProjectIdToDelete] = useState<string | undefined>();
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -300,8 +301,8 @@ export function WorkspaceShell({
     setIsCreateDialogOpen(true);
   }, []);
 
-  const codexStatusQuery = useCodexStatus(isAuthenticated);
-  const grokStatusQuery = useGrokStatus(isAuthenticated);
+  const codexStatusQuery = useCodexStatus(isAuthenticated && settingsTab === "models");
+  const grokStatusQuery = useGrokStatus(isAuthenticated && settingsTab === "models");
 
   const projectToDelete = useMemo(
     () => projects?.find((p) => p.projectId === projectIdToDelete),
@@ -341,31 +342,79 @@ export function WorkspaceShell({
     }
   }, [setDemoRecordingExperimentEnabled]);
 
+  const openSettings = useCallback(() => {
+    void navigate({
+      to: "/settings/$section",
+      params: { section: "overview" },
+    });
+  }, [navigate]);
+
+  const selectSettingsTab = useCallback((tab: SettingsTab) => {
+    void navigate({
+      to: "/settings/$section",
+      params: { section: tab },
+      replace: true,
+    });
+  }, [navigate]);
+
+  const closeSettings = useCallback(() => {
+    if (canGoBack) {
+      window.history.back();
+      return;
+    }
+
+    void navigate({ to: "/dashboard", replace: true });
+  }, [canGoBack, navigate]);
+
   return (
     <TooltipProvider>
       <SidebarProvider
         className="project-shell h-dvh max-h-dvh overflow-hidden"
         style={{ "--sidebar-width": "18rem" } as CSSProperties}
       >
-        <WorkspaceSidebar
-          projects={projects}
-          threads={threads}
-          activeProjectId={activeProjectId}
-          activeThreadId={activeThreadId}
-          onCreateProject={openCreateProject}
-          onDeleteProject={(projectId) => setProjectIdToDelete(projectId)}
-          onOpenSettings={() => setIsSettingsDialogOpen(true)}
-        />
-        <SidebarInset className="min-w-0 overflow-hidden">
-          <div className="fixed left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-40 md:hidden">
-            <SidebarTrigger className="border border-border bg-background" />
-          </div>
-          <RouteTransition>
-            {typeof children === "function"
-              ? children({ openCreateProject })
-              : children}
-          </RouteTransition>
-        </SidebarInset>
+        {settingsTab ? (
+          <SettingsSidebar
+            activeTab={settingsTab}
+            onSelect={selectSettingsTab}
+            onBack={closeSettings}
+          />
+        ) : (
+          <WorkspaceSidebar
+            projects={projects}
+            threads={threads}
+            activeProjectId={activeProjectId}
+            activeThreadId={activeThreadId}
+            onCreateProject={openCreateProject}
+            onDeleteProject={(projectId) => setProjectIdToDelete(projectId)}
+            onOpenSettings={openSettings}
+          />
+        )}
+        <div className="fixed left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-40 md:hidden">
+          <SidebarTrigger className="border border-border bg-background" />
+        </div>
+        {settingsTab ? (
+          <SettingsPage
+            activeTab={settingsTab}
+            projects={projects}
+            sandboxCosts={sandboxCosts}
+            userSettings={userSettings}
+            userSettingsSaving={userSettingsSaving}
+            userSettingsError={userSettingsError}
+            onDemoRecordingExperimentEnabledChange={updateDemoRecordingExperimentEnabled}
+            codexStatus={codexStatusQuery.data}
+            onCodexStatusChange={() => void codexStatusQuery.refetch()}
+            grokStatus={grokStatusQuery.data}
+            onGrokStatusChange={() => void grokStatusQuery.refetch()}
+          />
+        ) : (
+          <SidebarInset className="min-w-0 overflow-hidden">
+            <RouteTransition>
+              {typeof children === "function"
+                ? children({ openCreateProject })
+                : children}
+            </RouteTransition>
+          </SidebarInset>
+        )}
 
         <WorkspaceCreateSandboxDialog
           open={isCreateDialogOpen}
@@ -388,20 +437,6 @@ export function WorkspaceShell({
             {deleteError}
           </div>
         ) : null}
-        <SettingsDialog
-          open={isSettingsDialogOpen}
-          projects={projects}
-          sandboxCosts={sandboxCosts}
-          userSettings={userSettings}
-          userSettingsSaving={userSettingsSaving}
-          userSettingsError={userSettingsError}
-          onDemoRecordingExperimentEnabledChange={updateDemoRecordingExperimentEnabled}
-          codexStatus={codexStatusQuery.data}
-          onCodexStatusChange={() => void codexStatusQuery.refetch()}
-          grokStatus={grokStatusQuery.data}
-          onGrokStatusChange={() => void grokStatusQuery.refetch()}
-          onOpenChange={setIsSettingsDialogOpen}
-        />
       </SidebarProvider>
     </TooltipProvider>
   );

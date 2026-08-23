@@ -9,17 +9,41 @@ mkdir -p "$STATE_DIR"
 pid_file() { printf '%s/%s.pid' "$STATE_DIR" "$1"; }
 log_file() { printf '%s/%s.log' "$STATE_DIR" "$1"; }
 
+is_owned_pid() {
+  local pid="$1" executable="$2"
+  local actual_executable expected_executable interpreter shebang
+  local -a argv=()
+
+  kill -0 "$pid" 2>/dev/null || return 1
+  actual_executable="$(readlink -f "/proc/${pid}/exe" 2>/dev/null)" || return 1
+  expected_executable="$(readlink -f "$executable" 2>/dev/null)" || return 1
+  [ "$actual_executable" = "$expected_executable" ] && return 0
+
+  [ -r "/proc/${pid}/cmdline" ] && [ -r "$expected_executable" ] || return 1
+  mapfile -d '' -t argv <"/proc/${pid}/cmdline"
+  [ "${argv[1]:-}" = "$executable" ] || [ "${argv[1]:-}" = "$expected_executable" ] || return 1
+  IFS= read -r shebang <"$expected_executable" || return 1
+  [[ "$shebang" = '#!'* ]] || return 1
+  interpreter="${shebang#\#!}"
+  interpreter="${interpreter%% *}"
+  [ "$actual_executable" = "$(readlink -f "$interpreter" 2>/dev/null)" ]
+}
+
 is_running() {
-  local file
+  local file pid executable
   file="$(pid_file "$1")"
-  [ -s "$file" ] && kill -0 "$(cat "$file")" 2>/dev/null
+  if ! { IFS= read -r pid && IFS= read -r executable; } <"$file" 2>/dev/null \
+    || ! is_owned_pid "$pid" "$executable"; then
+    rm -f "$file"
+    return 1
+  fi
 }
 
 stop_process() {
   local name="$1" file pid
   file="$(pid_file "$name")"
-  [ -s "$file" ] || return 0
-  pid="$(cat "$file")"
+  is_running "$name" || return 0
+  IFS= read -r pid <"$file"
   kill "$pid" 2>/dev/null || true
   for _ in $(seq 1 20); do
     kill -0 "$pid" 2>/dev/null || break
@@ -30,11 +54,12 @@ stop_process() {
 }
 
 start_process() {
-  local name="$1"
+  local name="$1" executable
   shift
   is_running "$name" && return 0
+  executable="$(command -v "$1")"
   nohup "$@" >"$(log_file "$name")" 2>&1 &
-  printf '%s\n' "$!" >"$(pid_file "$name")"
+  printf '%s\n%s\n' "$!" "$executable" >"$(pid_file "$name")"
 }
 
 wait_for_display() {
@@ -79,9 +104,13 @@ start_desktop() {
 }
 
 stop_desktop() {
-  local gateway_pid=/tmp/autopr-cua/8765-_1/gateway.pid
+  local gateway_pid="/tmp/autopr-cua/${CUA_PORT:-8765}-${DISPLAY_NUMBER//:/_}/gateway.pid"
+  local pid
   if [ -s "$gateway_pid" ]; then
-    kill "$(cat "$gateway_pid")" 2>/dev/null || true
+    pid="$(cat "$gateway_pid")"
+    if is_owned_pid "$pid" /opt/autopr/cua-gateway/cua_gateway.py; then
+      kill "$pid" 2>/dev/null || true
+    fi
     rm -f "$gateway_pid"
   fi
   for name in novnc x11vnc xfce4 xvfb; do stop_process "$name"; done

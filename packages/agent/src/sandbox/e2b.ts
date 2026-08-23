@@ -57,6 +57,15 @@ function commandFailure(error: unknown) {
   throw error;
 }
 
+function sessionCommandFailure(error: unknown) {
+  if (error instanceof CommandExitError) return commandFailure(error);
+  return {
+    exitCode: 1,
+    stdout: "",
+    stderr: error instanceof Error ? error.message : "E2B background command failed.",
+  };
+}
+
 function commandOutput(stdout: string, stderr: string): string {
   return [stdout, stderr].filter(Boolean).join(stderr && stdout ? "\n" : "");
 }
@@ -162,8 +171,8 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     this.state = "started";
   }
 
-  async setAutoArchiveInterval(): Promise<void> {
-    await this.sdk.setTimeout(E2B_TIMEOUT_MS);
+  async setAutoArchiveInterval(interval: number): Promise<void> {
+    await this.sdk.setTimeout(interval * 60_000);
   }
 
   async updateNetworkSettings(): Promise<void> {
@@ -256,8 +265,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
           [
             `mkdir -p '${E2B_RECORDINGS_DIR}'`,
             `printf '%s' \"$AUTOPR_RECORDING_METADATA\" > '${recordingMetadataPath(id)}'`,
-            "nohup ffmpeg -y -f x11grab -framerate 30 -video_size 1920x1080 -i :1 -c:v libx264 -preset veryfast -pix_fmt yuv420p \"$AUTOPR_RECORDING_PATH\" >\"$AUTOPR_RECORDING_PATH.log\" 2>&1 &",
-            "printf '%s' \"$!\" > \"$AUTOPR_RECORDING_PATH.pid\"",
+            "{ nohup ffmpeg -y -f x11grab -framerate 30 -video_size 1920x1080 -i :1 -c:v libx264 -preset veryfast -pix_fmt yuv420p \"$AUTOPR_RECORDING_PATH\" >\"$AUTOPR_RECORDING_PATH.log\" 2>&1 & printf '%s' \"$!\" > \"$AUTOPR_RECORDING_PATH.pid\"; }",
           ].join(" && "),
           { envs, timeoutMs: 30_000 },
         );
@@ -472,7 +480,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
         state.stdout = result.stdout;
         state.stderr = result.stderr;
       }).catch((error) => {
-        const result = commandFailure(error);
+        const result = sessionCommandFailure(error);
         state.exitCode = result.exitCode;
         state.stdout = result.stdout;
         state.stderr = result.stderr;

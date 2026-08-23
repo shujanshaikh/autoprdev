@@ -3,6 +3,7 @@
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
 import { resolvedSandboxProvider } from "./lib/sandboxProvider";
 
@@ -69,19 +70,29 @@ async function fetchE2BMeteringSnapshot(sandboxId: string) {
 
 export const syncOneSandboxCost = internalAction({
   args: { sandboxId: v.string(), finalize: v.boolean() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.runQuery(internal.sandboxCosts.getBySandboxIdInternal, { sandboxId: args.sandboxId });
-    if (!row || (args.finalize ? row.status !== "pending_finalization" : row.status !== "active")) return null;
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const row: Doc<"sandboxCosts"> | null = await ctx.runQuery(
+      internal.sandboxCosts.getBySandboxIdInternal,
+      { sandboxId: args.sandboxId },
+    );
+    if (!row) return false;
+    if (args.finalize ? row.status === "finalized" : false) return true;
+    if (args.finalize ? row.status !== "pending_finalization" : row.status !== "active") return false;
     try {
       if (resolvedSandboxProvider(row.sandboxProvider) === "e2b") {
         const snapshot = await fetchE2BMeteringSnapshot(row.sandboxId);
-        await ctx.runMutation(internal.sandboxCosts.recordE2BSyncSuccessInternal, {
+        const recorded = await ctx.runMutation(internal.sandboxCosts.recordE2BSyncSuccessInternal, {
           sandboxId: row.sandboxId,
           ...snapshot,
           finalize: args.finalize,
         });
-        return null;
+        if (recorded || !args.finalize) return recorded;
+        const current: Doc<"sandboxCosts"> | null = await ctx.runQuery(
+          internal.sandboxCosts.getBySandboxIdInternal,
+          { sandboxId: row.sandboxId },
+        );
+        return current?.status === "finalized";
       }
       const totalPrice = await fetchAuthoritativeTotal(row.sandboxId, row.sandboxCreatedAt, Date.now());
       await ctx.runMutation(internal.sandboxCosts.recordSyncSuccessInternal, {
@@ -89,14 +100,15 @@ export const syncOneSandboxCost = internalAction({
         totalPrice,
         finalize: args.finalize,
       });
+      return true;
     } catch (error) {
       await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
         sandboxId: row.sandboxId,
         error: error instanceof Error ? error.message : "Sandbox cost sync failed.",
         finalize: args.finalize,
       });
+      return false;
     }
-    return null;
   },
 });
 
@@ -104,7 +116,10 @@ export const batchSyncActiveSandboxCosts = internalAction({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
-    const rows = await ctx.runQuery(internal.sandboxCosts.listDueInternal, { now: Date.now(), status: "active" });
+    const rows: Doc<"sandboxCosts">[] = await ctx.runQuery(
+      internal.sandboxCosts.listDueInternal,
+      { now: Date.now(), status: "active" },
+    );
     await Promise.all(rows.map((row) => ctx.runAction(internal.sandboxCostActions.syncOneSandboxCost, {
       sandboxId: row.sandboxId,
       finalize: false,
@@ -117,7 +132,7 @@ export const finalizePendingDeletedSandboxCosts = internalAction({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
-    const rows = await ctx.runQuery(internal.sandboxCosts.listDueInternal, {
+    const rows: Doc<"sandboxCosts">[] = await ctx.runQuery(internal.sandboxCosts.listDueInternal, {
       now: Date.now(),
       status: "pending_finalization",
     });

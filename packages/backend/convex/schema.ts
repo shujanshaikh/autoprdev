@@ -49,6 +49,10 @@ export default defineSchema({
       envName: v.string(),
       updatedAt: v.number(),
     }))),
+    sandboxEnvironmentUpdateLock: v.optional(v.object({
+      operationId: v.string(),
+      expiresAt: v.number(),
+    })),
     createdAt: v.number(),
     updatedAt: v.number(),
     lastOpenedAt: v.optional(v.number()),

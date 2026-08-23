@@ -37,7 +37,7 @@ function sdkSandbox(id = "e2b-test") {
   return {
     sandboxId: id,
     commands: {
-      run: vi.fn(async () => ({ exitCode: 0, stdout: "ok", stderr: "" })),
+      run: vi.fn(async (_command: string, _options?: unknown) => ({ exitCode: 0, stdout: "ok", stderr: "" })),
     },
     files: {
       list: vi.fn(async () => []),
@@ -93,6 +93,26 @@ describe("E2B sandbox adapter", () => {
     );
   });
 
+  it("converts the requested archive interval to E2B timeout milliseconds", async () => {
+    const sdk = sdkSandbox();
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+
+    await sandbox.setAutoArchiveInterval(120);
+
+    expect(sdk.setTimeout).toHaveBeenCalledWith(7_200_000);
+  });
+
+  it("groups recording startup before writing the ffmpeg pid", async () => {
+    const sdk = sdkSandbox();
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+
+    await sandbox.computerUse.recording.start();
+
+    const command = sdk.commands.run.mock.calls[0]?.[0];
+    expect(command).toContain("& printf '%s' \"$!\"");
+    expect(command).not.toContain("& &&");
+  });
+
   it("injects E2B secret references into SDK command environments", async () => {
     const sdk = sdkSandbox();
     sdk.files.read.mockResolvedValueOnce(JSON.stringify({ API_TOKEN: "autopr-token" }));
@@ -136,6 +156,36 @@ describe("E2B sandbox adapter", () => {
       stdout: "server ready",
       stderr: "",
       output: "server ready",
+    });
+  });
+
+  it("records transport failures as terminal background command state", async () => {
+    const sdk = sdkSandbox("failed-background-e2b");
+    const handle = {
+      pid: 43,
+      stdout: "",
+      stderr: "",
+      kill: vi.fn(async () => true),
+      sendStdin: vi.fn(async () => undefined),
+      wait: vi.fn(async () => {
+        throw new Error("connection dropped");
+      }),
+    };
+    sdk.commands.run.mockResolvedValueOnce(handle as never);
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+    await sandbox.process.createSession("failed-session");
+    await sandbox.process.executeSessionCommand("failed-session", {
+      command: "pnpm dev",
+      runAsync: true,
+    });
+
+    await vi.waitFor(async () => {
+      await expect(sandbox.process.getSessionCommand("failed-session", "43")).resolves.toMatchObject({
+        exitCode: 1,
+      });
+    });
+    await expect(sandbox.process.getSessionCommandLogs("failed-session", "43")).resolves.toMatchObject({
+      stderr: "connection dropped",
     });
   });
 

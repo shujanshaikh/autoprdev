@@ -53,6 +53,13 @@ export const upsertWhenSandboxReadyInternal = internalMutation({
       .unique();
 
     if (existing) {
+      const e2bRunningMs = args.sandboxProvider === "e2b"
+        ? (existing.e2bRunningMs ?? 0) + (
+            existing.e2bMeteringStartedAt === undefined
+              ? 0
+              : Math.max(0, now - existing.e2bMeteringStartedAt)
+          )
+        : undefined;
       await ctx.db.patch(existing._id, {
         authorId: args.authorId,
         projectId: args.projectId,
@@ -63,7 +70,7 @@ export const upsertWhenSandboxReadyInternal = internalMutation({
         costSource: args.sandboxProvider === "e2b" ? "estimated" : "authoritative",
         e2bCpuCount: args.e2bCpuCount,
         e2bMemoryMB: args.e2bMemoryMB,
-        e2bRunningMs: args.sandboxProvider === "e2b" ? existing.e2bRunningMs ?? 0 : undefined,
+        e2bRunningMs,
         e2bMeteringStartedAt: args.sandboxProvider === "e2b" ? now : undefined,
         status: "active",
         deletedAt: undefined,
@@ -136,6 +143,7 @@ export const recordSyncSuccessInternal = internalMutation({
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
     if (!row) return null;
+    if (row.status === "finalized" || (args.finalize && row.status !== "pending_finalization")) return null;
     const now = Date.now();
     await ctx.db.patch(row._id, args.finalize
       ? {
@@ -169,13 +177,16 @@ export const recordE2BSyncSuccessInternal = internalMutation({
     memoryMB: v.number(),
     finalize: v.boolean(),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query("sandboxCosts")
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
-    if (!row) return null;
+    if (!row) return false;
+    const expectedStatus = args.finalize ? "pending_finalization" : "active";
+    if (row.status !== expectedStatus) return false;
+    if (row.lastSyncedAt !== undefined && args.meteredUntil < row.lastSyncedAt) return false;
     const now = Date.now();
     const startedAt = row.e2bMeteringStartedAt ?? (
       args.running
@@ -203,7 +214,7 @@ export const recordE2BSyncSuccessInternal = internalMutation({
       nextSyncAt: args.finalize ? undefined : now + ACTIVE_SYNC_INTERVAL_MS,
       updatedAt: now,
     });
-    return null;
+    return true;
   },
 });
 
@@ -261,6 +272,7 @@ export const recordSyncFailureInternal = internalMutation({
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
     if (!row) return null;
+    if (row.status === "finalized" || (args.finalize && row.status !== "pending_finalization")) return null;
     const now = Date.now();
     const attempts = args.finalize ? row.finalizationAttempts + 1 : row.finalizationAttempts;
     const nextSyncAt = args.finalize

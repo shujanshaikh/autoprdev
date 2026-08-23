@@ -91,13 +91,19 @@ export class CodingHarness {
 
     try {
       const sandbox = await prepareSandbox(this.options);
-      const tools = createSandboxTools(this.options, {
+      const resolvedSandboxOptions = {
+        ...this.options,
+        provider: sandbox.provider,
+        sandboxId: sandbox.sandboxId,
+        workDir: sandbox.workDir,
+      } satisfies SandboxSessionOptions;
+      const tools = createSandboxTools(resolvedSandboxOptions, {
         computer: this.options.computer,
       });
       const toolSelection = selectTools(tools, this.options.selectedTools);
       const instructionFiles = this.options.includeProjectInstructions === false
         ? []
-        : await loadSandboxProjectInstructions(this.options, {
+        : await loadSandboxProjectInstructions(resolvedSandboxOptions, {
             cwd: sandbox.workDir,
             projectRoot: sandbox.workDir,
             filenames: this.options.projectInstructionFilenames,

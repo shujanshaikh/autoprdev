@@ -33,6 +33,7 @@ const sandboxEnvironmentVariableValidator = v.object({
   envName: v.string(),
   updatedAt: v.number(),
 });
+const SANDBOX_ENVIRONMENT_LOCK_MS = 10 * 60_000;
 type SandboxStatus = "creating" | "ready" | "failed";
 
 function projectRecency(project: { lastOpenedAt?: number; updatedAt: number; createdAt: number }) {
@@ -614,6 +615,77 @@ export const getSandboxEnvironmentInternal = internalQuery({
   },
 });
 
+export const acquireSandboxEnvironmentUpdateInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    operationId: v.string(),
+  },
+  returns: v.object({
+    sandboxId: v.string(),
+    sandboxProvider: sandboxProviderValidator,
+    repoFullName: v.string(),
+    sandboxSecrets: v.array(sandboxSecretValidator),
+    sandboxEnvironmentVariables: v.array(sandboxEnvironmentVariableValidator),
+  }),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (project.sandboxStatus !== "ready" || !project.sandboxId) {
+      throw new ConvexError({ code: "PROJECT_SANDBOX_NOT_READY" });
+    }
+
+    const now = Date.now();
+    const lock = project.sandboxEnvironmentUpdateLock;
+    if (lock && lock.operationId !== args.operationId && lock.expiresAt > now) {
+      throw new ConvexError({
+        code: "SANDBOX_ENVIRONMENT_UPDATE_IN_PROGRESS",
+        message: "Another sandbox environment update is still in progress.",
+      });
+    }
+    await ctx.db.patch(project._id, {
+      sandboxEnvironmentUpdateLock: {
+        operationId: args.operationId,
+        expiresAt: now + SANDBOX_ENVIRONMENT_LOCK_MS,
+      },
+    });
+    return {
+      sandboxId: project.sandboxId,
+      sandboxProvider: resolvedSandboxProvider(project.sandboxProvider),
+      repoFullName: project.repoFullName,
+      sandboxSecrets: project.sandboxSecrets ?? [],
+      sandboxEnvironmentVariables: project.sandboxEnvironmentVariables ?? [],
+    };
+  },
+});
+
+export const releaseSandboxEnvironmentUpdateInternal = internalMutation({
+  args: {
+    authorId: v.string(),
+    projectId: v.string(),
+    operationId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId))
+      .unique();
+    if (!project || project.authorId !== args.authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (project.sandboxEnvironmentUpdateLock?.operationId === args.operationId) {
+      await ctx.db.patch(project._id, { sandboxEnvironmentUpdateLock: undefined });
+    }
+    return null;
+  },
+});
+
 export const upsertSandboxEnvironmentVariablesInternal = internalMutation({
   args: {
     authorId: v.string(),
@@ -653,6 +725,7 @@ export const upsertSandboxSecretsInternal = internalMutation({
   args: {
     authorId: v.string(),
     projectId: v.string(),
+    operationId: v.string(),
     secrets: v.array(sandboxSecretValidator),
   },
   returns: v.null(),
@@ -663,6 +736,9 @@ export const upsertSandboxSecretsInternal = internalMutation({
       .unique();
     if (!project || project.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (project.sandboxEnvironmentUpdateLock?.operationId !== args.operationId) {
+      throw new ConvexError({ code: "SANDBOX_ENVIRONMENT_UPDATE_LOCK_LOST" });
     }
     const updatedNames = new Set(args.secrets.map((secret) => secret.envName));
     const sandboxSecrets = (project.sandboxSecrets ?? []).filter(
@@ -686,6 +762,7 @@ export const removeSandboxEnvironmentVariableInternal = internalMutation({
     authorId: v.string(),
     projectId: v.string(),
     envName: v.string(),
+    operationId: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -696,6 +773,12 @@ export const removeSandboxEnvironmentVariableInternal = internalMutation({
 
     if (!project || project.authorId !== args.authorId) {
       throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+    if (
+      resolvedSandboxProvider(project.sandboxProvider) === "e2b"
+      && project.sandboxEnvironmentUpdateLock?.operationId !== args.operationId
+    ) {
+      throw new ConvexError({ code: "SANDBOX_ENVIRONMENT_UPDATE_LOCK_LOST" });
     }
 
     await ctx.db.patch(project._id, {

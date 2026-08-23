@@ -146,14 +146,12 @@ function recordingDashboardVideoUrl(baseUrl: string, fileName: string) {
   return url.toString();
 }
 
-async function readLimitedBlob(response: Response) {
-  const declaredSize = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredSize) && declaredSize > MAX_RECORDING_BYTES) {
+async function readLimitedStream(stream: ReadableStream<Uint8Array>, declaredSize?: number) {
+  if (declaredSize !== undefined && Number.isFinite(declaredSize) && declaredSize > MAX_RECORDING_BYTES) {
     throw new Error("Recording exceeds the maximum upload size.");
   }
-  if (!response.body) throw new Error("Daytona recording response did not include a body.");
 
-  const reader = response.body.getReader();
+  const reader = stream.getReader();
   const chunks: ArrayBuffer[] = [];
   let sizeBytes = 0;
 
@@ -175,6 +173,12 @@ async function readLimitedBlob(response: Response) {
   }
 
   return { blob: new Blob(chunks, { type: "video/mp4" }), sizeBytes };
+}
+
+async function readLimitedBlob(response: Response) {
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (!response.body) throw new Error("Daytona recording response did not include a body.");
+  return await readLimitedStream(response.body, declaredSize);
 }
 
 async function fetchRecordingSource(sourceUrl: string) {
@@ -206,19 +210,14 @@ async function fetchRecordingSource(sourceUrl: string) {
 }
 
 async function readE2BRecordingSource(sandbox: E2BSandbox, recordingId: string) {
-  const bytes = await sandbox.files.read(
-    `${E2B_RECORDINGS_DIR}/${assertE2BRecordingId(recordingId)}.mp4`,
-    { format: "bytes" },
-  );
-  if (bytes.byteLength > MAX_RECORDING_BYTES) {
-    throw new Error("Recording exceeds the maximum upload size.");
-  }
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return {
-    blob: new Blob([copy.buffer], { type: "video/mp4" }),
-    sizeBytes: copy.byteLength,
-  };
+  const path = `${E2B_RECORDINGS_DIR}/${assertE2BRecordingId(recordingId)}.mp4`;
+  const info = await sandbox.files.getInfo(path);
+  if (info.size > MAX_RECORDING_BYTES) throw new Error("Recording exceeds the maximum upload size.");
+  const stream = await sandbox.files.read(path, {
+    format: "stream",
+    streamIdleTimeoutMs: RECORDING_SOURCE_FETCH_TIMEOUT_MS,
+  });
+  return await readLimitedStream(stream, info.size);
 }
 
 export const ensureUploaded = action({

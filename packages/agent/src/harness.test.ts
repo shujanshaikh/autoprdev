@@ -83,6 +83,28 @@ describe("CodingHarness", () => {
     expect(Object.keys(context.tools)).toEqual(["read", "process"]);
   });
 
+  it("constructs tools with the provider resolved during sandbox preparation", async () => {
+    mocks.prepareSandbox.mockResolvedValueOnce({
+      provider: "e2b",
+      sandboxId: "e2b-sandbox-1",
+      sandboxName: "autopr-e2b-test",
+      snapshot: "autopr-cua-e2b",
+      workDir: "/home/daytona/repo",
+    });
+    const harness = new CodingHarness({ cacheKey: "environment-provider" });
+
+    await harness.prepare();
+
+    expect(mocks.createSandboxTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "e2b",
+        sandboxId: "e2b-sandbox-1",
+        workDir: "/home/daytona/repo",
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("returns to idle after preparation failure and can retry", async () => {
     const failure = new Error("sandbox unavailable");
     mocks.prepareSandbox.mockRejectedValueOnce(failure);

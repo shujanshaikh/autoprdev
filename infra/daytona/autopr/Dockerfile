@@ -170,9 +170,17 @@ RUN set -euxo pipefail \
 
 RUN mkdir -p "$AUTOPR_FFF_HOME" "$AUTOPR_FFF_BIN" /home/daytona/.cache/autopr/fff /opt/autopr/terminal /opt/autopr/cua-gateway
 
+RUN set -euxo pipefail \
+    && node --version \
+    && npm --version \
+    && cd "$AUTOPR_FFF_HOME" \
+    && npm init -y >/dev/null \
+    && npm install --omit=dev --no-audit --no-fund --loglevel=info "@ff-labs/fff-node@${FFF_NODE_VERSION}" \
+    && node --input-type=module -e 'import { accessSync } from "node:fs"; import { FileFinder, findBinary } from "@ff-labs/fff-node"; if (typeof FileFinder !== "function") throw new Error("FFF FileFinder export is unavailable"); accessSync(findBinary())'
+
 COPY . /opt/autopr/source/
 
-RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.sh && nvm use default >/dev/null; fi \
+RUN set -euxo pipefail \
     && install -m 0644 /opt/autopr/source/fff-cli.mjs /opt/autopr/fff/cli.mjs \
     && install -m 0755 /opt/autopr/source/autopr-fff /opt/autopr/bin/autopr-fff \
     && install -m 0644 /opt/autopr/source/cua_gateway.py /opt/autopr/cua-gateway/cua_gateway.py \
@@ -184,11 +192,6 @@ RUN if [ -f /usr/local/share/nvm/nvm.sh ]; then source /usr/local/share/nvm/nvm.
     && install -m 0644 /opt/autopr/source/tmux.conf /opt/autopr/terminal/tmux.conf \
     && rm -rf /opt/autopr/desktop \
     && cp -R /opt/autopr/source/desktop /opt/autopr/desktop \
-    && node --version \
-    && npm --version \
-    && cd "$AUTOPR_FFF_HOME" \
-    && npm init -y >/dev/null \
-    && npm install --omit=dev --no-audit --no-fund "@ff-labs/fff-node@${FFF_NODE_VERSION}" \
     && chmod +x /opt/autopr/bin/autopr-fff /opt/autopr/bin/autopr-cua-gateway \
     && chmod +x /opt/autopr/desktop/autopr-desktop-session \
     && chmod +x /opt/autopr/desktop/startxfce4-autopr \

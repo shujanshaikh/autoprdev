@@ -6,7 +6,7 @@ import { APICallError } from "ai";
 import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
-import { findDemoRecordingMetadataInParts, toUIMessage } from "#/lib/chat-messages";
+import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
 import { pullProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
 import { generateThreadTitle } from "#/lib/generated-git-metadata";
 import {
@@ -32,7 +32,6 @@ import {
   persistedThreadWorkspace,
   resolveThreadWorkspaceCoordinates,
 } from "#/lib/thread-workspace-server";
-import { firstUserMessageForTitle } from "#/lib/thread-title-generation";
 
 const postRequestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -373,8 +372,8 @@ async function POST(
       const regenerating = parsed.data.action === "regenerate_title";
       let message: string | undefined;
       if (parsed.data.action === "regenerate_title") {
-        const userMessages = await convexQuery(api.messages.listUserMessagesForTitle, { threadId });
-        message = firstUserMessageForTitle(userMessages.map(toUIMessage));
+        message = await convexQuery(api.messages.getFirstUserMessageForTitle, { threadId })
+          ?? undefined;
       } else {
         message = parsed.data.message;
       }

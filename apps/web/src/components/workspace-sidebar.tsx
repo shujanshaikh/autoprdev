@@ -662,7 +662,9 @@ export function WorkspaceSidebar({
     try {
       await setSnoozedUntil({ threadId: thread.threadId, snoozedUntil: until });
       if (thread.threadId === activeThreadId) {
-        const next = visibleThreads.find((candidate) => candidate.threadId !== thread.threadId);
+        const next = [...pinned, ...active].find(
+          (candidate) => candidate.threadId !== thread.threadId,
+        );
         if (next) {
           activateThread(next);
         } else {

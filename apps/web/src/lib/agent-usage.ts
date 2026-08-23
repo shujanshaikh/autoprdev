@@ -24,7 +24,7 @@ export interface AssistantUsageMetadata {
   };
 }
 
-type UsageStep = {
+export type AssistantUsageStep = {
   usage: Omit<Partial<AssistantTokenUsageMetadata>, "cost"> & {
     inputTokenDetails?: {
       cacheReadTokens?: number;
@@ -44,7 +44,7 @@ function emptyTokenUsage(): AssistantTokenUsageMetadata {
   };
 }
 
-function tokenUsageFromStep(step: UsageStep, modelId: string): AssistantTokenUsageMetadata {
+function tokenUsageFromStep(step: AssistantUsageStep, modelId: string): AssistantTokenUsageMetadata {
   const cachedInputTokens =
     step.usage.inputTokenDetails?.cacheReadTokens ?? step.usage.cachedInputTokens ?? 0;
   const usage = {
@@ -77,16 +77,20 @@ function addTokenUsage(
 }
 
 export function createAssistantUsageMetadata(
-  steps: readonly UsageStep[],
+  steps: readonly AssistantUsageStep[],
   modelId: string,
   startedAt: number,
   completedAt = Date.now(),
+  additionalUsageSteps: readonly AssistantUsageStep[] = [],
 ): AssistantUsageMetadata {
-  const stepUsages = steps.map((step) => tokenUsageFromStep(step, modelId));
+  const stepUsages = [...steps, ...additionalUsageSteps].map((step) => tokenUsageFromStep(step, modelId));
+  const contextStep = steps.at(-1);
 
   return {
     usage: stepUsages.reduce(addTokenUsage, emptyTokenUsage()),
-    contextUsage: stepUsages.at(-1) ?? emptyTokenUsage(),
+    contextUsage: contextStep
+      ? tokenUsageFromStep(contextStep, modelId)
+      : emptyTokenUsage(),
     run: {
       startedAt,
       completedAt,

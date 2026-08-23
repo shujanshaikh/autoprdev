@@ -3,7 +3,12 @@ import {
   buildSandboxAgentSystemPrompt,
 } from "./system-prompt";
 import { loadSandboxProjectInstructions } from "./project-instructions";
-import { createDaytonaTools, type CuaComputerToolOptions, type DaytonaTools } from "./tools";
+import {
+  createDaytonaTools,
+  type CuaComputerToolOptions,
+  type DaytonaTools,
+  type SubAgentToolOptions,
+} from "./tools";
 import { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
 import type { SandboxSessionOptions } from "./sandbox";
 
@@ -44,6 +49,7 @@ export interface CodingHarnessOptions extends SandboxSessionOptions {
   projectInstructionFilenames?: string[];
   projectInstructionMaxBytes?: number;
   computer?: false | CuaComputerToolOptions;
+  subAgent?: false | SubAgentToolOptions;
   onListenerError?: CodingHarnessListenerErrorHandler;
 }
 
@@ -93,6 +99,7 @@ export class CodingHarness {
       const sandbox = await prepareDaytonaSandbox(this.options);
       const tools = createDaytonaTools(this.options, {
         computer: this.options.computer,
+        subAgent: this.options.subAgent,
       });
       const toolSelection = selectTools(tools, this.options.selectedTools);
       const instructionFiles = this.options.includeProjectInstructions === false

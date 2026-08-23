@@ -8,6 +8,7 @@ const DEFAULT_TOOL_SNIPPETS: Record<string, string> = {
   write: "Create or overwrite files with complete content",
   bash: "Execute shell commands inside the Daytona sandbox",
   process: "Poll, interact with, and terminate background shell commands",
+  "sub-agent": "Delegate one independent, bounded task to an isolated coding agent",
   computer: "Use CUA inside the Daytona Linux desktop for browser testing, screenshots, and mouse/keyboard interaction; demo-enabled turns can also use Daytona recording actions",
 };
 
@@ -46,6 +47,11 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   process: [
     "Use process to poll logs or exit status after bash starts a background command, and terminate background sessions when they are no longer needed.",
     "Do not repeatedly poll an unchanged process. Do other useful work between polls or report that the process is still running.",
+  ],
+  "sub-agent": [
+    "Use sub-agent only for a concrete, bounded task that can run independently while you do useful non-overlapping work.",
+    "Include all necessary context in the prompt. For code changes, give each sub-agent a disjoint file scope and review its result before relying on it.",
+    "Call sub-agent multiple times in the same response when independent tasks can run in parallel. Do not duplicate delegated work locally.",
   ],
   computer: [
     "Inspect the repository and terminal state to choose the preview command, localhost URL, route, and UI path yourself.",

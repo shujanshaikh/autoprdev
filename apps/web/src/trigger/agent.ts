@@ -19,8 +19,13 @@ import {
 } from "#/lib/agent-context-compaction";
 import {
   createAssistantUsageMetadata,
+  type AssistantUsageStep,
   type AssistantUsageMetadata,
 } from "#/lib/agent-usage";
+import {
+  createAgentSubAgentRunner,
+  createSubAgentBinding,
+} from "#/lib/agent-sub-agent";
 import {
   agentRunIssueFromError,
   type AgentRunIssue,
@@ -205,9 +210,11 @@ async function runAgentTask(
     repoName: options.repoName,
   };
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
+  const subAgentBinding = createSubAgentBinding();
   const harness = new CodingHarness({
     ...sandboxOptions,
     computer: { recordingEnabled: demoRecordingEnabled },
+    subAgent: { run: subAgentBinding.run },
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
@@ -231,6 +238,7 @@ async function runAgentTask(
   let persistenceFinished = false;
   let streamFinished = false;
   const runStartedAt = Date.now();
+  const subAgentUsageSteps: AssistantUsageStep[] = [];
 
   if (options.assistantMessageId) {
     await agentUIStream.append({
@@ -240,11 +248,24 @@ async function runAgentTask(
   }
 
   try {
-    await harness.run(async ({ instructions, repositoryContext, tools }) => {
+    await harness.run(async ({ instructions, repositoryContext, sandbox, tools }) => {
       const model = wrapLanguageModel({
         model: await createAgentResponsesModel(selectedModel),
         middleware: createContextOverflowRecoveryMiddleware(),
       });
+      subAgentBinding.bind(createAgentSubAgentRunner({
+        sandboxOptions: {
+          ...sandboxOptions,
+          sandboxId: sandbox.sandboxId,
+          workDir: sandbox.workDir,
+        },
+        model,
+        selectedModel,
+        parentAbortSignal: signal,
+        onUsageStep: (step) => {
+          subAgentUsageSteps.push(step);
+        },
+      }));
       const result = streamText({
         model,
         system: agentSystemPrompt(selectedModel, instructions),
@@ -282,6 +303,7 @@ async function runAgentTask(
         selectedModel.modelId,
         runStartedAt,
         runCompletedAt,
+        subAgentUsageSteps,
       );
 
       await agentUIStream.append({

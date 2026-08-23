@@ -53,6 +53,7 @@ const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const SANDBOX_START_POLL_MS = 1_000;
 const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
 const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
+const DAYTONA_DELETE_TIMEOUT_MS = 2 * 60_000;
 const DAYTONA_RATE_LIMIT_RETRY_BASE_MS = 1_000;
 const DAYTONA_RATE_LIMIT_RETRY_MAX_MS = 10_000;
 const SANDBOX_STARTED_CACHE_MS = 5_000;
@@ -280,10 +281,40 @@ function validateSandboxEnvironmentInput(envName: string, value: string) {
 }
 
 async function deleteDaytonaSandbox(sandboxId: string) {
-  const daytona = createDaytonaClient();
-  const sandbox = await daytona.get(sandboxId);
+  const pendingStart = sandboxStartPromises.get(sandboxId);
+  if (pendingStart) await pendingStart.catch(() => undefined);
+  recentlyStartedSandboxes.delete(sandboxId);
 
-  await daytona.delete(sandbox);
+  const daytona = createDaytonaClient();
+  const deadline = Date.now() + DAYTONA_DELETE_TIMEOUT_MS;
+  let lastError: unknown;
+  let rateLimitAttempt = 0;
+
+  while (Date.now() <= deadline) {
+    try {
+      const sandbox = await daytona.get(sandboxId);
+      await daytona.delete(sandbox);
+      return;
+    } catch (error) {
+      if (isSandboxNotFoundError(error)) return;
+      lastError = error;
+
+      if (isSandboxStateChangeInProgressError(error)) {
+        await sleep(DAYTONA_OPERATION_READY_POLL_MS);
+        continue;
+      }
+      if (isDaytonaRateLimitError(error) && Date.now() < deadline) {
+        await sleep(daytonaRateLimitRetryDelay(rateLimitAttempt));
+        rateLimitAttempt += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Sandbox deletion did not become available before the timeout.");
 }
 
 function sleep(ms: number): Promise<void> {

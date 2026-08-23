@@ -118,7 +118,11 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
 
   constructor(private readonly options: TriggerChatTransportOptions<UI_MESSAGE>) {
     this.fetch = options.fetch ?? fetch.bind(globalThis);
-    this.maxConsecutiveErrors = Math.max(1, Math.floor(options.maxConsecutiveErrors ?? 3));
+    // A durable run settles through the stream route, so connection failures must
+    // not turn into a false run failure while Trigger.dev is still executing it.
+    this.maxConsecutiveErrors = options.maxConsecutiveErrors === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(1, Math.floor(options.maxConsecutiveErrors));
     this.reconnectDelayInMs = Math.max(0, options.reconnectDelayInMs ?? 250);
   }
 
@@ -268,7 +272,9 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
         }
 
         consecutiveErrors += 1;
-        console.error("Failed to read Trigger.dev agent stream", error);
+        if (consecutiveErrors === 1 || consecutiveErrors % 5 === 0) {
+          console.error("Failed to read Trigger.dev agent stream", error);
+        }
         if (consecutiveErrors >= this.maxConsecutiveErrors) {
           throw new Error(
             `Failed to reconnect after ${this.maxConsecutiveErrors} consecutive errors. Last error: ${errorMessage(error)}`,

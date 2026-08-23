@@ -9,7 +9,10 @@ import { CheckCheck, Columns2, FileDiff, GitBranch, GitPullRequest, KeyRound, Li
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
-import { DESKTOP_PREVIEW_HEARTBEAT_MS } from "./daytona-desktop-connection";
+import {
+  DESKTOP_PREVIEW_HEARTBEAT_MS,
+  requestDesktopPreviewWithRetry,
+} from "./daytona-desktop-connection";
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import { DaytonaEnvironmentView } from "./daytona-environment-view";
 import { DaytonaTerminalView } from "./daytona-terminal-view";
@@ -408,7 +411,9 @@ export function ThreadDiffPanel({
 
       try {
         if (force) desktopRecoveryCountRef.current += 1;
-        const data = await getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId });
+        const data = await requestDesktopPreviewWithRetry(() =>
+          getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId })
+        );
         setDesktopWebsocketUrl(data.websocketUrl);
         setDesktopConnectionRevision((current) => current + 1);
         setDesktopRuntimeStatus("started");

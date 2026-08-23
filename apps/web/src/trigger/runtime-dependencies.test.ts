@@ -54,4 +54,13 @@ describe("Trigger runtime dependencies", () => {
       'forceTransport: "fetch"',
     );
   });
+
+  it("pins task execution away from the Node 24 native crypto crash", () => {
+    const config = readFileSync(
+      path.join(process.cwd(), "trigger.config.ts"),
+      "utf8",
+    );
+
+    expect(config).toContain('runtime: "node-22"');
+  });
 });

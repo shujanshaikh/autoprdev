@@ -13,7 +13,10 @@ import {
 } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
-import { DESKTOP_PREVIEW_HEARTBEAT_MS } from "./daytona-desktop-connection";
+import {
+  DESKTOP_PREVIEW_HEARTBEAT_MS,
+  requestDesktopPreviewWithRetry,
+} from "./daytona-desktop-connection";
 
 type PreviewPosition = { x: number; y: number };
 type DesktopPreviewConnection = {
@@ -119,7 +122,9 @@ export function ThreadComputerPreview({
     setPreviewError(undefined);
     const connectionAtRequest = currentConnection;
     if (force) streamRecoveryCountRef.current += 1;
-    const pending = getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId })
+    const pending = requestDesktopPreviewWithRetry(() =>
+      getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId })
+    )
       .then((preview) => {
         if (loadingRequestRef.current?.promise !== pending) {
           return;

@@ -987,10 +987,6 @@ function ThreadChatRuntime({
     fetch: sessionFetch,
     onEvent: handleSessionTransportEvent,
   });
-  const repairedSessionTransport = useMemo(
-    () => new UIMessageStreamProtocolTransport<UIMessage>(sessionTransport),
-    [sessionTransport],
-  );
   const [sessionReconnectTick, setSessionReconnectTick] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
@@ -1061,9 +1057,13 @@ function ThreadChatRuntime({
       selectedReasoningEffort,
     ],
   );
-  // Trigger owns reconnect/cursor state; this wrapper only repairs malformed
-  // text boundaries inside each logical stream.
-  const transport = usingSessionTransport ? repairedSessionTransport : legacyTransport;
+  // Both Trigger transports can resume at a durable chunk boundary. Normalize
+  // text-part lifecycles before AI SDK consumes either stream.
+  const selectedTransport = usingSessionTransport ? sessionTransport : legacyTransport;
+  const transport = useMemo(
+    () => new UIMessageStreamProtocolTransport<UIMessage>(selectedTransport),
+    [selectedTransport],
+  );
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,

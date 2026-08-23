@@ -245,10 +245,10 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     this.sessions = this.sessionCache.sessions;
   }
 
-  async start(): Promise<void> {
+  async start(timeout?: number): Promise<void> {
     this.sdk = await E2BSdkSandbox.connect(this.id, {
       timeoutMs: E2B_TIMEOUT_MS,
-      requestTimeoutMs: E2B_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs: timeout === undefined ? E2B_REQUEST_TIMEOUT_MS : timeout * 1_000,
     });
     this.state = "started";
   }

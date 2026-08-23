@@ -129,6 +129,21 @@ describe("E2B sandbox adapter", () => {
     expect(sdk.setTimeout).toHaveBeenCalledWith(7_200_000);
   });
 
+  it("applies the caller deadline when resuming an E2B sandbox", async () => {
+    const sdk = sdkSandbox("paused-e2b");
+    const resumed = sdkSandbox("paused-e2b");
+    mocks.connect.mockResolvedValueOnce(resumed);
+    const sandbox = new E2BSandboxAdapter(sdk as never, { state: "paused" });
+
+    await sandbox.start(45);
+
+    expect(mocks.connect).toHaveBeenCalledWith("paused-e2b", {
+      timeoutMs: 900_000,
+      requestTimeoutMs: 45_000,
+    });
+    expect(sandbox.state).toBe("started");
+  });
+
   it("groups recording startup before writing the ffmpeg pid", async () => {
     const sdk = sdkSandbox();
     const sandbox = new E2BSandboxAdapter(sdk as never);

@@ -25,9 +25,9 @@
   },
   "devDependencies": {
     "@autopr/config": "workspace:*",
-    "@oxlint/plugins": "1.78.0",
+    "@oxlint/plugins": "1.79.0",
     "@types/node": "^20",
-    "oxlint": "1.78.0",
+    "oxlint": "1.79.0",
     "tsx": "4.23.12",
     "turbo": "^2.8.12",
     "typescript": "catalog:"

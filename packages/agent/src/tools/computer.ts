@@ -1,34 +1,45 @@
-import { hasBooleanType, hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { hasNumberType, hasStringType, hasUndefinedType } from "@autopr/config/runtime-type";
 import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
 
 import { tool } from "ai";
 import type { ComputerUse } from "@daytona/sdk";
 import { z } from "zod";
+import { ensureComputerUseReady } from "@autopr/config/computer-use-lifecycle";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import {
-  CuaComputerClient,
   type CuaAgentCursorStatus,
   type CuaCommandResponse,
+  type CuaComputerClientContract,
   type CuaComputerOptions,
 } from "./cua-client";
+import {
+  captureCuaObservation,
+  observationPointToScreen,
+  screenshotForModel,
+  type CuaObservation,
+  type ScreenshotRequest,
+} from "./computer-observation";
+import {
+  getCuaToolSession,
+  nextObservationSequence,
+  recordTrajectory,
+  type CuaToolSession,
+  type CuaTrajectoryEvent,
+} from "./computer-session";
 import { raceWithTimeout } from "./timeout";
 
 export const COMPUTER_METADATA_PREFIX = "AUTOPR_COMPUTER_METADATA ";
 
-const COMPUTER_READY_TIMEOUT_MS = 30_000;
-const COMPUTER_READY_POLL_MS = 1_000;
-const COMPUTER_RECOVERY_DELAY_MS = 1_000;
 const MAX_COMPUTER_DIAGNOSTIC_LENGTH = 400;
-const DEFAULT_SCREENSHOT_FORMAT = "jpeg";
-const DEFAULT_SCREENSHOT_QUALITY = 85;
 const MAX_COMPUTER_METADATA_CHARS = 8_000;
 const MAX_RECORDINGS_RETURNED = 25;
+const MAX_TRAJECTORY_RETURNED = 10;
 const COMPUTER_ACTION_TIMEOUT_MS = 120_000;
 const COMPUTER_START_TIMEOUT_MS = 8 * 60_000;
-const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 const computerOperationTails = new WeakMap<object, Promise<void>>();
 
+type ComputerUseLifecycle = ComputerUse;
 type TrackComputerOperation = (operation: Promise<unknown>) => void;
 
 async function serializeComputerOperations<T>(
@@ -47,9 +58,7 @@ async function serializeComputerOperations<T>(
     .then(() => undefined, () => undefined);
   computerOperationTails.set(computerUse, tail);
   void tail.finally(() => {
-    if (computerOperationTails.get(computerUse) === tail) {
-      computerOperationTails.delete(computerUse);
-    }
+    if (computerOperationTails.get(computerUse) === tail) computerOperationTails.delete(computerUse);
   });
   return execution;
 }
@@ -62,16 +71,20 @@ function runBoundedComputerOperation<T>(
 ): Promise<T> {
   const pending = Promise.resolve().then(operation);
   track(pending);
-  return raceWithTimeout(
-    () => pending,
-    timeoutMs,
-    timeoutError,
-  );
+  return raceWithTimeout(() => pending, timeoutMs, timeoutError);
 }
 
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["ctrl", "alt", "meta", "cmd", "shift"]);
-const screenCoordinateSchema = z.number().int().min(0).max(100_000);
+const screenCoordinateSchema = z.number().int().min(0).max(100_000).describe(
+  "Pixel coordinate from the observation named by observationId.",
+);
+const screenPointSchema = z.object({ x: screenCoordinateSchema, y: screenCoordinateSchema });
+const observationIdSchema = z.string().min(8).max(128).describe(
+  "Exact observation ID from the latest returned screenshot.",
+);
+const scrollDirectionSchema = z.enum(["up", "down", "left", "right"]);
+const windowIdSchema = z.union([z.string().min(1).max(256), z.number().int()]);
 const browserUrlSchema = z.string().min(1).max(4_096).refine((value) => {
   try {
     const protocol = new URL(value).protocol;
@@ -80,224 +93,115 @@ const browserUrlSchema = z.string().min(1).max(4_096).refine((value) => {
     return false;
   }
 }, "URL must be an absolute http:// or https:// URL.");
-
-const screenshotOptionsSchema = {
-  format: z.enum(["jpeg", "png"]).optional().describe("CUA screenshot format."),
-  quality: z.number().int().min(1).max(95).optional().describe("JPEG compression quality."),
-};
-
-const legacyActionNameSchema = z.enum([
-  "start",
-  "status",
-  "display",
-  "windows",
-  "open_url",
-  "screenshot",
-  "wait",
-  "move",
-  "move_mouse",
-  "mouse_move",
-  "click",
-  "double_click",
-  "drag",
-  "scroll",
-  "type",
-  "type_text",
-  "keypress",
-  "press_key",
-  "hotkey",
-  "start_recording",
-  "stop_recording",
-  "get_recording",
-  "list_recordings",
-]);
+const screenshotRegionSchema = z.object({
+  x: screenCoordinateSchema,
+  y: screenCoordinateSchema,
+  width: z.number().int().min(1).max(100_000),
+  height: z.number().int().min(1).max(100_000),
+});
 
 const computerActionSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("start") }),
+  z.object({ type: z.literal("status") }),
+  z.object({ type: z.literal("display") }),
+  z.object({ type: z.literal("windows"), app: z.string().trim().min(1).max(256).optional() }),
+  z.object({ type: z.literal("focus_window"), windowId: windowIdSchema }),
+  z.object({ type: z.literal("maximize_window"), windowId: windowIdSchema }),
+  z.object({ type: z.literal("open_url"), url: browserUrlSchema }),
   z.object({
-    type: z.literal("start").describe("Start the Daytona desktop and CUA computer-server."),
+    type: z.literal("screenshot"),
+    format: z.enum(["jpeg", "png"]).optional(),
+    quality: z.number().int().min(1).max(95).optional(),
+    region: screenshotRegionSchema.optional().describe("Crop in full CUA screenshot coordinates."),
+    windowId: windowIdSchema.optional().describe("Crop to this CUA window and keep that zoom for later actions."),
   }),
+  z.object({ type: z.literal("wait"), ms: z.number().int().min(100).max(10_000).optional() }),
   z.object({
-    type: z.literal("status").describe("Read CUA and Daytona desktop service status."),
-  }),
-  z.object({
-    type: z.literal("display").describe("Read display information."),
-  }),
-  z.object({
-    type: z.literal("windows").describe("Inspect the active desktop window through CUA."),
-  }),
-  z.object({
-    type: z.literal("open_url").describe("Open a URL in the sandbox desktop browser."),
-    url: browserUrlSchema.describe("Absolute HTTP(S) URL to open, usually a localhost preview chosen after inspecting the app."),
-  }),
-  z.object({
-    type: z.literal("screenshot").describe("Capture the current desktop state."),
-    ...screenshotOptionsSchema,
-  }),
-  z.object({
-    type: z.literal("wait").describe("Wait for loading, navigation, animation, or recording to settle."),
-    ms: z.number().int().min(100).max(10_000).optional(),
-  }),
-  z.object({
-    type: z.literal("move").describe("Move the mouse cursor to absolute screen coordinates."),
+    type: z.literal("move"),
+    observationId: observationIdSchema,
     x: screenCoordinateSchema,
     y: screenCoordinateSchema,
   }),
   z.object({
-    type: z.literal("click").describe("Click absolute screen coordinates."),
+    type: z.literal("click"),
+    observationId: observationIdSchema,
     x: screenCoordinateSchema,
     y: screenCoordinateSchema,
     button: mouseButtonSchema.optional(),
   }),
   z.object({
-    type: z.literal("double_click").describe("Double-click absolute screen coordinates."),
+    type: z.literal("double_click"),
+    observationId: observationIdSchema,
     x: screenCoordinateSchema,
     y: screenCoordinateSchema,
     button: mouseButtonSchema.optional(),
   }),
   z.object({
-    type: z.literal("drag").describe("Drag from one absolute screen coordinate to another."),
-    startX: screenCoordinateSchema,
-    startY: screenCoordinateSchema,
-    endX: screenCoordinateSchema,
-    endY: screenCoordinateSchema,
+    type: z.literal("drag"),
+    observationId: observationIdSchema,
+    path: z.array(screenPointSchema).min(2).max(200),
     button: mouseButtonSchema.optional(),
+    durationMs: z.number().int().min(0).max(10_000).optional(),
   }),
   z.object({
-    type: z.literal("scroll").describe("Scroll at absolute screen coordinates."),
+    type: z.literal("scroll"),
+    observationId: observationIdSchema,
     x: screenCoordinateSchema,
     y: screenCoordinateSchema,
-    direction: z.enum(["up", "down"]),
-    amount: z.number().int().min(1).max(20).optional(),
+    direction: scrollDirectionSchema,
+    amount: z.number().int().min(1).max(50).optional(),
   }),
+  z.object({ type: z.literal("type"), text: z.string().min(1).max(64 * 1024) }),
   z.object({
-    type: z.literal("type").describe("Type text into the focused desktop app."),
-    text: z.string().min(1).max(64 * 1024),
-    delayMs: z.number().int().min(0).max(1000).optional(),
-  }),
-  z.object({
-    type: z.literal("keypress").describe("Press one key with optional modifiers."),
+    type: z.literal("keypress"),
     key: z.string().min(1).max(128),
     modifiers: z.array(modifierSchema).max(8).optional(),
   }),
+  z.object({ type: z.literal("hotkey"), keys: z.string().min(1).max(256) }),
+  z.object({ type: z.literal("clipboard_read") }),
+  z.object({ type: z.literal("clipboard_write"), text: z.string().max(256 * 1024) }),
+  z.object({ type: z.literal("start_recording"), title: z.string().trim().min(3).max(120) }),
   z.object({
-    type: z.literal("hotkey").describe("Press a single atomic hotkey chord such as ctrl+l or alt+tab."),
-    keys: z.string().min(1).max(256),
-  }),
-  z.object({
-    type: z.literal("start_recording").describe("Start a desktop recording."),
-    title: z.string().trim().min(3).max(120).describe("Required concise title for the recording, shown above the embedded playback UI."),
-  }),
-  z.object({
-    type: z.literal("stop_recording").describe("Stop a desktop recording by ID."),
+    type: z.literal("stop_recording"),
     recordingId: z.string().min(1).max(256),
-    title: z.string().trim().min(3).max(120).describe("Required concise title for the completed recording, shown above the embedded playback UI."),
+    title: z.string().trim().min(3).max(120),
   }),
-  z.object({
-    type: z.literal("get_recording").describe("Get metadata for one desktop recording."),
-    recordingId: z.string().min(1).max(256),
-  }),
-  z.object({
-    type: z.literal("list_recordings").describe("List desktop recordings."),
-  }),
+  z.object({ type: z.literal("get_recording"), recordingId: z.string().min(1).max(256) }),
+  z.object({ type: z.literal("list_recordings") }),
 ]);
-
-const legacyActionSchema = z.object({
-  action: legacyActionNameSchema.optional().describe("Legacy single-action input. Prefer actions[].type for new calls."),
-  type: legacyActionNameSchema
-    .optional()
-    .describe("Legacy alias for action. Prefer actions[].type with canonical action names for new calls."),
-  url: browserUrlSchema.optional(),
-  ...screenshotOptionsSchema,
-  x: screenCoordinateSchema.optional(),
-  y: screenCoordinateSchema.optional(),
-  button: mouseButtonSchema.optional(),
-  double: z.boolean().optional(),
-  startX: screenCoordinateSchema.optional(),
-  startY: screenCoordinateSchema.optional(),
-  endX: screenCoordinateSchema.optional(),
-  endY: screenCoordinateSchema.optional(),
-  direction: z.enum(["up", "down"]).optional(),
-  amount: z.number().int().min(1).max(20).optional(),
-  ms: z.number().int().min(100).max(10_000).optional(),
-  text: z.string().max(64 * 1024).optional(),
-  delay: z.number().int().min(0).max(1000).optional(),
-  delayMs: z.number().int().min(0).max(1000).optional(),
-  key: z.string().min(1).max(128).optional(),
-  modifiers: z.array(modifierSchema).max(8).optional(),
-  keys: z.string().min(1).max(256).optional(),
-  label: z.string().max(120).optional(),
-  title: z.string().max(120).optional(),
-  recordingId: z.string().min(1).max(256).optional(),
-});
-
-function legacyActionToCanonical(input: z.infer<typeof legacyActionSchema>, ctx: z.RefinementCtx): ComputerAction {
-  const legacy = legacyToAction(input);
-  const parsed = computerActionSchema.safeParse(legacy);
-  if (parsed.success) {
-    return parsed.data;
-  }
-
-  ctx.addIssue({ code: "custom", message: parsed.error.message });
-  return z.NEVER;
-}
-
-const computerActionInputSchema = z.union([
-  computerActionSchema,
-  legacyActionSchema.transform((input, ctx) => legacyActionToCanonical(input, ctx)),
-]);
-
-const computerInputSchema = legacyActionSchema.extend({
-  actions: z
-    .array(computerActionInputSchema)
-    .min(1)
-    .max(8)
-    .optional()
-    .describe(
-      "Preferred. Ordered desktop actions to perform before returning a fresh screenshot. Use small safe batches.",
-    ),
-}).transform((input, ctx) => {
-  if (input.actions?.length) {
-    return { actions: input.actions };
-  }
-
-  if (!input.action && !input.type) {
-    ctx.addIssue({ code: "custom", message: "Provide actions[] or a legacy action." });
-    return z.NEVER;
-  }
-
-  return { actions: [legacyActionToCanonical(input, ctx)] };
-});
 
 type ComputerAction = z.infer<typeof computerActionSchema>;
-type ComputerInput = z.infer<typeof computerInputSchema>;
 
-export type CuaComputerToolOptions = CuaComputerOptions;
+export interface CuaComputerToolOptions extends CuaComputerOptions {
+  /** Allows starting new Daytona recordings. Keep disabled outside demo-enabled turns. */
+  recordingEnabled?: boolean;
+}
+
+export interface CuaComputerDependencies {
+  getSandboxContext: typeof getSandboxContext;
+  getSession: typeof getCuaToolSession;
+}
+
+const defaultDependencies: CuaComputerDependencies = {
+  getSandboxContext,
+  getSession: getCuaToolSession,
+};
 
 type DaytonaRecording = {
-  id?: unknown;
-  title?: unknown;
-  label?: unknown;
-  name?: unknown;
-  fileName?: unknown;
-  filePath?: unknown;
-  status?: unknown;
-  startTime?: unknown;
-  endTime?: unknown;
-  durationSeconds?: unknown;
-  sizeBytes?: unknown;
+  id?: JsonValue;
+  title?: JsonValue;
+  label?: JsonValue;
+  name?: JsonValue;
+  fileName?: JsonValue;
+  filePath?: JsonValue;
+  status?: JsonValue;
+  startTime?: JsonValue;
+  endTime?: JsonValue;
+  durationSeconds?: JsonValue;
+  sizeBytes?: JsonValue;
 };
 
-type ScreenshotForModel = {
-  data: string;
-  mimeType: string;
-  sizeBytes?: number;
-  cursorPosition?: unknown;
-  width?: number;
-  height?: number;
-  format: string;
-  quality: number;
-};
-
+type ScreenshotForModel = ReturnType<typeof screenshotForModel>;
 type ScreenshotMetadata = Omit<ScreenshotForModel, "data"> & {
   data?: string;
   payloadLength?: number;
@@ -305,92 +209,47 @@ type ScreenshotMetadata = Omit<ScreenshotForModel, "data"> & {
 };
 
 type ComputerOutputDetails = {
-  action?: string;
-  actions?: string[];
+  action: string;
   display?: { x?: number; y?: number; width?: number; height?: number };
-  status?: unknown;
+  status?: JsonValue;
   cursor?: CuaAgentCursorStatus;
-  windows?: unknown;
+  windows?: JsonValue;
+  clipboard?: string;
   command?: JsonObject;
   screenshot?: ScreenshotForModel | ScreenshotMetadata;
   recording?: ReturnType<typeof compactRecording>;
   recordings?: Array<ReturnType<typeof compactRecording>>;
   recordingsTruncated?: boolean;
-};
-
-type ComputerUseProcessName = (typeof COMPUTER_USE_PROCESS_NAMES)[number];
-
-type ComputerUseDiagnostics = {
-  processName: ComputerUseProcessName;
-  status?: string;
-  running?: boolean;
-  errors?: string;
-  logs?: string;
-  diagnosticError?: string;
+  trajectory?: CuaTrajectoryEvent;
+  recentTrajectory?: CuaTrajectoryEvent[];
 };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function statusValue<ValueValue>(value: ValueValue): string | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const status = value.status;
-  return hasStringType(status) ? status.toLowerCase() : undefined;
+function isRecord<Value>(value: Value): value is Value & JsonObject {
+  return isJsonObject(value);
 }
 
-async function waitForComputerReady(computerUse: Pick<ComputerUse, "getStatus">) {
-  const deadline = Date.now() + COMPUTER_READY_TIMEOUT_MS;
-  let lastStatus: string | undefined;
-
-  while (Date.now() < deadline) {
-    lastStatus = statusValue(await computerUse.getStatus());
-    if (lastStatus === "active") {
-      return;
-    }
-    await sleep(COMPUTER_READY_POLL_MS);
-  }
-
-  throw new Error(`Daytona desktop was not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
+function numberField(value: JsonObject, key: string): number | undefined {
+  const field = value[key];
+  return hasNumberType(field) ? field : undefined;
 }
 
-type ComputerUseLifecycle = ComputerUse;
-type ComputerClient = Pick<CuaComputerClient, "command" | "ensureReady" | "inspect">;
-
-export interface CuaComputerDependencies {
-  getSandboxContext: typeof getSandboxContext;
-  createClient: (
-    sandbox: ConstructorParameters<typeof CuaComputerClient>[0],
-    sandboxOptions: SandboxSessionOptions,
-    options: CuaComputerToolOptions,
-  ) => ComputerClient;
-}
-
-const defaultDependencies: CuaComputerDependencies = {
-  getSandboxContext,
-  createClient: (sandbox, sandboxOptions, options) => new CuaComputerClient(sandbox, sandboxOptions, options),
-};
-
-async function readComputerStatus(computerUse: Pick<ComputerUseLifecycle, "getStatus">): Promise<string | undefined> {
-  try {
-    return statusValue(await computerUse.getStatus());
-  } catch {
-    return undefined;
-  }
+function statusValue<Value>(value: Value): string | undefined {
+  if (!isRecord(value)) return undefined;
+  return hasStringType(value.status) ? value.status.toLowerCase() : undefined;
 }
 
 function compactDiagnostic<ValueValue>(value: ValueValue): string | undefined {
-  if (value === undefined || value === null) return undefined;
-
+  if (hasUndefinedType(value) || value === null) return undefined;
   let raw: string;
   try {
     raw = hasStringType(value) ? value : JSON.stringify(value) ?? String(value);
   } catch {
     raw = String(value);
   }
-
   const normalized = raw.trim().replace(/\s+/g, " ");
   return normalized.length > MAX_COMPUTER_DIAGNOSTIC_LENGTH
     ? `${normalized.slice(0, MAX_COMPUTER_DIAGNOSTIC_LENGTH)}...`
@@ -398,7 +257,7 @@ function compactDiagnostic<ValueValue>(value: ValueValue): string | undefined {
 }
 
 function compactMetadataValue<ValueValue>(value: ValueValue): JsonValue {
-  if (value === undefined) return undefined;
+  if (hasUndefinedType(value)) return undefined;
   if (value === null) return null;
   try {
     if (hasStringType(value)) return value;
@@ -407,219 +266,39 @@ function compactMetadataValue<ValueValue>(value: ValueValue): JsonValue {
     if (serialized.length <= MAX_COMPUTER_METADATA_CHARS) {
       return jsonValueSchema.parse(JSON.parse(serialized));
     }
-    return {
-      truncated: true,
-      preview: `${serialized.slice(0, MAX_COMPUTER_METADATA_CHARS)}...`,
-    };
+    return { truncated: true, preview: `${serialized.slice(0, MAX_COMPUTER_METADATA_CHARS)}...` };
   } catch {
     return { truncated: true, preview: String(value).slice(0, MAX_COMPUTER_METADATA_CHARS) };
   }
 }
 
-function compactMetadataObject(value: JsonObject): JsonObject {
-  const compacted = compactMetadataValue(value);
-  return isJsonObject(compacted) ? compacted : { value: compacted };
-}
-
-function commandDetails(result: JsonObject): Pick<ComputerOutputDetails, "command"> {
-  return { command: compactMetadataObject(result) };
-}
-
-function responseField<ValueValue>(value: ValueValue, field: string): JsonValue {
-  return isRecord(value) ? value[field] : undefined;
-}
-
-function processNamesFromComputerUseError<ErrorValue>(error: ErrorValue): ComputerUseProcessName[] {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  const matched = COMPUTER_USE_PROCESS_NAMES.filter((processName) => message.includes(processName));
-  return matched.length > 0 ? matched : [...COMPUTER_USE_PROCESS_NAMES];
-}
-
-async function restartComputerUseProcesses(
-  computerUse: ComputerUseLifecycle,
-  processNames: ComputerUseProcessName[],
-  errors: unknown[],
-) {
-  if (!computerUse.restartProcess) {
-    errors.push(new Error("Daytona SDK does not expose computerUse.restartProcess."));
-    return;
-  }
-
-  for (const processName of processNames) {
-    try {
-      await computerUse.restartProcess(processName);
-    } catch (error) {
-      errors.push(new Error(`restart ${processName}: ${error instanceof Error ? error.message : String(error)}`));
-    }
-  }
-}
-
-async function collectComputerUseDiagnostics(
-  computerUse: ComputerUseLifecycle,
-  processNames: ComputerUseProcessName[],
-): Promise<ComputerUseDiagnostics[]> {
-  const diagnostics: ComputerUseDiagnostics[] = [];
-
-  for (const processName of processNames) {
-    const diagnostic: ComputerUseDiagnostics = { processName };
-
-    try {
-      const status = await computerUse.getProcessStatus?.(processName);
-      const running = responseField(status, "running");
-      const processStatus = responseField(status, "status");
-      diagnostic.running = hasBooleanType(running) ? running : undefined;
-      diagnostic.status = hasStringType(processStatus) ? processStatus : undefined;
-    } catch (error) {
-      diagnostic.diagnosticError = compactDiagnostic(`status: ${error instanceof Error ? error.message : String(error)}`);
-    }
-
-    try {
-      const errors = await computerUse.getProcessErrors?.(processName);
-      diagnostic.errors = compactDiagnostic(responseField(errors, "errors"));
-    } catch (error) {
-      diagnostic.diagnosticError = compactDiagnostic(
-        [diagnostic.diagnosticError, `errors: ${error instanceof Error ? error.message : String(error)}`].filter(Boolean).join("; "),
-      );
-    }
-
-    if (!diagnostic.errors) {
-      try {
-        const logs = await computerUse.getProcessLogs?.(processName);
-        diagnostic.logs = compactDiagnostic(responseField(logs, "logs"));
-      } catch (error) {
-        diagnostic.diagnosticError = compactDiagnostic(
-          [diagnostic.diagnosticError, `logs: ${error instanceof Error ? error.message : String(error)}`].filter(Boolean).join("; "),
-        );
-      }
-    }
-
-    diagnostics.push(diagnostic);
-  }
-
-  return diagnostics;
-}
-
-function formatComputerUseFailure(errors: unknown[], diagnostics: ComputerUseDiagnostics[]) {
-  const attempts = Array.from(
-    new Set(errors.map((error) => error instanceof Error ? error.message : String(error)).filter(Boolean)),
-  ).slice(0, 4);
-  const processDetails = diagnostics
-    .map((diagnostic) => {
-      const parts = [
-        diagnostic.processName,
-        diagnostic.running === undefined ? undefined : `running=${diagnostic.running}`,
-        diagnostic.status ? `status=${diagnostic.status}` : undefined,
-        diagnostic.errors ? `errors=${diagnostic.errors}` : undefined,
-        !diagnostic.errors && diagnostic.logs ? `logs=${diagnostic.logs}` : undefined,
-        diagnostic.diagnosticError ? `diagnostic=${diagnostic.diagnosticError}` : undefined,
-      ].filter(Boolean);
-      return parts.join(" ");
-    })
-    .join("; ");
-
-  return [
-    "Failed to start Daytona desktop after recovery.",
-    attempts.length > 0 ? `attempts: ${attempts.join(" | ")}` : undefined,
-    processDetails ? `processes: ${processDetails}` : undefined,
-  ].filter(Boolean).join(" ");
-}
-
-async function recoverComputerUse<CauseValue>(computerUse: ComputerUseLifecycle, cause: CauseValue) {
-  const errors: unknown[] = [cause];
-  const processNames = processNamesFromComputerUseError(cause);
-
-  await computerUse.stop().catch((error) => {
-    errors.push(new Error(`stop: ${error instanceof Error ? error.message : String(error)}`));
-  });
-  await sleep(COMPUTER_RECOVERY_DELAY_MS);
-
-  try {
-    await computerUse.start();
-  } catch (error) {
-    errors.push(error);
-    await restartComputerUseProcesses(computerUse, processNames, errors);
-  }
-
-  try {
-    await waitForComputerReady(computerUse);
-  } catch (error) {
-    errors.push(error);
-    const diagnostics = await collectComputerUseDiagnostics(computerUse, processNames);
-    throw new Error(formatComputerUseFailure(errors, diagnostics));
-  }
-}
-
-async function ensureComputerReady(computerUse: ComputerUseLifecycle) {
-  const currentStatus = await readComputerStatus(computerUse);
-
-  if (currentStatus === "active") {
-    return;
-  }
-
-  if (currentStatus === "partial" || currentStatus === "error") {
-    await recoverComputerUse(computerUse, new Error(`Daytona desktop status is ${currentStatus}.`));
-    return;
-  }
-
-  try {
-    await computerUse.start();
-  } catch (error) {
-    if (await readComputerStatus(computerUse) === "active") {
-      return;
-    }
-    await recoverComputerUse(computerUse, error);
-    return;
-  }
-
-  try {
-    await waitForComputerReady(computerUse);
-  } catch (error) {
-    await recoverComputerUse(computerUse, error);
-  }
-}
-
-function cleanRecordingTitle<ValueValue>(value: ValueValue): string | undefined {
-  if (!hasStringType(value)) {
-    return undefined;
-  }
-
+function cleanRecordingTitle<Value>(value: Value): string | undefined {
+  if (!hasStringType(value)) return undefined;
   const title = value.replace(/\s+/g, " ").trim();
   return title.length > 0 ? title : undefined;
 }
 
 function recordingTitleFromFileName(fileName: string | undefined): string | undefined {
-  if (!fileName) {
-    return undefined;
-  }
-
+  if (!fileName) return undefined;
   const baseName = fileName.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
   const words = baseName.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-
-  if (!words || /^[a-f0-9]{8,}$/i.test(words.replace(/\s+/g, ""))) {
-    return undefined;
-  }
-
+  if (!words || /^[a-f0-9]{8,}$/i.test(words.replace(/\s+/g, ""))) return undefined;
   return words.replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
 }
 
 function recordingTitle(recording: DaytonaRecording, fileName: string | undefined, titleHint?: string) {
-  return (
-    cleanRecordingTitle(recording.title) ??
-    cleanRecordingTitle(recording.label) ??
-    cleanRecordingTitle(recording.name) ??
-    cleanRecordingTitle(titleHint) ??
-    recordingTitleFromFileName(fileName) ??
-    "Demo Walkthrough"
-  );
+  return cleanRecordingTitle(recording.title)
+    ?? cleanRecordingTitle(recording.label)
+    ?? cleanRecordingTitle(recording.name)
+    ?? cleanRecordingTitle(titleHint)
+    ?? recordingTitleFromFileName(fileName)
+    ?? "Demo Walkthrough";
 }
 
-function compactRecording(
-  recording: DaytonaRecording,
-  titleHint?: string,
-) {
+function compactRecording<Value>(value: Value, titleHint?: string) {
+  const recording: DaytonaRecording = isRecord(value) ? value : {};
   const id = hasStringType(recording.id) ? recording.id : "";
   const fileName = hasStringType(recording.fileName) ? recording.fileName : undefined;
-
   return {
     type: "daytona_recording",
     id,
@@ -637,82 +316,46 @@ function compactRecording(
 
 function recordingSummary(recording: ReturnType<typeof compactRecording>) {
   const parts = [`Recording "${recording.title}"`];
-  if (recording.status) {
-    parts.push(recording.status);
-  }
-  if (hasNumberType(recording.durationSeconds)) {
-    parts.push(`${recording.durationSeconds.toFixed(1)}s`);
-  }
+  if (recording.status) parts.push(recording.status);
+  if (hasNumberType(recording.durationSeconds)) parts.push(`${recording.durationSeconds.toFixed(1)}s`);
   return parts.join(" - ");
 }
 
-function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
-  return isJsonObject(value);
-}
-
-function numberField(value: JsonObject, key: string): number | undefined {
-  return hasNumberType(value[key]) ? value[key] : undefined;
-}
-
-function parseImageData(raw: string | undefined, fallbackMimeType = "image/png") {
-  if (!raw) {
-    throw new Error("CUA did not return screenshot data.");
+function coordinatePoints(action: ComputerAction): Array<{ x: number; y: number }> {
+  switch (action.type) {
+    case "move":
+    case "click":
+    case "double_click":
+    case "scroll":
+      return [{ x: action.x, y: action.y }];
+    case "drag":
+      return action.path;
+    default:
+      return [];
   }
+}
 
-  const dataUrlMatch = raw.match(/^data:(?<mediaType>[^;]+);base64,(?<data>.+)$/s);
-  if (dataUrlMatch?.groups?.data) {
-    return {
-      data: dataUrlMatch.groups.data,
-      mimeType: dataUrlMatch.groups.mediaType ?? fallbackMimeType,
-    };
+function observationIdForAction(action: ComputerAction): string | undefined {
+  return "observationId" in action ? action.observationId : undefined;
+}
+
+function requireCurrentObservation(action: ComputerAction, session: CuaToolSession): CuaObservation | undefined {
+  if (coordinatePoints(action).length === 0) return undefined;
+  const current = session.lastObservation;
+  if (!current) throw new Error("Capture a CUA screenshot before using image coordinates.");
+  const requestedId = observationIdForAction(action);
+  if (requestedId !== current.id) {
+    throw new Error(
+      `Stale CUA observation ${requestedId ?? "missing"}. `
+      + `The latest observation is ${current.id}; inspect it and retry with that exact observationId.`,
+    );
   }
-
-  return {
-    data: raw,
-    mimeType: fallbackMimeType,
-  };
+  for (const point of coordinatePoints(action)) observationPointToScreen(current, point);
+  return current;
 }
 
-function screenshotOptions(input?: Extract<ComputerAction, { type: "screenshot" }>) {
-  return {
-    format: input?.format ?? DEFAULT_SCREENSHOT_FORMAT,
-    quality: input?.quality ?? DEFAULT_SCREENSHOT_QUALITY,
-  };
-}
-
-async function captureScreenshot(
-  cua: ComputerClient,
-  input?: Extract<ComputerAction, { type: "screenshot" }>,
-) {
-  const options = screenshotOptions(input);
-  const [shot, screenSize, cursor] = await Promise.all([
-    cua.command("screenshot", options),
-    cua.command("get_screen_size").catch(() => undefined),
-    cua.command("get_cursor_position").catch(() => undefined),
-  ]);
-  const size = isRecord(screenSize?.size) ? screenSize.size : undefined;
-  const cursorPosition = isRecord(cursor?.position) ? cursor.position : undefined;
-  const { data, mimeType } = parseImageData(
-    hasStringType(shot.image_data) ? shot.image_data : undefined,
-    options.format === "jpeg" ? "image/jpeg" : `image/${options.format}`,
-  );
-  const display = size
-    ? { width: numberField(size, "width"), height: numberField(size, "height") }
-    : undefined;
-
-  return {
-    screenshot: {
-      data,
-      mimeType,
-      sizeBytes: Buffer.byteLength(data, "base64"),
-      cursorPosition,
-      width: display?.width,
-      height: display?.height,
-      format: options.format,
-      quality: options.quality,
-    } satisfies ScreenshotForModel,
-    display,
-  };
+function mapPoint(observation: CuaObservation, point: { x: number; y: number }) {
+  return observationPointToScreen(observation, point);
 }
 
 function requiresDaytonaDesktop(action: ComputerAction) {
@@ -720,33 +363,26 @@ function requiresDaytonaDesktop(action: ComputerAction) {
 }
 
 function requiresCua(action: ComputerAction) {
-  // Recording remains fully Daytona-owned, but the CUA cursor must be ready
-  // before Daytona captures its first frame. Starting a recording used to be
-  // the one desktop action that skipped CUA readiness, which allowed a lazy
-  // Driver startup (or recovery from a transient native fallback) to happen
-  // after the recording was already underway.
   return !["status", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
 }
 
-function shouldCaptureAfter(actions: ComputerAction[]) {
-  return actions.some((action) =>
-    [
-      "start",
-      "display",
-      "windows",
-      "open_url",
-      "screenshot",
-      "wait",
-      "move",
-      "click",
-      "double_click",
-      "drag",
-      "scroll",
-      "type",
-      "keypress",
-      "hotkey",
-    ].includes(action.type),
-  );
+function shouldCaptureAfter(action: ComputerAction) {
+  return [
+    "start",
+    "focus_window",
+    "maximize_window",
+    "open_url",
+    "screenshot",
+    "wait",
+    "move",
+    "click",
+    "double_click",
+    "drag",
+    "scroll",
+    "type",
+    "keypress",
+    "hotkey",
+  ].includes(action.type);
 }
 
 function summarizeAction(action: ComputerAction) {
@@ -754,14 +390,24 @@ function summarizeAction(action: ComputerAction) {
     case "start":
     case "status":
     case "display":
-    case "windows":
-    case "screenshot":
+    case "clipboard_read":
     case "list_recordings":
       return action.type;
-    case "wait":
-      return `wait(${action.ms ?? 1000}ms)`;
+    case "windows":
+      return action.app ? `windows(${action.app})` : "windows(active)";
+    case "focus_window":
+    case "maximize_window":
+      return `${action.type}(${action.windowId})`;
     case "open_url":
       return `open_url(${action.url})`;
+    case "screenshot":
+      return action.windowId !== undefined
+        ? `screenshot(window=${action.windowId})`
+        : action.region
+          ? `screenshot(region=${action.region.x},${action.region.y},${action.region.width},${action.region.height})`
+          : "screenshot(full)";
+    case "wait":
+      return `wait(${action.ms ?? 1000}ms)`;
     case "move":
       return `move(${action.x},${action.y})`;
     case "click":
@@ -769,11 +415,12 @@ function summarizeAction(action: ComputerAction) {
     case "double_click":
       return `double_click(${action.x},${action.y},${action.button ?? "left"})`;
     case "drag":
-      return `drag(${action.startX},${action.startY}->${action.endX},${action.endY},${action.button ?? "left"})`;
+      return `drag(${action.path.length} points,${action.button ?? "left"})`;
     case "scroll":
-      return `scroll(${action.x},${action.y},${action.direction},${action.amount ?? 5})`;
+      return `scroll(${action.x},${action.y},${action.direction},${action.amount ?? 3})`;
     case "type":
-      return `type(${action.text.length} chars)`;
+    case "clipboard_write":
+      return `${action.type}(${action.text.length} chars)`;
     case "keypress":
       return `keypress(${[...(action.modifiers ?? []), action.key].join("+")})`;
     case "hotkey":
@@ -781,298 +428,187 @@ function summarizeAction(action: ComputerAction) {
     case "start_recording":
       return `start_recording(${action.title})`;
     case "stop_recording":
-      return `${action.type}(${action.recordingId}, ${action.title})`;
+      return `stop_recording(${action.recordingId}, ${action.title})`;
     case "get_recording":
-      return `${action.type}(${action.recordingId})`;
+      return `get_recording(${action.recordingId})`;
   }
 }
 
-function legacyToAction(input: z.infer<typeof legacyActionSchema>): JsonValue {
-  const action = input.action ?? input.type;
-
-  switch (action) {
-    case "start":
-    case "status":
-    case "display":
-    case "windows":
-    case "list_recordings":
-      return { type: action };
-    case "open_url":
-      return { type: "open_url", url: input.url };
-    case "screenshot":
-      return {
-        type: "screenshot",
-        format: input.format,
-        quality: input.quality,
-      };
-    case "wait":
-      return { type: "wait", ms: input.ms };
-    case "move":
-    case "move_mouse":
-    case "mouse_move":
-      return { type: "move", x: input.x, y: input.y };
-    case "click":
-      return {
-        type: input.double ? "double_click" : "click",
-        x: input.x,
-        y: input.y,
-        button: input.button,
-      };
-    case "double_click":
-      return {
-        type: "double_click",
-        x: input.x,
-        y: input.y,
-        button: input.button,
-      };
-    case "drag":
-      return {
-        type: "drag",
-        startX: input.startX,
-        startY: input.startY,
-        endX: input.endX,
-        endY: input.endY,
-        button: input.button,
-      };
-    case "scroll":
-      return {
-        type: "scroll",
-        x: input.x,
-        y: input.y,
-        direction: input.direction,
-        amount: input.amount,
-      };
-    case "type":
-    case "type_text":
-      return { type: "type", text: input.text, delayMs: input.delayMs ?? input.delay };
-    case "keypress":
-    case "press_key":
-      return { type: "keypress", key: input.key, modifiers: input.modifiers };
-    case "hotkey":
-      return { type: "hotkey", keys: input.keys };
-    case "start_recording":
-      return { type: "start_recording", title: input.title ?? input.label };
-    case "stop_recording":
-      return { type: "stop_recording", recordingId: input.recordingId, title: input.title ?? input.label };
-    case "get_recording":
-      return { type: "get_recording", recordingId: input.recordingId };
-    default:
-      return input;
-  }
+function compactMetadataObject(value: JsonObject): JsonObject {
+  const compacted = compactMetadataValue(value);
+  return isJsonObject(compacted) ? compacted : { value: compacted };
 }
 
-function compactDetailsForMetadata(details: ComputerOutputDetails): ComputerOutputDetails {
-  if (!details.screenshot?.data) {
-    return details;
-  }
+function commandDetails(result: JsonObject) {
+  return { command: compactMetadataObject(result) };
+}
 
-  const { data: _data, ...screenshot } = details.screenshot;
+async function windowDetails(cua: CuaComputerClientContract, windowId: string | number) {
+  const [name, size, position] = await Promise.all([
+    cua.command("get_window_name", { window_id: windowId }),
+    cua.command("get_window_size", { window_id: windowId }),
+    cua.command("get_window_position", { window_id: windowId }),
+  ]);
   return {
-    ...details,
-    screenshot: {
-      ...screenshot,
-      payloadStripped: true,
-      payloadLength: details.screenshot.data.length,
-    },
+    id: windowId,
+    name: name.name,
+    width: size.width,
+    height: size.height,
+    x: position.x,
+    y: position.y,
   };
 }
 
-function computerContentOutput(content: string, details: ComputerOutputDetails) {
-  const value: Array<
-    | { type: "text"; text: string }
-    | { type: "image-data"; data: string; mediaType: string }
-  > = [
-    { type: "text", text: content },
-    {
-      type: "text",
-      text: `${COMPUTER_METADATA_PREFIX}${JSON.stringify(compactDetailsForMetadata(details))}`,
-    },
-  ];
-
-  if (details.screenshot?.data) {
-    const image = {
-      type: "image-data",
-      data: details.screenshot.data,
-      mediaType: details.screenshot.mimeType,
-    } satisfies { type: "image-data"; data: string; mediaType: string };
-
-    // Trigger.dev chat sessions serialize each tool output into one realtime
-    // record with a ~1 MiB cap. The screenshot is only needed by the model;
-    // the chat UI and persisted message use the compact metadata above.
-    // Keeping the bytes non-enumerable lets AI SDK's toModelOutput read them
-    // in-process without putting the base64 payload on the realtime wire.
-    Object.defineProperty(image, "data", {
-      configurable: false,
-      enumerable: false,
-      writable: false,
-    });
-    value.push(image);
-  }
-
-  return {
-    type: "content" as const,
-    value,
-  };
-}
+type ActionResult = Partial<ComputerOutputDetails>;
 
 async function runOneAction(
   action: ComputerAction,
   context: Awaited<ReturnType<typeof getSandboxContext>>,
-  cua: ComputerClient,
-): Promise<Partial<ComputerOutputDetails>> {
+  cua: CuaComputerClientContract,
+  observation: CuaObservation | undefined,
+): Promise<ActionResult> {
   const { computerUse } = context.sandbox;
-
   switch (action.type) {
-    case "start": {
-      await ensureComputerReady(computerUse);
+    case "start":
+      await ensureComputerUseReady(computerUse);
       await cua.ensureReady();
-      const status = compactMetadataValue({
-        status: "active",
-        provider: "cua",
-        server: await cua.inspect(),
-        daytonaDesktop: await computerUse.getStatus(),
-      });
-      return { status };
-    }
+      return {
+        status: compactMetadataValue({
+          status: "active",
+          provider: "cua",
+          server: await cua.inspect(),
+          daytonaDesktop: await computerUse.getStatus(),
+        }),
+      };
     case "status": {
       const server = await cua.inspect().catch((error) => ({
-          status: "unavailable",
-          error: compactDiagnostic(error instanceof Error ? error.message : String(error)),
-        }));
-      const status = compactMetadataValue({
-        status: isRecord(server) && server.status === "ok" ? "active" : "inactive",
-        provider: "cua",
-        server,
-        daytonaDesktop: await computerUse.getStatus(),
-      });
-      return { status };
+        status: "unavailable",
+        error: compactDiagnostic(error instanceof Error ? error.message : error),
+      }));
+      return {
+        status: compactMetadataValue({
+          status: isRecord(server) && server.status === "ok" ? "active" : "inactive",
+          provider: "cua",
+          server,
+          daytonaDesktop: await computerUse.getStatus(),
+        }),
+      };
     }
     case "display": {
       const result = await cua.command("get_screen_size");
       const size = isRecord(result.size) ? result.size : {};
-      const display = {
-        width: numberField(size, "width"),
-        height: numberField(size, "height"),
-      };
-      return { display };
+      return { display: { width: numberField(size, "width"), height: numberField(size, "height") } };
     }
     case "windows": {
-      try {
+      let ids: Array<string | number> = [];
+      if (action.app) {
+        const result = await cua.command("get_application_windows", { app: action.app });
+        ids = Array.isArray(result.windows)
+          ? result.windows.filter((id): id is string | number => hasStringType(id) || hasNumberType(id))
+          : [];
+      } else {
         const current = await cua.command("get_current_window_id");
-        const windowId = current.window_id;
-        if (!hasStringType(windowId) && !hasNumberType(windowId)) {
-          return { windows: [] };
+        if (hasStringType(current.window_id) || hasNumberType(current.window_id)) {
+          ids = [current.window_id];
         }
-        const [name, size, position] = await Promise.all([
-          cua.command("get_window_name", { window_id: windowId }),
-          cua.command("get_window_size", { window_id: windowId }),
-          cua.command("get_window_position", { window_id: windowId }),
-        ]);
-        return {
-          windows: [{
-            id: windowId,
-            name: name.name,
-            width: size.width,
-            height: size.height,
-            x: position.x,
-            y: position.y,
-            active: true,
-          }],
-        };
-      } catch {
-        return { windows: [] };
       }
+      const windows = await Promise.all(ids.map(async (id) => {
+        try {
+          return await windowDetails(cua, id);
+        } catch {
+          return { id };
+        }
+      }));
+      return { windows };
     }
-    case "open_url": {
-      const result = await cua.command("open", { target: action.url });
-      await sleep(2_000);
-      return commandDetails(result);
-    }
+    case "focus_window":
+      return commandDetails(await cua.command("activate_window", { window_id: action.windowId }));
+    case "maximize_window":
+      return commandDetails(await cua.command("maximize_window", { window_id: action.windowId }));
+    case "open_url":
+      return commandDetails(await cua.command("open", { target: action.url }));
     case "screenshot":
+      if (action.region && action.windowId !== undefined) {
+        throw new Error("Choose either screenshot.region or screenshot.windowId, not both.");
+      }
       return {};
     case "wait":
       await sleep(action.ms ?? 1000);
       return {};
     case "move": {
-      return commandDetails(await cua.command("move_cursor", { x: action.x, y: action.y }));
+      const point = mapPoint(observation!, action);
+      return commandDetails(await cua.command("move_cursor", point));
     }
     case "click": {
-      let result: JsonObject;
+      const point = mapPoint(observation!, action);
       if (action.button === "middle") {
-        await cua.command("mouse_down", { x: action.x, y: action.y, button: "middle" });
-        result = await cua.command("mouse_up", { x: action.x, y: action.y, button: "middle" });
-      } else {
-        result = await cua.command(action.button === "right" ? "right_click" : "left_click", {
-          x: action.x,
-          y: action.y,
-        });
+        return commandDetails(await cua.command("middle_click", point));
       }
-      return commandDetails(result);
+      return commandDetails(await cua.command(action.button === "right" ? "right_click" : "left_click", point));
     }
     case "double_click": {
-      let result: JsonObject | undefined;
+      const point = mapPoint(observation!, action);
       if (action.button === "middle") {
+        let result: CuaCommandResponse = { success: true };
         for (let index = 0; index < 2; index += 1) {
-          await cua.command("mouse_down", { x: action.x, y: action.y, button: "middle" });
-          result = await cua.command("mouse_up", { x: action.x, y: action.y, button: "middle" });
+          result = await cua.command("middle_click", point);
         }
-      } else {
-        const command = action.button === "right" ? "right_click" : "double_click";
-        result = await cua.command(command, { x: action.x, y: action.y });
-        if (command !== "double_click") {
-          result = await cua.command(command, { x: action.x, y: action.y });
-        }
+        return commandDetails(result);
       }
-      if (!result) throw new Error("CUA double-click returned no action result.");
-      return commandDetails(result);
+      if (action.button === "right") {
+        await cua.command("right_click", point);
+        return commandDetails(await cua.command("right_click", point));
+      }
+      return commandDetails(await cua.command("double_click", point));
     }
     case "drag": {
+      const path = action.path.map((point) => {
+        const mapped = mapPoint(observation!, point);
+        return [mapped.x, mapped.y];
+      });
       return commandDetails(await cua.command("drag", {
-        path: [[action.startX, action.startY], [action.endX, action.endY]],
+        path,
         button: action.button ?? "left",
-        duration: 0.5,
+        duration: (action.durationMs ?? 500) / 1000,
       }));
     }
     case "scroll": {
-      await cua.command("move_cursor", { x: action.x, y: action.y });
+      const point = mapPoint(observation!, action);
+      await cua.command("move_cursor", point);
       return commandDetails(await cua.command("scroll_direction", {
         direction: action.direction,
-        clicks: action.amount ?? 5,
+        clicks: action.amount ?? 3,
       }));
     }
-    case "type": {
-      if (!action.delayMs) {
-        return commandDetails(await cua.command("type_text", { text: action.text }));
-      }
-
-      // The pinned CUA protocol has no delay field, so pace the existing
-      // type_text command without sending unsupported parameters to the server.
-      const characters = Array.from(action.text);
-      let result: CuaCommandResponse | undefined;
-      for (const [index, character] of characters.entries()) {
-        result = await cua.command("type_text", { text: character });
-        if (index < characters.length - 1) await sleep(action.delayMs);
-      }
-      return commandDetails(result ?? { success: true });
-    }
+    case "type":
+      return commandDetails(await cua.command("type_text", { text: action.text }));
     case "keypress": {
-      const modifiers = action.modifiers?.map((modifier) => (modifier === "cmd" ? "meta" : modifier));
-      if (modifiers?.length) {
-        return commandDetails(await cua.command("hotkey", { keys: [...modifiers, action.key] }));
-      }
-      return commandDetails(await cua.command("press_key", { key: action.key }));
+      const modifiers = action.modifiers?.map((modifier) => modifier === "cmd" ? "meta" : modifier);
+      return commandDetails(modifiers?.length
+        ? await cua.command("hotkey", { keys: [...modifiers, action.key] })
+        : await cua.command("press_key", { key: action.key }));
     }
     case "hotkey": {
-      const keys = action.keys
-        .split("+")
+      const keys = action.keys.split("+")
         .map((key) => key.trim().toLowerCase())
         .filter(Boolean)
         .map((key) => key === "cmd" ? "meta" : key);
-      if (keys.length === 0) {
-        throw new Error("CUA hotkey requires at least one key.");
-      }
+      if (keys.length === 0) throw new Error("CUA hotkey requires at least one key.");
       return commandDetails(await cua.command("hotkey", { keys }));
     }
+    case "clipboard_read": {
+      const result = await cua.command("copy_to_clipboard");
+      return {
+        ...commandDetails(result),
+        clipboard: hasStringType(result.content)
+          ? result.content
+          : hasStringType(result.text)
+            ? result.text
+            : "",
+      };
+    }
+    case "clipboard_write":
+      return commandDetails(await cua.command("set_clipboard", { text: action.text }));
     case "start_recording": {
       const recording = compactRecording(
         /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await computerUse.recording.start(action.title) as DaytonaRecording,
@@ -1095,149 +631,203 @@ async function runOneAction(
     }
     case "list_recordings": {
       const result = await computerUse.recording.list();
-      const allRecordings = isRecord(result) && Array.isArray(result.recordings)
-        ? result.recordings
-        : [];
+      const all = isRecord(result) && Array.isArray(result.recordings) ? result.recordings : [];
       return {
-        recordings: allRecordings
-          .slice(0, MAX_RECORDINGS_RETURNED)
-          .map((recording) => compactRecording(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ recording as DaytonaRecording)),
-        recordingsTruncated: allRecordings.length > MAX_RECORDINGS_RETURNED,
+        recordings: all.slice(0, MAX_RECORDINGS_RETURNED).map((recording) => compactRecording(recording)),
+        recordingsTruncated: all.length > MAX_RECORDINGS_RETURNED,
       };
     }
   }
 }
 
+function screenshotRequest(action: ComputerAction, session: CuaToolSession): ScreenshotRequest {
+  if (action.type !== "screenshot") return session.observationRequest ?? {};
+  return {
+    format: action.format,
+    quality: action.quality,
+    region: action.region,
+    windowId: action.windowId,
+  };
+}
+
+function captureTiming(action: ComputerAction) {
+  if (action.type === "open_url") return { initialDelayMs: 250 };
+  if (["screenshot", "wait", "start"].includes(action.type)) return { initialDelayMs: 0 };
+  return { initialDelayMs: 100 };
+}
+
+function mergeDetails(details: ComputerOutputDetails, partial: ActionResult): void {
+  if (partial.status !== undefined) details.status = partial.status;
+  if (partial.display !== undefined) details.display = partial.display;
+  if (partial.windows !== undefined) details.windows = partial.windows;
+  if (partial.clipboard !== undefined) details.clipboard = partial.clipboard;
+  if (partial.command !== undefined) details.command = partial.command;
+  if (partial.recording !== undefined) details.recording = partial.recording;
+  if (partial.recordings !== undefined) details.recordings = partial.recordings;
+  if (partial.recordingsTruncated !== undefined) details.recordingsTruncated = partial.recordingsTruncated;
+}
+
+function compactDetailsForMetadata(details: ComputerOutputDetails): ComputerOutputDetails {
+  if (!details.screenshot?.data) return details;
+  const { data: _data, ...screenshot } = details.screenshot;
+  return {
+    ...details,
+    screenshot: {
+      ...screenshot,
+      payloadStripped: true,
+      payloadLength: details.screenshot.data.length,
+    },
+  };
+}
+
+function computerContentOutput(content: string, details: ComputerOutputDetails) {
+  const value: Array<
+    | { type: "text"; text: string }
+    | { type: "image-data"; data: string; mediaType: string }
+  > = [
+    { type: "text", text: content },
+    { type: "text", text: `${COMPUTER_METADATA_PREFIX}${JSON.stringify(compactDetailsForMetadata(details))}` },
+  ];
+  if (details.screenshot?.data) {
+    const image = {
+      type: "image-data",
+      data: details.screenshot.data,
+      mediaType: details.screenshot.mimeType,
+    } satisfies { type: "image-data"; data: string; mediaType: string };
+    Object.defineProperty(image, "data", {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    });
+    value.push(image);
+  }
+  return { type: "content" as const, value };
+}
+
 async function executeCuaComputer(
-  input: ComputerInput,
+  action: ComputerAction,
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions,
   dependencies: CuaComputerDependencies,
 ) {
+  if (computerOptions.recordingEnabled !== true && action.type === "start_recording") {
+    throw new Error("Demo recording is disabled for this thread. Enable demo mode before starting a screen recording.");
+  }
   const context = await dependencies.getSandboxContext(sandboxOptions);
-  const { computerUse } = context.sandbox;
-  return serializeComputerOperations(computerUse, (track) => executeCuaComputerActions(
-    input,
+  const session = dependencies.getSession(context.sandbox, sandboxOptions, computerOptions);
+  return serializeComputerOperations(context.sandbox.computerUse, (track) => executeCuaComputerAction(
+    action,
     context,
-    sandboxOptions,
-    computerOptions,
-    dependencies,
+    session,
     track,
   ));
 }
 
-async function executeCuaComputerActions(
-  input: ComputerInput,
+async function executeCuaComputerAction(
+  action: ComputerAction,
   context: Awaited<ReturnType<typeof getSandboxContext>>,
-  sandboxOptions: SandboxSessionOptions,
-  computerOptions: CuaComputerToolOptions,
-  dependencies: CuaComputerDependencies,
+  session: CuaToolSession,
   track: TrackComputerOperation,
 ) {
-  const { computerUse } = context.sandbox;
-  const cua = dependencies.createClient(context.sandbox, sandboxOptions, computerOptions);
-  const summaries = input.actions.map(summarizeAction);
-  const details: ComputerOutputDetails = {
-    action: input.actions.length === 1 ? input.actions[0]?.type : undefined,
-    actions: summaries,
-  };
-  const recordings: Array<ReturnType<typeof compactRecording>> = [];
-  const needsCua = input.actions.some(requiresCua);
-  let cursor: CuaAgentCursorStatus | undefined;
+  const summary = summarizeAction(action);
+  const details: ComputerOutputDetails = { action: summary };
+  const startedAt = Date.now();
+  const startedAtIso = new Date(startedAt).toISOString();
+  const inputObservationId = observationIdForAction(action);
+  let command: JsonObject | undefined;
+  let outputObservation: CuaObservation | undefined;
 
-  if (input.actions.some(requiresDaytonaDesktop)) {
-    await runBoundedComputerOperation(
-      track,
-      async () => {
-        await ensureComputerReady(computerUse);
-        if (needsCua) {
-          cursor = (await cua.ensureReady()).cursor;
-        }
-      },
-      () => new Error(
-        needsCua
-          ? "Timed out waiting for the Daytona desktop and CUA computer-server to become ready."
-          : "Timed out waiting for the Daytona desktop to become ready.",
-      ),
-      COMPUTER_START_TIMEOUT_MS,
-    );
-  }
+  try {
+    if (requiresDaytonaDesktop(action)) {
+      await runBoundedComputerOperation(
+        track,
+        async () => {
+          await ensureComputerUseReady(context.sandbox.computerUse);
+          if (requiresCua(action)) details.cursor = (await session.client.ensureReady()).cursor;
+        },
+        () => new Error("Timed out waiting for the Daytona desktop and CUA gateway to become ready."),
+        COMPUTER_START_TIMEOUT_MS,
+      );
+    }
 
-  details.cursor = cursor;
-
-  for (const action of input.actions) {
+    const observation = requireCurrentObservation(action, session);
     const partial = await runBoundedComputerOperation(
       track,
-      () => runOneAction(action, context, cua),
+      () => runOneAction(action, context, session.client, observation),
       () => new Error(`Timed out running CUA computer action ${action.type}.`),
     );
+    mergeDetails(details, partial);
+    command = partial.command;
 
-    if (partial.status !== undefined) {
-      details.status = partial.status;
+    if (shouldCaptureAfter(action)) {
+      const request = screenshotRequest(action, session);
+      session.observationRequest = request;
+      const captured = await runBoundedComputerOperation(
+        track,
+        () => captureCuaObservation(session.client, request, {
+          sequence: nextObservationSequence(session),
+          ...captureTiming(action),
+        }),
+        () => new Error("Timed out capturing the CUA desktop observation."),
+      );
+      session.lastObservation = captured;
+      outputObservation = captured;
+      details.screenshot = screenshotForModel(captured);
+      details.display = {
+        x: captured.origin.x,
+        y: captured.origin.y,
+        width: captured.width,
+        height: captured.height,
+      };
     }
-    if (partial.display !== undefined) {
-      details.display = partial.display;
-    }
-    if (partial.windows !== undefined) {
-      details.windows = partial.windows;
-    }
-    if (partial.command !== undefined) {
-      details.command = partial.command;
-    }
-    if (partial.recording !== undefined) {
-      details.recording = partial.recording;
-    }
-    if (partial.recordings?.length) {
-      recordings.push(...partial.recordings);
-    }
-    if (partial.recordingsTruncated) {
-      details.recordingsTruncated = true;
-    }
+
+    const trajectory = recordTrajectory(session, {
+      action: summary,
+      startedAt: startedAtIso,
+      durationMs: Date.now() - startedAt,
+      status: "completed",
+      inputObservationId,
+      outputObservationId: outputObservation?.id,
+      screenshotHash: outputObservation?.hash,
+      effect: hasStringType(command?.effect) ? command.effect : undefined,
+      transportRetries: hasNumberType(command?.transport_retries) ? command.transport_retries : undefined,
+    });
+    details.trajectory = trajectory;
+  } catch (error) {
+    recordTrajectory(session, {
+      action: summary,
+      startedAt: startedAtIso,
+      durationMs: Date.now() - startedAt,
+      status: "failed",
+      inputObservationId,
+      error: compactDiagnostic(error instanceof Error ? error.message : String(error)),
+    });
+    throw error;
   }
 
-  if (recordings.length > 0) {
-    details.recordings = recordings;
-  }
-
-  const requestedScreenshot = input.actions.find(
-    (action): action is Extract<ComputerAction, { type: "screenshot" }> => action.type === "screenshot",
-  );
-  if (shouldCaptureAfter(input.actions)) {
-    const captured = await runBoundedComputerOperation(
-      track,
-      () => captureScreenshot(cua, requestedScreenshot),
-      () => new Error("Timed out capturing the CUA desktop screenshot."),
-    );
-    details.screenshot = captured.screenshot;
-    details.display = details.display ?? captured.display;
-  }
-
-  const contentLines = [
-    `Actions: ${summaries.join(" -> ")}`,
-    details.display
-      ? `Display: ${details.display.width ?? "?"}x${details.display.height ?? "?"}`
-      : undefined,
+  details.recentTrajectory = session.trajectory.slice(-MAX_TRAJECTORY_RETURNED);
+  const lines = [
+    `Action: ${summary}`,
     details.screenshot
-      ? `Screenshot: ${details.screenshot.mimeType}, ${details.screenshot.sizeBytes ?? details.screenshot.data?.length ?? "unknown"} bytes`
+      ? `Observation: ${details.screenshot.id}, ${details.screenshot.width}x${details.screenshot.height}, `
+        + `captured in ${details.screenshot.captureDurationMs}ms`
+      : undefined,
+    details.screenshot?.captureKind === "desktop_state" ? "Capture: atomic CUA desktop state" : undefined,
+    details.screenshot?.origin.x || details.screenshot?.origin.y
+      ? `Observation origin: (${details.screenshot.origin.x}, ${details.screenshot.origin.y})`
       : undefined,
     details.recording ? recordingSummary(details.recording) : undefined,
-    details.cursor
-      ? details.cursor.enabled
-        ? `Agent cursor: painted (${details.cursor.theme ?? "configured CUA theme"}, ${details.cursor.runtimeMode ?? "unknown runtime"})`
-        : `Agent cursor: unavailable${details.cursor.reason ? ` (${details.cursor.reason})` : details.cursor.error ? ` (${details.cursor.error})` : ""}`
+    details.recordings && !details.recording
+      ? `Found ${details.recordings.length} recording${details.recordings.length === 1 ? "" : "s"}`
       : undefined,
-    hasStringType(details.command?.effect)
-      ? `CUA action effect: ${details.command.effect}` +
-        (details.command.effect === "suspected_noop" ? " (verify the screenshot before continuing)" : "")
+    hasStringType(details.command?.effect) ? `CUA action effect: ${details.command.effect}` : undefined,
+    hasNumberType(details.command?.transport_retries)
+      ? `CUA transport retries: ${details.command.transport_retries}`
       : undefined,
-    !details.recording && details.recordings
-      ? `Found ${details.recordings.length} demo recording${details.recordings.length === 1 ? "" : "s"}` +
-        (details.recordingsTruncated ? ` (showing first ${MAX_RECORDINGS_RETURNED})` : "")
-      : undefined,
+    details.cursor?.enabled ? "Agent cursor: official CUA overlay" : undefined,
     statusValue(details.status) ? `Status: ${statusValue(details.status)}` : undefined,
   ].filter(Boolean);
-
-  return computerContentOutput(contentLines.join("\n"), details);
+  return computerContentOutput(lines.join("\n"), details);
 }
 
 export function createCuaComputerTool(
@@ -1245,12 +835,18 @@ export function createCuaComputerTool(
   computerOptions: CuaComputerToolOptions = {},
   dependencies: CuaComputerDependencies = defaultDependencies,
 ) {
-  return tool<ComputerInput, Awaited<ReturnType<typeof executeCuaComputer>>>({
+  const recordingDescription = computerOptions.recordingEnabled === true
+    ? "Daytona recording actions are enabled."
+    : "Starting a screen recording is disabled for this thread.";
+  return tool<ComputerAction, Awaited<ReturnType<typeof executeCuaComputer>>>({
     title: "computer",
-    description:
-      "Inspect and operate the Daytona Linux desktop through CUA for HTTP(S) browser previews, screenshots, and GUI interaction. Demo recordings remain backed by Daytona. Accepts up to eight ordered actions, bounds each action and metadata payload, recovers partial desktop services, and returns a fresh CUA screenshot when screen state matters. Mutates GUI/recording state; keep batches small and re-check before coordinate-sensitive actions.",
-    inputSchema: computerInputSchema,
+    description: `Operate the Daytona Linux desktop through CUA only. ${recordingDescription} `
+      + "Use one action per call and use open_url directly for browser navigation. Capture a screenshot before "
+      + "coordinate actions, then pass its exact observationId with every "
+      + "coordinate action. Screenshot crops and window zooms persist, and all coordinates stay relative to the "
+      + "latest returned image. Every visible action returns one fresh CUA observation.",
+    inputSchema: computerActionSchema,
     toModelOutput: ({ output }) => output,
-    execute: (input) => executeCuaComputer(input, sandboxOptions, computerOptions, dependencies),
+    execute: (action) => executeCuaComputer(action, sandboxOptions, computerOptions, dependencies),
   });
 }

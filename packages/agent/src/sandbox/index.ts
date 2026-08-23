@@ -180,8 +180,11 @@ const defaultDependencies: SandboxDependencies = { createDaytonaClient };
 
 async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
   const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
-  if (sandbox.domainAllowList === domainAllowList) return sandbox;
+  if (sandboxDomainAllowList(sandbox.domainAllowList) === domainAllowList) return sandbox;
   if (sandbox.state && sandbox.state !== "started") {
+    // A stopped sandbox can safely start with its existing, stricter policy so
+    // the now-unrestricted default can be applied once Daytona accepts updates.
+    if (!domainAllowList) return sandbox;
     throw new Error(
       "Refusing to start a sandbox whose network policy is missing or outdated. Recreate the sandbox to apply the configured domain allow-list before startup.",
     );
@@ -207,11 +210,12 @@ export async function createSandbox(
     const existing = sandboxLookupPromises.get(sandboxId);
     if (existing) return await existing;
 
-    const pending = retryDaytonaRateLimit(async () => ensureSandboxStarted(
-      await ensureSandboxNetworkPolicy(
-        await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId)),
-      ),
-    ));
+    const pending = retryDaytonaRateLimit(async () => {
+      const sandbox = await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId));
+      await ensureSandboxNetworkPolicy(sandbox);
+      await ensureSandboxStarted(sandbox);
+      return ensureSandboxNetworkPolicy(sandbox);
+    });
     sandboxLookupPromises.set(sandboxId, pending);
     try {
       const sandbox = await pending;

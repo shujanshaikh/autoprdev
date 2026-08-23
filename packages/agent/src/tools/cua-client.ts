@@ -1,5 +1,6 @@
-import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
-import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+import { hasBooleanType, hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonObjectSchema, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+import { z } from "zod";
 
 import type { SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand } from "../sandbox/execute";
@@ -11,33 +12,41 @@ const CUA_SERVER_READY_POLL_MS = 500;
 const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
 const CUA_CURSOR_RECOVERY_COOLDOWN_MS = 60_000;
-const CUA_COMPUTER_SERVER_VERSION = "0.3.42";
-const CUA_AGENT_CURSOR_THEME = "dev.autopr.cursor.neon";
-const CUA_AGENT_CURSOR_REDUCED_MOTION = "off" as const;
-const CUA_AGENT_CURSOR_MOTION = {
-  start_handle: 0.3,
-  end_handle: 0.3,
-  arc_size: 0.3,
-  arc_flow: 0.12,
-  spring: 0.62,
-  glide_duration_ms: 480,
-  dwell_after_click_ms: 260,
-  idle_hide_ms: 0,
-  turn_radius: 80,
-} as const;
+const CUA_READY_CACHE_MS = 10_000;
+const CUA_GATEWAY_PACKAGE = "autopr-cua-gateway";
+
+const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 502, 503, 504]);
+const REFRESHABLE_PREVIEW_HTTP_STATUSES = new Set([401, 403, 404]);
+const IDEMPOTENT_CUA_COMMANDS = new Set([
+  "version",
+  "get_desktop_state",
+  "get_capture_scope_state",
+  "get_current_window_id",
+  "get_application_windows",
+  "get_window_name",
+  "get_window_size",
+  "get_window_position",
+  "get_cursor_position",
+  "get_screen_size",
+  "get_agent_cursor_state",
+  "copy_to_clipboard",
+  "screenshot",
+]);
 
 const REQUIRED_CUA_COMMANDS = [
   "version",
   "open",
   "get_current_window_id",
+  "get_application_windows",
   "get_window_name",
   "get_window_size",
   "get_window_position",
+  "activate_window",
+  "maximize_window",
   "move_cursor",
   "left_click",
+  "middle_click",
   "right_click",
-  "mouse_down",
-  "mouse_up",
   "double_click",
   "drag",
   "scroll_direction",
@@ -47,19 +56,20 @@ const REQUIRED_CUA_COMMANDS = [
   "screenshot",
   "get_cursor_position",
   "get_screen_size",
+  "copy_to_clipboard",
+  "set_clipboard",
 ] as const;
 
 const CUA_AGENT_CURSOR_COMMANDS = [
-  "set_agent_cursor_enabled",
-  "set_agent_cursor_motion",
-  "set_agent_cursor_theme",
   "get_agent_cursor_state",
-  "probe_agent_cursor",
+  "set_agent_cursor_enabled",
 ] as const;
+const REQUIRED_CUA_AGENT_CURSOR_COMMANDS = ["get_agent_cursor_state"] as const;
 
 const cuaServerStartPromises = new Map<string, Promise<void>>();
 const cuaCursorRecoveryAttemptedAt = new Map<string, number>();
 const cuaCursorRecoveryPromises = new Map<string, Promise<void>>();
+const desktopPointerSetupPromises = new WeakMap<object, Map<string, Promise<void>>>();
 
 export interface CuaComputerOptions {
   display?: string;
@@ -89,6 +99,8 @@ export type CuaServerStatus = {
 export type CuaAgentCursorStatus = {
   available: boolean;
   enabled: boolean;
+  implicit?: boolean;
+  labelVisible?: boolean;
   session?: string;
   theme?: string;
   reducedMotion?: "auto" | "on" | "off";
@@ -117,9 +129,26 @@ export type CuaAgentCursorMotion = {
   turn_radius: number;
 };
 
+const cuaAgentCursorMotionSchema = z.object({
+  start_handle: z.number(),
+  end_handle: z.number(),
+  arc_size: z.number(),
+  arc_flow: z.number(),
+  spring: z.number(),
+  glide_duration_ms: z.number(),
+  dwell_after_click_ms: z.number(),
+  idle_hide_ms: z.number(),
+  turn_radius: z.number(),
+});
+
 export type CuaCommandResponse = JsonObject & {
   success: true;
 };
+
+export type CuaComputerClientContract = Pick<
+  CuaComputerClient,
+  "command" | "ensureReady" | "inspect" | "supports"
+>;
 
 function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
   return isJsonObject(value);
@@ -130,28 +159,20 @@ function errorMessage<ErrorValue>(error: ErrorValue): string {
 }
 
 function cursorMotion<ValueValue>(value: ValueValue): CuaAgentCursorMotion | undefined {
-  if (!isRecord(value)) return undefined;
-  const fields = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ Object.keys(CUA_AGENT_CURSOR_MOTION) as Array<keyof CuaAgentCursorMotion>;
-  if (!fields.every((field) => hasNumberType(value[field]))) return undefined;
-  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ Object.fromEntries(fields.map((field) => [field, value[field]])) as CuaAgentCursorMotion;
-}
-
-function usesRecordingCursorMotion(motion: CuaAgentCursorMotion | undefined): boolean {
-  return motion !== undefined && Object.entries(CUA_AGENT_CURSOR_MOTION).every(
-    ([field, expected]) => Math.abs(motion[/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ field as keyof CuaAgentCursorMotion] - expected) < 0.001,
-  );
+  const parsed = cuaAgentCursorMotionSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function validateServerPort(port: number): number {
   if (!Number.isInteger(port) || port < 1_024 || port > 65_535) {
-    throw new Error(`Invalid CUA computer-server port: ${port}`);
+    throw new Error(`Invalid CUA gateway port: ${port}`);
   }
   return port;
 }
 
 function validateRequestTimeout(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 120_000) {
-    throw new Error(`Invalid CUA request timeout: ${timeoutMs}`);
+    throw new Error(`Invalid CUA gateway request timeout: ${timeoutMs}`);
   }
   return Math.ceil(timeoutMs);
 }
@@ -162,20 +183,22 @@ function appendUrlPath(baseUrl: string, path: string): string {
   return url.toString();
 }
 
-async function fetchWithTimeout(
+async function fetchTextWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
-): Promise<Response> {
+): Promise<{ body: string; response: Response }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   timer.unref?.();
 
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const body = await response.text();
+    return { body, response };
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error(`CUA computer-server request timed out after ${timeoutMs}ms.`);
+      throw new Error(`CUA gateway request timed out after ${timeoutMs}ms.`);
     }
     throw error;
   } finally {
@@ -184,71 +207,37 @@ async function fetchWithTimeout(
 }
 
 export function parseCuaCommandResponse(body: string): CuaCommandResponse {
-  for (const line of body.split(/\r?\n/)) {
-    if (!line.startsWith("data: ")) continue;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line.slice(6));
-    } catch (error) {
-      throw new Error(`CUA computer-server returned invalid JSON: ${errorMessage(error)}`);
-    }
-
-    if (!isRecord(parsed)) {
-      throw new Error("CUA computer-server returned a non-object command result.");
-    }
-    if (parsed.success !== true) {
-      const detail = hasStringType(parsed.error) ? parsed.error : "unknown CUA command failure";
-      throw new Error(`CUA computer-server command failed: ${detail}`);
-    }
-
-    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ parsed as CuaCommandResponse;
+  const trimmed = body.trim();
+  const dataFrame = body.split(/\r?\n/).find((line) => line.startsWith("data: "));
+  const payload = trimmed.startsWith("{") ? trimmed : dataFrame?.slice(6);
+  if (!payload) {
+    throw new Error("CUA gateway returned no JSON command result.");
   }
 
-  throw new Error("CUA computer-server returned no SSE data frame.");
+  let parsed: JsonValue;
+  try {
+    parsed = jsonValueSchema.parse(JSON.parse(payload));
+  } catch (error) {
+    throw new Error(`CUA gateway returned invalid JSON: ${errorMessage(error)}`);
+  }
+  if (!isJsonObject(parsed)) {
+    throw new Error("CUA gateway returned a non-object command result.");
+  }
+  if (parsed.success !== true) {
+    const detail = hasStringType(parsed.error) ? parsed.error : "unknown CUA command failure";
+    throw new Error(`CUA gateway command failed: ${detail}`);
+  }
+  const commandResult = jsonObjectSchema.parse(parsed);
+  return { ...commandResult, success: true };
 }
 
 export function cuaBootstrapCommand(): string {
   return [
     "set -eu",
-    'IMAGE_LAUNCHER="/opt/autopr/bin/autopr-cua-computer-server"',
+    'IMAGE_LAUNCHER="/opt/autopr/bin/autopr-cua-gateway"',
     'if [ -x "$IMAGE_LAUNCHER" ]; then exec "$IMAGE_LAUNCHER"; fi',
-    'if command -v autopr-cua-computer-server >/dev/null 2>&1; then exec autopr-cua-computer-server; fi',
-    `CUA_VERSION=${CUA_COMPUTER_SERVER_VERSION}`,
-    'CUA_RUNTIME="/home/daytona/.local/share/autopr/cua-${CUA_VERSION}"',
-    'if [ ! -x "$CUA_RUNTIME/bin/cua-computer-server" ]; then',
-    '  PYTHON_BIN="$(command -v python3 || true)"',
-    '  if [ -n "$PYTHON_BIN" ] && "$PYTHON_BIN" -c \'import sys; assert (3, 12) <= sys.version_info < (3, 14)\' 2>/dev/null; then',
-    '    "$PYTHON_BIN" -m venv --clear "$CUA_RUNTIME"',
-    '    "$CUA_RUNTIME/bin/pip" install --disable-pip-version-check --no-cache-dir "cua-computer-server==${CUA_VERSION}"',
-    '  elif command -v uv >/dev/null 2>&1; then',
-    '    CUA_PYTHON_DIR="/home/daytona/.local/share/autopr/python"',
-    '    UV_PYTHON_INSTALL_DIR="$CUA_PYTHON_DIR" uv python install 3.13',
-    '    UV_PYTHON_INSTALL_DIR="$CUA_PYTHON_DIR" uv venv --clear "$CUA_RUNTIME" --python 3.13',
-    '    uv pip install --python "$CUA_RUNTIME/bin/python" --no-cache "cua-computer-server==${CUA_VERSION}"',
-    '  else',
-    '    echo "CUA needs Python 3.12/3.13 or uv to provision it" >&2',
-    '    exit 127',
-    '  fi',
-    "fi",
-    'SERVER="$CUA_RUNTIME/bin/cua-computer-server"',
-    'mkdir -p /tmp/autopr-cua "$XDG_RUNTIME_DIR"',
-    'chmod 700 "$XDG_RUNTIME_DIR"',
-    'cua_command() { curl --fail --silent --max-time 10 -H "Content-Type: application/json" --data "$1" "http://127.0.0.1:${CUA_PORT}/cmd" | sed -n \'s/^data: //p\'; }',
-    'VERSION_RESPONSE="$(cua_command \'{"command":"version"}\' || true)"',
-    'SCREEN_RESPONSE="$(cua_command \'{"command":"get_screen_size"}\' || true)"',
-    "if curl --fail --silent --max-time 2 \"http://127.0.0.1:${CUA_PORT}/status\" | jq -e '.status == \"ok\" and .os_type == \"linux\"' >/dev/null 2>&1 \\",
-    "  && printf \"%s\" \"$VERSION_RESPONSE\" | jq -e --arg expected \"$CUA_VERSION\" '.success == true and .package == $expected' >/dev/null 2>&1 \\",
-    "  && printf \"%s\" \"$SCREEN_RESPONSE\" | jq -e '.success == true and (.size.width | type == \"number\") and (.size.height | type == \"number\")' >/dev/null 2>&1; then exit 0; fi",
-    'if [ -s /tmp/autopr-cua/computer-server.pid ]; then',
-    '  OLD_PID="$(cat /tmp/autopr-cua/computer-server.pid)"',
-    '  if kill -0 "$OLD_PID" 2>/dev/null && [ -r "/proc/${OLD_PID}/cmdline" ] && tr "\\0" " " <"/proc/${OLD_PID}/cmdline" | grep -Fq "$SERVER"; then kill "$OLD_PID" 2>/dev/null || true; sleep 1; fi',
-    "fi",
-    'if lsof -nP -iTCP:"$CUA_PORT" -sTCP:LISTEN >/dev/null 2>&1; then echo "CUA port is already occupied" >&2; exit 1; fi',
-    'unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE',
-    'export BROWSER="${BROWSER:-google-chrome}"',
-    'nohup "$SERVER" --host 0.0.0.0 --port "$CUA_PORT" --backend native --log-level warning >/tmp/autopr-cua/computer-server.log 2>&1 &',
-    'echo "$!" >/tmp/autopr-cua/computer-server.pid',
+    'echo "AutoPR CUA gateway is missing from this sandbox image; rebuild and roll out the Daytona snapshot." >&2',
+    "exit 127",
   ].join("\n");
 }
 
@@ -280,7 +269,7 @@ async function startCuaServer(
 
     if (result.timedOut || result.exitCode !== 0) {
       const diagnostic = result.stderr || result.stdout || result.output || "unknown startup failure";
-      throw new Error(`Could not start CUA computer-server in Daytona: ${diagnostic}`);
+      throw new Error(`Could not start the CUA gateway in Daytona: ${diagnostic}`);
     }
   })();
 
@@ -294,10 +283,62 @@ async function startCuaServer(
   }
 }
 
+async function ensureDesktopPointer(
+  sandbox: CuaClientSandbox,
+  sandboxOptions: SandboxSessionOptions,
+  display: string,
+  mode: "native" | "overlay",
+  dependencies: CuaClientDependencies,
+): Promise<void> {
+  const setupKey = `${display}:${mode}`;
+  const sandboxSetups = desktopPointerSetupPromises.get(sandbox) ?? new Map<string, Promise<void>>();
+  desktopPointerSetupPromises.set(sandbox, sandboxSetups);
+  const existing = sandboxSetups.get(setupKey);
+  if (existing) return await existing;
+
+  const theme = mode === "overlay" ? "AutoPRHidden" : "Adwaita";
+  const pending = dependencies.executeSandboxCommand([
+    "set -eu",
+    `export XCURSOR_THEME="${theme}"`,
+    'if command -v xfconf-query >/dev/null 2>&1; then',
+    `  xfconf-query -c xsettings -p /Gtk/CursorThemeName -s "${theme}" >/dev/null 2>&1 || true`,
+    '  xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 32 >/dev/null 2>&1 || true',
+    "fi",
+    mode === "overlay"
+      ? 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr 32; fi'
+      : 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -cursor_name left_ptr; fi',
+  ].join("\n"), {
+    cwd: "/home/daytona",
+    timeout: 15,
+    env: { DISPLAY: display },
+    sandboxOptions: {
+      ...sandboxOptions,
+      cacheKey: sandbox.id,
+      sandboxId: sandbox.id,
+    },
+  }).then((result) => {
+    if (result.timedOut || result.exitCode !== 0) {
+      const diagnostic = result.stderr || result.stdout || result.output || "unknown pointer setup failure";
+      throw new Error(`Could not configure the ${mode} Daytona pointer mode: ${diagnostic}`);
+    }
+  });
+
+  sandboxSetups.set(setupKey, pending);
+  try {
+    await pending;
+  } catch (error) {
+    sandboxSetups.delete(setupKey);
+    throw error;
+  }
+}
+
 export class CuaComputerClient {
   private baseUrl?: string;
   private baseUrlExpiresAt = 0;
   private baseUrlPromise?: Promise<string>;
+  private commandNames?: Set<string>;
+  private readyStatus?: CuaServerStatus;
+  private readyStatusExpiresAt = 0;
   private readonly display: string;
   private readonly serverPort: number;
   private readonly requestTimeoutMs: number;
@@ -339,52 +380,109 @@ export class CuaComputerClient {
     return appendUrlPath(this.baseUrl!, path);
   }
 
+  private invalidateConnection(): void {
+    this.baseUrl = undefined;
+    this.baseUrlExpiresAt = 0;
+    this.readyStatus = undefined;
+    this.readyStatusExpiresAt = 0;
+  }
+
+  private rememberReady(status: CuaServerStatus): CuaServerStatus {
+    this.readyStatus = status;
+    this.readyStatusExpiresAt = Date.now() + CUA_READY_CACHE_MS;
+    return status;
+  }
+
+  private async request(
+    path: string,
+    init: RequestInit,
+    retryTransientFailure: boolean,
+  ): Promise<{ body: string; response: Response; retries: number }> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const { body, response } = await fetchTextWithTimeout(
+          await this.url(path),
+          init,
+          this.requestTimeoutMs,
+        );
+        const refreshPreview = REFRESHABLE_PREVIEW_HTTP_STATUSES.has(response.status);
+        const retryTransient = retryTransientFailure && RETRYABLE_HTTP_STATUSES.has(response.status);
+        if (attempt === 0 && (refreshPreview || retryTransient)) {
+          this.invalidateConnection();
+          continue;
+        }
+        return { body, response, retries: attempt };
+      } catch (error) {
+        lastError = error;
+        this.invalidateConnection();
+        if (attempt === 0 && retryTransientFailure) continue;
+        throw error;
+      }
+    }
+
+    throw lastError ?? new Error(`CUA gateway ${path} request failed.`);
+  }
+
   private async getJson(path: string): Promise<JsonValue> {
-    const response = await fetchWithTimeout(
-      await this.url(path),
+    const { body, response } = await this.request(
+      path,
       { headers: { Accept: "application/json" } },
-      this.requestTimeoutMs,
+      true,
     );
     if (!response.ok) {
-      throw new Error(`CUA computer-server ${path} failed with HTTP ${response.status}.`);
+      throw new Error(`CUA gateway ${path} failed with HTTP ${response.status}.`);
     }
-    return jsonValueSchema.parse(await response.json());
+    return jsonValueSchema.parse(JSON.parse(body));
   }
 
   async status(): Promise<CuaServerStatus> {
     const payload = await this.getJson("/status");
     if (!isRecord(payload) || payload.status !== "ok") {
-      throw new Error("CUA computer-server status response was invalid.");
+      throw new Error("CUA gateway status response was invalid.");
     }
     return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ payload as CuaServerStatus;
   }
 
   async command(command: string, params?: JsonObject): Promise<CuaCommandResponse> {
-    const response = await fetchWithTimeout(
-      await this.url("/cmd"),
+    const { body, response, retries } = await this.request(
+      "/cmd",
       {
         method: "POST",
         headers: {
-          Accept: "text/plain",
+          Accept: "application/json",
           "Content-Type": "application/json",
         },
         body: JSON.stringify(params && Object.keys(params).length > 0
           ? { command, params }
           : { command }),
       },
-      this.requestTimeoutMs,
+      IDEMPOTENT_CUA_COMMANDS.has(command),
     );
     if (!response.ok) {
-      throw new Error(`CUA computer-server command ${command} failed with HTTP ${response.status}.`);
+      this.invalidateConnection();
+      try {
+        parseCuaCommandResponse(body);
+      } catch (error) {
+        throw new Error(
+          `CUA gateway command ${command} failed with HTTP ${response.status}: ${errorMessage(error)}`,
+        );
+      }
+      throw new Error(`CUA gateway command ${command} failed with HTTP ${response.status}.`);
     }
-    const result = parseCuaCommandResponse(await response.text());
+    const result = parseCuaCommandResponse(body);
     if (result.effect === "refused") {
       const detail = hasStringType(result.text)
         ? result.text
         : `CUA reported action effect ${result.effect}`;
       throw new Error(`CUA command ${command} was refused: ${detail}`);
     }
-    return result;
+    return retries > 0 ? { ...result, transport_retries: retries } : result;
+  }
+
+  supports(command: string): boolean {
+    return this.commandNames?.has(command) === true;
   }
 
   private cursorStatus(
@@ -403,8 +501,8 @@ export class CuaComputerClient {
         reason: "CUA Driver is unavailable; native computer use and Daytona recording remain active.",
       };
     }
-    if (capabilities.length !== CUA_AGENT_CURSOR_COMMANDS.length) {
-      const missing = CUA_AGENT_CURSOR_COMMANDS.filter(
+    if (!REQUIRED_CUA_AGENT_CURSOR_COMMANDS.every((command) => capabilities.includes(command))) {
+      const missing = REQUIRED_CUA_AGENT_CURSOR_COMMANDS.filter(
         (command) => !(command in commandManifest),
       );
       return {
@@ -426,6 +524,10 @@ export class CuaComputerClient {
     return {
       available: true,
       enabled: state?.enabled === true,
+      implicit: state?.implicit === true,
+      labelVisible: hasBooleanType(state?.label_visible)
+        ? state.label_visible
+        : undefined,
       session: hasStringType(state?.session) ? state.session : undefined,
       theme,
       reducedMotion,
@@ -449,25 +551,26 @@ export class CuaComputerClient {
     ]);
 
     if (status.os_type && status.os_type !== "linux") {
-      throw new Error(`Expected CUA computer-server on Linux, received ${status.os_type}.`);
+      throw new Error(`Expected the CUA gateway on Linux, received ${status.os_type}.`);
     }
     const commandManifest = isRecord(commands) ? commands.commands : undefined;
     if (!isRecord(commandManifest)) {
-      throw new Error("CUA computer-server command manifest was invalid.");
+      throw new Error("CUA gateway command manifest was invalid.");
     }
     const missing = REQUIRED_CUA_COMMANDS.filter((command) => !(command in commandManifest));
     if (missing.length > 0) {
-      throw new Error(`CUA computer-server is missing required commands: ${missing.join(", ")}.`);
+      throw new Error(`CUA gateway is missing required commands: ${missing.join(", ")}.`);
     }
-    if (version.package !== CUA_COMPUTER_SERVER_VERSION) {
+    this.commandNames = new Set(Object.keys(commandManifest));
+    if (version.package !== CUA_GATEWAY_PACKAGE) {
       const received = hasStringType(version.package) ? version.package : "unknown";
       throw new Error(
-        `Expected CUA computer-server ${CUA_COMPUTER_SERVER_VERSION}, received ${received}.`,
+        `Expected ${CUA_GATEWAY_PACKAGE}, received ${received}.`,
       );
     }
     const size = isRecord(screen.size) ? screen.size : undefined;
     if (!hasNumberType(size?.width) || !hasNumberType(size.height)) {
-      throw new Error("CUA computer-server could not read the Daytona desktop size.");
+      throw new Error("CUA gateway could not read the Daytona desktop size.");
     }
     const backend = "get_desktop_state" in commandManifest ? "cua-driver" : "native";
     let cursor = this.cursorStatus(backend, commandManifest);
@@ -492,108 +595,79 @@ export class CuaComputerClient {
     };
   }
 
-  private async initializeAgentCursor(status: CuaServerStatus): Promise<CuaServerStatus> {
+  private isLabelSafeCursor(status: CuaServerStatus): boolean {
     const cursor = status.cursor;
-    if (status.backend !== "cua-driver" || !cursor?.available) return status;
-    if (
-      cursor.enabled
-      && cursor.theme === CUA_AGENT_CURSOR_THEME
-      && cursor.reducedMotion === CUA_AGENT_CURSOR_REDUCED_MOTION
-      && usesRecordingCursorMotion(cursor.motion)
-      && cursor.runtimeMode === "daemon"
-      && cursor.renderReady
-      && cursor.captureReady
-      && !cursor.error
-    ) return status;
+    return status.backend === "cua-driver"
+      && cursor?.available === true
+      && cursor.implicit === true
+      && cursor.labelVisible === false
+      && cursor.session === undefined
+      && cursor.theme === "cua.default"
+      && (cursor.runtimeMode === "embedded" || cursor.runtimeMode === "daemon")
+      && (cursor.enabled || cursor.runtimeMode === "embedded")
+      && !cursor.error;
+  }
 
-    try {
-      if (
-        cursor.theme !== CUA_AGENT_CURSOR_THEME
-        || cursor.reducedMotion !== CUA_AGENT_CURSOR_REDUCED_MOTION
-      ) {
-        await this.command("set_agent_cursor_theme", {
-          theme_id: CUA_AGENT_CURSOR_THEME,
-          reduced_motion: CUA_AGENT_CURSOR_REDUCED_MOTION,
-        });
-      }
-      if (!usesRecordingCursorMotion(cursor.motion)) {
-        await this.command("set_agent_cursor_motion", CUA_AGENT_CURSOR_MOTION);
-      }
-      if (!cursor.enabled) {
-        await this.command("set_agent_cursor_enabled", { enabled: true });
-      }
-      // This is deliberately stronger than trusting `enabled`: CUA 0.19.3's
-      // embedded Linux runtime can accept that setter without owning an X11
-      // overlay thread. The compatibility probe moves only the official
-      // overlay, then verifies that its mapped window has a painted shape.
-      const state = await this.command("probe_agent_cursor");
-      const initializedCursor: CuaAgentCursorStatus = {
-        ...cursor,
-        enabled: state.enabled === true,
-        session: hasStringType(state.session) ? state.session : cursor.session,
-        theme: isRecord(state.theme) && hasStringType(state.theme.id)
-          ? state.theme.id
-          : cursor.theme,
-        reducedMotion: isRecord(state.theme)
-          && ["auto", "on", "off"].includes(String(state.theme.reduced_motion))
-          ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ state.theme.reduced_motion as "auto" | "on" | "off"
-          : cursor.reducedMotion,
-        motion: cursorMotion(state.motion) ?? cursor.motion,
-        visualState: isRecord(state.visual_state) ? state.visual_state : cursor.visualState,
-        runtimeMode: ["daemon", "embedded"].includes(String(state.runtime_mode))
-          ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ state.runtime_mode as "daemon" | "embedded"
-          : cursor.runtimeMode,
-        renderReady: state.render_ready === true,
-        captureReady: state.capture_ready === true,
-        capture: isRecord(state.capture) ? state.capture : cursor.capture,
-        overlay: isRecord(state.overlay) ? state.overlay : cursor.overlay,
-        error: undefined,
-      };
-      if (!initializedCursor.enabled) {
-        initializedCursor.error = "CUA Driver accepted cursor initialization but still reports it disabled.";
-      } else if (initializedCursor.theme !== CUA_AGENT_CURSOR_THEME) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = `CUA Driver did not activate the requested cursor theme ${CUA_AGENT_CURSOR_THEME}.`;
-      } else if (initializedCursor.reducedMotion !== CUA_AGENT_CURSOR_REDUCED_MOTION) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = "CUA Driver did not enable full cursor animation.";
-      } else if (!usesRecordingCursorMotion(initializedCursor.motion)) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = "CUA Driver did not activate the recording cursor motion profile.";
-      } else if (initializedCursor.runtimeMode !== "daemon") {
-        initializedCursor.enabled = false;
-        initializedCursor.error = "CUA Driver is not running in its overlay-owning daemon mode.";
-      } else if (!initializedCursor.renderReady) {
-        initializedCursor.enabled = false;
-        initializedCursor.error = initializedCursor.captureReady
-          ? "CUA Driver did not paint a visible X11 agent-cursor overlay."
-          : "CUA Driver's overlay was not present in a captured X11 desktop frame.";
-      }
-      return { ...status, cursor: initializedCursor };
-    } catch (error) {
-      return {
-        ...status,
-        cursor: {
-          ...cursor,
-          enabled: false,
-          error: `Could not initialize the CUA agent cursor: ${errorMessage(error)}`,
-        },
-      };
+  private async useSafePointer(status: CuaServerStatus): Promise<CuaServerStatus> {
+    if (this.isLabelSafeCursor(status)) {
+      await ensureDesktopPointer(
+        this.sandbox,
+        this.sandboxOptions,
+        this.display,
+        status.cursor?.enabled ? "overlay" : "native",
+        this.dependencies,
+      );
+      return status;
     }
+
+    let safeStatus = status;
+    const cursor = status.cursor;
+    if (
+      status.backend === "cua-driver"
+      && cursor?.enabled
+      && cursor.capabilities.includes("set_agent_cursor_enabled")
+    ) {
+      try {
+        await this.command("set_agent_cursor_enabled", { enabled: false });
+        safeStatus = {
+          ...status,
+          cursor: {
+            ...cursor,
+            enabled: false,
+            reason: "The labeled legacy cursor was disabled; the native Daytona pointer is active.",
+          },
+        };
+      } catch (error) {
+        throw new Error(
+          `Could not disable the labeled legacy cursor: ${errorMessage(error)}`,
+        );
+      }
+    } else if (status.backend === "cua-driver" && cursor?.enabled) {
+      throw new Error(
+        "CUA Driver has a visible cursor but cannot prove it is unlabeled or disable it safely.",
+      );
+    }
+
+    await ensureDesktopPointer(
+      this.sandbox,
+      this.sandboxOptions,
+      this.display,
+      "native",
+      this.dependencies,
+    );
+    return safeStatus;
   }
 
   async ensureReady(): Promise<CuaServerStatus> {
+    if (this.readyStatus && Date.now() < this.readyStatusExpiresAt) {
+      return this.readyStatus;
+    }
+
     let initialStatus: CuaServerStatus | undefined;
     try {
-      initialStatus = await this.initializeAgentCursor(await this.inspect());
-      if (
-        initialStatus.backend === "cua-driver"
-        && initialStatus.cursor?.enabled
-        && initialStatus.cursor.renderReady
-        && initialStatus.cursor.captureReady
-        && !initialStatus.cursor.error
-      ) {
-        return initialStatus;
+      initialStatus = await this.inspect();
+      if (this.isLabelSafeCursor(initialStatus)) {
+        return this.rememberReady(await this.useSafePointer(initialStatus));
       }
     } catch {
       // The server is installed in the AutoPR snapshot and started lazily. The
@@ -618,7 +692,12 @@ export class CuaComputerClient {
       const pending = startCuaServer(this.sandbox, this.sandboxOptions, {
         display: this.display,
         serverPort: this.serverPort,
-      }, this.dependencies);
+      }, this.dependencies).catch((error) => {
+        if (cuaCursorRecoveryAttemptedAt.get(recoveryKey) === attemptedAt) {
+          cuaCursorRecoveryAttemptedAt.delete(recoveryKey);
+        }
+        throw error;
+      });
       cuaCursorRecoveryPromises.set(recoveryKey, pending);
       void pending.finally(() => {
         if (cuaCursorRecoveryPromises.get(recoveryKey) === pending) {
@@ -630,43 +709,43 @@ export class CuaComputerClient {
 
     if (recovery) {
       try {
-        // A healthy native server is still degraded on Driver-capable images.
-        // Running the image launcher lets it replace a stale native fallback,
-        // restart a Driver whose overlay thread died, and then re-probe the
-        // exact session before the next action (especially start_recording).
+        // A healthy native or labeled legacy server is still degraded on a
+        // implicit-session-capable image. Let the image launcher replace it before the next
+        // action, especially before Daytona starts recording.
         await recovery;
       } catch (error) {
         if (initialStatus) {
-          return {
-            ...initialStatus,
-            cursor: initialStatus.cursor
+          const safeInitialStatus = await this.useSafePointer(initialStatus);
+          return this.rememberReady({
+            ...safeInitialStatus,
+            cursor: safeInitialStatus.cursor
               ? {
-                  ...initialStatus.cursor,
+                  ...safeInitialStatus.cursor,
                   recoveryAttempted: true,
-                  error: initialStatus.cursor.error
-                    ? `${initialStatus.cursor.error} Recovery failed: ${errorMessage(error)}`
+                  error: safeInitialStatus.cursor.error
+                    ? `${safeInitialStatus.cursor.error} Recovery failed: ${errorMessage(error)}`
                     : `CUA Driver cursor recovery failed: ${errorMessage(error)}`,
                 }
-              : initialStatus.cursor,
-          };
+              : safeInitialStatus.cursor,
+          });
         }
         throw error;
       }
     } else if (initialStatus) {
-      return initialStatus;
+      return this.rememberReady(await this.useSafePointer(initialStatus));
     }
 
     const deadline = Date.now() + CUA_SERVER_READY_TIMEOUT_MS;
     let lastError: unknown;
     while (Date.now() < deadline) {
       try {
-        const recovered = await this.initializeAgentCursor(await this.inspect());
-        return {
+        const recovered = await this.useSafePointer(await this.inspect());
+        return this.rememberReady({
           ...recovered,
           cursor: recovered.cursor
             ? { ...recovered.cursor, recoveryAttempted }
             : recovered.cursor,
-        };
+        });
       } catch (error) {
         lastError = error;
         await new Promise((resolve) => setTimeout(resolve, CUA_SERVER_READY_POLL_MS));
@@ -674,7 +753,7 @@ export class CuaComputerClient {
     }
 
     throw new Error(
-      `CUA computer-server did not become ready: ${errorMessage(lastError ?? "readiness timeout")}`,
+      `CUA gateway did not become ready: ${errorMessage(lastError ?? "readiness timeout")}`,
     );
   }
 }

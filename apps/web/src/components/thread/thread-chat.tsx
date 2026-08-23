@@ -20,14 +20,46 @@ import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
 import { UIMessageStreamProtocolTransport } from "#/lib/ui-message-stream-protocol";
 import { AGENT_CHAT_OPERATION_HEADER, AGENT_CHAT_TASK_ID, type AgentChatClientInput } from "#/lib/trigger-agent-contract";
 import { setWorkOSAccessTokenHeader } from "#/lib/workos-access-token";
-import { discardUnpersistedAssistantTail, runTriggerSessionReconnectAttempt, shouldUseTriggerSessionTransport, triggerSessionHydration, triggerSessionReconnectDelayMs } from "#/lib/trigger-session-reconnect";
+import {
+  restorePersistedAssistantTail,
+  runTriggerSessionReconnectAttempt,
+  shouldUseTriggerSessionTransport,
+  triggerSessionHydration,
+  triggerSessionReconnectDelayMs,
+} from "#/lib/trigger-session-reconnect";
 
-import { PromptInput, PromptInputBody, PromptInputFooter, PromptInputHeader, type PromptInputMessage, PromptInputProvider, PromptInputSubmit, PromptInputTextarea, PromptInputTools } from "@/components/ai-elements/prompt-input";
-import { isToolDiffPayload, toolSlugFromPart, type ToolDiffPayload } from "@/components/ai-elements/tool";
-import { PromptImageAttachments, PromptImageUploadButton, usePromptImageUploadManager } from "#/components/thread/prompt-image-uploads";
-import { CodexPromptConnectionLine, type CodexPromptConnectionIssue } from "#/components/codex-prompt-connection-line";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputHeader,
+  type PromptInputMessage,
+  PromptInputProvider,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input";
+import {
+  isToolDiffPayload,
+  toolSlugFromPart,
+  type ToolDiffPayload,
+} from "@/components/ai-elements/tool";
+import {
+  PromptImageAttachments,
+  PromptImageUploadButton,
+  usePromptImageUploadManager,
+} from "#/components/thread/prompt-image-uploads";
+import {
+  CodexPromptConnectionLine,
+  type CodexPromptConnectionIssue,
+} from "#/components/codex-prompt-connection-line";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
+import {
+  activeComputerToolCallId,
+  latestComputerToolCallId,
+} from "#/components/thread/thread-computer-activity";
+import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import { getCodexReasoningEffortLabel, type CodexModelId, type CodexReasoningEffort } from "#/lib/codex-models";
 import { agentModelKey, getAgentContextLimit, getAgentModelOptions, getAgentReasoningEfforts, selectAgentModel, selectAgentReasoningEffort, type AgentProvider } from "#/lib/agent-models";
@@ -1258,7 +1290,7 @@ function ThreadChatRuntime({
           });
         }
         setMessages((currentMessages) =>
-          discardUnpersistedAssistantTail(currentMessages, initialMessages)
+          restorePersistedAssistantTail(currentMessages, initialMessages)
         );
         clearError();
       }
@@ -1499,6 +1531,14 @@ function ThreadChatRuntime({
   const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
     ? lastMessage.id
     : undefined;
+  const activeComputerToolCall = useMemo(
+    () => activeAssistantMessageId ? activeComputerToolCallId(lastMessage) : undefined,
+    [activeAssistantMessageId, lastMessage],
+  );
+  const latestComputerToolCall = useMemo(
+    () => latestComputerToolCallId(lastMessage),
+    [lastMessage],
+  );
   const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
@@ -1678,6 +1718,11 @@ function ThreadChatRuntime({
               : []}
             workspaceDiffLoadingFile={workspaceDiffLoadingFile}
             onSelectChangedFile={handleSelectChangedFile}
+          />
+          <ThreadComputerPreview
+            projectId={projectId}
+            activityKey={latestComputerToolCall}
+            active={Boolean(activeComputerToolCall)}
           />
         </div>
 

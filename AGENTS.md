@@ -1,63 +1,70 @@
-# AGENTS.md
+# Autopr
 
-## Task Completion Requirements
+Autopr is a cloud based coding agent platform similar to Cursor Cloud and Devin Cloud and serves web and mobile clients.
 
-- Use `pnpm` for this workspace.
-- For type validation, run `pnpm run check-types`.
-- Do **not** repeatedly run build or dev commands.
-- Do **not** run `pnpm build`, `pnpm run build`, `pnpm dev`, `pnpm run dev`, `pnpm run dev:web`, `pnpm run dev:server`, or `pnpm run dev:setup` unless the user explicitly asks for it.
-- Assume the dev server/Convex dev process may already be running. Do not start another one.
+You can think of Autopr as an open source "bring-your-own-subscription" alternative to apps like Cursor Cloud and Devin Cloud.
 
-## Project Snapshot
+### 1. Open at the core
 
-AutoPR is a TypeScript monorepo built with Better-T-Stack, TanStack Start, Convex, WorkOS AuthKit, TailwindCSS, shadcn/ui, and Turborepo.
+Autopr is truly open. We share our roadmap, we share how we think about things, and of course we share all our code. We work in the open, and should strive to stay that way.
 
-This repository is an active WIP. Prefer improvements that make the codebase easier to maintain, reason about, and extend.
+### 2. Multi-surface
 
-## Core Priorities
+Autopr has 2 key app surfaces: **web** and **mobile**.
 
-1. Correctness and reliability first.
-2. Maintain predictable behavior during failures, retries, reconnects, and long-running work.
-3. Keep frontend and backend boundaries clear.
-4. Prefer shared, typed abstractions over duplicated local logic.
+**Web** is a kind of website that people will use to access Autopr features.
 
-If a tradeoff is required, choose correctness and robustness over short-term convenience.
+**Mobile** is a React Native app for both iOS and Android. The mobile app allows for connecting to server **backend** to control work remotely.
 
-## Architecture Guidance
+## A note from Theo
 
-- Prefer Convex backend functions for server-side behavior.
-- Create or update Convex `queries`, `mutations`, or `actions` in `packages/backend/convex` wherever appropriate.
-- Avoid creating Next.js-style API routes or other ad-hoc API routes. Only add an API route when there is an explicit technical requirement that cannot be handled cleanly by Convex.
-- Keep runtime backend logic out of schema/contract-only modules.
-- Extract shared logic into packages when it is used in more than one place.
+I like ambitious ideas, simple systems, and software that feels obvious. Do not preserve complexity just because it already exists. Do not introduce machinery because it looks architecturally impressive. Understand the real constraint, then fight for the smallest model that makes the correct behavior unsurprising.
 
-## Package Roles
+Channel both "measure twice, cut once" and "yagni". Fight scope creep. Try to honor the dev's intent in both a minimal and realistic fashion.
 
-- `apps/web`: TanStack Start React app. Owns UI, routes, client state, WorkOS AuthKit integration, and connections to Convex/backend functionality.
-- `packages/backend`: Convex backend. Owns Convex schema, queries, mutations, actions, and backend integrations.
-- `packages/agent`: Agent runtime/tools code shared with the app.
-- `packages/ui`: Shared shadcn/ui components, hooks, styles, and UI utilities.
-- `packages/config`: Shared TypeScript/configuration used by packages.
-- `packages/env`: Shared environment typing/utilities if needed by the workspace.
+## Pull requests
 
-## Maintainability
+- Never make a PR unless the developer explicitly asks you to do so.
+- Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
+- Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
+- UI changes need before/after images. Motion or timing needs a short video.
+- Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
+- One concern per PR. If the description says "also", split it.
 
-- Before adding new functionality, check for existing shared logic that can be reused or extracted.
-- Avoid duplicating logic across files or packages.
-- Prefer small, focused modules with explicit exports.
-- Do not take shortcuts by adding one-off local logic when a reusable abstraction is warranted.
-- Keep TypeScript types strict and meaningful; avoid `any` unless there is a clear and documented reason.
+## Plans and work artifacts
 
-## Frontend Guidelines
+- Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
+- A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
 
-- Use TanStack Start/TanStack Router conventions in `apps/web`.
-- Use shared UI primitives from `@autopr/ui` when possible.
-- Keep app-specific components in `apps/web`; move reusable primitives to `packages/ui`.
-- Preserve existing styling conventions with TailwindCSS and shadcn/ui.
+## How it works
 
-## Convex Guidelines
+Web and mobile subscribe to Convex for the live read model: projects, threads, messages, sandbox state, and git status. Starting a turn hits a TanStack Start API route. That route persists the messages, issues a short-lived _persistence grant_, and triggers a Trigger.dev _task_. The client then consumes the task's indexed stream and can reconnect from the last chunk.
 
-- Put data reads in Convex queries, writes in mutations, and external/long-running side effects in actions.
-- Validate inputs and keep Convex function boundaries typed.
-- Keep business logic close to the Convex function when it is backend-specific; extract only genuinely shared logic.
-- Avoid bypassing Convex with separate HTTP endpoints unless explicitly required.
+The task runs `CodingHarness` from `@autopr/agent`. The harness prepares a Daytona sandbox, tools, and the system prompt, then leaves the model loop to Vercel AI SDK `streamText`. Codex and Grok credentials come from `@autopr/chatgpt` and `@autopr/grok`. Tools execute inside the VM: file edits, bash, FFF search, and CUA computer use. The worker patches assistant parts back to Convex through the grant.
+
+Each thread owns a feature branch and, when needed, a git worktree in the sandbox. Commit, push, and pull request are a phased git workflow. Long threads compact with a conversation checkpoint so the model keeps a tail plus a summary.
+
+## Where code lives
+
+- `apps/web` - TanStack Start UI, WorkOS AuthKit, GitHub/OAuth cookie routes, and the Trigger.dev agent tasks. Vite + React. Put HTTP here only when Convex cannot: Trigger.dev, provider cookies, or signed sandbox previews.
+- `apps/mobile` - Expo/React Native client on the same Convex deployment. Auth code exchange goes through the web app. No remote desktop.
+- `packages/backend` - Convex schema, queries, mutations, and actions. Source of truth for projects, threads, messages, and sandbox cost. Prefer a Convex function over a new HTTP route.
+- `packages/agent` - Daytona sandbox bootstrap, coding tools, step controller, and `CodingHarness`. No model runtime here.
+- `packages/chatgpt` - Login with ChatGPT, Codex transport, and the AI SDK provider. Keep tokens on the server.
+- `packages/grok` - xAI device/OAuth and the Grok AI SDK provider.
+- `packages/ui` - Shared shadcn primitives and tokens. App-specific UI stays in `apps/web`.
+- `packages/config` - Shared tsconfig and sandbox network policy.
+- `infra/daytona/autopr` - The `autopr-cua` snapshot: Ubuntu desktop, CUA computer-server, FFF, ttyd. Rebuild the snapshot when this directory changes. Do not mutate it at runtime.
+
+## Taste
+
+- Complexity belongs at the adapter boundary. Orchestration stays pure, UI stays dumb.
+- Inferred types over annotations. `any` is the enemy.
+- Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior.
+- Our users drive agents all day and notice a dropped frame, a lying spinner, and a stale label. No continuously repainting animations; they peg the GPU on high-refresh displays.
+- If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
+
+## Additional tips
+
+- Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
+- Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.

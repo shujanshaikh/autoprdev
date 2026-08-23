@@ -1,5 +1,12 @@
-
-import { applyAgenticCache, CodingHarness, createAgentStepController, DEMO_RECORDING_INSTRUCTIONS, type SandboxSessionOptions, withSandboxAgentProjectContext } from "@autopr/agent";
+import {
+  applyAgenticCache,
+  CodingHarness,
+  COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
+  createAgentStepController,
+  DEMO_RECORDING_INSTRUCTIONS,
+  type SandboxSessionOptions,
+  withSandboxAgentProjectContext,
+} from "@autopr/agent";
 import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
@@ -182,7 +189,7 @@ async function runAgentTask(
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
   const harness = new CodingHarness({
     ...sandboxOptions,
-    computer: demoRecordingEnabled ? {} : false,
+    computer: { recordingEnabled: demoRecordingEnabled },
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
@@ -194,7 +201,7 @@ async function runAgentTask(
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
       demoRecordingEnabled
         ? DEMO_RECORDING_INSTRUCTIONS
-        : undefined,
+        : COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -205,6 +212,7 @@ async function runAgentTask(
   };
   let persistenceFinished = false;
   let streamFinished = false;
+  let persistenceFinalizationError: Error | undefined;
   const runStartedAt = Date.now();
 
   if (options.assistantMessageId) {
@@ -314,11 +322,15 @@ async function runAgentTask(
         });
       } catch (error) {
         if (!isPersistenceUnauthenticatedError(error) && !signal.aborted) {
-          throw error;
+          persistenceFinalizationError = error instanceof Error
+            ? error
+            : new Error("Failed to finalize the agent run.", { cause: error });
         }
       }
     }
   }
+
+  if (persistenceFinalizationError) throw persistenceFinalizationError;
 }
 
 export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true }>({

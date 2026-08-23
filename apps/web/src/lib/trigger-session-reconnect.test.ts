@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { discardUnpersistedAssistantTail, runTriggerSessionReconnectAttempt, triggerSessionReconnectDelayMs, shouldUseTriggerSessionTransport, triggerSessionHydration } from "./trigger-session-reconnect";
+import {
+  restorePersistedAssistantTail,
+  runTriggerSessionReconnectAttempt,
+  triggerSessionReconnectDelayMs,
+  shouldUseTriggerSessionTransport,
+  triggerSessionHydration,
+} from "./trigger-session-reconnect";
 
-describe("discardUnpersistedAssistantTail", () => {
+describe("restorePersistedAssistantTail", () => {
   it("removes a partial assistant response before replaying from a persisted cursor", () => {
     const persisted = [{ id: "user_1", role: "user" as const, parts: [] }];
     const partialAssistant = {
@@ -11,7 +17,7 @@ describe("discardUnpersistedAssistantTail", () => {
       parts: [{ type: "text" as const, text: "Partial", state: "streaming" as const }],
     };
 
-    expect(discardUnpersistedAssistantTail([...persisted, partialAssistant], persisted))
+    expect(restorePersistedAssistantTail([...persisted, partialAssistant], persisted))
       .toEqual(persisted);
   });
 
@@ -22,7 +28,24 @@ describe("discardUnpersistedAssistantTail", () => {
       parts: [{ type: "text" as const, text: "Done" }],
     }];
 
-    expect(discardUnpersistedAssistantTail(persisted, persisted)).toBe(persisted);
+    expect(restorePersistedAssistantTail(persisted, persisted)).toBe(persisted);
+  });
+
+  it("restores persisted parts when a streamed assistant reused the persisted ID", () => {
+    const persistedAssistant = {
+      id: "assistant_1",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Saved" }],
+    };
+    const streamedAssistant = {
+      ...persistedAssistant,
+      parts: [{ type: "text" as const, text: "Saved plus duplicate", state: "streaming" as const }],
+    };
+
+    expect(restorePersistedAssistantTail(
+      [streamedAssistant],
+      [persistedAssistant],
+    )).toEqual([persistedAssistant]);
   });
 });
 

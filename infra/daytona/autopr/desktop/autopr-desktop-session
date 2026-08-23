@@ -37,6 +37,26 @@ set_xfconf() {
   fi
 }
 
+set_transparent_panel() {
+  if ! command -v xfconf-query >/dev/null 2>&1; then
+    return 0
+  fi
+
+  set_xfconf xfwm4 /general/use_compositing bool "true"
+  set_xfconf xfce4-panel /panels/panel-1/background-style uint "1"
+  set_xfconf xfce4-panel /panels/panel-1/enter-opacity uint "100"
+  set_xfconf xfce4-panel /panels/panel-1/leave-opacity uint "100"
+
+  # XFCE stores the panel color as a four-double RGBA array. Recreate it so
+  # persisted session state cannot restore the opaque theme background.
+  xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba -r >/dev/null 2>&1 || true
+  xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba -n \
+    -t double -s 0 \
+    -t double -s 0 \
+    -t double -s 0 \
+    -t double -s 0 >/dev/null 2>&1 || true
+}
+
 ensure_xfdesktop() {
   if ! command -v xfdesktop >/dev/null 2>&1; then
     return 0
@@ -94,6 +114,7 @@ if wait_for_xfconf; then
   set_xfconf xsettings /Gtk/CursorThemeName string "$CURSOR_THEME"
   set_xfconf xsettings /Gtk/CursorThemeSize int "$CURSOR_SIZE"
   set_xfconf xsettings /Gtk/EnableAnimations bool "false"
+  set_transparent_panel
   set_xfconf xfce4-desktop /backdrop/single-workspace-mode bool "true"
   set_xfconf xfce4-desktop /desktop-icons/style int "0"
 

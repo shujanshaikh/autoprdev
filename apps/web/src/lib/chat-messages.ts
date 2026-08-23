@@ -1,7 +1,6 @@
 import { hasStringType } from "@autopr/config/runtime-type";
 import { isJsonObject, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
-
-import type { ModelMessage, UIMessage } from "ai";
+import { isToolUIPart, type ModelMessage, type UIMessage } from "ai";
 import { compactAssistantPartsForModel } from "./agent-message-compaction";
 
 export type StoredMessageRow = {
@@ -271,14 +270,14 @@ export function sanitizeAssistantPartsForPersistence(parts: UIMessage["parts"]):
 
 function isCompleteToolPart(part: UIMessage["parts"][number]) {
   return (
-    part.type === "dynamic-tool" &&
+    isToolUIPart(part) &&
     "state" in part &&
-    (part.state === "output-available" || part.state === "output-error")
+    TERMINAL_TOOL_STATES.has(part.state)
   );
 }
 
 function normalizeStoppedAssistantPart(part: UIMessage["parts"][number]): UIMessage["parts"][number] | null {
-  if (part.type === "dynamic-tool") {
+  if (isToolUIPart(part)) {
     return isCompleteToolPart(part) ? part : null;
   }
 

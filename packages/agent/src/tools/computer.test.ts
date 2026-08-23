@@ -1,241 +1,394 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject } from "@autopr/config/runtime-value";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-const mocks = vi.hoisted(() => ({
+import {
+  createCuaComputerTool,
+  COMPUTER_METADATA_PREFIX,
+  type CuaComputerDependencies,
+  type CuaComputerToolOptions,
+} from "./computer";
+import type { CuaToolSession } from "./computer-session";
+import { safeParse } from "../test/schema";
+
+const mocks = {
   getSandboxContext: vi.fn(),
+  getSession: vi.fn(),
   ensureReady: vi.fn(),
   inspect: vi.fn(),
   command: vi.fn(),
-}));
-
-import { createCuaComputerTool } from "./computer";
-import { safeParse } from "../test/schema";
+  supports: vi.fn(),
+  clientConstructions: 0,
+};
 
 const dependencies = {
   getSandboxContext: mocks.getSandboxContext,
-  createClient: () => ({
-    ensureReady: mocks.ensureReady,
-    inspect: mocks.inspect,
-    command: mocks.command,
-  }),
-};
+  getSession: mocks.getSession,
+} satisfies CuaComputerDependencies;
+
+function createComputer(cacheKey: string, options: CuaComputerToolOptions = {}) {
+  return createCuaComputerTool({ cacheKey }, options, dependencies);
+}
+
+function metadata<Result>(result: Result): JsonObject {
+  if (!isJsonObject(result) || !Array.isArray(result.value)) {
+    throw new Error("computer result is not content");
+  }
+  const item = result.value.find((entry) => (
+    isJsonObject(entry)
+    && hasStringType(entry.text)
+    && entry.text.startsWith(COMPUTER_METADATA_PREFIX)
+  ));
+  if (!isJsonObject(item)) {
+    throw new Error("computer metadata is missing");
+  }
+  const metadataText = z.string().parse(item.text);
+  const parsed = jsonValueSchema.parse(JSON.parse(metadataText.slice(COMPUTER_METADATA_PREFIX.length)));
+  if (!isJsonObject(parsed)) throw new Error("computer metadata is not an object");
+  return parsed;
+}
+
+function observationId<Result>(result: Result): string {
+  const screenshot = metadata(result).screenshot;
+  if (!isJsonObject(screenshot) || !hasStringType(screenshot.id)) {
+    throw new Error("observation ID is missing");
+  }
+  return screenshot.id;
+}
 
 describe("CUA computer tool input", () => {
-  const computer = createCuaComputerTool({ cacheKey: "computer-schema" });
+  const computer = createComputer("computer-schema");
 
-  it("accepts absolute HTTP(S) preview URLs", () => {
+  it("exposes one strict CUA action instead of legacy batches", () => {
+    expect(safeParse(computer.inputSchema, { type: "screenshot" }).success).toBe(true);
     expect(safeParse(computer.inputSchema, {
-      actions: [{ type: "open_url", url: "http://localhost:3000/project/1" }],
-    }).success).toBe(true);
-    expect(safeParse(computer.inputSchema, {
-      action: "open_url",
-      url: "https://example.com",
-    }).success).toBe(true);
-  });
-
-  it("rejects script, file, and malformed browser targets", () => {
-    for (const url of ["javascript:alert(1)", "file:///etc/passwd", "localhost:3000"]) {
-      expect(safeParse(computer.inputSchema, {
-        actions: [{ type: "open_url", url }],
-      }).success).toBe(false);
-    }
-  });
-
-  it("uses CUA-supported screenshot formats", () => {
-    expect(safeParse(computer.inputSchema, {
-      actions: [{ type: "screenshot", format: "jpeg", quality: 85 }],
-    }).success).toBe(true);
-    expect(safeParse(computer.inputSchema, {
-      actions: [{ type: "screenshot", format: "webp" }],
+      actions: [{ type: "screenshot" }],
     }).success).toBe(false);
+    expect(safeParse(computer.inputSchema, {
+      type: "click",
+      observationId: "obs-1-abcdef123456",
+      x: 10,
+      y: 20,
+    }).success).toBe(true);
+    expect(safeParse(computer.inputSchema, { type: "click", x: 10, y: 20 }).success).toBe(false);
+  });
+
+  it("accepts CUA crops, window zoom, full drag paths, and clipboard actions", () => {
+    expect(safeParse(computer.inputSchema, {
+      type: "screenshot",
+      region: { x: 10, y: 20, width: 300, height: 200 },
+    }).success).toBe(true);
+    expect(safeParse(computer.inputSchema, { type: "screenshot", windowId: 42 }).success).toBe(true);
+    expect(safeParse(computer.inputSchema, {
+      type: "drag",
+      observationId: "obs-1-abcdef123456",
+      path: [{ x: 10, y: 20 }, { x: 20, y: 35 }, { x: 40, y: 50 }],
+    }).success).toBe(true);
+    expect(safeParse(computer.inputSchema, { type: "clipboard_write", text: "hello" }).success).toBe(true);
+  });
+
+  it("keeps browser targets and screenshot formats constrained", () => {
+    expect(safeParse(computer.inputSchema, {
+      type: "open_url",
+      url: "http://localhost:3000/project/1",
+    }).success).toBe(true);
+    for (const url of ["javascript:alert(1)", "file:///etc/passwd", "localhost:3000"]) {
+      expect(safeParse(computer.inputSchema, { type: "open_url", url }).success).toBe(false);
+    }
+    expect(safeParse(computer.inputSchema, { type: "screenshot", format: "webp" }).success).toBe(false);
   });
 });
 
-describe("CUA computer tool timeout quarantine", () => {
+describe("CUA computer execution", () => {
   const getStatus = vi.fn(async () => ({ status: "active" }));
-  const stopRecording = vi.fn(async () => ({
-    id: "recording-1",
-    status: "completed",
-  }));
-  const startRecording = vi.fn(async () => ({
-    id: "recording-2",
-    status: "started",
-  }));
-  const computerUse = {
-    getStatus,
-    recording: { start: startRecording, stop: stopRecording },
+  const startRecording = vi.fn(async () => ({ id: "recording-1", status: "started" }));
+  const stopRecording = vi.fn(async () => ({ id: "recording-1", status: "completed" }));
+  const listRecordings = vi.fn(async () => ({ recordings: [] }));
+  const getRecording = vi.fn(async () => ({ id: "recording-1", status: "completed" }));
+  type TestSandbox = {
+    id: string;
+    getSignedPreviewUrl: ReturnType<typeof vi.fn>;
+    computerUse: {
+      getStatus: typeof getStatus;
+      start: ReturnType<typeof vi.fn>;
+      recording: {
+        start: typeof startRecording;
+        stop: typeof stopRecording;
+        list: typeof listRecordings;
+        get: typeof getRecording;
+      };
+    };
   };
+  let sandbox: TestSandbox;
+  let session: CuaToolSession | undefined;
+  let imageData: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    mocks.clientConstructions = 0;
+    session = undefined;
+    imageData = (await sharp({
+      create: { width: 100, height: 80, channels: 3, background: "#111111" },
+    }).png().toBuffer()).toString("base64");
+    sandbox = {
+      id: `sandbox-${Math.random()}`,
+      getSignedPreviewUrl: vi.fn(async () => ({ url: "https://cua.test/" })),
+      computerUse: {
+        getStatus,
+        start: vi.fn(async () => undefined),
+        recording: {
+          start: startRecording,
+          stop: stopRecording,
+          list: listRecordings,
+          get: getRecording,
+        },
+      },
+    };
+    mocks.getSandboxContext.mockResolvedValue({ sandbox, workDir: "/workspace/repo" });
     mocks.ensureReady.mockResolvedValue({
       status: "ok",
       os_type: "linux",
       backend: "cua-driver",
-      cursor: {
-        available: true,
-        enabled: true,
-        theme: "dev.autopr.cursor.neon",
-        capabilities: [],
-      },
+      cursor: { available: true, enabled: true, capabilities: [] },
     });
     mocks.inspect.mockResolvedValue({ status: "ok", os_type: "linux" });
-    mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-computer", computerUse },
-      workDir: "/workspace/repo",
+    mocks.supports.mockImplementation((command: string) => command === "get_desktop_state");
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "get_desktop_state") {
+        return {
+          success: true,
+          image_data: imageData,
+          screen_width: 100,
+          screen_height: 80,
+          screenshot_width: 100,
+          screenshot_height: 80,
+        };
+      }
+      if (command === "get_cursor_position") {
+        return { success: true, position: { x: 20, y: 30 } };
+      }
+      if (command === "get_screen_size") {
+        return { success: true, size: { width: 100, height: 80 } };
+      }
+      return { success: true, effect: "confirmed" };
     });
+    mocks.getSession.mockImplementation(() => {
+      if (session) return session;
+      mocks.clientConstructions += 1;
+      session = {
+        client: {
+          ensureReady: mocks.ensureReady,
+          inspect: mocks.inspect,
+          command: mocks.command,
+          supports: mocks.supports,
+        },
+        observationSequence: 0,
+        trajectorySequence: 0,
+        trajectory: [],
+      };
+      return session;
+    });
+  });
+
+  it("reuses one CUA client and captures atomic desktop state", async () => {
+    const computer = createComputer("persistent-client");
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    const first = await computer.execute({ type: "screenshot" }, { toolCallId: "one", messages: [] });
+    const second = await computer.execute({ type: "screenshot" }, { toolCallId: "two", messages: [] });
+
+    expect(mocks.clientConstructions).toBe(1);
+    expect(mocks.command.mock.calls.filter(([command]) => command === "get_desktop_state")).toHaveLength(2);
+    expect(mocks.command).not.toHaveBeenCalledWith("screenshot", expect.anything());
+    expect(observationId(first)).not.toBe(observationId(second));
+    expect(metadata(second)).toMatchObject({
+      screenshot: { captureKind: "desktop_state" },
+    });
+  });
+
+  it("rejects stale coordinates and translates cropped coordinates back to the screen", async () => {
+    const computer = createComputer("observation-coordinates");
+    if (!computer.execute) throw new Error("computer tool is not executable");
+    const cropped = await computer.execute(
+      { type: "screenshot", region: { x: 10, y: 20, width: 40, height: 30 } },
+      { toolCallId: "crop", messages: [] },
+    );
+    const id = observationId(cropped);
+
+    await expect(computer.execute(
+      { type: "click", observationId: "obs-0-stale000000", x: 5, y: 6 },
+      { toolCallId: "stale", messages: [] },
+    )).rejects.toThrow("Stale CUA observation");
+
+    await computer.execute(
+      { type: "click", observationId: id, x: 5, y: 6 },
+      { toolCallId: "click", messages: [] },
+    );
+    expect(mocks.command).toHaveBeenCalledWith("left_click", { x: 15, y: 26 });
+  });
+
+  it("preserves every drag point and scales screenshot coordinates", async () => {
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "get_desktop_state") {
+        return {
+          success: true,
+          image_data: imageData,
+          screen_width: 200,
+          screen_height: 160,
+          screenshot_width: 100,
+          screenshot_height: 80,
+        };
+      }
+      if (command === "get_cursor_position") return { success: true, position: { x: 0, y: 0 } };
+      return { success: true, effect: "confirmed" };
+    });
+    const computer = createComputer("drag-scale");
+    if (!computer.execute) throw new Error("computer tool is not executable");
+    const shot = await computer.execute({ type: "screenshot" }, { toolCallId: "shot", messages: [] });
+    await computer.execute({
+      type: "drag",
+      observationId: observationId(shot),
+      path: [{ x: 1, y: 2 }, { x: 10, y: 20 }, { x: 30, y: 40 }],
+      durationMs: 900,
+    }, { toolCallId: "drag", messages: [] });
+    expect(mocks.command).toHaveBeenCalledWith("drag", {
+      path: [[2, 4], [20, 40], [60, 80]],
+      button: "left",
+      duration: 0.9,
+    });
+  });
+
+  it("captures exactly one CUA frame after an action", async () => {
+    const computer = createComputer("single-frame");
+    if (!computer.execute) throw new Error("computer tool is not executable");
+    const shot = await computer.execute({ type: "screenshot" }, { toolCallId: "shot", messages: [] });
+    mocks.command.mockClear();
+    const result = await computer.execute({
+      type: "click",
+      observationId: observationId(shot),
+      x: 10,
+      y: 10,
+    }, { toolCallId: "click", messages: [] });
+    expect(mocks.command.mock.calls.filter(([command]) => command === "get_desktop_state")).toHaveLength(1);
+    expect(metadata(result)).toMatchObject({ screenshot: { captureKind: "desktop_state" } });
+  });
+
+  it("uses CUA window, clipboard, and single-request text commands", async () => {
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "get_desktop_state") {
+        return {
+          success: true,
+          image_data: imageData,
+          screen_width: 100,
+          screen_height: 80,
+          screenshot_width: 100,
+          screenshot_height: 80,
+        };
+      }
+      if (command === "get_cursor_position") return { success: true, position: { x: 0, y: 0 } };
+      if (command === "get_application_windows") return { success: true, windows: [7] };
+      if (command === "get_window_name") return { success: true, name: "Chrome" };
+      if (command === "get_window_size") return { success: true, width: 60, height: 50 };
+      if (command === "get_window_position") return { success: true, x: 10, y: 20 };
+      if (command === "copy_to_clipboard") return { success: true, content: "copied" };
+      return { success: true, effect: "confirmed" };
+    });
+    const computer = createComputer("expanded-cua");
+    if (!computer.execute) throw new Error("computer tool is not executable");
+    const windows = await computer.execute({ type: "windows", app: "Chrome" }, { toolCallId: "windows", messages: [] });
+    expect(metadata(windows)).toMatchObject({ windows: [{ id: 7, name: "Chrome" }] });
+    const zoomed = await computer.execute({ type: "screenshot", windowId: 7 }, { toolCallId: "zoom", messages: [] });
+    expect(metadata(zoomed)).toMatchObject({
+      screenshot: { origin: { x: 10, y: 20 }, width: 60, height: 50 },
+    });
+    const clipboard = await computer.execute({ type: "clipboard_read" }, { toolCallId: "clipboard", messages: [] });
+    expect(metadata(clipboard)).toMatchObject({ clipboard: "copied" });
+    await computer.execute(
+      { type: "clipboard_write", text: "replacement" },
+      { toolCallId: "clipboard-write", messages: [] },
+    );
+    expect(mocks.command).toHaveBeenCalledWith("set_clipboard", { text: "replacement" });
+
+    await computer.execute({ type: "type", text: "hello" }, { toolCallId: "type", messages: [] });
+    expect(mocks.command.mock.calls.filter(([command]) => command === "type_text")).toEqual([
+      ["type_text", { text: "hello" }],
+    ]);
+  });
+
+  it("returns per-action CUA trajectory diagnostics", async () => {
+    const computer = createComputer("trajectory");
+    if (!computer.execute) throw new Error("computer tool is not executable");
+    const shot = await computer.execute({ type: "screenshot" }, { toolCallId: "shot", messages: [] });
+    mocks.command.mockImplementation(async (command: string) => {
+      if (command === "get_desktop_state") {
+        return {
+          success: true,
+          image_data: imageData,
+          screen_width: 100,
+          screen_height: 80,
+          screenshot_width: 100,
+          screenshot_height: 80,
+        };
+      }
+      if (command === "get_cursor_position") return { success: true, position: { x: 0, y: 0 } };
+      if (command === "left_click") {
+        return { success: true, effect: "confirmed", transport_retries: 1 };
+      }
+      return { success: true };
+    });
+    const result = await computer.execute({
+      type: "click",
+      observationId: observationId(shot),
+      x: 10,
+      y: 10,
+    }, { toolCallId: "click", messages: [] });
+    expect(metadata(result)).toMatchObject({
+      trajectory: { status: "completed", effect: "confirmed", transportRetries: 1 },
+      recentTrajectory: expect.arrayContaining([
+        expect.objectContaining({ action: "screenshot(full)" }),
+        expect.objectContaining({ action: "click(10,10,left)" }),
+      ]),
+    });
+  });
+
+  it("keeps recording permission checks outside the sandbox", async () => {
+    const computer = createComputer("recording-disabled", { recordingEnabled: false });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+    await expect(computer.execute(
+      { type: "start_recording", title: "Unapproved demo" },
+      { toolCallId: "recording", messages: [] },
+    )).rejects.toThrow("Demo recording is disabled for this thread");
+    expect(mocks.getSandboxContext).not.toHaveBeenCalled();
   });
 
   it("does not overlap a retry with an action that outlived its timeout", async () => {
     vi.useFakeTimers();
     try {
-      let finishClick: (() => void) | undefined;
-      mocks.command.mockImplementationOnce(() => new Promise<void>((resolve) => {
-        finishClick = resolve;
-      }));
-      const computer = createCuaComputerTool({ cacheKey: "computer-timeout" }, {}, dependencies);
+      let finishType: (() => void) | undefined;
+      mocks.command.mockImplementation((command: string) => {
+        if (command === "type_text") {
+          return new Promise((resolve) => {
+            finishType = () => resolve({ success: true });
+          });
+        }
+        return Promise.resolve({ success: true });
+      });
+      const computer = createComputer("timeout-quarantine");
       if (!computer.execute) throw new Error("computer tool is not executable");
-
-      const timedOut = computer.execute(
-        { actions: [{ type: "click", x: 10, y: 20 }] },
-        { toolCallId: "computer-1", messages: [] },
-      );
-      const timedOutAssertion = expect(timedOut).rejects.toThrow(
-        "Timed out running CUA computer action click",
-      );
+      const timedOut = computer.execute({ type: "type", text: "x" }, { toolCallId: "type", messages: [] });
+      const assertion = expect(timedOut).rejects.toThrow("Timed out running CUA computer action type");
       await vi.advanceTimersByTimeAsync(120_000);
-      await timedOutAssertion;
+      await assertion;
 
-      const retry = computer.execute(
-        { actions: [{ type: "status" }] },
-        { toolCallId: "computer-2", messages: [] },
-      );
+      const retry = computer.execute({ type: "status" }, { toolCallId: "status", messages: [] });
       await vi.advanceTimersByTimeAsync(1_000);
       expect(getStatus).toHaveBeenCalledTimes(1);
-
-      finishClick?.();
+      finishType?.();
       await vi.runAllTimersAsync();
-      await expect(retry).resolves.toBeDefined();
+      await retry;
       expect(getStatus).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("can stop a Daytona recording without starting the desktop or CUA", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "computer-recording-stop" }, {}, dependencies);
-    if (!computer.execute) throw new Error("computer tool is not executable");
-
-    await expect(computer.execute(
-      {
-        actions: [{
-          type: "stop_recording",
-          recordingId: "recording-1",
-          title: "CUA migration demo",
-        }],
-      },
-      { toolCallId: "computer-recording", messages: [] },
-    )).resolves.toBeDefined();
-
-    expect(stopRecording).toHaveBeenCalledWith("recording-1");
-    expect(getStatus).not.toHaveBeenCalled();
-    expect(mocks.ensureReady).not.toHaveBeenCalled();
-    expect(mocks.command).not.toHaveBeenCalled();
-  });
-
-  it("initializes the visible CUA cursor before starting a Daytona recording", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "computer-recording-start" }, {}, dependencies);
-    if (!computer.execute) throw new Error("computer tool is not executable");
-
-    await computer.execute(
-      { actions: [{ type: "start_recording", title: "Visible cursor demo" }] },
-      { toolCallId: "computer-recording-start", messages: [] },
-    );
-
-    expect(startRecording).toHaveBeenCalledWith("Visible cursor demo");
-    expect(mocks.ensureReady).toHaveBeenCalledTimes(1);
-    expect(mocks.command).not.toHaveBeenCalled();
-    expect(mocks.ensureReady.mock.invocationCallOrder[0]).toBeLessThan(
-      startRecording.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-    );
-  });
-
-  it("keeps movement, clicks, drag, and scroll positioning on the CUA action path", async () => {
-    mocks.command.mockImplementation(async (command: string) => {
-      if (command === "screenshot") {
-        return { success: true, image_data: "AA==", format: "jpeg" };
-      }
-      if (command === "get_screen_size") {
-        return { success: true, size: { width: 1920, height: 1080 } };
-      }
-      if (command === "get_cursor_position") {
-        return { success: true, position: { x: 60, y: 70 } };
-      }
-      return { success: true };
-    });
-    const computer = createCuaComputerTool({ cacheKey: "computer-cursor-actions" }, {}, dependencies);
-    if (!computer.execute) throw new Error("computer tool is not executable");
-
-    await computer.execute({
-      actions: [
-        { type: "move", x: 10, y: 20 },
-        { type: "click", x: 20, y: 30 },
-        { type: "click", x: 30, y: 40, button: "right" },
-        { type: "double_click", x: 40, y: 50 },
-        { type: "drag", startX: 40, startY: 50, endX: 60, endY: 70 },
-        { type: "scroll", x: 60, y: 70, direction: "down", amount: 3 },
-      ],
-    }, { toolCallId: "computer-cursor-actions", messages: [] });
-
-    const actionCalls = mocks.command.mock.calls.filter(
-      ([command]) => !["screenshot", "get_screen_size", "get_cursor_position"].includes(command),
-    );
-    expect(actionCalls).toEqual([
-      ["move_cursor", { x: 10, y: 20 }],
-      ["left_click", { x: 20, y: 30 }],
-      ["right_click", { x: 30, y: 40 }],
-      ["double_click", { x: 40, y: 50 }],
-      ["drag", { path: [[40, 50], [60, 70]], button: "left", duration: 0.5 }],
-      ["move_cursor", { x: 60, y: 70 }],
-      ["scroll_direction", { direction: "down", clicks: 3 }],
-    ]);
-  });
-
-  it("paces CUA typing when the caller requests a per-key delay", async () => {
-    vi.useFakeTimers();
-    try {
-      mocks.command.mockImplementation(async (command: string) => {
-        if (command === "screenshot") {
-          return { success: true, image_data: "AA==", format: "jpeg" };
-        }
-        return { success: true };
-      });
-      const computer = createCuaComputerTool(
-        { cacheKey: "computer-paced-typing" },
-        {},
-        dependencies,
-      );
-      if (!computer.execute) throw new Error("computer tool is not executable");
-
-      const execution = computer.execute(
-        { actions: [{ type: "type", text: "ab", delayMs: 25 }] },
-        { toolCallId: "computer-paced-typing", messages: [] },
-      );
-      await vi.advanceTimersByTimeAsync(0);
-
-      const typingCalls = () => mocks.command.mock.calls.filter(
-        ([command]) => command === "type_text",
-      );
-      expect(typingCalls()).toEqual([["type_text", { text: "a" }]]);
-
-      await vi.advanceTimersByTimeAsync(24);
-      expect(typingCalls()).toHaveLength(1);
-
-      await vi.advanceTimersByTimeAsync(1);
-      await execution;
-      expect(typingCalls()).toEqual([
-        ["type_text", { text: "a" }],
-        ["type_text", { text: "b" }],
-      ]);
     } finally {
       vi.useRealTimers();
     }

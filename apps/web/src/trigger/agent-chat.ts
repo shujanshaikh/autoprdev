@@ -1,4 +1,13 @@
-import { applyAgenticCache, CodingHarness, createAgentStepController, createDaytonaTools, DEMO_RECORDING_INSTRUCTIONS, type SandboxSessionOptions, withSandboxAgentProjectContext } from "@autopr/agent";
+import {
+  applyAgenticCache,
+  CodingHarness,
+  COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
+  createAgentStepController,
+  createDaytonaTools,
+  DEMO_RECORDING_INSTRUCTIONS,
+  type SandboxSessionOptions,
+  withSandboxAgentProjectContext,
+} from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { chat } from "@trigger.dev/sdk/ai";
 import { fetchAction } from "convex/nextjs";
@@ -107,7 +116,7 @@ function modelPromptCacheKey(clientData: AgentChatClientData) {
 function demoInstructions(clientData: AgentChatClientData) {
   return clientData.demoEnabled
     ? DEMO_RECORDING_INSTRUCTIONS
-    : undefined;
+    : COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS;
 }
 
 function modelInstructions(clientData: AgentChatClientData) {
@@ -140,7 +149,7 @@ export const agentChatTask = chat.agent({
   tools: ({ chatId, clientData }) => {
     const trusted = requireClientData(clientData, chatId);
     return createDaytonaTools(sandboxOptions(trusted), {
-      computer: trusted.demoEnabled ? {} : false,
+      computer: { recordingEnabled: Boolean(trusted.demoEnabled) },
     });
   },
   hydrateMessages: async ({ chatId, clientData, incomingMessages }) => {
@@ -234,7 +243,7 @@ export const agentChatTask = chat.agent({
     const trusted = requireClientData(clientData, chatId);
     const harness = new CodingHarness({
       ...sandboxOptions(trusted),
-      computer: trusted.demoEnabled ? {} : false,
+      computer: { recordingEnabled: Boolean(trusted.demoEnabled) },
       modelId: trusted.model.modelId,
       modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
       appendSystemPrompt: modelInstructions(trusted),

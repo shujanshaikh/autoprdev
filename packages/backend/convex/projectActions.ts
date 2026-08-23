@@ -1,10 +1,14 @@
 "use node";
 
-import { hasBooleanType, hasNumberType, hasStringType } from "@autopr/config/runtime-type";
-import { isJsonObject, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
 
 import * as daytonaSdk from "@daytona/sdk";
-import type { ComputerUse, Sandbox as DaytonaSandbox } from "@daytona/sdk";
+import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
+import {
+  ensureComputerUseReady,
+  recoverComputerUseStream,
+} from "@autopr/config/computer-use-lifecycle";
 import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 import { ConvexError, v } from "convex/values";
 
@@ -24,7 +28,7 @@ const DEFAULT_SANDBOX_WORKDIR = "/home";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;
-const DESKTOP_PREVIEW_EXPIRES_SECONDS = 10 * 60;
+const DESKTOP_PREVIEW_EXPIRES_SECONDS = 60 * 60;
 const TERMINAL_PREVIEW_EXPIRES_SECONDS = 10 * 60;
 const TERMINAL_PROCESS_TIMEOUT_MINUTES = 10;
 const TERMINAL_PORT_MIN = 30_000;
@@ -35,10 +39,6 @@ const TTYD_SHA256 = {
   aarch64: "b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165",
   x86_64: "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55",
 } as const;
-const DESKTOP_STATUS_TIMEOUT_MS = 20_000;
-const DESKTOP_STATUS_POLL_MS = 1_000;
-const DESKTOP_RECOVERY_DELAY_MS = 1_000;
-const MAX_DESKTOP_DIAGNOSTIC_LENGTH = 400;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const SANDBOX_START_POLL_MS = 1_000;
 const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
@@ -51,7 +51,6 @@ const MAX_ENV_VALUE_LENGTH = 64 * 1024;
 const MAX_BULK_ENV_COUNT = 50;
 const MAX_BULK_ENV_VALUE_LENGTH = 512 * 1024;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 
 interface EnsureProjectResult {
   projectId: string;
@@ -107,21 +106,8 @@ interface SandboxRuntimeStatusResult {
   checkedAt: number;
 }
 
-type ComputerUseProcessName = (typeof COMPUTER_USE_PROCESS_NAMES)[number];
-
-type ComputerUseLifecycle = ComputerUse;
-
 const sandboxStartPromises = new Map<string, Promise<DaytonaSandbox>>();
 const recentlyStartedSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
-
-type ComputerUseDiagnostics = {
-  processName: ComputerUseProcessName;
-  status?: string;
-  running?: boolean;
-  errors?: string;
-  logs?: string;
-  diagnosticError?: string;
-};
 
 function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : "Something went wrong.";
@@ -260,7 +246,7 @@ function createDaytonaClient() {
 
 async function secureSandboxNetwork(sandbox: DaytonaSandbox) {
   const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
-  if (sandbox.domainAllowList === domainAllowList) return sandbox;
+  if (sandboxDomainAllowList(sandbox.domainAllowList) === domainAllowList) return sandbox;
   await sandbox.updateNetworkSettings({ domainAllowList });
   sandbox.domainAllowList = domainAllowList;
   return sandbox;
@@ -306,7 +292,6 @@ function previewWebsocketUrl(value: string, pathname: string): string {
   const url = new URL(value);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = pathname;
-  url.search = "";
   url.hash = "";
   return url.toString();
 }
@@ -319,47 +304,7 @@ function normalizePreviewUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function computerUseStatus<ValueValue>(value: ValueValue): string | undefined {
-  if (!isRecord(value)) return undefined;
-  const status = value.status;
-  return hasStringType(status) ? status.toLowerCase() : undefined;
-}
-
-function compactDiagnostic<ValueValue>(value: ValueValue): string | undefined {
-  if (value === undefined || value === null) return undefined;
-
-  let raw: string;
-  try {
-    raw = hasStringType(value) ? value : JSON.stringify(value) ?? String(value);
-  } catch {
-    raw = String(value);
-  }
-
-  const normalized = raw.trim().replace(/\s+/g, " ");
-  return normalized.length > MAX_DESKTOP_DIAGNOSTIC_LENGTH
-    ? `${normalized.slice(0, MAX_DESKTOP_DIAGNOSTIC_LENGTH)}...`
-    : normalized;
-}
-
-function responseField<ValueValue>(value: ValueValue, field: string): JsonValue {
-  return isRecord(value) ? value[field] : undefined;
-}
-
-function computerUseProcessNamesFromError<ErrorValue>(error: ErrorValue): ComputerUseProcessName[] {
-  const message = errorMessage(error).toLowerCase();
-  const matched = COMPUTER_USE_PROCESS_NAMES.filter((processName) => message.includes(processName));
-  return matched.length > 0 ? matched : [...COMPUTER_USE_PROCESS_NAMES];
-}
-
-async function readComputerUseStatus(computerUse: Pick<ComputerUseLifecycle, "getStatus">): Promise<string | undefined> {
-  try {
-    return computerUseStatus(await computerUse.getStatus());
-  } catch {
-    return undefined;
-  }
-}
-
-function normalizeSandboxRuntimeStatus<StateValue>(state: StateValue): SandboxRuntimeStatus {
+function normalizeSandboxRuntimeStatus<State>(state: State): SandboxRuntimeStatus {
   if (!hasStringType(state)) return "unknown";
   const normalized = state.toLowerCase();
   if (normalized === "started" || normalized === "running") return "started";
@@ -380,160 +325,6 @@ async function getDaytonaSandboxRuntimeStatus(sandboxId: string): Promise<Sandbo
   };
 }
 
-async function waitForDesktopReady(computerUse: Pick<ComputerUseLifecycle, "getStatus">): Promise<void> {
-  const deadline = Date.now() + DESKTOP_STATUS_TIMEOUT_MS;
-  let lastStatus: string | undefined;
-
-  while (Date.now() < deadline) {
-    lastStatus = computerUseStatus(await computerUse.getStatus());
-    if (lastStatus === "active") return;
-    await sleep(DESKTOP_STATUS_POLL_MS);
-  }
-
-  throw new Error(`VNC desktop not ready${lastStatus ? `: ${lastStatus}` : ""}.`);
-}
-
-async function restartComputerUseProcesses(
-  computerUse: ComputerUseLifecycle,
-  processNames: ComputerUseProcessName[],
-  errors: unknown[],
-) {
-  if (!computerUse.restartProcess) {
-    errors.push(new Error("Daytona SDK does not expose computerUse.restartProcess."));
-    return;
-  }
-
-  for (const processName of processNames) {
-    try {
-      await computerUse.restartProcess(processName);
-    } catch (error) {
-      errors.push(new Error(`restart ${processName}: ${errorMessage(error)}`));
-    }
-  }
-}
-
-async function collectComputerUseDiagnostics(
-  computerUse: ComputerUseLifecycle,
-  processNames: ComputerUseProcessName[],
-): Promise<ComputerUseDiagnostics[]> {
-  const diagnostics: ComputerUseDiagnostics[] = [];
-
-  for (const processName of processNames) {
-    const diagnostic: ComputerUseDiagnostics = { processName };
-
-    try {
-      const status = await computerUse.getProcessStatus?.(processName);
-      const running = responseField(status, "running");
-      const processStatus = responseField(status, "status");
-      diagnostic.running = hasBooleanType(running) ? running : undefined;
-      diagnostic.status = hasStringType(processStatus) ? processStatus : undefined;
-    } catch (error) {
-      diagnostic.diagnosticError = compactDiagnostic(`status: ${errorMessage(error)}`);
-    }
-
-    try {
-      const errors = await computerUse.getProcessErrors?.(processName);
-      diagnostic.errors = compactDiagnostic(responseField(errors, "errors"));
-    } catch (error) {
-      diagnostic.diagnosticError = compactDiagnostic(
-        [diagnostic.diagnosticError, `errors: ${errorMessage(error)}`].filter(Boolean).join("; "),
-      );
-    }
-
-    if (!diagnostic.errors) {
-      try {
-        const logs = await computerUse.getProcessLogs?.(processName);
-        diagnostic.logs = compactDiagnostic(responseField(logs, "logs"));
-      } catch (error) {
-        diagnostic.diagnosticError = compactDiagnostic(
-          [diagnostic.diagnosticError, `logs: ${errorMessage(error)}`].filter(Boolean).join("; "),
-        );
-      }
-    }
-
-    diagnostics.push(diagnostic);
-  }
-
-  return diagnostics;
-}
-
-function formatComputerUseFailure(errors: unknown[], diagnostics: ComputerUseDiagnostics[]) {
-  const attempts = Array.from(new Set(errors.map(errorMessage).filter(Boolean))).slice(0, 4);
-  const processDetails = diagnostics
-    .map((diagnostic) => {
-      const parts = [
-        diagnostic.processName,
-        diagnostic.running === undefined ? undefined : `running=${diagnostic.running}`,
-        diagnostic.status ? `status=${diagnostic.status}` : undefined,
-        diagnostic.errors ? `errors=${diagnostic.errors}` : undefined,
-        !diagnostic.errors && diagnostic.logs ? `logs=${diagnostic.logs}` : undefined,
-        diagnostic.diagnosticError ? `diagnostic=${diagnostic.diagnosticError}` : undefined,
-      ].filter(Boolean);
-      return parts.join(" ");
-    })
-    .join("; ");
-
-  return [
-    "Failed to start Daytona desktop after recovery.",
-    attempts.length > 0 ? `attempts: ${attempts.join(" | ")}` : undefined,
-    processDetails ? `processes: ${processDetails}` : undefined,
-  ].filter(Boolean).join(" ");
-}
-
-async function recoverComputerUse<CauseValue>(computerUse: ComputerUseLifecycle, cause: CauseValue) {
-  const errors: unknown[] = [cause];
-  const processNames = computerUseProcessNamesFromError(cause);
-
-  await computerUse.stop().catch((error) => {
-    errors.push(new Error(`stop: ${errorMessage(error)}`));
-  });
-  await sleep(DESKTOP_RECOVERY_DELAY_MS);
-
-  try {
-    await computerUse.start();
-  } catch (error) {
-    errors.push(error);
-    await restartComputerUseProcesses(computerUse, processNames, errors);
-  }
-
-  try {
-    await waitForDesktopReady(computerUse);
-  } catch (error) {
-    errors.push(error);
-    const diagnostics = await collectComputerUseDiagnostics(computerUse, processNames);
-    throw new Error(formatComputerUseFailure(errors, diagnostics));
-  }
-}
-
-async function ensureDesktopReady(computerUse: ComputerUseLifecycle) {
-  const currentStatus = await readComputerUseStatus(computerUse);
-
-  if (currentStatus === "active") {
-    return;
-  }
-
-  if (currentStatus === "partial" || currentStatus === "error") {
-    await recoverComputerUse(computerUse, new Error(`VNC desktop status is ${currentStatus}.`));
-    return;
-  }
-
-  try {
-    await computerUse.start();
-  } catch (error) {
-    if (await readComputerUseStatus(computerUse) === "active") {
-      return;
-    }
-    await recoverComputerUse(computerUse, error);
-    return;
-  }
-
-  try {
-    await waitForDesktopReady(computerUse);
-  } catch (error) {
-    await recoverComputerUse(computerUse, error);
-  }
-}
-
 async function ensureSandboxStartedUncoalesced(sandboxId: string) {
   const daytona = createDaytonaClient();
   const deadline = Date.now() + SANDBOX_START_TIMEOUT_SECONDS * 1000;
@@ -548,7 +339,11 @@ async function ensureSandboxStartedUncoalesced(sandboxId: string) {
         return secureSandboxNetwork(sandbox);
       }
 
-      if (sandbox.domainAllowList !== sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST)) {
+      const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
+      if (
+        domainAllowList
+        && sandboxDomainAllowList(sandbox.domainAllowList) !== domainAllowList
+      ) {
         throw new Error(
           "Refusing to start a sandbox whose network policy is missing or outdated. Recreate the sandbox to apply the configured domain allow-list before startup.",
         );
@@ -644,9 +439,28 @@ async function stopDaytonaSandbox(sandboxId: string) {
   return "stopped" as const;
 }
 
-async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPreviewResult> {
+async function getDaytonaDesktopPreview(
+  sandboxId: string,
+  recoverStream: boolean,
+): Promise<DesktopPreviewResult> {
   return runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
-    await ensureDesktopReady(sandbox.computerUse);
+    await sandbox.refreshActivity();
+    if (recoverStream) {
+      await recoverComputerUseStream(sandbox.computerUse, {
+        timeoutMs: 20_000,
+        probePort: async (port) => {
+          const result = await sandbox.process.executeCommand(
+            `nc -z -w 1 127.0.0.1 ${port}`,
+            undefined,
+            undefined,
+            5,
+          );
+          return result.exitCode === 0;
+        },
+      });
+    } else {
+      await ensureComputerUseReady(sandbox.computerUse, { cacheMs: 0, timeoutMs: 20_000 });
+    }
 
     const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
     const url = normalizePreviewUrl(preview.url);
@@ -657,6 +471,12 @@ async function getDaytonaDesktopPreview(sandboxId: string): Promise<DesktopPrevi
       port: DAYTONA_NOVNC_PORT,
       expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
     };
+  });
+}
+
+async function refreshDaytonaDesktopActivity(sandboxId: string): Promise<void> {
+  await runWithStartedSandboxRetry(sandboxId, async (sandbox) => {
+    await sandbox.refreshActivity();
   });
 }
 
@@ -694,7 +514,10 @@ if [ -z "$ttyd_path" ]; then
     trap - EXIT
   fi
 fi
-shell_path="$(command -v zsh || command -v bash || command -v sh)"
+shell_path="\${SHELL:-}"
+if [ -z "$shell_path" ] || [ ! -x "$shell_path" ]; then
+  shell_path="$(command -v bash || command -v sh)"
+fi
 if curl --silent --output /dev/null --max-time 1 "http://127.0.0.1:${port}/"; then
   exit 42
 fi
@@ -1357,6 +1180,7 @@ export const stopSandbox = action({
 export const getDesktopPreview = action({
   args: {
     projectId: v.string(),
+    recoverStream: v.optional(v.boolean()),
   },
   returns: v.object({
     url: v.string(),
@@ -1377,7 +1201,10 @@ export const getDesktopPreview = action({
     });
 
     try {
-      const preview = await getDaytonaDesktopPreview(project.sandboxId);
+      const preview = await getDaytonaDesktopPreview(
+        project.sandboxId,
+        args.recoverStream === true,
+      );
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
@@ -1387,6 +1214,35 @@ export const getDesktopPreview = action({
     } catch (error) {
       throw new ConvexError({
         code: "DAYTONA_DESKTOP_FAILED",
+        message: errorMessage(error),
+      });
+    }
+  },
+});
+
+export const refreshDesktopActivity = action({
+  args: {
+    projectId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+      authorId: identity.subject,
+      projectId: args.projectId,
+    });
+
+    try {
+      await refreshDaytonaDesktopActivity(project.sandboxId);
+      return null;
+    } catch (error) {
+      throw new ConvexError({
+        code: "DAYTONA_DESKTOP_ACTIVITY_FAILED",
         message: errorMessage(error),
       });
     }

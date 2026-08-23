@@ -1,6 +1,16 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject } from "@autopr/config/runtime-value";
+import { isToolUIPart } from "ai";
 import { describe, expect, it } from "vitest";
 
-import { COMPUTER_METADATA_PREFIX, findDemoRecordingMetadataInParts, mergePersistedAssistantParts, sanitizeAssistantPartsForPersistence, sanitizeMessageForModelConversion } from "./chat-messages";
+import {
+  COMPUTER_METADATA_PREFIX,
+  findDemoRecordingMetadataInParts,
+  mergePersistedAssistantParts,
+  sanitizeAssistantPartsForPersistence,
+  sanitizeMessageForModelConversion,
+  sanitizeStoppedAssistantParts,
+} from "./chat-messages";
 import { compactPromptMessagesForModel } from "./agent-message-compaction";
 
 describe("chat message persistence helpers", () => {
@@ -32,10 +42,21 @@ describe("chat message persistence helpers", () => {
           },
         },
       },
-    ] as any;
+    ] satisfies Parameters<typeof sanitizeAssistantPartsForPersistence>[0];
 
     const sanitized = sanitizeAssistantPartsForPersistence(parts);
-    const output = (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ sanitized[0] as any).output;
+    const part = sanitized[0];
+    if (
+      !part
+      || !isToolUIPart(part)
+      || part.state !== "output-available"
+      || !isJsonObject(part.output)
+      || !hasStringType(part.output.content)
+      || !isJsonObject(part.output.details)
+    ) {
+      throw new Error("sanitized computer output is invalid");
+    }
+    const output = part.output;
 
     expect(output.details.screenshot.data).toEqual({
       omitted: true,
@@ -221,6 +242,26 @@ describe("chat message persistence helpers", () => {
     expect(findDemoRecordingMetadataInParts(sanitized, "rec-789")?.title).toBe(
       "Portfolio Walkthrough",
     );
+  });
+
+  it("removes unfinished typed tools when an assistant run settles", () => {
+    const parts = [
+      {
+        type: "tool-computer",
+        toolCallId: "computer-stuck",
+        state: "input-available",
+        input: { type: "start" },
+      },
+      {
+        type: "tool-bash",
+        toolCallId: "bash-complete",
+        state: "output-available",
+        input: { command: "pwd" },
+        output: { content: "/workspace", details: {} },
+      },
+    ] satisfies Parameters<typeof sanitizeStoppedAssistantParts>[0];
+
+    expect(sanitizeStoppedAssistantParts(parts)).toEqual([parts[1]]);
   });
 
   it("compacts long file mutation payloads before model conversion", () => {

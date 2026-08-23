@@ -17,6 +17,7 @@ const dependencies = {
 describe("sandbox lookup coalescing", () => {
   beforeEach(() => {
     mocks.get.mockReset();
+    delete process.env.DAYTONA_DOMAIN_ALLOW_LIST;
   });
 
   it("shares one Daytona lookup across concurrent and cached context reads", async () => {
@@ -48,9 +49,7 @@ describe("sandbox lookup coalescing", () => {
     }, dependencies);
 
     expect(mocks.get).toHaveBeenCalledTimes(1);
-    expect(sandbox.updateNetworkSettings).toHaveBeenCalledWith({
-      domainAllowList: expect.stringContaining("github.com"),
-    });
+    expect(sandbox.updateNetworkSettings).not.toHaveBeenCalled();
   });
 
   it("revalidates and restarts a cached context after its short TTL", async () => {
@@ -91,20 +90,39 @@ describe("sandbox lookup coalescing", () => {
     }
   });
 
-  it("refuses to start a stopped sandbox before its network policy is secured", async () => {
+  it("starts a stopped sandbox under its old restricted policy before clearing it", async () => {
+    const sandbox = {
+      id: "sandbox-restricted",
+      state: "stopped",
+      autoArchiveInterval: 120,
+      domainAllowList: "github.com,registry.npmjs.org",
+      start: vi.fn(async () => {
+        sandbox.state = "started";
+      }),
+      setAutoArchiveInterval: vi.fn(),
+      updateNetworkSettings: vi.fn(async ({ domainAllowList }: { domainAllowList: string }) => {
+        sandbox.domainAllowList = domainAllowList;
+      }),
+    };
+    mocks.get.mockResolvedValue(sandbox);
+    await expect(createSandbox({ sandboxId: sandbox.id }, dependencies)).resolves.toBe(sandbox);
+    expect(sandbox.start).toHaveBeenCalledTimes(1);
+    expect(sandbox.updateNetworkSettings).toHaveBeenCalledWith({ domainAllowList: "" });
+  });
+
+  it("refuses to start a stopped sandbox before applying a configured restriction", async () => {
+    process.env.DAYTONA_DOMAIN_ALLOW_LIST = "github.com";
     const sandbox = {
       id: "sandbox-unsecured",
       state: "stopped",
       autoArchiveInterval: 120,
-      domainAllowList: "*",
+      domainAllowList: undefined,
       start: vi.fn(),
       setAutoArchiveInterval: vi.fn(),
       updateNetworkSettings: vi.fn(),
     };
     mocks.get.mockResolvedValue(sandbox);
-    await expect(createSandbox({ sandboxId: sandbox.id }, dependencies)).rejects.toThrow(
-      "Refusing to start a sandbox",
-    );
+    await expect(createSandbox({ sandboxId: sandbox.id }, dependencies)).rejects.toThrow("Refusing to start a sandbox");
     expect(sandbox.start).not.toHaveBeenCalled();
     expect(sandbox.updateNetworkSettings).not.toHaveBeenCalled();
   });

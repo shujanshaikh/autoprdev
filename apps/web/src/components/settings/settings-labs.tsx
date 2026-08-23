@@ -1,6 +1,6 @@
 import { Checkbox } from "@autopr/ui/components/checkbox";
 import { AlertTriangle, Loader2, Video } from "lucide-react";
-import type { WorkspaceUserSettings } from "./settings-dialog";
+import type { WorkspaceUserSettings } from "./settings-workspace";
 
 interface SettingsLabsProps {
   userSettings: WorkspaceUserSettings | undefined;

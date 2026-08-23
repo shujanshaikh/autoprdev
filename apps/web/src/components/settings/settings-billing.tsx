@@ -1,5 +1,5 @@
 import { cn } from "@autopr/ui/lib/utils";
-import type { WorkspaceSandboxCost } from "./settings-dialog";
+import type { WorkspaceSandboxCost } from "./settings-workspace";
 
 interface SettingsBillingProps {
   sandboxCosts: WorkspaceSandboxCost[] | undefined;

@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { GitBranch, Loader2 } from "lucide-react";
 import { cn } from "@autopr/ui/lib/utils";
 import { statusStyles } from "#/components/dashboard/types";
-import type { WorkspaceProject } from "./settings-dialog";
+import type { WorkspaceProject } from "./settings-workspace";
 
 interface SettingsProjectsProps {
   projects: WorkspaceProject[] | undefined;

@@ -231,6 +231,7 @@ export function SettingsPage({
   return (
     <SidebarInset className="min-w-0 overflow-hidden">
       <header className="flex h-12 shrink-0 items-center border-b border-border px-4 pl-12 md:px-6">
+        <SidebarTrigger className="mr-3 hidden text-muted-foreground hover:text-foreground md:flex" />
         <p className="truncate text-[13px] font-medium text-foreground">
           <span className="text-muted-foreground">Settings</span>
           <span className="px-2 text-border" aria-hidden="true">/</span>

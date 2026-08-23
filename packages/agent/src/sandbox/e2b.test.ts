@@ -186,6 +186,32 @@ describe("E2B sandbox adapter", () => {
     });
   });
 
+  it("applies requested timeouts to background session commands", async () => {
+    const sdk = sdkSandbox();
+    const handle = {
+      pid: 44,
+      stdout: "",
+      stderr: "",
+      kill: vi.fn(async () => true),
+      sendStdin: vi.fn(async () => undefined),
+      wait: vi.fn(() => new Promise<never>(() => undefined)),
+    };
+    sdk.commands.run.mockResolvedValueOnce(handle as never);
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+    await sandbox.process.createSession("timed-session");
+
+    await sandbox.process.executeSessionCommand(
+      "timed-session",
+      { command: "sleep 30", runAsync: true },
+      15,
+    );
+
+    expect(sdk.commands.run).toHaveBeenCalledWith("sleep 30", expect.objectContaining({
+      background: true,
+      timeoutMs: 15_000,
+    }));
+  });
+
   it("records transport failures as terminal background command state", async () => {
     const sdk = sdkSandbox("failed-background-e2b");
     const handle = {

@@ -123,7 +123,7 @@ stop_desktop() {
     fi
     rm -f "$gateway_pid"
   fi
-  for name in novnc x11vnc xfce4 xvfb; do stop_process "$name"; done
+  for name in novnc x11vnc xfce4 xvfb preview; do stop_process "$name"; done
 }
 
 case "${1:-}" in

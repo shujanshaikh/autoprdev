@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, linkSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, request as createUpstreamRequest } from "node:http";
 import { connect as connectSocket } from "node:net";
 import { dirname } from "node:path";
@@ -18,14 +18,23 @@ function previewSecret() {
     if (error?.code !== "ENOENT") throw error;
   }
 
-  const temporaryFile = `${secretFile}.${process.pid}.tmp`;
+  const temporaryFile = `${secretFile}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   const descriptor = openSync(temporaryFile, "wx", 0o600);
   try {
     writeFileSync(descriptor, `${randomBytes(32).toString("hex")}\n`);
   } finally {
     closeSync(descriptor);
   }
-  renameSync(temporaryFile, secretFile);
+
+  try {
+    // Hard-linking a completed candidate publishes the first secret atomically
+    // without allowing a concurrent starter to replace it.
+    linkSync(temporaryFile, secretFile);
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  } finally {
+    unlinkSync(temporaryFile);
+  }
   return readFileSync(secretFile, "utf8").trim();
 }
 

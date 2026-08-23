@@ -518,7 +518,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
         background: true,
         stdin: true,
         envs: await this.commandEnvironment(),
-        timeoutMs: E2B_BACKGROUND_COMMAND_TIMEOUT_MS,
+        timeoutMs: timeout ? timeout * 1_000 : E2B_BACKGROUND_COMMAND_TIMEOUT_MS,
       });
       const cmdId = String(handle.pid);
       const state: E2BCommandState = {

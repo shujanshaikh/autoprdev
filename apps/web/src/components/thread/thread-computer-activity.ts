@@ -2,8 +2,6 @@ import { getToolName, isToolUIPart, type UIMessage } from "ai";
 
 import { toolSlugFromPart } from "@/components/ai-elements/tool";
 
-const ACTIVE_COMPUTER_STATES = new Set(["input-streaming", "input-available"]);
-
 function computerToolCallId(message: UIMessage, index: number) {
   const part = message.parts[index];
   if (!part || !isToolUIPart(part)) {
@@ -41,26 +39,6 @@ export function latestThreadComputerToolCallId(
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const toolCallId = latestComputerToolCallId(messages[index]);
     if (toolCallId) return toolCallId;
-  }
-
-  return undefined;
-}
-
-/** Returns the active CUA tool call in a streaming assistant message, if one exists. */
-export function activeComputerToolCallId(message: UIMessage | undefined): string | undefined {
-  if (message?.role !== "assistant") {
-    return undefined;
-  }
-
-  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
-    const part = message.parts[index];
-    const toolCallId = computerToolCallId(message, index);
-    if (!part || !toolCallId) continue;
-
-    const state = "state" in part && typeof part.state === "string" ? part.state : undefined;
-    if (state && ACTIVE_COMPUTER_STATES.has(state)) {
-      return toolCallId;
-    }
   }
 
   return undefined;

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
 import {
-  activeComputerToolCallId,
   latestComputerToolCallId,
   latestThreadComputerToolCallId,
 } from "./thread-computer-activity";
@@ -11,20 +10,8 @@ function assistantMessage(parts: UIMessage["parts"]): UIMessage {
   return { id: "assistant-1", role: "assistant", parts };
 }
 
-describe("activeComputerToolCallId", () => {
-  it("detects a streaming dynamic computer tool", () => {
-    const message = assistantMessage([{
-      type: "dynamic-tool",
-      toolName: "computer",
-      toolCallId: "computer-1",
-      state: "input-available",
-      input: { actions: [{ type: "screenshot" }] },
-    }]);
-
-    expect(activeComputerToolCallId(message)).toBe("computer-1");
-  });
-
-  it("ignores completed computer tools and other active tools", () => {
+describe("computer tool activity", () => {
+  it("finds the latest computer tool and ignores other tools", () => {
     const message = assistantMessage([
       {
         type: "dynamic-tool",
@@ -43,7 +30,6 @@ describe("activeComputerToolCallId", () => {
       },
     ]);
 
-    expect(activeComputerToolCallId(message)).toBeUndefined();
     expect(latestComputerToolCallId(message)).toBe("computer-complete");
   });
 
@@ -60,7 +46,6 @@ describe("activeComputerToolCallId", () => {
       }],
     } as UIMessage;
 
-    expect(activeComputerToolCallId(message)).toBeUndefined();
     expect(latestComputerToolCallId(message)).toBeUndefined();
   });
 

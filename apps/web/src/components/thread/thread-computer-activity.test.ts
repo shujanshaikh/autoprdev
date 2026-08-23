@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
 import {
-  activeThreadComputerToolCallId,
+  activeThreadComputerActivityKey,
   latestComputerToolCallId,
 } from "./thread-computer-activity";
 
@@ -69,12 +69,12 @@ describe("computer tool activity", () => {
       parts: [{ type: "text", text: "I will open it." }],
     } satisfies UIMessage;
 
-    expect(activeThreadComputerToolCallId([
+    expect(activeThreadComputerActivityKey([
       computerMessage,
       userMessage,
       nextAssistantMessage,
     ], undefined)).toBeUndefined();
-    expect(activeThreadComputerToolCallId([
+    expect(activeThreadComputerActivityKey([
       computerMessage,
       userMessage,
       nextAssistantMessage,
@@ -101,17 +101,46 @@ describe("computer tool activity", () => {
       id: "assistant-2",
     };
 
-    expect(activeThreadComputerToolCallId(
+    expect(activeThreadComputerActivityKey(
       [firstMessage],
       firstMessage.id,
-    )).toBe("computer-first");
-    expect(activeThreadComputerToolCallId(
+    )).toBe(firstMessage.id);
+    expect(activeThreadComputerActivityKey(
       [firstMessage, secondMessage],
       secondMessage.id,
-    )).toBe("computer-second");
-    expect(activeThreadComputerToolCallId(
+    )).toBe(secondMessage.id);
+    expect(activeThreadComputerActivityKey(
       [firstMessage, secondMessage],
       undefined,
     )).toBeUndefined();
+  });
+
+  it("keeps one activity key across multiple computer calls in the same turn", () => {
+    const firstCall = assistantMessage([{
+      type: "dynamic-tool",
+      toolName: "computer",
+      toolCallId: "computer-first",
+      state: "output-available",
+      input: {},
+      output: { content: "done", details: {} },
+    }]);
+    const secondCall = {
+      ...firstCall,
+      parts: [
+        ...firstCall.parts,
+        {
+          type: "dynamic-tool" as const,
+          toolName: "computer",
+          toolCallId: "computer-second",
+          state: "input-available" as const,
+          input: {},
+        },
+      ],
+    } satisfies UIMessage;
+
+    expect(activeThreadComputerActivityKey([firstCall], firstCall.id))
+      .toBe(firstCall.id);
+    expect(activeThreadComputerActivityKey([secondCall], secondCall.id))
+      .toBe(firstCall.id);
   });
 });

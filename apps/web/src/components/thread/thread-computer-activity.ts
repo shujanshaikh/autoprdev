@@ -32,8 +32,8 @@ export function latestComputerToolCallId(message: UIMessage | undefined): string
   return undefined;
 }
 
-/** Returns a CUA call only while its assistant turn is currently running. */
-export function activeThreadComputerToolCallId(
+/** Returns the running assistant turn once it contains CUA activity. */
+export function activeThreadComputerActivityKey(
   messages: readonly UIMessage[],
   activeAssistantMessageId: string | undefined,
 ): string | undefined {
@@ -42,7 +42,7 @@ export function activeThreadComputerToolCallId(
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.id === activeAssistantMessageId) {
-      return latestComputerToolCallId(message);
+      return latestComputerToolCallId(message) ? message.id : undefined;
     }
   }
 

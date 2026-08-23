@@ -49,6 +49,17 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function renderActivePreview(
+  projectId = "project-1",
+  activityKey = "computer-1",
+) {
+  const rendered = render(<ThreadComputerPreview projectId={projectId} />);
+  rendered.rerender(
+    <ThreadComputerPreview projectId={projectId} activityKey={activityKey} />,
+  );
+  return rendered;
+}
+
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
@@ -71,7 +82,7 @@ afterEach(() => {
 describe("ThreadComputerPreview", () => {
   it("does not request or mount a desktop without current CUA activity", async () => {
     const { rerender } = render(
-      <ThreadComputerPreview projectId="project-1" />,
+      <ThreadComputerPreview projectId="project-1" activityKey="historical-run" />,
     );
 
     expect(screen.queryByRole("complementary", { name: "Live computer preview" })).toBeNull();
@@ -82,13 +93,14 @@ describe("ThreadComputerPreview", () => {
     await waitFor(() => expect(mocks.getDesktopPreview).toHaveBeenCalledOnce());
 
     rerender(<ThreadComputerPreview projectId="project-1" />);
+    expect(screen.getByRole("complementary", { name: "Live computer preview" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close desktop preview" }));
     expect(screen.queryByRole("complementary", { name: "Live computer preview" })).toBeNull();
   });
 
   it("opens on CUA activity, stays dismissed for that run, and reopens for the next run", async () => {
-    const { rerender } = render(
-      <ThreadComputerPreview projectId="project-1" activityKey="run-1" />,
-    );
+    const { rerender } = renderActivePreview("project-1", "run-1");
 
     const preview = await screen.findByRole("complementary", { name: "Live computer preview" });
     const closeButton = screen.getByRole("button", { name: "Close desktop preview" });
@@ -115,9 +127,7 @@ describe("ThreadComputerPreview", () => {
     mocks.getDesktopPreview.mockImplementation(({ projectId }: { projectId: string }) =>
       projectId === "project-1" ? projectOne.promise : projectTwo.promise
     );
-    const { rerender } = render(
-      <ThreadComputerPreview projectId="project-1" activityKey="computer-1" />,
-    );
+    const { rerender } = renderActivePreview("project-1", "computer-1");
     await waitFor(() => expect(mocks.getDesktopPreview).toHaveBeenCalledWith({ projectId: "project-1" }));
 
     rerender(<ThreadComputerPreview projectId="project-2" activityKey="computer-2" />);
@@ -144,7 +154,7 @@ describe("ThreadComputerPreview", () => {
       })
       .mockRejectedValueOnce(new Error("Preview refresh failed"));
 
-    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" />);
+    renderActivePreview();
 
     expect(await screen.findByText("Preview refresh failed")).toBeTruthy();
     expect(screen.queryByText("wss://expired.test:1")).toBeNull();
@@ -162,7 +172,7 @@ describe("ThreadComputerPreview", () => {
         expiresInSeconds: 3_600,
       });
 
-    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" />);
+    renderActivePreview();
 
     expect(await screen.findByText("wss://desktop-first.test:1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
@@ -176,7 +186,7 @@ describe("ThreadComputerPreview", () => {
   });
 
   it("keeps rebuilding an RFB connection instead of permanently exhausting recovery", async () => {
-    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" />);
+    renderActivePreview();
 
     expect(await screen.findByText("wss://desktop.example.test:1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
@@ -202,7 +212,7 @@ describe("ThreadComputerPreview", () => {
         expiresInSeconds: 3_600,
       });
 
-    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" />);
+    renderActivePreview();
 
     expect(await screen.findByText("wss://desktop-disconnected.test:1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
@@ -217,7 +227,7 @@ describe("ThreadComputerPreview", () => {
 
   it("refreshes sandbox activity without rotating healthy noVNC credentials", async () => {
     const intervalSpy = vi.spyOn(window, "setInterval");
-    render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" />);
+    renderActivePreview();
 
     expect(await screen.findByText("wss://desktop.example.test:1")).toBeTruthy();
     const heartbeat = intervalSpy.mock.calls.at(-1)?.[0];

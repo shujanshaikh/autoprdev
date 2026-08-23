@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -24,6 +25,8 @@ export function ThreadComputerPreview({
   projectId,
   activityKey,
 }: ThreadComputerPreviewProps) {
+  const initialActivityKeyRef = useRef(activityKey);
+  const [previewActivityKey, setPreviewActivityKey] = useState<string>();
   const [dismissedActivityKey, setDismissedActivityKey] = useState<string>();
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
@@ -34,7 +37,10 @@ export function ThreadComputerPreview({
     desktopSession.getServerSnapshot,
   );
 
-  const open = Boolean(activityKey && dismissedActivityKey !== activityKey);
+  const open = Boolean(
+    previewActivityKey
+    && dismissedActivityKey !== previewActivityKey
+  );
   const currentConnection = desktop.connection;
   const websocketUrl = currentConnection?.websocketUrl;
   const { loading, error } = desktop;
@@ -53,6 +59,12 @@ export function ThreadComputerPreview({
   }, [loadDesktop]);
 
   useEffect(() => {
+    if (activityKey && activityKey !== initialActivityKeyRef.current) {
+      setPreviewActivityKey(activityKey);
+    }
+  }, [activityKey]);
+
+  useEffect(() => {
     if (!open || error) {
       return;
     }
@@ -65,10 +77,10 @@ export function ThreadComputerPreview({
   }, [currentConnection?.revision, error, loadDesktop, open, projectId, refreshDesktopActivity]);
 
   const closePreview = useCallback(() => {
-    if (activityKey) {
-      setDismissedActivityKey(activityKey);
+    if (previewActivityKey) {
+      setDismissedActivityKey(previewActivityKey);
     }
-  }, [activityKey]);
+  }, [previewActivityKey]);
 
   if (!open) {
     return null;

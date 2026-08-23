@@ -83,7 +83,7 @@ import {
 } from "#/components/codex-prompt-connection-line";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
-import { activeThreadComputerToolCallId } from "#/components/thread/thread-computer-activity";
+import { activeThreadComputerActivityKey } from "#/components/thread/thread-computer-activity";
 import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
@@ -1570,8 +1570,8 @@ function ThreadChatRuntime({
   const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
     ? lastMessage.id
     : undefined;
-  const activeComputerToolCall = useMemo(
-    () => activeThreadComputerToolCallId(messages, activeAssistantMessageId),
+  const activeComputerActivityKey = useMemo(
+    () => activeThreadComputerActivityKey(messages, activeAssistantMessageId),
     [activeAssistantMessageId, messages],
   );
   const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
@@ -1755,8 +1755,9 @@ function ThreadChatRuntime({
             onSelectChangedFile={handleSelectChangedFile}
           />
           <ThreadComputerPreview
+            key={threadId}
             projectId={projectId}
-            activityKey={activeComputerToolCall}
+            activityKey={activeComputerActivityKey}
           />
         </div>
 

@@ -264,7 +264,10 @@ export function WorkspaceShell({
   const router = useRouter();
   const canGoBack = useCanGoBack();
   const { isAuthenticated } = useConvexAuth();
-  const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip") as WorkspaceProject[] | undefined;
+  const projects = useQuery(
+    api.projects.list,
+    isAuthenticated && (!settingsTab || settingsTab === "overview") ? {} : "skip",
+  ) as WorkspaceProject[] | undefined;
   const threads = useQuery(
     api.threads.listForSidebar,
     isAuthenticated && !settingsTab ? {} : "skip",

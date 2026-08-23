@@ -41,6 +41,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
+import { UIMessageStreamProtocolTransport } from "#/lib/ui-message-stream-protocol";
 import {
   AGENT_CHAT_OPERATION_HEADER,
   AGENT_CHAT_TASK_ID,
@@ -48,6 +49,7 @@ import {
 } from "#/lib/trigger-agent-contract";
 import { setWorkOSAccessTokenHeader } from "#/lib/workos-access-token";
 import {
+  restorePersistedAssistantTail,
   runTriggerSessionReconnectAttempt,
   shouldUseTriggerSessionTransport,
   triggerSessionHydration,
@@ -81,6 +83,8 @@ import {
 } from "#/components/codex-prompt-connection-line";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
+import { activeThreadComputerActivityKey } from "#/components/thread/thread-computer-activity";
+import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
   getCodexReasoningEffortLabel,
@@ -1053,7 +1057,13 @@ function ThreadChatRuntime({
       selectedReasoningEffort,
     ],
   );
-  const transport = usingSessionTransport ? sessionTransport : legacyTransport;
+  // Both Trigger transports can resume at a durable chunk boundary. Normalize
+  // text-part lifecycles before AI SDK consumes either stream.
+  const selectedTransport = usingSessionTransport ? sessionTransport : legacyTransport;
+  const transport = useMemo(
+    () => new UIMessageStreamProtocolTransport<UIMessage>(selectedTransport),
+    [selectedTransport],
+  );
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,
@@ -1306,6 +1316,21 @@ function ThreadChatRuntime({
       sessionResumeRequestedRef.current = true;
 
       if (status === "error") {
+        // A completed AI SDK stream parser cannot resume in the middle of an
+        // active text/tool part. Rewind Trigger to the last persisted turn
+        // boundary and remove only this turn's unpersisted assistant tail so
+        // the replay includes every required start chunk.
+        const currentSession = sessionTransport.getSession(threadId);
+        if (currentSession) {
+          sessionTransport.setSession(threadId, {
+            ...currentSession,
+            lastEventId: thread?.triggerSessionLastEventId,
+            isStreaming: true,
+          });
+        }
+        setMessages((currentMessages) =>
+          restorePersistedAssistantTail(currentMessages, initialMessages)
+        );
         clearError();
       }
 
@@ -1353,9 +1378,12 @@ function ThreadChatRuntime({
     clearError,
     resumeSession,
     resumeStream,
+    initialMessages,
     sessionReconnectTick,
     sessionTransport,
+    setMessages,
     status,
+    thread?.triggerSessionLastEventId,
     thread?.isLive,
     threadId,
     usingSessionTransport,
@@ -1542,6 +1570,10 @@ function ThreadChatRuntime({
   const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
     ? lastMessage.id
     : undefined;
+  const activeComputerActivityKey = useMemo(
+    () => activeThreadComputerActivityKey(messages, activeAssistantMessageId),
+    [activeAssistantMessageId, messages],
+  );
   const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {
     const keyCounts = new Map<string, number>();
@@ -1721,6 +1753,11 @@ function ThreadChatRuntime({
               : []}
             workspaceDiffLoadingFile={workspaceDiffLoadingFile}
             onSelectChangedFile={handleSelectChangedFile}
+          />
+          <ThreadComputerPreview
+            key={threadId}
+            projectId={projectId}
+            activityKey={activeComputerActivityKey}
           />
         </div>
 

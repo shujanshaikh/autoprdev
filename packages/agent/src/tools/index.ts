@@ -1,5 +1,5 @@
 import { createDaytonaBashTool } from "./bash";
-import { createDaytonaComputerTool, type DaytonaComputerToolOptions } from "./computer";
+import { createCuaComputerTool, type CuaComputerToolOptions } from "./computer";
 import { createDaytonaEditTool } from "./edit";
 import { createDaytonaFindTool } from "./find";
 import { createDaytonaGrepTool } from "./grep";
@@ -13,7 +13,7 @@ import type { ToolSet } from "ai";
 import type { SandboxSessionOptions } from "../sandbox";
 
 export interface DaytonaToolsOptions {
-  computer?: false | DaytonaComputerToolOptions;
+  computer?: false | CuaComputerToolOptions;
 }
 
 export function createDaytonaTools(
@@ -37,9 +37,9 @@ export function createDaytonaTools(
     return tools;
   }
 
-  tools.computer = createDaytonaComputerTool(sandboxOptions, options.computer);
+  tools.computer = createCuaComputerTool(sandboxOptions, options.computer);
   return tools;
 }
 
 export type DaytonaTools = ToolSet;
-export type { DaytonaComputerToolOptions };
+export type { CuaComputerToolOptions };

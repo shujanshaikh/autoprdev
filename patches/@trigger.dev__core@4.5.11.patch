@@ -1,0 +1,36 @@
+diff --git a/dist/commonjs/v3/realtimeStreams/streamsWriterV2.js b/dist/commonjs/v3/realtimeStreams/streamsWriterV2.js
+--- a/dist/commonjs/v3/realtimeStreams/streamsWriterV2.js
++++ b/dist/commonjs/v3/realtimeStreams/streamsWriterV2.js
+@@ -117,7 +117,13 @@ class StreamsWriterV2 {
+             }
+             this.log("[S2MetadataStream] Getting S2 basin and stream");
+             const basin = this.s2Client.basin(this.options.basin);
+-            const stream = basin.stream(this.options.stream);
++            // The Node HTTP/2 S2 transport can surface OpenSSL record errors from
++            // an event callback as an unhandled rejection, terminating the whole
++            // Trigger task. The fetch transport uses the same ordered append
++            // session and retry layer without sharing that HTTP/2 connection.
++            const stream = basin.stream(this.options.stream, {
++                forceTransport: "fetch",
++            });
+             const session = await stream.appendSession({
+                 maxInflightBytes: this.maxInflightBytes,
+             });
+diff --git a/dist/esm/v3/realtimeStreams/streamsWriterV2.js b/dist/esm/v3/realtimeStreams/streamsWriterV2.js
+--- a/dist/esm/v3/realtimeStreams/streamsWriterV2.js
++++ b/dist/esm/v3/realtimeStreams/streamsWriterV2.js
+@@ -113,7 +113,13 @@ export class StreamsWriterV2 {
+             }
+             this.log("[S2MetadataStream] Getting S2 basin and stream");
+             const basin = this.s2Client.basin(this.options.basin);
+-            const stream = basin.stream(this.options.stream);
++            // The Node HTTP/2 S2 transport can surface OpenSSL record errors from
++            // an event callback as an unhandled rejection, terminating the whole
++            // Trigger task. The fetch transport uses the same ordered append
++            // session and retry layer without sharing that HTTP/2 connection.
++            const stream = basin.stream(this.options.stream, {
++                forceTransport: "fetch",
++            });
+             const session = await stream.appendSession({
+                 maxInflightBytes: this.maxInflightBytes,
+             });

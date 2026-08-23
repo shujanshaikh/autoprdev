@@ -14,7 +14,7 @@
     <property name="show_frame_shadow" type="bool" value="false"/>
     <property name="show_popup_shadow" type="bool" value="false"/>
     <property name="sync_to_vblank" type="bool" value="false"/>
-    <property name="use_compositing" type="bool" value="false"/>
+    <property name="use_compositing" type="bool" value="true"/>
     <property name="workspace_count" type="int" value="1"/>
   </property>
 </channel>

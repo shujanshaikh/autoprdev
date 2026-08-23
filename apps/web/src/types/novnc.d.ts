@@ -10,6 +10,7 @@ declare module "@novnc/novnc" {
     scaleViewport: boolean;
     resizeSession: boolean;
     background: string;
+    getImageData(): ImageData;
     focus(): void;
     disconnect(): void;
   }

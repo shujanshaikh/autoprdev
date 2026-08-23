@@ -26,7 +26,7 @@ describe("CodingHarness", () => {
     mocks.prepareDaytonaSandbox.mockResolvedValue({
       sandboxId: "sandbox-1",
       sandboxName: "autopr-test",
-      snapshot: "autopr",
+      snapshot: "autopr-cua",
       workDir: "/workspace/repo",
     });
     mocks.createDaytonaTools.mockReturnValue({

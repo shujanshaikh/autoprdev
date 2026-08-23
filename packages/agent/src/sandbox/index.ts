@@ -44,39 +44,6 @@ export interface DaytonaSandbox {
     restartProcess?(processName: string): Promise<unknown>;
     getProcessLogs?(processName: string): Promise<unknown>;
     getProcessErrors?(processName: string): Promise<unknown>;
-    mouse: {
-      getPosition(): Promise<unknown>;
-      move(x: number, y: number): Promise<unknown>;
-      click(x: number, y: number, button?: string, double?: boolean): Promise<unknown>;
-      drag(startX: number, startY: number, endX: number, endY: number, button?: string): Promise<unknown>;
-      scroll(x: number, y: number, direction: "up" | "down", amount?: number): Promise<unknown>;
-    };
-    keyboard: {
-      type(text: string, delay?: number): Promise<void>;
-      press(key: string, modifiers?: string[]): Promise<void>;
-      hotkey(keys: string): Promise<void>;
-    };
-    screenshot: {
-      takeCompressed(options?: {
-        showCursor?: boolean;
-        format?: string;
-        quality?: number;
-        scale?: number;
-      }): Promise<unknown>;
-      takeCompressedRegion(
-        region: { x: number; y: number; width: number; height: number },
-        options?: {
-          showCursor?: boolean;
-          format?: string;
-          quality?: number;
-          scale?: number;
-        },
-      ): Promise<unknown>;
-    };
-    display: {
-      getInfo(): Promise<unknown>;
-      getWindows(): Promise<unknown>;
-    };
     recording: {
       start(label?: string): Promise<unknown>;
       stop(id: string): Promise<unknown>;
@@ -191,10 +158,12 @@ export interface SandboxSessionOptions {
 }
 
 // Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
-const DEFAULT_DAYTONA_SNAPSHOT = "autopr";
+const DEFAULT_DAYTONA_SNAPSHOT = "autopr-cua";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
+const SANDBOX_DELETE_TIMEOUT_SECONDS = 120;
+const SANDBOX_DELETE_POLL_MS = 2_000;
 const DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000] as const;
 const SANDBOX_LOOKUP_CACHE_MS = 5_000;
 const sandboxContextPromises = new Map<string, {
@@ -220,6 +189,15 @@ function isDaytonaRateLimitError(error: unknown) {
     || record.statusCode === "429"
     || record.code === 429
     || record.code === "429";
+}
+
+function isSandboxNotFoundError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("not found") || message.includes("404");
+}
+
+function isSandboxStateChangeInProgressError(error: unknown) {
+  return errorMessage(error).toLowerCase().includes("state change in progress");
 }
 
 async function retryDaytonaRateLimit<T>(operation: () => Promise<T>): Promise<T> {
@@ -319,17 +297,35 @@ export function createSandboxCacheKey(prefix = "sandbox"): string {
   return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
+let daytonaClientCache: {
+  apiKey?: string;
+  apiUrl?: string;
+  client: Daytona;
+} | undefined;
+
 function createDaytonaClient() {
-  return new Daytona({
-    apiKey: process.env.DAYTONA_API_KEY,
-    apiUrl: process.env.DAYTONA_API_URL,
-  });
+  const apiKey = process.env.DAYTONA_API_KEY;
+  const apiUrl = process.env.DAYTONA_API_URL;
+  if (
+    daytonaClientCache
+    && daytonaClientCache.apiKey === apiKey
+    && daytonaClientCache.apiUrl === apiUrl
+  ) {
+    return daytonaClientCache.client;
+  }
+
+  const client = new Daytona({ apiKey, apiUrl });
+  daytonaClientCache = { apiKey, apiUrl, client };
+  return client;
 }
 
 async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
   const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
-  if (sandbox.domainAllowList === domainAllowList) return sandbox;
+  if (sandboxDomainAllowList(sandbox.domainAllowList) === domainAllowList) return sandbox;
   if (sandbox.state && sandbox.state !== "started") {
+    // A stopped sandbox can safely start with its existing, stricter policy so
+    // the now-unrestricted default can be applied once Daytona accepts updates.
+    if (!domainAllowList) return sandbox;
     throw new Error(
       "Refusing to start a sandbox whose network policy is missing or outdated. Recreate the sandbox to apply the configured domain allow-list before startup.",
     );
@@ -352,11 +348,12 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
     const existing = sandboxLookupPromises.get(sandboxId);
     if (existing) return await existing;
 
-    const pending = retryDaytonaRateLimit(async () => ensureSandboxStarted(
-      await ensureSandboxNetworkPolicy(
-        await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId)),
-      ),
-    ));
+    const pending = retryDaytonaRateLimit(async () => {
+      const sandbox = await ensureSandboxAutoArchiveInterval(await daytona.get(sandboxId));
+      await ensureSandboxNetworkPolicy(sandbox);
+      await ensureSandboxStarted(sandbox);
+      return ensureSandboxNetworkPolicy(sandbox);
+    });
     sandboxLookupPromises.set(sandboxId, pending);
     try {
       const sandbox = await pending;
@@ -392,10 +389,33 @@ export async function getSandboxWithoutStarting(sandboxId: string): Promise<Dayt
 }
 
 export async function deleteSandbox(sandboxId: string): Promise<void> {
-  const daytona = await createDaytonaClient();
-  const sandbox = await daytona.get(sandboxId);
+  const daytona = createDaytonaClient();
+  const pendingLookup = sandboxLookupPromises.get(sandboxId);
+  if (pendingLookup) await pendingLookup.catch(() => undefined);
+  sandboxLookupPromises.delete(sandboxId);
+  recentSandboxes.delete(sandboxId);
+  const deadline = Date.now() + SANDBOX_DELETE_TIMEOUT_SECONDS * 1_000;
+  let lastError: unknown;
 
-  await daytona.delete(sandbox);
+  while (Date.now() <= deadline) {
+    try {
+      const sandbox = await daytona.get(sandboxId);
+      const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1_000));
+      await daytona.delete(sandbox, timeoutSeconds, true);
+      return;
+    } catch (error) {
+      if (isSandboxNotFoundError(error)) return;
+      lastError = error;
+      if (!isSandboxStateChangeInProgressError(error) || Date.now() >= deadline) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SANDBOX_DELETE_POLL_MS));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Sandbox deletion did not become available before the timeout.");
 }
 
 

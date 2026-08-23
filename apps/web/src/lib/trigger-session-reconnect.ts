@@ -1,5 +1,26 @@
+import type { UIMessage } from "ai";
+
 const BASE_RECONNECT_DELAY_MS = 250;
 const MAX_RECONNECT_DELAY_MS = 5_000;
+
+export function restorePersistedAssistantTail(
+  messages: UIMessage[],
+  persistedMessages: UIMessage[],
+) {
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role !== "assistant") {
+    return messages;
+  }
+
+  const persistedMessage = persistedMessages.find((message) => message.id === lastMessage.id);
+  if (!persistedMessage) {
+    return messages.slice(0, -1);
+  }
+  if (persistedMessage === lastMessage) {
+    return messages;
+  }
+  return [...messages.slice(0, -1), persistedMessage];
+}
 
 export function shouldUseTriggerSessionTransport(options: {
   sessionCreatedAt?: number;

@@ -11,8 +11,8 @@
     "build:vercel": "pnpm --filter @autopr/backend run deploy:vercel",
     "preview": "vite preview --port 3001",
     "test": "vitest run",
-    "trigger:dev": "pnpm dlx trigger.dev@4.5.10 dev --config trigger.config.ts",
-    "trigger:deploy": "pnpm dlx trigger.dev@4.5.10 deploy --config trigger.config.ts"
+    "trigger:dev": "trigger dev --config trigger.config.ts",
+    "trigger:deploy": "trigger deploy --config trigger.config.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
@@ -23,7 +23,7 @@
     "@autopr/grok": "workspace:*",
     "@autopr/ui": "workspace:*",
     "@convex-dev/r2": "^0.10.1",
-    "@daytona/sdk": "^0.196.0",
+    "@daytona/sdk": "0.205.0",
     "@novnc/novnc": "^1.7.0",
     "@pierre/diffs": "^1.2.12",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
@@ -39,7 +39,7 @@
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
-    "@trigger.dev/sdk": "4.5.10",
+    "@trigger.dev/sdk": "4.5.11",
     "@workos-inc/node": "^9.3.0",
     "@workos-inc/widgets": "^1.12.0",
     "@workos/authkit-tanstack-react-start": "^0.8.2",
@@ -61,6 +61,7 @@
     "nitro": "3.0.260522-beta",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "sharp": "^0.35.3",
     "shiki": "^4.0.2",
     "streamdown": "^2.5.0",
     "tailwindcss": "^4.1.18",
@@ -76,7 +77,8 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^28.1.0",
-    "react-grab": "^0.1.34",
+    "react-grab": "^0.2.0",
+    "trigger.dev": "4.5.11",
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "vitest": "^4.1.5"

@@ -11,6 +11,7 @@ import {
 import {
   emptyUIMessageStream,
   finishedUIMessageStream,
+  isTriggerRunVisibilityPending,
   readAgentUIMessageStream,
 } from "#/lib/trigger-agent-stream-server";
 import { agentProjectTag, agentThreadTag } from "#/lib/trigger-agent-contract";
@@ -57,6 +58,11 @@ async function GET(
   }
 
   if (lookup.status === "not-found") {
+    if (isTriggerRunVisibilityPending(thread, runId)) {
+      // A newly created Trigger run can take a moment to become visible to a
+      // separate read request. Keep the indexed client attached during that gap.
+      return createUIMessageStreamResponse({ stream: emptyUIMessageStream() });
+    }
     await reconcileThreadWithTriggerRun(threadId, runId, null);
     return createUIMessageStreamResponse({
       stream: finishedUIMessageStream(),
@@ -85,6 +91,10 @@ async function GET(
       return createUIMessageStreamResponse({
         stream: emptyUIMessageStream(),
       });
+    }
+
+    if (latestLookup.status === "not-found" && isTriggerRunVisibilityPending(thread, runId)) {
+      return createUIMessageStreamResponse({ stream: emptyUIMessageStream() });
     }
 
     await reconcileThreadWithTriggerRun(

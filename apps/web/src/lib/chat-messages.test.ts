@@ -6,6 +6,7 @@ import {
   mergePersistedAssistantParts,
   sanitizeAssistantPartsForPersistence,
   sanitizeMessageForModelConversion,
+  sanitizeStoppedAssistantParts,
 } from "./chat-messages";
 import { compactPromptMessagesForModel } from "./agent-message-compaction";
 
@@ -227,6 +228,26 @@ describe("chat message persistence helpers", () => {
     expect(findDemoRecordingMetadataInParts(sanitized, "rec-789")?.title).toBe(
       "Portfolio Walkthrough",
     );
+  });
+
+  it("removes unfinished typed tools when an assistant run settles", () => {
+    const parts = [
+      {
+        type: "tool-computer",
+        toolCallId: "computer-stuck",
+        state: "input-available",
+        input: { type: "start" },
+      },
+      {
+        type: "tool-bash",
+        toolCallId: "bash-complete",
+        state: "output-available",
+        input: { command: "pwd" },
+        output: { content: "/workspace", details: {} },
+      },
+    ] as Parameters<typeof sanitizeStoppedAssistantParts>[0];
+
+    expect(sanitizeStoppedAssistantParts(parts)).toEqual([parts[1]]);
   });
 
   it("compacts long file mutation payloads before model conversion", () => {

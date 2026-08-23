@@ -65,7 +65,7 @@ For production deploys, configure Vercel with:
 - `TRIGGER_SECRET_KEY`: the Trigger.dev environment secret used by the Vercel routes to start, inspect, stream, and cancel agent runs.
 - Any app runtime secrets such as `AI_GATEWAY_API_KEY`, `DAYTONA_API_KEY`, and `DAYTONA_API_URL`.
 - `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`: the **Autopr** GitHub App with repository Contents read/write access. Configure it for installation on any account, disable webhooks, and leave all other optional permissions off. The private key may be GitHub's downloaded PKCS#1 PEM, PKCS#8 PEM, escaped-newline PEM, or base64-encoded PEM. Users install or configure Autopr from the GitHub connection and sandbox screens, selecting only the repositories they want Autopr to open. Sandbox Git commands use one-repository installation tokens instead of the user's broad OAuth token.
-- Optionally, `DAYTONA_DOMAIN_ALLOW_LIST`: a comma-separated Daytona egress domain allow-list. If omitted, AutoPR allows GitHub and common npm, Python, Ruby, Go, Rust, Maven, and Gradle package registries only.
+- Optionally, `DAYTONA_DOMAIN_ALLOW_LIST`: a comma-separated Daytona egress domain allow-list. If omitted, sandboxes have normal outbound internet access so the desktop browser works like a regular browser.
 
 Also make sure the Convex deployment itself has `WORKOS_CLIENT_ID`, `DAYTONA_API_KEY`, and (when customized) `DAYTONA_API_URL` set. `WORKOS_CLIENT_ID` must match the WorkOS AuthKit client ID used by the web app. If the web bundle uses one WorkOS app but the Convex deployment was never deployed or has a different `WORKOS_CLIENT_ID`, the browser will reconnect but Convex will log `No auth provider found matching the given token`.
 
@@ -79,6 +79,8 @@ Set `TRIGGER_PROJECT_REF` while running the Trigger.dev CLI. Configure the follo
 - `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_REDIRECT_URI`
 - `LWC_SECRET` (or `LOGIN_WITH_CHATGPT_SECRET`) and any other Login with ChatGPT settings used by the web app
 - `DAYTONA_API_KEY`, plus `DAYTONA_API_URL` and `DAYTONA_SNAPSHOT` when customized
+
+The agent's desktop interaction runs through CUA computer-server inside the Daytona VM; Daytona still owns the VM desktop lifecycle and screen recordings. Build or update the `autopr-cua` snapshot using [`infra/daytona/autopr/README.md`](infra/daytona/autopr/README.md) so new sandboxes have the pinned CUA runtime preinstalled. Older sandboxes use a slower one-time native CUA bootstrap on first computer action.
 
 The root development command starts the web app, Convex, and the Trigger.dev task worker together:
 

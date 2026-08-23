@@ -3,7 +3,7 @@ set -u
 
 WALLPAPER="/usr/share/backgrounds/autopr/wallpaper.png"
 CURSOR_THEME="Adwaita"
-CURSOR_SIZE="24"
+CURSOR_SIZE="32"
 VNC_RESOLUTION="${VNC_RESOLUTION:-1920x1080}"
 
 export DISPLAY="${DISPLAY:-:1}"
@@ -35,6 +35,26 @@ set_xfconf() {
   else
     xfconf-query -c "$channel" -p "$property" -n -t "$type" -s "$value" >/dev/null 2>&1 || true
   fi
+}
+
+set_transparent_panel() {
+  if ! command -v xfconf-query >/dev/null 2>&1; then
+    return 0
+  fi
+
+  set_xfconf xfwm4 /general/use_compositing bool "true"
+  set_xfconf xfce4-panel /panels/panel-1/background-style uint "1"
+  set_xfconf xfce4-panel /panels/panel-1/enter-opacity uint "100"
+  set_xfconf xfce4-panel /panels/panel-1/leave-opacity uint "100"
+
+  # XFCE stores the panel color as a four-double RGBA array. Recreate it so
+  # persisted session state cannot restore the opaque theme background.
+  xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba -r >/dev/null 2>&1 || true
+  xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba -n \
+    -t double -s 0 \
+    -t double -s 0 \
+    -t double -s 0 \
+    -t double -s 0 >/dev/null 2>&1 || true
 }
 
 ensure_xfdesktop() {
@@ -94,6 +114,7 @@ if wait_for_xfconf; then
   set_xfconf xsettings /Gtk/CursorThemeName string "$CURSOR_THEME"
   set_xfconf xsettings /Gtk/CursorThemeSize int "$CURSOR_SIZE"
   set_xfconf xsettings /Gtk/EnableAnimations bool "false"
+  set_transparent_panel
   set_xfconf xfce4-desktop /backdrop/single-workspace-mode bool "true"
   set_xfconf xfce4-desktop /desktop-icons/style int "0"
 
@@ -136,6 +157,8 @@ if wait_for_xfconf; then
 fi
 
 if command -v xsetroot >/dev/null 2>&1; then
+  # Keep the native/fallback desktop usable. The CUA launcher switches to the
+  # transparent theme only after its overlay-owning Driver backend is ready.
   xsetroot -cursor_name left_ptr >/dev/null 2>&1 || true
 fi
 

@@ -10,6 +10,8 @@ allowBuilds:
   msw: true
   protobufjs: true
   sharp: true
+patchedDependencies:
+  '@trigger.dev/core@4.5.11': patches/@trigger.dev__core@4.5.11.patch
 catalog:
   dotenv: ^17.2.2
   zod: ^4.1.13

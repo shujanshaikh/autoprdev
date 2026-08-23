@@ -15,9 +15,10 @@
   },
   "dependencies": {
     "@autopr/config": "workspace:*",
-    "@daytona/sdk": "^0.196.0",
+    "@daytona/sdk": "0.205.0",
     "ai": "^6.0.168",
     "diff": "^8.0.2",
+    "sharp": "^0.35.3",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -9,13 +9,16 @@ if (!project) {
 
 export default defineConfig({
   project,
+  // Node 24 has crashed inside its native AES worker during long agent turns.
+  // Keep Trigger tasks on Node 22 until that native failure is resolved upstream.
+  runtime: "node-22",
   dirs: ["./src/trigger"],
   machine: "small-1x",
   maxDuration: 3_600,
   build: {
-    // Daytona relies on runtime-loaded CommonJS modules. Keep the SDK and its
-    // multipart upload/download dependencies available to Trigger task runs.
-    external: ["@daytona/sdk", "busboy", "form-data"],
+    // Keep runtime-loaded packages out of Trigger's JavaScript bundle. Sharp
+    // must remain external because it loads a platform-specific native binary.
+    external: ["@daytona/sdk", "busboy", "form-data", "sharp"],
   },
   retries: {
     enabledInDev: false,

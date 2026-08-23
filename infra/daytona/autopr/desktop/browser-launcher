@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-exec /usr/bin/google-chrome-stable \
+/usr/bin/google-chrome-stable \
+  --start-maximized \
   --no-first-run \
   --no-default-browser-check \
   --disable-default-apps \
@@ -13,9 +14,25 @@ exec /usr/bin/google-chrome-stable \
   --disable-dev-shm-usage \
   --disable-extensions \
   --disable-features=Translate,PasswordManagerOnboarding \
+  --force-renderer-accessibility \
   --disable-renderer-backgrounding \
   --disable-sync \
   --metrics-recording-only \
   --password-store=basic \
   --use-mock-keychain \
-  "$@"
+  "$@" &
+
+chrome_pid=$!
+
+# Chrome can restore stale window geometry after processing its profile. Apply
+# the maximized WM state once the first Chrome window is visible as well.
+(
+  for _ in $(seq 1 50); do
+    if wmctrl -x -r Google-chrome -b add,maximized_vert,maximized_horz >/dev/null 2>&1; then
+      exit 0
+    fi
+    sleep 0.1
+  done
+) &
+
+wait "$chrome_pid"

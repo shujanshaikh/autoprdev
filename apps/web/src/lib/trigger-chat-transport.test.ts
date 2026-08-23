@@ -253,6 +253,76 @@ describe("TriggerChatTransport", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps an active durable run attached through repeated transient failures", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 202,
+          headers: { "x-trigger-run-id": "run_long_outage" },
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError("network disconnected"))
+      .mockResolvedValueOnce(new Response("downstream unavailable", { status: 503 }))
+      .mockRejectedValueOnce(new TypeError("network disconnected again"))
+      .mockResolvedValueOnce(new Response("downstream unavailable", { status: 503 }))
+      .mockResolvedValueOnce(chunkResponse({ type: "finish" }));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const transport = new TriggerChatTransport({
+      api: "http://localhost/api/agent",
+      fetch: fetchMock,
+      reconnectDelayInMs: 0,
+    });
+
+    const stream = await transport.sendMessages({
+      chatId: "chat_long_outage",
+      messages: [
+        {
+          id: "message_long_outage",
+          role: "user",
+          parts: [{ type: "text", text: "hi" }],
+        },
+      ],
+      trigger: "submit-message",
+    });
+
+    await expect(collect(stream)).resolves.toEqual([{ type: "finish" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("backs off repeated empty reads without abandoning the durable run", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, {
+        status: 202,
+        headers: { "x-trigger-run-id": "run_empty_reads" },
+      }))
+      .mockResolvedValueOnce(chunkResponse())
+      .mockResolvedValueOnce(chunkResponse())
+      .mockResolvedValueOnce(chunkResponse({ type: "finish" }));
+    const transport = new TriggerChatTransport({
+      api: "http://localhost/api/agent",
+      fetch: fetchMock,
+      reconnectDelayInMs: 250,
+    });
+
+    try {
+      const stream = await transport.sendMessages({
+        chatId: "chat_empty_reads",
+        messages: [{ id: "message_empty_reads", role: "user", parts: [{ type: "text", text: "hi" }] }],
+        trigger: "submit-message",
+      });
+      const collected = collect(stream);
+      await vi.runAllTimersAsync();
+
+      await expect(collected).resolves.toEqual([{ type: "finish" }]);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not retry permanent HTTP failures", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

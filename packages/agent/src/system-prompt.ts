@@ -8,7 +8,7 @@ const DEFAULT_TOOL_SNIPPETS: Record<string, string> = {
   write: "Create or overwrite files with complete content",
   bash: "Execute shell commands inside the Daytona sandbox",
   process: "Poll, interact with, and terminate background shell commands",
-  computer: "Use the Daytona desktop with Google Chrome for browser demos, screenshots, mouse/keyboard interaction, and screen recordings",
+  computer: "Use CUA inside the Daytona Linux desktop for browser testing, screenshots, and mouse/keyboard interaction; demo-enabled turns can also use Daytona recording actions",
 };
 
 const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
@@ -49,10 +49,15 @@ const TOOL_PROMPT_GUIDELINES: Record<string, string[]> = {
   ],
   computer: [
     "Inspect the repository and terminal state to choose the preview command, localhost URL, route, and UI path yourself.",
-    "Demo mode gives you permission to run a dev or preview process inside Daytona when useful; do not assume a hard-coded command or URL.",
-    "Use the computer tool with actions[] for small batches of desktop actions; it returns the latest screenshot as image content after relevant screen actions.",
-    "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available. Coordinates are absolute screen pixels.",
-    "Inspect a fresh screenshot before coordinate-sensitive interactions, and verify the resulting screen state before continuing.",
+    "You may run a dev or preview process inside Daytona when browser testing is useful; do not assume a hard-coded command or URL.",
+    "Use the CUA-backed computer tool as a Look -> Act -> Verify loop. Each call accepts one strict CUA action and returns the latest screenshot after visible actions.",
+    "For browser tasks, use Google Chrome via computer open_url after choosing the right localhost URL; do not choose Chromium when Chrome is available.",
+    "Treat coordinates as image-space pixels from the latest returned screenshot, with (0,0) at its top-left. Pass that screenshot's exact observationId with every coordinate action.",
+    "The tool rejects stale observation IDs. After navigation, scrolling, dialogs, menus, resizing, or any layout change, inspect the newly returned observation before choosing coordinates.",
+    "Use one action per call. Aim at the center of the visible target, then inspect the fresh observation returned by that action before continuing.",
+    "Use screenshot.windowId or screenshot.region to zoom when text or controls are small. Zoomed coordinates remain relative to the returned image until a full screenshot resets the view.",
+    "If CUA reports suspected_noop, partial, or unverifiable, or the screen did not change as expected, choose a corrected target from the new observation instead of repeating old coordinates.",
+    "Continue immediately when the returned observation is actionable. Use one bounded wait only when the page is visibly still loading or animating.",
     "When turn-specific instructions require a demo recording, treat a successful stop_recording result as part of the required final deliverable.",
   ],
 };

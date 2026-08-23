@@ -1,12 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import {
-  getGithubAppInstallUrl,
-  getGithubWidgetToken,
-  GithubConnectionError,
-  requireWorkOSAuth,
-  safeErrorMessage,
-} from "#/lib/github-oauth-server";
+import { getGithubAppInstallUrl, getGithubWidgetToken, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
 
 async function GET() {
   try {

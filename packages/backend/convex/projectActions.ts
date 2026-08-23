@@ -1,5 +1,8 @@
 "use node";
 
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import * as daytonaSdk from "@daytona/sdk";
 import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
 import {
@@ -17,21 +20,8 @@ import {
 } from "./lib/daytonaPreview";
 import { normalizeGithubUrl } from "./lib/github";
 import { sandboxCommandText } from "./lib/sandboxCommandOutput";
-import {
-  autoprSandboxLabels,
-  autoprSandboxName,
-  isExpectedAutoprSandbox,
-} from "./lib/sandboxIdentity";
-import {
-  assessWorktreeCleanup,
-  createThreadFeatureBranch,
-  createThreadWorktreePath,
-  decideWorktreeProvision,
-  parseGitWorktreeList,
-  resolveThreadBaseBranch,
-  resolveThreadWorkspaceMode,
-  type ThreadWorkspaceMode,
-} from "./lib/threadWorktree";
+import { autoprSandboxLabels, autoprSandboxName, isExpectedAutoprSandbox } from "./lib/sandboxIdentity";
+import { assessWorktreeCleanup, createThreadFeatureBranch, createThreadWorktreePath, decideWorktreeProvision, parseGitWorktreeList, resolveThreadBaseBranch, resolveThreadWorkspaceMode, type ThreadWorkspaceMode } from "./lib/threadWorktree";
 
 const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready"), v.literal("failed"));
 
@@ -133,7 +123,7 @@ let daytonaClientCache: {
   client: InstanceType<typeof daytonaSdk.Daytona>;
 } | undefined;
 
-function errorMessage(error: unknown) {
+function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
@@ -151,7 +141,7 @@ async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFa
       { command, suppressInputEcho: true },
       120,
     );
-    if (!allowFailure && typeof result.exitCode === "number" && result.exitCode !== 0) {
+    if (!allowFailure && hasNumberType(result.exitCode) && result.exitCode !== 0) {
       throw new Error(sandboxCommandText(result) || "Sandbox Git command failed.");
     }
     return result;
@@ -160,8 +150,8 @@ async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFa
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function repoNameFromUrl(repoUrl?: string): string | undefined {
@@ -209,13 +199,13 @@ function sandboxRepositoryPath(sandboxWorkDir: string, repoDirectoryName: string
   return `${sandboxWorkDir.replace(/\/+$/, "")}/${repoDirectoryName}`;
 }
 
-function isSandboxNotFoundError(error: unknown) {
+function isSandboxNotFoundError<ErrorValue>(error: ErrorValue) {
   const message = errorMessage(error).toLowerCase();
 
   return message.includes("not found") || message.includes("404");
 }
 
-function isSandboxNetworkNotReadyError(error: unknown) {
+function isSandboxNetworkNotReadyError<ErrorValue>(error: ErrorValue) {
   const message = errorMessage(error).toLowerCase();
 
   return (
@@ -225,11 +215,11 @@ function isSandboxNetworkNotReadyError(error: unknown) {
   );
 }
 
-function isSandboxStateChangeInProgressError(error: unknown) {
+function isSandboxStateChangeInProgressError<ErrorValue>(error: ErrorValue) {
   return errorMessage(error).toLowerCase().includes("state change in progress");
 }
 
-function isDaytonaRateLimitError(error: unknown) {
+function isDaytonaRateLimitError<ErrorValue>(error: ErrorValue) {
   if (error instanceof Error && error.name === "DaytonaRateLimitError") return true;
   const message = errorMessage(error).toLowerCase();
   if (message.includes("too many requests") || message.includes("throttlerexception")) return true;
@@ -316,7 +306,7 @@ async function deleteDaytonaSandbox(sandboxId: string) {
     try {
       const sandbox = await daytona.get(sandboxId);
       const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1_000));
-      await daytona.delete(sandbox, timeoutSeconds, true);
+      await daytona.delete(sandbox, timeoutSeconds);
       return;
     } catch (error) {
       if (isSandboxNotFoundError(error)) return;
@@ -360,8 +350,8 @@ function normalizePreviewUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
-  if (typeof state !== "string") return "unknown";
+function normalizeSandboxRuntimeStatus<State>(state: State): SandboxRuntimeStatus {
+  if (!hasStringType(state)) return "unknown";
   const normalized = state.toLowerCase();
   if (normalized === "started" || normalized === "running") return "started";
   if (normalized === "archived") return "archived";
@@ -372,7 +362,7 @@ function normalizeSandboxRuntimeStatus(state: unknown): SandboxRuntimeStatus {
 async function getDaytonaSandboxRuntimeStatus(sandboxId: string): Promise<SandboxRuntimeStatusResult> {
   const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
-  const rawState = typeof sandbox.state === "string" ? sandbox.state : undefined;
+  const rawState = hasStringType(sandbox.state) ? sandbox.state : undefined;
 
   return {
     status: normalizeSandboxRuntimeStatus(rawState),
@@ -563,7 +553,7 @@ async function refreshDaytonaDesktopActivity(sandboxId: string): Promise<void> {
 }
 
 async function startIsolatedTerminalPreview(sandbox: DaytonaSandbox, workDir: string) {
-  let lastError: unknown;
+  let lastError: Error | undefined;
 
   for (let attempt = 0; attempt < TERMINAL_PORT_ATTEMPTS; attempt += 1) {
     const port = TERMINAL_PORT_MIN + Math.floor(Math.random() * TERMINAL_PORT_SPAN);
@@ -1504,7 +1494,7 @@ export const removeSandboxEnvironmentVariable = action({
       await sandbox.updateEnv({}, { unset: [args.envName] });
       if (existingSecret) {
         await sandbox.updateSecrets(remainingMap);
-        await daytona.secret.delete(existingSecret.secretId).catch((error: unknown) => {
+        await daytona.secret.delete(existingSecret.secretId).catch(<ErrorValue>(error: ErrorValue) => {
           if (!isSandboxNotFoundError(error)) throw error;
         });
       }

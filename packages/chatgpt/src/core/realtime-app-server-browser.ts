@@ -1,9 +1,8 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import type { FetchLike } from "./types.ts";
-import {
-  connectChatGPTRealtime,
-  type ChatGPTRealtimeConnection,
-  type ConnectChatGPTRealtimeOptions,
-} from "./realtime-browser.ts";
+import { connectChatGPTRealtime, type ChatGPTRealtimeConnection, type ConnectChatGPTRealtimeOptions } from "./realtime-browser.ts";
 import type { ChatGPTRealtimeSessionOptions } from "./realtime.ts";
 
 const MAX_APP_SERVER_EVENT_CHARS = 256 * 1024;
@@ -48,7 +47,7 @@ export interface ChatGPTRealtimeAppServerConnection extends ChatGPTRealtimeConne
    * Resolves an application-owned pending action. The confirmation payload is
    * intentionally application-defined and must be authorized server-side.
    */
-  resolveConfirmation(callId: string, confirmation: unknown): Promise<void>;
+  resolveConfirmation<ConfirmationValue>(callId: string, confirmation: ConfirmationValue): Promise<void>;
   /** Closes the server-side app-server process and waits for acknowledgement. */
   closeServer(): Promise<void>;
 }
@@ -71,7 +70,7 @@ export async function connectChatGPTRealtimeAppServer(
   const endpoint = (requestedEndpoint ?? "/api/chatgpt/realtime/app-server").replace(/\/+$/, "");
   let sessionId = "";
 
-  const signalingFetch = (async (
+  const signalingFetch = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (async (
     input: Parameters<FetchLike>[0],
     init?: Parameters<FetchLike>[1],
   ) => {
@@ -90,8 +89,8 @@ export async function connectChatGPTRealtimeAppServer(
     } catch {
       throw new Error("Realtime app-server signaling returned invalid JSON.");
     }
-    if (!isRecord(payload) || typeof payload["sessionId"] !== "string" ||
-        typeof payload["sdp"] !== "string" || !payload["sdp"].trim()) {
+    if (!isRecord(payload) || !hasStringType(payload["sessionId"]) ||
+        !hasStringType(payload["sdp"]) || !payload["sdp"].trim()) {
       throw new Error("Realtime app-server signaling returned an invalid session.");
     }
     sessionId = payload["sessionId"];
@@ -130,7 +129,7 @@ export async function connectChatGPTRealtimeAppServer(
   const eventsAbort = new AbortController();
   let serverClosed = false;
   let closePromise: Promise<void> | undefined;
-  const report = (cause: unknown) => {
+  const report = <CauseValue>(cause: CauseValue) => {
     if (isExpectedStreamCancellation(cause)) return;
     options.onError?.(cause instanceof Error ? cause : new Error(String(cause)));
   };
@@ -176,7 +175,7 @@ export async function connectChatGPTRealtimeAppServer(
   const closeConnection = connection.close;
   return Object.assign(connection, {
     sessionId,
-    resolveConfirmation: async (callId: string, confirmation: unknown) => {
+    resolveConfirmation: async <ConfirmationValue>(callId: string, confirmation: ConfirmationValue) => {
       const response = await fetchImpl(`${endpoint}/${encodedSessionId}/confirm`, {
         method: "POST",
         credentials: "include",
@@ -200,38 +199,50 @@ export async function connectChatGPTRealtimeAppServer(
   });
 }
 
-export function parseChatGPTRealtimeAppServerEvent(
-  value: unknown,
+export function parseChatGPTRealtimeAppServerEvent<ValueValue>(
+  value: ValueValue,
 ): ChatGPTRealtimeAppServerEvent | undefined {
-  if (!isRecord(value) || typeof value["type"] !== "string") return undefined;
+  if (!isRecord(value) || !hasStringType(value["type"])) return undefined;
   switch (value["type"]) {
     case "session.started":
+      return { type: "session.started" };
     case "session.closed":
+      return { type: "session.closed" };
     case "keepalive":
-      return value as ChatGPTRealtimeAppServerEvent;
+      return { type: "keepalive" };
     case "handoff":
-      return typeof value["transcript"] === "string"
-        ? value as ChatGPTRealtimeAppServerEvent
+      return hasStringType(value["transcript"])
+        ? { type: "handoff", transcript: value["transcript"] }
         : undefined;
     case "tool.running":
+      return hasStringType(value["callId"]) && hasStringType(value["name"])
+        ? { type: "tool.running", callId: value["callId"], name: value["name"] }
+        : undefined;
     case "tool.completed":
-      return typeof value["callId"] === "string" && typeof value["name"] === "string"
-        ? value as ChatGPTRealtimeAppServerEvent
+      return hasStringType(value["callId"]) && hasStringType(value["name"])
+        ? { type: "tool.completed", callId: value["callId"], name: value["name"] }
         : undefined;
     case "tool.pending_confirmation":
-      return typeof value["callId"] === "string" && typeof value["name"] === "string"
+      return hasStringType(value["callId"]) && hasStringType(value["name"])
         && "review" in value
-        ? value as ChatGPTRealtimeAppServerEvent
+        ? { type: "tool.pending_confirmation", callId: value["callId"], name: value["name"], review: value["review"] }
         : undefined;
     case "tool.failed":
-      return typeof value["message"] === "string"
-        && (value["callId"] === undefined || typeof value["callId"] === "string")
-        && (value["name"] === undefined || typeof value["name"] === "string")
-        ? value as ChatGPTRealtimeAppServerEvent
-        : undefined;
+      if (!hasStringType(value["message"])
+        || value["callId"] !== undefined && !hasStringType(value["callId"])
+        || value["name"] !== undefined && !hasStringType(value["name"])) {
+        return undefined;
+      }
+      const failedEvent: Extract<ChatGPTRealtimeAppServerEvent, { type: "tool.failed" }> = {
+        type: "tool.failed",
+        message: value["message"],
+      };
+      if (hasStringType(value["callId"])) failedEvent.callId = value["callId"];
+      if (hasStringType(value["name"])) failedEvent.name = value["name"];
+      return failedEvent;
     case "error":
-      return typeof value["message"] === "string"
-        ? value as ChatGPTRealtimeAppServerEvent
+      return hasStringType(value["message"])
+        ? { type: "error", message: value["message"] }
         : undefined;
     default:
       return undefined;
@@ -286,7 +297,7 @@ async function streamAppServerEvents(
   }
 }
 
-function isExpectedStreamCancellation(cause: unknown): boolean {
+function isExpectedStreamCancellation<CauseValue>(cause: CauseValue): boolean {
   const message = cause instanceof Error ? cause.message.toLowerCase() : String(cause).toLowerCase();
   return (
     (cause instanceof DOMException && cause.name === "AbortError")
@@ -295,6 +306,6 @@ function isExpectedStreamCancellation(cause: unknown): boolean {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }

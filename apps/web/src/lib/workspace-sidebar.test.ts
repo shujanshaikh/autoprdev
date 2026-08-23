@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  partitionSidebarThreads,
-  resolveNewThreadProjectId,
-  SIDEBAR_AUTO_SETTLE_DAYS,
-} from "./workspace-sidebar";
+import { partitionSidebarThreads, resolveNewThreadProjectId, SIDEBAR_AUTO_SETTLE_DAYS } from "./workspace-sidebar";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const NOW = 2_000_000_000_000;

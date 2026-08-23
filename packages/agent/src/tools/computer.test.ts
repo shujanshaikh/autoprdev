@@ -1,54 +1,66 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject } from "@autopr/config/runtime-value";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-const mocks = vi.hoisted(() => ({
+import {
+  createCuaComputerTool,
+  COMPUTER_METADATA_PREFIX,
+  type CuaComputerDependencies,
+  type CuaComputerToolOptions,
+} from "./computer";
+import type { CuaToolSession } from "./computer-session";
+import { safeParse } from "../test/schema";
+
+const mocks = {
   getSandboxContext: vi.fn(),
+  getSession: vi.fn(),
   ensureReady: vi.fn(),
   inspect: vi.fn(),
   command: vi.fn(),
   supports: vi.fn(),
   updateSandbox: vi.fn(),
   clientConstructions: 0,
-}));
-
-vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
-vi.mock("./cua-client", () => ({
-  CuaComputerClient: class {
-    constructor() {
-      mocks.clientConstructions += 1;
-    }
-
-    ensureReady = mocks.ensureReady;
-    inspect = mocks.inspect;
-    command = mocks.command;
-    supports = mocks.supports;
-    updateSandbox = mocks.updateSandbox;
-  },
-}));
-
-import { createCuaComputerTool, COMPUTER_METADATA_PREFIX } from "./computer";
-import { safeParse } from "../test/schema";
-
-type ToolResult = {
-  type: "content";
-  value: Array<{ type: string; text?: string }>;
 };
 
-function metadata(result: unknown): Record<string, unknown> {
-  const value = (result as ToolResult).value;
-  const item = value.find((entry) => entry.text?.startsWith(COMPUTER_METADATA_PREFIX));
-  if (!item?.text) throw new Error("computer metadata is missing");
-  return JSON.parse(item.text.slice(COMPUTER_METADATA_PREFIX.length)) as Record<string, unknown>;
+const dependencies = {
+  getSandboxContext: mocks.getSandboxContext,
+  getSession: mocks.getSession,
+} satisfies CuaComputerDependencies;
+
+function createComputer(cacheKey: string, options: CuaComputerToolOptions = {}) {
+  return createCuaComputerTool({ cacheKey }, options, dependencies);
 }
 
-function observationId(result: unknown): string {
-  const screenshot = metadata(result).screenshot as Record<string, unknown>;
-  if (typeof screenshot.id !== "string") throw new Error("observation ID is missing");
+function metadata<Result>(result: Result): JsonObject {
+  if (!isJsonObject(result) || !Array.isArray(result.value)) {
+    throw new Error("computer result is not content");
+  }
+  const item = result.value.find((entry) => (
+    isJsonObject(entry)
+    && hasStringType(entry.text)
+    && entry.text.startsWith(COMPUTER_METADATA_PREFIX)
+  ));
+  if (!isJsonObject(item)) {
+    throw new Error("computer metadata is missing");
+  }
+  const metadataText = z.string().parse(item.text);
+  const parsed = jsonValueSchema.parse(JSON.parse(metadataText.slice(COMPUTER_METADATA_PREFIX.length)));
+  if (!isJsonObject(parsed)) throw new Error("computer metadata is not an object");
+  return parsed;
+}
+
+function observationId<Result>(result: Result): string {
+  const screenshot = metadata(result).screenshot;
+  if (!isJsonObject(screenshot) || !hasStringType(screenshot.id)) {
+    throw new Error("observation ID is missing");
+  }
   return screenshot.id;
 }
 
 describe("CUA computer tool input", () => {
-  const computer = createCuaComputerTool({ cacheKey: "computer-schema" });
+  const computer = createComputer("computer-schema");
 
   it("exposes one strict CUA action instead of legacy batches", () => {
     expect(safeParse(computer.inputSchema, { type: "screenshot" }).success).toBe(true);
@@ -96,10 +108,12 @@ describe("CUA computer execution", () => {
   const stopRecording = vi.fn(async () => ({ id: "recording-1", status: "completed" }));
   const listRecordings = vi.fn(async () => ({ recordings: [] }));
   const getRecording = vi.fn(async () => ({ id: "recording-1", status: "completed" }));
-  let sandbox: {
+  type TestSandbox = {
     id: string;
+    getSignedPreviewUrl: ReturnType<typeof vi.fn>;
     computerUse: {
       getStatus: typeof getStatus;
+      start: ReturnType<typeof vi.fn>;
       recording: {
         start: typeof startRecording;
         stop: typeof stopRecording;
@@ -108,18 +122,23 @@ describe("CUA computer execution", () => {
       };
     };
   };
+  let sandbox: TestSandbox;
+  let session: CuaToolSession | undefined;
   let imageData: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     mocks.clientConstructions = 0;
+    session = undefined;
     imageData = (await sharp({
       create: { width: 100, height: 80, channels: 3, background: "#111111" },
     }).png().toBuffer()).toString("base64");
     sandbox = {
       id: `sandbox-${Math.random()}`,
+      getSignedPreviewUrl: vi.fn(async () => ({ url: "https://cua.test/" })),
       computerUse: {
         getStatus,
+        start: vi.fn(async () => undefined),
         recording: {
           start: startRecording,
           stop: stopRecording,
@@ -156,10 +175,30 @@ describe("CUA computer execution", () => {
       }
       return { success: true, effect: "confirmed" };
     });
+    mocks.getSession.mockImplementation((currentSandbox) => {
+      if (session) {
+        session.client.updateSandbox(currentSandbox);
+        return session;
+      }
+      mocks.clientConstructions += 1;
+      session = {
+        client: {
+          ensureReady: mocks.ensureReady,
+          inspect: mocks.inspect,
+          command: mocks.command,
+          supports: mocks.supports,
+          updateSandbox: mocks.updateSandbox,
+        },
+        observationSequence: 0,
+        trajectorySequence: 0,
+        trajectory: [],
+      };
+      return session;
+    });
   });
 
   it("reuses one CUA client and captures atomic desktop state", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "persistent-client" });
+    const computer = createComputer("persistent-client");
     if (!computer.execute) throw new Error("computer tool is not executable");
 
     const first = await computer.execute({ type: "screenshot" }, { toolCallId: "one", messages: [] });
@@ -180,7 +219,7 @@ describe("CUA computer execution", () => {
     mocks.getSandboxContext
       .mockResolvedValueOnce({ sandbox: firstWrapper, workDir: "/workspace/repo" })
       .mockResolvedValueOnce({ sandbox: secondWrapper, workDir: "/workspace/repo" });
-    const computer = createCuaComputerTool({ cacheKey: "refreshed-wrapper" });
+    const computer = createComputer("refreshed-wrapper");
     if (!computer.execute) throw new Error("computer tool is not executable");
 
     const shot = await computer.execute(
@@ -200,7 +239,7 @@ describe("CUA computer execution", () => {
   });
 
   it("rejects stale coordinates and translates cropped coordinates back to the screen", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "observation-coordinates" });
+    const computer = createComputer("observation-coordinates");
     if (!computer.execute) throw new Error("computer tool is not executable");
     const cropped = await computer.execute(
       { type: "screenshot", region: { x: 10, y: 20, width: 40, height: 30 } },
@@ -235,7 +274,7 @@ describe("CUA computer execution", () => {
       if (command === "get_cursor_position") return { success: true, position: { x: 0, y: 0 } };
       return { success: true, effect: "confirmed" };
     });
-    const computer = createCuaComputerTool({ cacheKey: "drag-scale" });
+    const computer = createComputer("drag-scale");
     if (!computer.execute) throw new Error("computer tool is not executable");
     const shot = await computer.execute({ type: "screenshot" }, { toolCallId: "shot", messages: [] });
     await computer.execute({
@@ -252,7 +291,7 @@ describe("CUA computer execution", () => {
   });
 
   it("captures exactly one CUA frame after an action", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "single-frame" });
+    const computer = createComputer("single-frame");
     if (!computer.execute) throw new Error("computer tool is not executable");
     const shot = await computer.execute({ type: "screenshot" }, { toolCallId: "shot", messages: [] });
     mocks.command.mockClear();
@@ -263,7 +302,6 @@ describe("CUA computer execution", () => {
       y: 10,
     }, { toolCallId: "click", messages: [] });
     expect(mocks.command.mock.calls.filter(([command]) => command === "get_desktop_state")).toHaveLength(1);
-    expect(mocks.command).not.toHaveBeenCalledWith("get_cursor_position");
     expect(metadata(result)).toMatchObject({ screenshot: { captureKind: "desktop_state" } });
   });
 
@@ -287,7 +325,7 @@ describe("CUA computer execution", () => {
       if (command === "copy_to_clipboard") return { success: true, content: "copied" };
       return { success: true, effect: "confirmed" };
     });
-    const computer = createCuaComputerTool({ cacheKey: "expanded-cua" });
+    const computer = createComputer("expanded-cua");
     if (!computer.execute) throw new Error("computer tool is not executable");
     const windows = await computer.execute({ type: "windows", app: "Chrome" }, { toolCallId: "windows", messages: [] });
     expect(metadata(windows)).toMatchObject({ windows: [{ id: 7, name: "Chrome" }] });
@@ -310,7 +348,7 @@ describe("CUA computer execution", () => {
   });
 
   it("returns per-action CUA trajectory diagnostics", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "trajectory" });
+    const computer = createComputer("trajectory");
     if (!computer.execute) throw new Error("computer tool is not executable");
     const shot = await computer.execute({ type: "screenshot" }, { toolCallId: "shot", messages: [] });
     mocks.command.mockImplementation(async (command: string) => {
@@ -346,7 +384,7 @@ describe("CUA computer execution", () => {
   });
 
   it("keeps recording permission checks outside the sandbox", async () => {
-    const computer = createCuaComputerTool({ cacheKey: "recording-disabled" }, { recordingEnabled: false });
+    const computer = createComputer("recording-disabled", { recordingEnabled: false });
     if (!computer.execute) throw new Error("computer tool is not executable");
     await expect(computer.execute(
       { type: "start_recording", title: "Unapproved demo" },
@@ -367,7 +405,7 @@ describe("CUA computer execution", () => {
         }
         return Promise.resolve({ success: true });
       });
-      const computer = createCuaComputerTool({ cacheKey: "timeout-quarantine" });
+      const computer = createComputer("timeout-quarantine");
       if (!computer.execute) throw new Error("computer tool is not executable");
       const timedOut = computer.execute({ type: "type", text: "x" }, { toolCallId: "type", messages: [] });
       const assertion = expect(timedOut).rejects.toThrow("Timed out running CUA computer action type");

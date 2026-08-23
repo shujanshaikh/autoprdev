@@ -1,3 +1,5 @@
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+
 import type { ResolvedConfig } from "./config.ts";
 import { DEVICE_CODE_TTL_MS } from "./constants.ts";
 import { ChatGPTAuthError } from "./errors.ts";
@@ -191,8 +193,8 @@ export async function waitForDeviceTokens(
 }
 
 function normalizeInterval(value: string | number | undefined): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
-  if (typeof value === "string") {
+  if (hasNumberType(value) && Number.isFinite(value) && value > 0) return value;
+  if (hasStringType(value)) {
     const parsed = Number.parseInt(value.trim(), 10);
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }

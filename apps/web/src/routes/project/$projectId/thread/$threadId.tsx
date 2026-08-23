@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { cn } from "@autopr/ui/lib/utils";
@@ -114,16 +117,16 @@ function assistantBlobDescriptor(message: StoredMessageRow): AssistantBlobDescri
 
 function ProjectThreadPageContent() {
   const { projectId, threadId } = Route.useParams();
-  const search = useSearch({ strict: false }) as Record<string, unknown> & { prompt?: string; provider?: string; model?: string; reasoningEffort?: string };
+  const search = useSearch({ strict: false }) satisfies JsonObject & { prompt?: string; provider?: string; model?: string; reasoningEffort?: string };
   const { isAuthenticated } = useConvexAuth();
   const { openMobile: sidebarOpen, setOpenMobile: setSidebarOpen } = useSidebar();
   const initialPrompt = search.prompt?.trim() || undefined;
   const initialProvider = isAgentProvider(search.provider) ? search.provider : undefined;
-  const initialModel = typeof search.model === "string" && search.model.trim() ? search.model.trim() : undefined;
+  const initialModel = hasStringType(search.model) && search.model.trim() ? search.model.trim() : undefined;
   const initialReasoningEffort = initialProvider === "xai"
     ? getAgentReasoningEfforts({ provider: "xai", modelId: initialModel ?? "" })
-        .includes(search.reasoningEffort as CodexReasoningEffort)
-      ? search.reasoningEffort as CodexReasoningEffort
+        .includes(search.reasoningEffort satisfies CodexReasoningEffort)
+      ? search.reasoningEffort satisfies CodexReasoningEffort
       : undefined
     : isCodexReasoningEffortForModel(initialModel, search.reasoningEffort) ? search.reasoningEffort : undefined;
   const diffDeepLink = useMemo(

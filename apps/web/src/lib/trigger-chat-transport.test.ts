@@ -178,7 +178,7 @@ describe("TriggerChatTransport", () => {
           asyncIteratorDescriptor,
         );
       } else {
-        delete (ReadableStream.prototype as Partial<AsyncIterable<unknown>>)[
+        delete (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ ReadableStream.prototype as Partial<AsyncIterable<unknown>>)[
           Symbol.asyncIterator
         ];
       }

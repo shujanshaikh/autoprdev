@@ -1,3 +1,6 @@
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { toolHeader } from "./toolPresentation";
 
 export type MessagePartView =
@@ -32,23 +35,23 @@ export type MessagePartView =
       failed: boolean;
     };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function contentFromOutput(output: unknown) {
-  if (typeof output === "string") return output;
-  if (isRecord(output) && typeof output.content === "string") return output.content;
+function contentFromOutput<OutputValue>(output: OutputValue) {
+  if (hasStringType(output)) return output;
+  if (isRecord(output) && hasStringType(output.content)) return output.content;
   return undefined;
 }
 
-function readableToolDetails(input: unknown, output: unknown, errorText: unknown) {
+function readableToolDetails<InputValue, OutputValue, ErrorTextValue>(input: InputValue, output: OutputValue, errorText: ErrorTextValue) {
   const sections: string[] = [];
-  const stringify = (value: unknown) => {
+  const stringify = <ValueValue>(value: ValueValue) => {
     try {
       return JSON.stringify(value, (key, child) => {
         if (
-          typeof child === "string"
+          hasStringType(child)
           && (key === "data" || key === "base64" || child.length > 2_000)
         ) {
           return `${child.slice(0, 2_000)}${child.length > 2_000 ? "… [truncated]" : ""}`;
@@ -68,7 +71,7 @@ function readableToolDetails(input: unknown, output: unknown, errorText: unknown
       ? `### Output\n\n${outputContent}`
       : `### Output\n\n\`\`\`json\n${stringify(output)}\n\`\`\``);
   }
-  if (typeof errorText === "string" && errorText.trim()) {
+  if (hasStringType(errorText) && errorText.trim()) {
     sections.push(`### Error\n\n${errorText.trim()}`);
   }
   const value = sections.join("\n\n");
@@ -77,23 +80,23 @@ function readableToolDetails(input: unknown, output: unknown, errorText: unknown
 
 type RecordingPart = Extract<MessagePartView, { kind: "recording" }>;
 
-function recordingsFromValue(value: unknown, seen = new Set<string>()): RecordingPart[] {
+function recordingsFromValue<ValueValue>(value: ValueValue, seen = new Set<string>()): RecordingPart[] {
   if (Array.isArray(value)) {
     return value.flatMap((item) => recordingsFromValue(item, seen));
   }
   if (!isRecord(value)) return [];
-  if (value.type === "daytona_recording" && typeof value.id === "string") {
+  if (value.type === "daytona_recording" && hasStringType(value.id)) {
     if (seen.has(value.id)) return [];
     seen.add(value.id);
     return [{
       kind: "recording",
       id: value.id,
-      title: typeof value.title === "string"
+      title: hasStringType(value.title)
         ? value.title
-        : typeof value.fileName === "string" ? value.fileName : undefined,
-      url: typeof value.url === "string" ? value.url : undefined,
-      durationSeconds: typeof value.durationSeconds === "number" ? value.durationSeconds : undefined,
-      status: typeof value.status === "string" ? value.status : undefined,
+        : hasStringType(value.fileName) ? value.fileName : undefined,
+      url: hasStringType(value.url) ? value.url : undefined,
+      durationSeconds: hasNumberType(value.durationSeconds) ? value.durationSeconds : undefined,
+      status: hasStringType(value.status) ? value.status : undefined,
     }];
   }
   return Object.values(value).flatMap((child) => recordingsFromValue(child, seen));
@@ -101,36 +104,37 @@ function recordingsFromValue(value: unknown, seen = new Set<string>()): Recordin
 
 export function messageParts(parts: readonly unknown[]): MessagePartView[] {
   return parts.flatMap((value): MessagePartView[] => {
-    if (!isRecord(value) || typeof value.type !== "string") return [];
-    if (value.type === "text" && typeof value.text === "string" && value.text.trim()) {
+    if (!isRecord(value) || !hasStringType(value.type)) return [];
+    const type = String(value.type);
+    if (type === "text" && hasStringType(value.text) && value.text.trim()) {
       return [{ kind: "text", text: value.text }];
     }
-    if (value.type === "reasoning" && typeof value.text === "string" && value.text.trim()) {
+    if (type === "reasoning" && hasStringType(value.text) && value.text.trim()) {
       return [{ kind: "reasoning", text: value.text }];
     }
     if (
-      value.type === "file" &&
-      typeof value.url === "string" &&
-      typeof value.mediaType === "string"
+      type === "file" &&
+      hasStringType(value.url) &&
+      hasStringType(value.mediaType)
     ) {
       return [{
         kind: "file",
         url: value.url,
         mediaType: value.mediaType,
-        filename: typeof value.filename === "string" ? value.filename : undefined,
+        filename: hasStringType(value.filename) ? value.filename : undefined,
       }];
     }
-    if (value.type === "dynamic-tool" || value.type.startsWith("tool-")) {
-      const toolName = typeof value.toolName === "string" ? value.toolName : undefined;
-      const name = value.type === "dynamic-tool" && toolName
+    if (type === "dynamic-tool" || type.startsWith("tool-")) {
+      const toolName = hasStringType(value.toolName) ? value.toolName : undefined;
+      const name = type === "dynamic-tool" && toolName
         ? toolName
-        : value.type.slice("tool-".length);
-      const errorText = typeof value.errorText === "string" ? value.errorText : undefined;
-      const state = typeof value.state === "string" ? value.state : undefined;
+        : type.slice("tool-".length);
+      const errorText = hasStringType(value.errorText) ? value.errorText : undefined;
+      const state = hasStringType(value.state) ? value.state : undefined;
       const failed = Boolean(errorText) || state === "output-error";
       const streaming = state === "input-streaming" || state === "input-available";
       const header = toolHeader({
-        type: value.type,
+        type,
         toolName,
         input: value.input,
         streaming,

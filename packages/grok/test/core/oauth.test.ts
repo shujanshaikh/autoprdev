@@ -1,14 +1,7 @@
+
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  fetchGrokModels,
-  normalizeGrokHarnessModels,
-  GROK_DEVICE_CODE_GRANT_TYPE,
-  GROK_OAUTH_CLIENT_ID,
-  pollGrokDeviceToken,
-  refreshGrokTokens,
-  requestGrokDeviceCode,
-} from "../../src/core/index";
+import { fetchGrokModels, normalizeGrokHarnessModels, GROK_DEVICE_CODE_GRANT_TYPE, GROK_OAUTH_CLIENT_ID, pollGrokDeviceToken, refreshGrokTokens, requestGrokDeviceCode } from "../../src/core/index";
 
 describe("Grok OAuth", () => {
   it("starts the public Grok CLI device flow with subscription scopes", async () => {
@@ -72,8 +65,6 @@ describe("Grok OAuth", () => {
   });
 });
 
-function viRequest(body: unknown, status = 200) {
-  return vi.fn(async () => Response.json(body, { status })) as unknown as typeof fetch & {
-    mock: { calls: Parameters<typeof fetch>[] };
-  };
+function viRequest<BodyValue>(body: BodyValue, status = 200) {
+  return vi.fn<typeof fetch>(async () => Response.json(body, { status }));
 }

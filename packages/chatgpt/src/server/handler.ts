@@ -1,30 +1,18 @@
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { type ChatGPTConfig, resolveConfig } from "../core/config.ts";
 import { DEFAULT_MODEL } from "../core/constants.ts";
-import {
-  type CodexResponsesOptions,
-  type CodexServiceTier,
-  type ReasoningEffort,
-  createCodexFetch,
-  listCodexModels,
-} from "../core/codex-transport.ts";
+import { type CodexResponsesOptions, type CodexServiceTier, type ReasoningEffort, createCodexFetch, listCodexModels } from "../core/codex-transport.ts";
 import { ChatGPTAuthError } from "../core/errors.ts";
 import { randomToken } from "../core/pkce.ts";
-import {
-  type ChatGPTRealtimeAuth,
-  type ChatGPTRealtimeSessionOptions,
-  type ChatGPTRealtimeVoiceMode,
-  createChatGPTRealtimeCall,
-  parseChatGPTRealtimeSessionOptions,
-} from "../core/realtime.ts";
+import { type ChatGPTRealtimeAuth, type ChatGPTRealtimeSessionOptions, type ChatGPTRealtimeVoiceMode, createChatGPTRealtimeCall, parseChatGPTRealtimeSessionOptions } from "../core/realtime.ts";
 import { MemoryStore, type KeyValueStore } from "../core/store.ts";
 import type { ChatGPTTokens, ChatGPTUser, LoginStatus } from "../core/types.ts";
 import { type CookieOptions, readCookie, serializeCookie } from "./cookies.ts";
 import { sign, unsign } from "./crypto.ts";
 import { SessionManager, type StoredSession } from "./session.ts";
-import {
-  createRealtimeAppServerRoutes,
-  type RealtimeAppServerPolicy,
-} from "./realtime-app-server-routes.ts";
+import { createRealtimeAppServerRoutes, type RealtimeAppServerPolicy } from "./realtime-app-server-routes.ts";
 import { readTextBody } from "./request-body.ts";
 
 export type {
@@ -263,6 +251,7 @@ export function createChatGPTHandler(options: CreateChatGPTHandlerOptions = {}):
     const sourceCookie = sourceRequest.headers.get("cookie");
     const sourceOrigin = sourceRequest.headers.get("origin") ?? sourceUrl.origin;
 
+    /* SAFETY: The wrapper preserves the complete fetch call and response contract. */
     return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const proxied = await toProxyRequest(input, init, {
         baseUrl: sourceUrl,
@@ -413,7 +402,10 @@ export function createChatGPTHandler(options: CreateChatGPTHandlerOptions = {}):
     }
     return listCodexModels({
       config,
-      getAuth: () => ({ accessToken: tokens.accessToken, accountId: tokens.accountId as string }),
+      getAuth: () => ({
+        accessToken: tokens.accessToken,
+        accountId: /* SAFETY: The guard above establishes a non-empty account ID. */ tokens.accountId as string,
+      }),
     });
   }
 
@@ -435,7 +427,10 @@ export function createChatGPTHandler(options: CreateChatGPTHandlerOptions = {}):
       reasoningSummary: options.reasoningSummary,
       textVerbosity: options.textVerbosity,
       serviceTier: options.serviceTier,
-      getAuth: () => ({ accessToken: tokens.accessToken, accountId: tokens.accountId as string }),
+      getAuth: () => ({
+        accessToken: tokens.accessToken,
+        accountId: /* SAFETY: The guard above establishes a non-empty account ID. */ tokens.accountId as string,
+      }),
     });
 
     const serviceTier = readServiceTierHeader(request);
@@ -554,16 +549,29 @@ export function createChatGPTHandler(options: CreateChatGPTHandlerOptions = {}):
     }
   }
 
-  const routes: Record<string, Partial<Record<string, (request: Request) => Promise<Response>>>> = {
+  interface HandlerRoutes {
+    [route: string]: Partial<Record<string, (request: Request) => Promise<Response>>>;
+  }
+  const routes: HandlerRoutes = {
     "/login": { POST: handleLogin },
     "/status": { GET: handleStatus },
     "/session": { GET: handleSession },
     "/logout": { POST: handleLogout },
-    ...(enableRealtime ? { "/realtime": { POST: handleRealtime } } : {}),
-    ...(enableRealtime && realtimeAppServerRoutes
-      ? { "/realtime/app-server": { POST: realtimeAppServerRoutes.start } }
-      : {}),
-    ...(enableResponsesProxy ? { "/responses": { POST: handleResponses }, "/models": { GET: handleModels } } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (enableRealtime) optionalProperties = { "/realtime": { POST: handleRealtime } };
+  return optionalProperties;
+})(),
+    ...(() => {
+  let optionalProperties;
+  if (enableRealtime && realtimeAppServerRoutes) optionalProperties = { "/realtime/app-server": { POST: realtimeAppServerRoutes.start } };
+  return optionalProperties;
+})(),
+    ...(() => {
+  let optionalProperties;
+  if (enableResponsesProxy) optionalProperties = { "/responses": { POST: handleResponses }, "/models": { GET: handleModels } };
+  return optionalProperties;
+})(),
   };
 
   const handler = async (request: Request): Promise<Response> => {
@@ -640,7 +648,7 @@ async function toProxyRequest(
 ): Promise<Request> {
   const inputRequest = input instanceof Request ? input : undefined;
   const inputUrl =
-    typeof input === "string" ? input : input instanceof URL ? input.toString() : inputRequest ? inputRequest.url : String(input);
+    hasStringType(input) ? input : input instanceof URL ? input.toString() : inputRequest ? inputRequest.url : String(input);
   const url = new URL(inputUrl, options.baseUrl.origin);
   const method = init?.method ?? inputRequest?.method ?? "GET";
   const headers = new Headers(inputRequest?.headers);
@@ -697,11 +705,11 @@ async function prepareResponsesPayload(
 
   try {
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (!parsed || !hasObjectType(parsed) || Array.isArray(parsed)) {
       return json({ error: "invalid_responses_request", message: "Expected a JSON object body." }, { status: 400 });
     }
     if (parsed.model === undefined) parsed.model = options.defaultModel;
-    if (typeof parsed.model !== "string" || parsed.model.length === 0) {
+    if (!hasStringType(parsed.model) || parsed.model.length === 0) {
       return json({ error: "invalid_responses_request", message: "`model` must be a string." }, { status: 400 });
     }
     if (!isModelAllowed(parsed.model, options.allowedModels)) {
@@ -710,7 +718,11 @@ async function prepareResponsesPayload(
     if (options.serviceTier) parsed.service_tier = options.serviceTier;
     if (options.reasoningEffort) {
       parsed.reasoning = {
-        ...(isRecord(parsed.reasoning) ? parsed.reasoning : {}),
+        ...(() => {
+  let optionalProperties;
+  if (isRecord(parsed.reasoning)) optionalProperties = parsed.reasoning;
+  return optionalProperties;
+})(),
         effort: options.reasoningEffort,
       };
     }
@@ -724,7 +736,8 @@ function readServiceTierHeader(request: Request): CodexServiceTier | Response | 
   const value = request.headers.get(SERVICE_TIER_HEADER);
   if (!value) return undefined;
   const tier = value.trim().toLowerCase();
-  if (SERVICE_TIERS.has(tier as CodexServiceTier)) return tier as CodexServiceTier;
+  const matchedTier = [...SERVICE_TIERS].find((candidate) => candidate === tier);
+  if (matchedTier) return matchedTier;
   return json({ error: "invalid_service_tier", serviceTier: value }, { status: 400 });
 }
 
@@ -732,12 +745,13 @@ function readReasoningEffortHeader(request: Request): ReasoningEffort | Response
   const value = request.headers.get(REASONING_EFFORT_HEADER);
   if (!value) return undefined;
   const effort = value.trim().toLowerCase();
-  if (REASONING_EFFORTS.has(effort as ReasoningEffort)) return effort as ReasoningEffort;
+  const matchedEffort = [...REASONING_EFFORTS].find((candidate) => candidate === effort);
+  if (matchedEffort) return matchedEffort;
   return json({ error: "invalid_reasoning_effort", reasoningEffort: value }, { status: 400 });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function isUnsupportedServiceTierError(body: string): boolean {
@@ -757,7 +771,7 @@ function removeResponsesField(body: string, field: string): string {
 
 function isModelAllowed(model: string, allowedModels: ResponsesProxyPolicy["allowedModels"]): boolean {
   if (!allowedModels) return true;
-  if (typeof allowedModels === "function") return allowedModels(model);
+  if (allowedModels instanceof Function) return allowedModels(model);
   return allowedModels.includes(model);
 }
 
@@ -771,7 +785,7 @@ async function prepareRealtimePayload(
   }
   try {
     const parsed: unknown = JSON.parse(text);
-    if (!isRecord(parsed) || typeof parsed["sdp"] !== "string" || !parsed["sdp"].trim()) {
+    if (!isRecord(parsed) || !hasStringType(parsed["sdp"]) || !parsed["sdp"].trim()) {
       return json(
         { error: "invalid_realtime_request", message: "Expected a non-empty `sdp` string." },
         { status: 400 },
@@ -834,7 +848,7 @@ function forwardedProtocol(request: Request): "http:" | "https:" | undefined {
   return undefined;
 }
 
-function json(data: unknown, init: { status?: number; headers?: Headers } = {}): Response {
+function json<DataValue>(data: DataValue, init: { status?: number; headers?: Headers } = {}): Response {
   const headers = init.headers ?? new Headers();
   headers.set("content-type", "application/json");
   headers.set("cache-control", "no-store");

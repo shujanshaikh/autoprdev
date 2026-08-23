@@ -1,9 +1,11 @@
+import { isJsonObject } from "@autopr/config/runtime-value";
+
 export const DESKTOP_PREVIEW_HEARTBEAT_MS = 5 * 60 * 1_000;
 export const DESKTOP_PREVIEW_REFRESH_MARGIN_MS = 30_000;
 
 const DESKTOP_PREVIEW_RETRY_DELAYS_MS = [250, 500, 1_000] as const;
 const desktopActivitySubscriptions = new Map<string, {
-  callbacks: Set<() => Promise<unknown>>;
+  callbacks: Set<() => Promise<void | null>>;
   timer: ReturnType<typeof setInterval>;
 }>();
 
@@ -177,9 +179,9 @@ export function resetDaytonaDesktopSessionsForTests() {
   desktopSessions.clear();
 }
 
-function errorText(error: unknown) {
+function errorText<ErrorValue>(error: ErrorValue) {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-  if (typeof error !== "object" || error === null || !("data" in error)) {
+  if (!isJsonObject(error) || !("data" in error)) {
     return message;
   }
 
@@ -190,7 +192,7 @@ function errorText(error: unknown) {
   }
 }
 
-export function isRetryableDesktopPreviewError(error: unknown) {
+export function isRetryableDesktopPreviewError<ErrorValue>(error: ErrorValue) {
   return /\bUNAUTHORIZED\b|not authenticated|connection (?:closed|lost)|failed to fetch|fetch failed|network error/i
     .test(errorText(error));
 }
@@ -216,11 +218,11 @@ export async function requestDesktopPreviewWithRetry<T>(
 /** Keeps one Daytona activity heartbeat per open project, regardless of viewer count. */
 export function subscribeDesktopActivity(
   projectId: string,
-  refresh: () => Promise<unknown>,
+  refresh: () => Promise<void | null>,
 ): () => void {
   let subscription = desktopActivitySubscriptions.get(projectId);
   if (!subscription) {
-    const callbacks = new Set<() => Promise<unknown>>();
+    const callbacks = new Set<() => Promise<void | null>>();
     subscription = {
       callbacks,
       timer: setInterval(() => {

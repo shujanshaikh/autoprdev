@@ -91,10 +91,7 @@ function unmatchedRanges(
 /**
  * Character ranges that differ between a paired deletion and addition line.
  */
-export function computeWordDiffRanges(deletionLine: string, additionLine: string): {
-  deletion: WordDiffRange[];
-  addition: WordDiffRange[];
-} {
+export function computeWordDiffRanges(deletionLine: string, additionLine: string) {
   if (
     deletionLine === additionLine
     || deletionLine.length > MAX_LINE_LENGTH

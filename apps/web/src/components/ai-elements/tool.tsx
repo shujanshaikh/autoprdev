@@ -1,8 +1,7 @@
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@autopr/ui/components/collapsible";
+import { hasBooleanType, hasNumberType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+import { parseRuntimeType } from "@autopr/config/runtime-type";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
@@ -11,26 +10,22 @@ import type { BundledLanguage } from "shiki";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement, useCallback, useEffect, useState } from "react";
 
-import {
-  computerContentOutputToContentDetails,
-  isDemoRecordingMetadata,
-  type DemoRecordingMetadata,
-} from "@/lib/chat-messages";
+import { computerContentOutputToContentDetails, isDemoRecordingMetadata, type DemoRecordingMetadata } from "@/lib/chat-messages";
 import { FileTypeIcon, pathParts } from "@/lib/file-type-icon";
 import { CodeBlock } from "./code-block";
 import { PierreDiffView, usePierreDiffPreferences } from "./pierre-diff-view";
 import { Shimmer } from "./shimmer";
 
-const PLAIN_TEXT_LANG = "text" as BundledLanguage;
+const PLAIN_TEXT_LANG = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ "text" as BundledLanguage;
 const STREAMING_CODE_PREVIEW_MAX_CHARS = 80_000;
 
-const LANGUAGE_BY_BASENAME: Record<string, BundledLanguage> = {
+const LANGUAGE_BY_BASENAME = {
   ".env": "dotenv",
   "dockerfile": "dockerfile",
   "makefile": "makefile",
-};
+} satisfies Record<string, BundledLanguage>;
 
-const LANGUAGE_BY_EXTENSION: Record<string, BundledLanguage> = {
+const LANGUAGE_BY_EXTENSION = {
   bash: "bash",
   c: "c",
   cc: "cpp",
@@ -72,7 +67,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, BundledLanguage> = {
   yaml: "yaml",
   yml: "yaml",
   zsh: "zsh",
-};
+} satisfies Record<string, BundledLanguage>;
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
@@ -115,8 +110,8 @@ function isToolStreamingState(state: ToolPart["state"]): boolean {
   return state === "input-streaming" || state === "input-available";
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+function isRecord<VValue>(v: VValue): v is VValue & (JsonObject) {
+  return isJsonObject(v);
 }
 
 /** e.g. tool-read → read; dynamic-tool + name → name */
@@ -147,8 +142,8 @@ function pathBasename(path: string): string {
   return n || "/";
 }
 
-function languageFromPath(path: unknown): BundledLanguage {
-  if (typeof path !== "string") {
+function languageFromPath<PathValue>(path: PathValue): BundledLanguage {
+  if (!hasStringType(path)) {
     return PLAIN_TEXT_LANG;
   }
 
@@ -182,7 +177,7 @@ function languageFromCode(code: string): BundledLanguage {
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     return "json";
   }
-  if (/^</.test(trimmed) && /<\/?[a-z][\s>/]/i.test(trimmed)) {
+  if (trimmed.startsWith('<') && /<\/?[a-z][\s>/]/i.test(trimmed)) {
     return "html";
   }
   if (
@@ -198,7 +193,7 @@ function languageFromCode(code: string): BundledLanguage {
   return PLAIN_TEXT_LANG;
 }
 
-function languageFromPathOrCode(path: unknown, code: string): BundledLanguage {
+function languageFromPathOrCode<PathValue>(path: PathValue, code: string): BundledLanguage {
   const pathLanguage = languageFromPath(path);
   return pathLanguage === PLAIN_TEXT_LANG ? languageFromCode(code) : pathLanguage;
 }
@@ -213,34 +208,34 @@ function displayToolLabel(slug: string): string {
   return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
-function formatPrimitive(v: unknown): string {
+function formatPrimitive<VValue>(v: VValue): string {
   if (v === null) {
     return "null";
   }
   if (v === undefined) {
     return "";
   }
-  if (typeof v === "object") {
+  if (hasObjectType(v)) {
     return JSON.stringify(v);
   }
   return String(v);
 }
 
-function shallowEntries(data: Record<string, unknown>): [string, unknown][] {
+function shallowEntries(data: JsonObject): [string, JsonValue][] {
   return Object.entries(data).filter(([, v]) => v !== undefined);
 }
 
-function isShallowDisplayable(data: Record<string, unknown>): boolean {
+function isShallowDisplayable(data: JsonObject): boolean {
   return shallowEntries(data).every(([, v]) => {
     if (v === null) {
       return true;
     }
-    const t = typeof v;
+    const t = parseRuntimeType(v);
     return t === "string" || t === "number" || t === "boolean";
   });
 }
 
-function formatToolSummaryLine(slug: string, input: unknown): string {
+function formatToolSummaryLine<InputValue>(slug: string, input: InputValue): string {
   if (!isRecord(input)) {
     return "";
   }
@@ -249,46 +244,46 @@ function formatToolSummaryLine(slug: string, input: unknown): string {
   switch (slug) {
     case "read": {
       const p = o.path;
-      return typeof p === "string" ? pathBasename(p) : "";
+      return hasStringType(p) ? pathBasename(p) : "";
     }
     case "write":
     case "edit": {
       const p = o.path;
-      return typeof p === "string" ? pathBasename(p) : "";
+      return hasStringType(p) ? pathBasename(p) : "";
     }
     case "ls": {
       const p = o.path;
-      if (typeof p !== "string" || p === "" || p === ".") {
+      if (!hasStringType(p) || p === "" || p === ".") {
         return ".";
       }
       return pathBasename(p) || p;
     }
     case "grep": {
       const bits: string[] = [];
-      if (typeof o.path === "string") {
+      if (hasStringType(o.path)) {
         bits.push(o.path);
       }
-      if (typeof o.pattern === "string") {
+      if (hasStringType(o.pattern)) {
         bits.push(`pattern=${o.pattern}`);
       }
-      if (typeof o.glob === "string") {
+      if (hasStringType(o.glob)) {
         bits.push(`include=${o.glob}`);
       }
       return bits.join(" ");
     }
     case "find": {
       const bits: string[] = [];
-      if (typeof o.path === "string") {
+      if (hasStringType(o.path)) {
         bits.push(o.path);
       }
-      if (typeof o.pattern === "string") {
+      if (hasStringType(o.pattern)) {
         bits.push(`pattern=${o.pattern}`);
       }
       return bits.join(" ");
     }
     case "bash": {
       const c = o.command;
-      return typeof c === "string" ? c.replace(/\s+/g, " ").trim() : "";
+      return hasStringType(c) ? c.replace(/\s+/g, " ").trim() : "";
     }
     case "sandboxInfo":
       return "";
@@ -305,15 +300,15 @@ function formatToolSummaryLine(slug: string, input: unknown): string {
   }
 }
 
-function bashCommandFromInput(input: unknown): string {
+function bashCommandFromInput<InputValue>(input: InputValue): string {
   if (!isRecord(input)) {
     return "";
   }
 
-  return typeof input.command === "string" ? input.command.trim() : "";
+  return hasStringType(input.command) ? input.command.trim() : "";
 }
 
-function bashHeaderLabel(input: unknown): string {
+function bashHeaderLabel<InputValue>(input: InputValue): string {
   const command = bashCommandFromInput(input);
   const normalized = command.replace(/\s+/g, " ").trim();
 
@@ -348,15 +343,15 @@ function bashHeaderLabel(input: unknown): string {
   return "Run shell command";
 }
 
-function formatReadDetailsMeta(d: Record<string, unknown>): string | null {
+function formatReadDetailsMeta(d: JsonObject): string | null {
   const parts: string[] = [];
-  if (typeof d.bytes === "number") {
+  if (hasNumberType(d.bytes)) {
     parts.push(`${d.bytes} B`);
   }
   if (
-    typeof d.lineOffset === "number" &&
-    typeof d.linesReturned === "number" &&
-    typeof d.totalLines === "number"
+    hasNumberType(d.lineOffset) &&
+    hasNumberType(d.linesReturned) &&
+    hasNumberType(d.totalLines)
   ) {
     const hi = d.lineOffset + d.linesReturned - 1;
     parts.push(`lines ${d.lineOffset}–${hi} of ${d.totalLines}`);
@@ -370,9 +365,9 @@ function formatReadDetailsMeta(d: Record<string, unknown>): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-function formatLsDetailsMeta(d: Record<string, unknown>): string | null {
+function formatLsDetailsMeta(d: JsonObject): string | null {
   const parts: string[] = [];
-  if (typeof d.entries === "number") {
+  if (hasNumberType(d.entries)) {
     parts.push(`${d.entries} entries`);
   }
   if (d.truncated === true) {
@@ -381,26 +376,26 @@ function formatLsDetailsMeta(d: Record<string, unknown>): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-function formatDetailsMetaLine(slug: string, details: Record<string, unknown>): string | null {
+function formatDetailsMetaLine(slug: string, details: JsonObject): string | null {
   if (slug === "read") {
     return formatReadDetailsMeta(details);
   }
   if (slug === "ls") {
     return formatLsDetailsMeta(details);
   }
-  if (typeof details.path === "string") {
+  if (hasStringType(details.path)) {
     return details.path;
   }
   return null;
 }
 
-function isContentDetailsOutput(
-  v: unknown
-): v is { content: string; details: Record<string, unknown> } {
-  return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
+function isContentDetailsOutput<VValue>(
+  v: VValue
+): v is VValue & ({ content: string; details: JsonObject }) {
+  return isRecord(v) && hasStringType(v.content) && isRecord(v.details);
 }
 
-function computerActionTypes(input: unknown): string[] {
+function computerActionTypes<InputValue>(input: InputValue): string[] {
   if (!isRecord(input)) {
     return [];
   }
@@ -409,24 +404,24 @@ function computerActionTypes(input: unknown): string[] {
 
   if (Array.isArray(input.actions)) {
     for (const action of input.actions) {
-      if (isRecord(action) && typeof action.type === "string") {
+      if (isRecord(action) && hasStringType(action.type)) {
         actionTypes.push(action.type);
       }
     }
   }
 
-  if (typeof input.action === "string") {
+  if (hasStringType(input.action)) {
     actionTypes.push(input.action);
   }
 
-  if (typeof input.type === "string") {
+  if (hasStringType(input.type)) {
     actionTypes.push(input.type);
   }
 
   return actionTypes;
 }
 
-function outputHasDemoRecording(output: unknown): boolean {
+function outputHasDemoRecording<OutputValue>(output: OutputValue): boolean {
   const contentDetails = computerContentOutputToContentDetails(output);
   const details = contentDetails?.details ?? (isContentDetailsOutput(output) ? output.details : null);
 
@@ -437,9 +432,9 @@ function outputHasDemoRecording(output: unknown): boolean {
   return demoRecordingsFromDetails(details).length > 0;
 }
 
-export function isComputerRecordingTool(
-  input: unknown,
-  output: unknown,
+export function isComputerRecordingTool<InputValue, OutputValue>(
+  input: InputValue,
+  output: OutputValue,
   state: ToolPart["state"],
 ): boolean {
   const actionTypes = computerActionTypes(input);
@@ -456,7 +451,7 @@ export function isComputerRecordingTool(
   );
 }
 
-function computerRecordingLabel(input: unknown, output: unknown, state: ToolPart["state"]): string {
+function computerRecordingLabel<InputValue, OutputValue>(input: InputValue, output: OutputValue, state: ToolPart["state"]): string {
   const actionTypes = computerActionTypes(input);
   const startsRecording = actionTypes.includes("start_recording");
   const stopsRecording = actionTypes.includes("stop_recording");
@@ -483,7 +478,7 @@ export type ToolDiffPayload = {
   truncated?: boolean;
 };
 
-export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
+export function isToolDiffPayload<VValue>(v: VValue): v is VValue & (ToolDiffPayload) {
   if (!isRecord(v)) {
     return false;
   }
@@ -492,23 +487,23 @@ export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
     return false;
   }
 
-  if ("patch" in v && typeof v.patch !== "string") {
+  if ("patch" in v && !hasStringType(v.patch)) {
     return false;
   }
 
-  if ("patchOmitted" in v && typeof v.patchOmitted !== "boolean") {
+  if ("patchOmitted" in v && !hasBooleanType(v.patchOmitted)) {
     return false;
   }
 
-  if (!("patch" in v) && typeof v.newContent !== "string") {
+  if (!("patch" in v) && !hasStringType(v.newContent)) {
     return false;
   }
 
-  if ("newContent" in v && typeof v.newContent !== "string") {
+  if ("newContent" in v && !hasStringType(v.newContent)) {
     return false;
   }
 
-  if ("oldContent" in v && v.oldContent !== null && typeof v.oldContent !== "string") {
+  if ("oldContent" in v && v.oldContent !== null && !hasStringType(v.oldContent)) {
     return false;
   }
 
@@ -516,11 +511,11 @@ export function isToolDiffPayload(v: unknown): v is ToolDiffPayload {
     return false;
   }
 
-  if ("fileName" in v && typeof v.fileName !== "string") {
+  if ("fileName" in v && !hasStringType(v.fileName)) {
     return false;
   }
 
-  if ("truncated" in v && typeof v.truncated !== "boolean") {
+  if ("truncated" in v && !hasBooleanType(v.truncated)) {
     return false;
   }
 
@@ -559,8 +554,8 @@ export function ToolDiffView({
     );
   }
 
-  if (typeof diff.patch !== "string" || diff.patch.length === 0) {
-    if (typeof diff.newContent !== "string") {
+  if (!hasStringType(diff.patch) || diff.patch.length === 0) {
+    if (!hasStringType(diff.newContent)) {
       return (
         <div className="border border-border/60 bg-muted/20 px-4 py-5 text-center">
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Diff unavailable</p>
@@ -663,7 +658,7 @@ function formatRecordingDuration(seconds: number) {
 function recordingMetaLine(recording: DemoRecordingMetadata) {
   const details: string[] = [];
 
-  if (typeof recording.durationSeconds === "number") {
+  if (hasNumberType(recording.durationSeconds)) {
     details.push(formatRecordingDuration(recording.durationSeconds));
   }
 
@@ -705,7 +700,7 @@ function DemoRecordingCard({
   const metaLine = recordingMetaLine(recording);
   const previewEndpoint = recordingPlaybackUrl(recording, recordingPlaybackBasePath);
 
-  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- Recording preparation is a browser-only playback side effect tied to this card.
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect, react-doctor/effect-needs-cleanup, react-doctor/no-set-state-after-await-in-effect -- The cleanup aborts the fetch and clears the active retry timer; every post-await state update also checks the cancellation flag.
   useEffect(() => {
     if (!previewEndpoint) {
       return;
@@ -733,10 +728,10 @@ function DemoRecordingCard({
           },
         );
         const data = await response.json().catch(() => null);
-        const error = isRecord(data) && typeof data.error === "string"
+        const error = isRecord(data) && hasStringType(data.error)
           ? data.error
           : "Recording is still preparing.";
-        const nextPlaybackUrl = isRecord(data) && typeof data.url === "string"
+        const nextPlaybackUrl = isRecord(data) && hasStringType(data.url)
           ? data.url.trim()
           : "";
 
@@ -832,7 +827,7 @@ function DemoRecordingCard({
   );
 }
 
-function demoRecordingsFromDetails(details: Record<string, unknown>) {
+function demoRecordingsFromDetails(details: JsonObject) {
   const recordings: DemoRecordingMetadata[] = [];
   const seenRecordingIds = new Set<string>();
 
@@ -868,12 +863,12 @@ function ContentDetailsBody({
 }: {
   slug: string;
   content: string;
-  details: Record<string, unknown>;
+  details: JsonObject;
   recordingPlaybackBasePath?: string;
 }) {
   const meta = formatDetailsMetaLine(slug, details);
   const pathLine =
-    typeof details.path === "string" ? (details.path as string) : undefined;
+    hasStringType(details.path) ? details.path : undefined;
   const diffPayload =
     (slug === "write" || slug === "edit") && isToolDiffPayload(details.diff)
       ? details.diff
@@ -957,7 +952,7 @@ export const ToolRecordingOutput = ({
   );
 };
 
-const statusLabel: Record<ToolPart["state"], string> = {
+const statusLabel = {
   "approval-requested": "awaiting approval",
   "approval-responded": "approved",
   "input-available": "running",
@@ -965,7 +960,7 @@ const statusLabel: Record<ToolPart["state"], string> = {
   "output-available": "done",
   "output-denied": "denied",
   "output-error": "error",
-};
+} satisfies Record<ToolPart["state"], string>;
 
 function ToolStatusText({ state }: { state: ToolPart["state"] }) {
   if (state === "output-available" || isToolStreamingState(state)) {
@@ -1318,16 +1313,16 @@ function StreamingCodePreview({
   );
 }
 
-function writeContentFromInput(input: unknown): string | null {
-  if (!isRecord(input) || typeof input.content !== "string") {
+function writeContentFromInput<InputValue>(input: InputValue): string | null {
+  if (!isRecord(input) || !hasStringType(input.content)) {
     return null;
   }
 
   return input.content;
 }
 
-function pathFromToolInput(input: unknown): string | undefined {
-  if (!isRecord(input) || typeof input.path !== "string") {
+function pathFromToolInput<InputValue>(input: InputValue): string | undefined {
+  if (!isRecord(input) || !hasStringType(input.path)) {
     return undefined;
   }
 
@@ -1353,7 +1348,7 @@ function fileOpActionLabel(slug: "edit" | "write", state: ToolPart["state"]): st
   return "Edited";
 }
 
-function editPreviewsFromInput(input: unknown) {
+function editPreviewsFromInput<InputValue>(input: InputValue) {
   if (!isRecord(input) || !Array.isArray(input.edits)) {
     return [];
   }
@@ -1363,7 +1358,7 @@ function editPreviewsFromInput(input: unknown) {
       return [];
     }
 
-    if (typeof edit.newText === "string") {
+    if (hasStringType(edit.newText)) {
       return [
         {
           code: edit.newText,
@@ -1528,13 +1523,13 @@ export const ToolOutput = ({
         recordingPlaybackBasePath={recordingPlaybackBasePath}
       />
     );
-  } else if (typeof output === "object" && !isValidElement(output)) {
+  } else if (hasObjectType(output) && !isValidElement(output)) {
     body = (
       <div className="[&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent">
         <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
       </div>
     );
-  } else if (typeof output === "string") {
+  } else if (hasStringType(output)) {
     body = (
       <div className="[&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent">
         <CodeBlock
@@ -1548,7 +1543,7 @@ export const ToolOutput = ({
       </div>
     );
   } else {
-    body = <div>{output as ReactNode}</div>;
+    body = <div>{/* SAFETY: This fallback branch receives renderable output from the tool-part contract. */ output as ReactNode}</div>;
   }
 
   return (

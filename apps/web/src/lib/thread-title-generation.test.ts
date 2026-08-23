@@ -1,11 +1,7 @@
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
-import {
-  firstUserMessageForTitle,
-  ThreadTitleRequestError,
-  threadTitleRetryDelayMs,
-} from "./thread-title-generation";
+import { firstUserMessageForTitle, ThreadTitleRequestError, threadTitleRetryDelayMs } from "./thread-title-generation";
 
 describe("thread title generation", () => {
   it("uses the first persisted user text even after the thread remounts", () => {

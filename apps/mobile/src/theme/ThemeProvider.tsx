@@ -1,21 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useColorScheme } from "react-native";
 
-import {
-  darkTheme,
-  lightTheme,
-  type AppTheme,
-  type ThemePreference,
-} from "../theme";
+import { darkTheme, lightTheme, type AppTheme, type ThemePreference } from "../theme";
 
 const STORAGE_KEY = "autopr.mobile.theme-preference";
 

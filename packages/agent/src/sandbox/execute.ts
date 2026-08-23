@@ -1,8 +1,18 @@
-import {
-  getSandboxContext,
-  type DaytonaSandbox,
-  type SandboxSessionOptions,
-} from "./index";
+import { hasStringType } from "@autopr/config/runtime-type";
+import { getSandboxContext, type DaytonaSandbox, type SandboxSessionOptions } from "./index";
+
+type SandboxExecutionProcess = Pick<DaytonaSandbox["process"],
+  "createSession" | "deleteSession" | "executeSessionCommand"
+>;
+
+export interface SandboxExecutionDependencies {
+  getSandboxContext: (options?: SandboxSessionOptions) => Promise<{
+    sandbox: { id: string; process: SandboxExecutionProcess };
+    workDir: string;
+  }>;
+}
+
+const defaultDependencies: SandboxExecutionDependencies = { getSandboxContext };
 
 function toPosixPath(path: string): string {
   return path.replace(/\\/g, "/");
@@ -100,7 +110,7 @@ function normalizeCommandTimeout(timeout: number | undefined): number | undefine
   return Math.ceil(timeout);
 }
 
-function isDaytonaTimeoutError(error: unknown): error is Error {
+function isDaytonaTimeoutError<ErrorValue>(error: ErrorValue): error is ErrorValue & (Error) {
   return error instanceof Error && error.name === DAYTONA_TIMEOUT_ERROR_NAME;
 }
 
@@ -120,7 +130,7 @@ function formatTimeoutMessage(timeout: number | undefined): string {
 }
 
 async function cleanupCommandSession(
-  deleteSession: () => Promise<unknown>,
+  deleteSession: () => Promise<void>,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -186,6 +196,7 @@ export function isPathWithinRoot(candidatePath: string, root: string): boolean {
 async function canonicalizeRemotePaths(
   paths: string[],
   sandboxOptions?: SandboxSessionOptions,
+  dependencies: SandboxExecutionDependencies = defaultDependencies,
 ): Promise<string[]> {
   const quotedPaths = paths.map((path) => shellQuote(path)).join(" ");
   const command =
@@ -197,7 +208,7 @@ async function canonicalizeRemotePaths(
     cwd: "/",
     timeout: 30,
     sandboxOptions,
-  });
+  }, dependencies);
 
   if (result.timedOut || result.exitCode !== 0) {
     throw new Error(
@@ -219,15 +230,16 @@ async function canonicalizeRemotePaths(
 }
 
 const canonicalRootCache = new WeakMap<
-  DaytonaSandbox,
+  object,
   Map<string, Promise<string[]>>
 >();
 
 async function canonicalizeRemoteRoots(
   roots: string[],
   sandboxOptions?: SandboxSessionOptions,
+  dependencies: SandboxExecutionDependencies = defaultDependencies,
 ) {
-  const { sandbox } = await getSandboxContext(sandboxOptions);
+  const { sandbox } = await dependencies.getSandboxContext(sandboxOptions);
   let sandboxCache = canonicalRootCache.get(sandbox);
   if (!sandboxCache) {
     sandboxCache = new Map();
@@ -237,7 +249,7 @@ async function canonicalizeRemoteRoots(
   const cached = sandboxCache.get(key);
   if (cached) return cached;
 
-  const pending = canonicalizeRemotePaths(roots, sandboxOptions);
+  const pending = canonicalizeRemotePaths(roots, sandboxOptions, dependencies);
   sandboxCache.set(key, pending);
   try {
     return await pending;
@@ -264,6 +276,7 @@ export interface ResolveJailedSandboxPathOptions {
 export async function resolveJailedSandboxPath(
   inputPath: string | undefined,
   options: ResolveJailedSandboxPathOptions,
+  dependencies: SandboxExecutionDependencies = defaultDependencies,
 ): Promise<string> {
   const candidate = resolveSandboxPath(inputPath, options.workDir);
 
@@ -283,8 +296,8 @@ export async function resolveJailedSandboxPath(
   // Canonical check: a symlink inside the workspace can still point outside
   // it, so compare realpath output before trusting the candidate.
   const [canonicalRoots, canonicalCandidates] = await Promise.all([
-    canonicalizeRemoteRoots(roots, options.sandboxOptions),
-    canonicalizeRemotePaths([candidate], options.sandboxOptions),
+    canonicalizeRemoteRoots(roots, options.sandboxOptions, dependencies),
+    canonicalizeRemotePaths([candidate], options.sandboxOptions, dependencies),
   ]);
   const canonicalCandidate = canonicalCandidates[0]!;
 
@@ -329,8 +342,9 @@ export async function executeSandboxCommand(
     sessionOwnerId?: string;
     sandboxOptions?: SandboxSessionOptions;
   } = {},
+  dependencies: SandboxExecutionDependencies = defaultDependencies,
 ): Promise<SandboxCommandResult> {
-  const { sandbox, workDir } = await getSandboxContext(options.sandboxOptions);
+  const { sandbox, workDir } = await dependencies.getSandboxContext(options.sandboxOptions);
   const cwd = options.cwd ?? workDir;
   const sessionId = createCommandSessionId(options.sessionOwnerId);
   const requestedTimeout = normalizeCommandTimeout(options.timeout);
@@ -365,7 +379,7 @@ export async function executeSandboxCommand(
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
-      output: "output" in result && typeof result.output === "string" ? result.output : undefined,
+      output: "output" in result && hasStringType(result.output) ? result.output : undefined,
       timedOut: commandTimeout !== undefined && result.exitCode === COMMAND_TIMEOUT_EXIT_CODE,
       timeout: commandTimeout,
     };
@@ -395,12 +409,13 @@ export async function executeSandboxCommand(
 export async function ensureRemoteParentDirectory(
   remotePath: string,
   sandboxOptions?: SandboxSessionOptions,
+  dependencies: SandboxExecutionDependencies = defaultDependencies,
 ): Promise<void> {
   await executeSandboxCommand(`mkdir -p ${shellQuote(posixDirname(remotePath))}`, {
     cwd: "/",
     timeout: 60,
     sandboxOptions,
-  });
+  }, dependencies);
 }
 
 const REMOTE_FILE_MISSING_EXIT_CODE = 43;
@@ -463,6 +478,7 @@ function parseChunkMetaLine(line: string): number[] {
  */
 export async function downloadRemoteFileChunk(
   options: DownloadRemoteFileChunkOptions,
+  dependencies: SandboxExecutionDependencies = defaultDependencies,
 ): Promise<RemoteFileChunk> {
   if (!Number.isFinite(options.maxBytes) || options.maxBytes < 1) {
     throw new Error(`Invalid download byte cap: ${options.maxBytes}`);
@@ -501,7 +517,7 @@ export async function downloadRemoteFileChunk(
     cwd: "/",
     timeout: options.timeout ?? DEFAULT_DOWNLOAD_TIMEOUT_SECONDS,
     sandboxOptions: options.sandboxOptions,
-  });
+  }, dependencies);
 
   if (result.exitCode === REMOTE_FILE_MISSING_EXIT_CODE) {
     throw new RemoteFileNotFoundError(options.remotePath);

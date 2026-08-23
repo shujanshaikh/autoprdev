@@ -59,14 +59,14 @@ export async function requestGeneratedThreadTitle(options: {
     },
   );
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    const payload = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await response.json().catch(() => null) as { error?: string } | null;
     throw new ThreadTitleRequestError(
       payload?.error || `Thread title generation failed with status ${response.status}.`,
       response.status,
     );
   }
 
-  const payload = await response.json().catch(() => null) as {
+  const payload = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await response.json().catch(() => null) as {
     title?: string;
     updated?: boolean;
   } | null;

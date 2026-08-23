@@ -2,10 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import type { UIMessageChunk } from "ai";
 
-import {
-  retrieveTriggerAgentRun,
-  type TriggerAgentRun,
-} from "#/lib/trigger-agent-run-server";
+import { retrieveTriggerAgentRun, type TriggerAgentRun } from "#/lib/trigger-agent-run-server";
 import { agentUIStream } from "#/trigger/streams";
 
 const REALTIME_REQUEST_TIMEOUT_SECONDS = 55;

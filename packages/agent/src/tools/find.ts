@@ -67,16 +67,32 @@ interface FffFindResult {
   weak?: boolean;
 }
 
-async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessionOptions) {
+export interface DaytonaFindDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{ workDir: string }>;
+  resolveJailedSandboxPath: typeof resolveJailedSandboxPath;
+  executeFff: (
+    subcommand: string,
+    flags: Parameters<typeof executeAutoprFff>[1],
+    options: SandboxSessionOptions,
+  ) => Promise<Awaited<ReturnType<typeof executeAutoprFff<FffFindResult>>>>;
+}
+
+const defaultDependencies: DaytonaFindDependencies = {
+  getSandboxContext,
+  resolveJailedSandboxPath,
+  executeFff: executeAutoprFff<FffFindResult>,
+};
+
+async function executeDaytonaFind(input: FindInput, sandboxOptions: SandboxSessionOptions, dependencies: DaytonaFindDependencies) {
   const cursor = input.cursor?.trim();
   const pattern = cursor ? (input.pattern?.trim() ?? "") : requireString(input.pattern, "pattern", "find");
-  const context = await getSandboxContext(sandboxOptions);
+  const context = await dependencies.getSandboxContext(sandboxOptions);
   const remotePath = context.workDir;
   const scopePath = input.path
-    ? await resolveJailedSandboxPath(input.path, { workDir: context.workDir, sandboxOptions })
+    ? await dependencies.resolveJailedSandboxPath(input.path, { workDir: context.workDir, sandboxOptions })
     : undefined;
   const limit = clampLimit(input.limit, DEFAULT_FIND_LIMIT, MAX_FIND_LIMIT);
-  const result = await executeAutoprFff<FffFindResult>(
+  const result = await dependencies.executeFff(
     "find",
     {
       cwd: remotePath,
@@ -230,13 +246,16 @@ function isNonEmptyString(value: string): value is string {
   return value.trim().length > 0;
 }
 
-export function createDaytonaFindTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaFindTool(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaFindDependencies = defaultDependencies,
+) {
   return tool({
     title: "find",
     description:
       "Find files in the Daytona workspace using FFF fuzzy search or glob filtering. Use for filename discovery, locating config/docs/tests, or narrowing a work area before reading. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
     inputSchema: findInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaFind(input, sandboxOptions),
+    execute: (input) => executeDaytonaFind(input, sandboxOptions, dependencies),
   });
 }

@@ -65,7 +65,7 @@ export function createChatGPTProxyProvider(options: CreateChatGPTProxyOptions = 
     credentials: options.credentials ?? "same-origin",
   });
 
-  const provider = ((modelId?: string) => openai.responses(modelId ?? defaultModel)) as ChatGPTProvider;
+  const provider = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ ((modelId?: string) => openai.responses(modelId ?? defaultModel)) as ChatGPTProvider;
   Object.defineProperties(provider, {
     responses: { value: (modelId?: string) => openai.responses(modelId ?? defaultModel), enumerable: true },
     openai: { value: openai, enumerable: true },

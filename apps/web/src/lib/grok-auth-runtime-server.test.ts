@@ -62,26 +62,31 @@ const { objectsByName, vault, oauth } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@workos-inc/node", () => ({
-  WorkOS: class {
-    vault = vault;
-  },
-}));
-
-vi.mock("@autopr/grok/core", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@autopr/grok/core")>(),
-  requestGrokDeviceCode: oauth.requestDeviceCode,
-  pollGrokDeviceToken: oauth.pollDeviceToken,
-  fetchGrokModels: oauth.fetchModels,
-  refreshGrokTokens: oauth.refreshTokens,
-}));
-
+import { WorkOSVaultStore } from "./codex-auth-runtime-server";
 import {
-  disconnectGrok,
-  getGrokConnectionStatus,
-  pollGrokDeviceAuthorization,
-  startGrokDeviceAuthorization,
+  disconnectGrok as disconnectGrokImpl,
+  getGrokConnectionStatus as getGrokConnectionStatusImpl,
+  pollGrokDeviceAuthorization as pollGrokDeviceAuthorizationImpl,
+  startGrokDeviceAuthorization as startGrokDeviceAuthorizationImpl,
+  type GrokAuthDependencies,
+  type GrokDeviceFlow,
+  type GrokStoredCredentials,
 } from "./grok-auth-runtime-server";
+
+const dependencies: GrokAuthDependencies = {
+  credentialsStore: new WorkOSVaultStore<GrokStoredCredentials>("grok-account-test", () => vault),
+  deviceFlowStore: new WorkOSVaultStore<GrokDeviceFlow>("grok-device-flow-test", () => vault),
+  fetchModels: oauth.fetchModels,
+  pollDeviceToken: oauth.pollDeviceToken,
+  refreshPromises: new Map(),
+  refreshTokens: oauth.refreshTokens,
+  requestDeviceCode: oauth.requestDeviceCode,
+};
+const startGrokDeviceAuthorization = (userId: string) => startGrokDeviceAuthorizationImpl(userId, dependencies);
+const pollGrokDeviceAuthorization = (userId: string, flowId: string) =>
+  pollGrokDeviceAuthorizationImpl(userId, flowId, dependencies);
+const getGrokConnectionStatus = (userId: string) => getGrokConnectionStatusImpl(userId, dependencies);
+const disconnectGrok = (userId: string) => disconnectGrokImpl(userId, dependencies);
 
 let previousWorkOSApiKey: string | undefined;
 
@@ -89,6 +94,7 @@ beforeEach(() => {
   previousWorkOSApiKey = process.env.WORKOS_API_KEY;
   process.env.WORKOS_API_KEY = "test-workos-key";
   vault.reset();
+  dependencies.refreshPromises.clear();
   vi.clearAllMocks();
   oauth.requestDeviceCode.mockResolvedValue({
     deviceCode: "device-1",

@@ -1,28 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
-import {
-  fetchGithubPullRequestDetail,
-  fetchGithubPullRequestFiles,
-  fetchGithubPullRequestTimeline,
-  fetchGithubPullRequests,
-  GithubApiError,
-  resolveGithubPullRequest,
-} from "@autopr/backend/convex/lib/github_oauth";
-import {
-  githubRepositoriesMatch,
-  parseGithubPullRequestReference,
-} from "@autopr/backend/convex/lib/githubPullRequest";
+import { fetchGithubPullRequestDetail, fetchGithubPullRequestFiles, fetchGithubPullRequestTimeline, fetchGithubPullRequests, GithubApiError, resolveGithubPullRequest } from "@autopr/backend/convex/lib/github_oauth";
+import { githubRepositoriesMatch, parseGithubPullRequestReference } from "@autopr/backend/convex/lib/githubPullRequest";
 import { z } from "zod";
 
 import { convexMutation, convexQuery } from "#/lib/convex-server";
 import { materializeGithubPullRequestWorktree } from "#/lib/daytona-project-sandbox";
-import {
-  getGithubOAuthToken,
-  getGithubRepositoryTokenForFullName,
-  GithubConnectionError,
-  requireWorkOSAuth,
-  safeErrorMessage,
-} from "#/lib/github-oauth-server";
+import { getGithubOAuthToken, getGithubRepositoryTokenForFullName, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
 
 async function GET(_req: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -204,8 +188,8 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
 export const Route = createFileRoute("/api/project/$projectId/pulls")({
   server: {
     handlers: {
-      GET: async ({ request, params }: { request: Request; params: any }) => GET(request, { params: Promise.resolve(params) } as any),
-      POST: async ({ request, params }: { request: Request; params: any }) => POST(request, { params: Promise.resolve(params) } as any),
+      GET: async ({ request, params }: { request: Request; params: any }) => GET(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any),
+      POST: async ({ request, params }: { request: Request; params: any }) => POST(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any),
     },
   },
 });

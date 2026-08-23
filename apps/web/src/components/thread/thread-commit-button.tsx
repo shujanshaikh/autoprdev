@@ -1,52 +1,23 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+
 import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
 import { ButtonGroup } from "@autopr/ui/components/button-group";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@autopr/ui/components/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
 import { Textarea } from "@autopr/ui/components/textarea";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "convex/react";
-import {
-  AlertTriangle,
-  ArrowDownToLine,
-  Check,
-  ChevronDown,
-  ExternalLink,
-  GitBranch,
-  GitCommitHorizontal,
-  GitPullRequest,
-  Loader2,
-  X,
-} from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Check, ChevronDown, ExternalLink, GitBranch, GitCommitHorizontal, GitPullRequest, Loader2, X } from "lucide-react";
 import type { ElementType } from "react";
 import { useMemo, useState } from "react";
 
 import { GitHubLogo } from "#/components/icons/github-logo";
 import { ThreadGitOperationProgress } from "#/components/thread/thread-git-operation-progress";
 
-import {
-  resolveThreadGitActions,
-  threadGitActionLabels,
-  threadGitActions,
-  type ThreadGitAction,
-} from "#/lib/thread-git-actions";
-import {
-  threadGitStatusQueryKey,
-  useThreadGitStatusQuery,
-} from "#/lib/thread-git-status-query";
+import { resolveThreadGitActions, threadGitActionLabels, threadGitActions, type ThreadGitAction } from "#/lib/thread-git-actions";
+import { threadGitStatusQueryKey, useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 
 interface ThreadCommitButtonProps {
   projectId: string;
@@ -87,7 +58,7 @@ const actionIcons = {
   view_pr: ExternalLink,
 } satisfies Record<ThreadGitAction, ElementType>;
 
-const pendingLabels: Record<GitActionVariables["action"], string> = {
+const pendingLabels = {
   commit: "Committing changes…",
   commit_push: "Committing and pushing changes…",
   push: "Pushing local commits…",
@@ -95,9 +66,9 @@ const pendingLabels: Record<GitActionVariables["action"], string> = {
   create_pr: "Creating the pull request…",
   push_create_pr: "Pushing and creating the pull request…",
   commit_push_create_pr: "Committing, pushing, and creating the pull request…",
-};
+} satisfies Record<GitActionVariables["action"], string>;
 
-const successLabels: Record<NonNullable<GitActionResponse["status"]>, string> = {
+const successLabels = {
   committed: "Changes committed",
   pushed: "Branch pushed",
   updated: "Branch updated",
@@ -105,7 +76,7 @@ const successLabels: Record<NonNullable<GitActionResponse["status"]>, string> = 
   running: "Git operation running",
   succeeded: "Git operation completed",
   failed: "Git operation failed",
-};
+} satisfies Record<NonNullable<GitActionResponse["status"]>, string>;
 
 function shortSha(value: string | undefined) {
   return value ? value.slice(0, 7) : undefined;
@@ -152,15 +123,15 @@ export function ThreadCommitButton({
         },
       );
       if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as GitActionResponse;
+        const body = (await response.json().catch(() => ({}))) satisfies GitActionResponse;
         throw new Error(
-          typeof body.error === "string"
+          hasStringType(body.error)
             ? body.error
             : body.error?.message || "Could not complete the Git operation.",
         );
       }
       const body = await response.json();
-      return body as GitActionResponse;
+      return body satisfies GitActionResponse;
     },
     onSuccess: () => {
       setCommitMessageDraft("");

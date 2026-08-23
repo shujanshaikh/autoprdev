@@ -1,3 +1,5 @@
+import { hasNumberType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+
 import { Button, buttonVariants } from "@autopr/ui/components/button";
 import { cn } from "@autopr/ui/lib/utils";
 import { Check, Copy, ExternalLink, Loader2, Unplug } from "lucide-react";
@@ -200,11 +202,11 @@ async function readJson<T = unknown>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new GrokRequestError(
-      data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.",
+      data && hasObjectType(data) && "error" in data ? String(data.error) : "Request failed.",
       response.status,
     );
   }
-  return data as T;
+  return data satisfies T;
 }
 
 function storeDeviceFlow(flow: DeviceFlow) {
@@ -227,19 +229,19 @@ function readStoredDeviceFlow(): DeviceFlow | undefined {
   try {
     const value = window.localStorage.getItem(GROK_DEVICE_FLOW_STORAGE_KEY);
     if (!value) return undefined;
-    const parsed = JSON.parse(value) as Partial<DeviceFlow>;
+    const parsed = JSON.parse(value) satisfies Partial<DeviceFlow>;
     if (
-      typeof parsed.flowId !== "string"
-      || typeof parsed.userCode !== "string"
-      || typeof parsed.verificationUrl !== "string"
-      || typeof parsed.verificationUri !== "string"
-      || typeof parsed.expiresAt !== "number"
-      || typeof parsed.intervalMs !== "number"
+      !hasStringType(parsed.flowId)
+      || !hasStringType(parsed.userCode)
+      || !hasStringType(parsed.verificationUrl)
+      || !hasStringType(parsed.verificationUri)
+      || !hasNumberType(parsed.expiresAt)
+      || !hasNumberType(parsed.intervalMs)
     ) {
       clearStoredDeviceFlow();
       return undefined;
     }
-    return parsed as DeviceFlow;
+    return /* SAFETY: Every DeviceFlow field is validated immediately above. */ parsed as DeviceFlow;
   } catch {
     clearStoredDeviceFlow();
     return undefined;

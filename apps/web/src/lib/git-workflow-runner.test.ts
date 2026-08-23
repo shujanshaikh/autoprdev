@@ -1,16 +1,8 @@
-import type {
-  GitWorkflowFailure,
-  GitWorkflowPhase,
-  GitWorkflowPhaseResult,
-} from "@autopr/backend/convex/lib/gitWorkflow";
+import type { GitWorkflowFailure, GitWorkflowPhase, GitWorkflowPhaseResult } from "@autopr/backend/convex/lib/gitWorkflow";
 import { phasesForGitWorkflowAction } from "@autopr/backend/convex/lib/gitWorkflow";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  executeResumableGitWorkflow,
-  GitWorkflowPhaseError,
-  type GitWorkflowPhaseHandlers,
-} from "./git-workflow-runner";
+import { executeResumableGitWorkflow, GitWorkflowPhaseError, type GitWorkflowPhaseHandlers } from "./git-workflow-runner";
 
 function persistedCallbacks(results: GitWorkflowPhaseResult[]) {
   return {
@@ -107,7 +99,7 @@ describe("executeResumableGitWorkflow", () => {
 
   it("resumes after reconnect from persisted phase results", async () => {
     const results: GitWorkflowPhaseResult[] = ["branch", "validate", "commit"].map((phase) => ({
-      phase: phase as GitWorkflowPhase,
+      phase: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ phase as GitWorkflowPhase,
       status: "succeeded",
       startedAt: 1,
       completedAt: 2,

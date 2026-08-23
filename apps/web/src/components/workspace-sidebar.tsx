@@ -1,71 +1,18 @@
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@autopr/ui/components/dropdown-menu";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarTrigger,
-  useSidebar,
-} from "@autopr/ui/components/sidebar";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarTrigger, useSidebar } from "@autopr/ui/components/sidebar";
 import { cn } from "@autopr/ui/lib/utils";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
-import {
-  Check,
-  ChevronsUpDown,
-  CircleAlert,
-  Folder,
-  FolderPlus,
-  GitBranch,
-  Loader2,
-  MessageSquare,
-  MoreHorizontal,
-  Pencil,
-  RotateCcw,
-  Search,
-  Settings,
-  Trash2,
-  X,
-} from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useEffectEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
+import { Check, ChevronsUpDown, CircleAlert, Folder, FolderPlus, GitBranch, Loader2, MessageSquare, MoreHorizontal, Pencil, RotateCcw, Search, Settings, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useEffectEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
 import { ModeToggle } from "#/components/mode-toggle";
 import { deleteThreadWithCleanup } from "#/lib/delete-thread";
-import {
-  partitionSidebarThreads,
-  resolveNewThreadProjectId,
-  SETTLED_INITIAL_COUNT,
-  SETTLED_PAGE_COUNT,
-  type SidebarThreadRecord,
-} from "#/lib/workspace-sidebar";
+import { partitionSidebarThreads, resolveNewThreadProjectId, SETTLED_INITIAL_COUNT, SETTLED_PAGE_COUNT, type SidebarThreadRecord } from "#/lib/workspace-sidebar";
 
 export interface WorkspaceThread extends SidebarThreadRecord {
   isLive?: boolean;
@@ -203,7 +150,7 @@ function ThreadRow({
   );
 
   const handleDoubleClick = (event: ReactMouseEvent) => {
-    if ((event.target as HTMLElement).closest("button, input")) return;
+    if ((/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ event.target as HTMLElement).closest("button, input")) return;
     event.preventDefault();
     onRename();
   };

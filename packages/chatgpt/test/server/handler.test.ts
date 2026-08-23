@@ -1,3 +1,4 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { describe, expect, test } from "vitest";
 import { createChatGPTHandler, type RealtimeBridgeEvent } from "../../src/server/index.ts";
 import { createMockFetch, createOpenAIMock, jsonResponse, makeAccessToken, makeIdToken, makeJwt } from "./helpers.ts";
@@ -22,7 +23,7 @@ describe("createChatGPTHandler", () => {
     // 1. Start login.
     const login = await handler.handler(new Request(`${BASE}/login`, { method: "POST" }));
     expect(login.status).toBe(200);
-    const loginBody = (await login.json()) as { status: string; userCode: string; verificationUrl: string };
+    const loginBody = (await login.json()) satisfies { status: string; userCode: string; verificationUrl: string };
     expect(loginBody.status).toBe("pending");
     expect(loginBody.userCode).toBe("ABCD-1234");
     expect(loginBody.verificationUrl).toBe("https://auth.openai.com/codex/device");
@@ -34,17 +35,17 @@ describe("createChatGPTHandler", () => {
     const status = await handler.handler(
       new Request(`${BASE}/status`, { headers: { cookie } }),
     );
-    const statusBody = (await status.json()) as { status: string; user?: { email?: string } };
+    const statusBody = (await status.json()) satisfies { status: string; user?: { email?: string } };
     expect(statusBody.status).toBe("authenticated");
     expect(statusBody.user?.email).toBe("savio@result.dev");
 
     // 3. Session reflects the authenticated user without polling.
     const session = await handler.handler(new Request(`${BASE}/session`, { headers: { cookie } }));
-    expect(((await session.json()) as { status: string }).status).toBe("authenticated");
+    expect(((await session.json()) satisfies { status: string }).status).toBe("authenticated");
 
     // 4. Logout clears the session.
     const logout = await handler.handler(new Request(`${BASE}/logout`, { method: "POST", headers: { cookie } }));
-    expect(((await logout.json()) as { status: string }).status).toBe("unauthenticated");
+    expect(((await logout.json()) satisfies { status: string }).status).toBe("unauthenticated");
     expect(logout.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
@@ -110,7 +111,7 @@ describe("createChatGPTHandler", () => {
     expect(call).toBeDefined();
     const headers = new Headers(call?.init?.headers);
     expect(headers.get("authorization")).toMatch(/^Bearer /);
-    const form = call?.init?.body as FormData;
+    const form = /* SAFETY: This request fixture always sends the realtime payload as FormData. */ call?.init?.body as FormData;
     expect(JSON.parse(String(form.get("session")))).toMatchObject({
       voice: "juniper",
       voice_mode: "wingman",
@@ -184,8 +185,8 @@ describe("createChatGPTHandler", () => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
-      resolveConfirmation: async (callId: string, confirmation: unknown) => {
-        await sessionOptions.confirmTool({
+      resolveConfirmation: async <ConfirmationValue>(callId: string, confirmation: ConfirmationValue) => {
+        return await sessionOptions.confirmTool({
           callId,
           name: "create_record",
           arguments: { title: "Review me" },
@@ -412,7 +413,7 @@ describe("createChatGPTHandler", () => {
               listeners.add(listener);
               return () => { listeners.delete(listener); };
             },
-            resolveConfirmation: async () => {},
+            resolveConfirmation: async () => ({ output: {} }),
             close: async () => {},
           }),
         },
@@ -492,7 +493,7 @@ describe("createChatGPTHandler", () => {
   });
 
   test("passes validated Codex service tier through the responses proxy", async () => {
-    let responseBody: Record<string, unknown> | undefined;
+    let responseBody: JsonObject | undefined;
     const fetch = createMockFetch((url, init) => {
       if (url.endsWith("/deviceauth/usercode")) {
         return jsonResponse({ device_auth_id: "dev_1", user_code: "ABCD-1234", interval: "1" });
@@ -571,7 +572,7 @@ describe("createChatGPTHandler", () => {
   });
 
   test("falls back when upstream rejects Codex fast service tier", async () => {
-    const responseBodies: Array<Record<string, unknown>> = [];
+    const responseBodies: Array<JsonObject> = [];
     const fetch = createMockFetch((url, init) => {
       if (url.endsWith("/deviceauth/usercode")) {
         return jsonResponse({ device_auth_id: "dev_1", user_code: "ABCD-1234", interval: "1" });
@@ -797,7 +798,7 @@ describe("createChatGPTHandler", () => {
     const limited = await send();
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toEqual(expect.any(String));
-    expect(((await limited.json()) as { error: string }).error).toBe("rate_limited");
+    expect(((await limited.json()) satisfies { error: string }).error).toBe("rate_limited");
 
     clock += 61_000;
     expect((await send()).status).toBe(200);
@@ -875,7 +876,7 @@ describe("createChatGPTHandler", () => {
       new Request(`${BASE}/login`, { method: "POST", headers: { origin: "https://evil.example" } }),
     );
     expect(crossSite.status).toBe(403);
-    expect(((await crossSite.json()) as { error: string }).error).toBe("origin_not_allowed");
+    expect(((await crossSite.json()) satisfies { error: string }).error).toBe("origin_not_allowed");
 
     const opaque = await handler.handler(
       new Request(`${BASE}/logout`, { method: "POST", headers: { origin: "null" } }),

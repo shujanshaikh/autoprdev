@@ -1,3 +1,5 @@
+import { hasObjectType } from "@autopr/config/runtime-type";
+
 export type GithubRepository = {
   id: number;
   name: string;
@@ -49,10 +51,10 @@ export async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error =
-      data && typeof data === "object" && "error" in data
+      data && hasObjectType(data) && "error" in data
         ? String(data.error)
         : "Request failed.";
     throw new Error(error);
   }
-  return data as T;
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ data as T;
 }

@@ -2,7 +2,7 @@ import type { ResolvedConfig } from "../config.ts";
 
 function combineSignals(timeoutSignal: AbortSignal, callerSignal?: AbortSignal | null): AbortSignal {
   if (!callerSignal) return timeoutSignal;
-  if (typeof AbortSignal.any === "function") {
+  if (AbortSignal.any instanceof Function) {
     return AbortSignal.any([callerSignal, timeoutSignal]);
   }
 
@@ -39,7 +39,7 @@ export function requestSignal(config: ResolvedConfig, callerSignal?: AbortSignal
 export function requestHeaderSignal(
   config: ResolvedConfig,
   callerSignal?: AbortSignal | null,
-): { signal: AbortSignal; clearDeadline: () => void } {
+) {
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => {
     timeoutController.abort(

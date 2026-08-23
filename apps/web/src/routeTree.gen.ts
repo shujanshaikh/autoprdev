@@ -10,10 +10,12 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignUpRouteImport } from './routes/sign-up'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as GithubConnectRouteImport } from './routes/github-connect'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsSectionRouteImport } from './routes/settings.$section'
 import { Route as ApiAgentRouteImport } from './routes/api/agent'
 import { Route as ProjectProjectIdRouteRouteImport } from './routes/project/$projectId/route'
 import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$projectId/index'
@@ -50,6 +52,11 @@ const SignUpRoute = SignUpRouteImport.update({
   path: '/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GithubConnectRoute = GithubConnectRouteImport.update({
   id: '/github-connect',
   path: '/github-connect',
@@ -69,6 +76,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsSectionRoute = SettingsSectionRouteImport.update({
+  id: '/$section',
+  path: '/$section',
+  getParentRoute: () => SettingsRoute,
 } as any)
 const ApiAgentRoute = ApiAgentRouteImport.update({
   id: '/api/agent',
@@ -237,9 +249,11 @@ export interface FileRoutesByFullPath {
   '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
   '/github-connect': typeof GithubConnectRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/settings/$section': typeof SettingsSectionRoute
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/chatgpt/$lwc': typeof ApiChatgptLwcRoute
@@ -274,8 +288,10 @@ export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
   '/github-connect': typeof GithubConnectRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/sign-up': typeof SignUpRoute
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/settings/$section': typeof SettingsSectionRoute
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/chatgpt/$lwc': typeof ApiChatgptLwcRoute
@@ -311,9 +327,11 @@ export interface FileRoutesById {
   '/callback': typeof CallbackRoute
   '/dashboard': typeof DashboardRoute
   '/github-connect': typeof GithubConnectRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/sign-up': typeof SignUpRoute
   '/project/$projectId': typeof ProjectProjectIdRouteRouteWithChildren
   '/api/agent': typeof ApiAgentRouteWithChildren
+  '/settings/$section': typeof SettingsSectionRoute
   '/project/$projectId/thread': typeof ProjectProjectIdThreadRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/chatgpt/$lwc': typeof ApiChatgptLwcRoute
@@ -350,9 +368,11 @@ export interface FileRouteTypes {
     | '/callback'
     | '/dashboard'
     | '/github-connect'
+    | '/settings'
     | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
+    | '/settings/$section'
     | '/project/$projectId/thread'
     | '/api/auth/sign-in'
     | '/api/chatgpt/$lwc'
@@ -387,8 +407,10 @@ export interface FileRouteTypes {
     | '/callback'
     | '/dashboard'
     | '/github-connect'
+    | '/settings'
     | '/sign-up'
     | '/api/agent'
+    | '/settings/$section'
     | '/project/$projectId/thread'
     | '/api/auth/sign-in'
     | '/api/chatgpt/$lwc'
@@ -423,9 +445,11 @@ export interface FileRouteTypes {
     | '/callback'
     | '/dashboard'
     | '/github-connect'
+    | '/settings'
     | '/sign-up'
     | '/project/$projectId'
     | '/api/agent'
+    | '/settings/$section'
     | '/project/$projectId/thread'
     | '/api/auth/sign-in'
     | '/api/chatgpt/$lwc'
@@ -461,6 +485,7 @@ export interface RootRouteChildren {
   CallbackRoute: typeof CallbackRoute
   DashboardRoute: typeof DashboardRoute
   GithubConnectRoute: typeof GithubConnectRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   SignUpRoute: typeof SignUpRoute
   ProjectProjectIdRouteRoute: typeof ProjectProjectIdRouteRouteWithChildren
   ApiAgentRoute: typeof ApiAgentRouteWithChildren
@@ -493,6 +518,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/github-connect': {
       id: '/github-connect'
       path: '/github-connect'
@@ -520,6 +552,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/settings/$section': {
+      id: '/settings/$section'
+      path: '/$section'
+      fullPath: '/settings/$section'
+      preLoaderRoute: typeof SettingsSectionRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/api/agent': {
       id: '/api/agent'
@@ -734,6 +773,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsSectionRoute: typeof SettingsSectionRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsSectionRoute: SettingsSectionRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 interface ProjectProjectIdThreadRouteRouteChildren {
   ProjectProjectIdThreadThreadIdRoute: typeof ProjectProjectIdThreadThreadIdRoute
 }
@@ -845,6 +896,7 @@ const rootRouteChildren: RootRouteChildren = {
   CallbackRoute: CallbackRoute,
   DashboardRoute: DashboardRoute,
   GithubConnectRoute: GithubConnectRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   SignUpRoute: SignUpRoute,
   ProjectProjectIdRouteRoute: ProjectProjectIdRouteRouteWithChildren,
   ApiAgentRoute: ApiAgentRouteWithChildren,

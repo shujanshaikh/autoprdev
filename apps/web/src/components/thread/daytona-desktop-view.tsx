@@ -17,7 +17,7 @@ const LOCAL_RECONNECT_DELAY_MS = 300;
 const CONNECTION_STABLE_MS = 10_000;
 const MAX_LOCAL_CONNECTION_ATTEMPTS = 3;
 
-type DaytonaDesktopViewProps = {
+export type DaytonaDesktopViewProps = {
   websocketUrl?: string;
   loading?: boolean;
   className?: string;
@@ -28,6 +28,7 @@ type DaytonaDesktopViewProps = {
     reason: DesktopRecoveryReason,
     failedRevision: number,
   ) => DesktopRecoveryResult | Promise<DesktopRecoveryResult>;
+  loadRfb?: RfbLoader;
 };
 
 type RfbInstance = {
@@ -49,6 +50,10 @@ type RfbConstructor = new (
   options?: { shared?: boolean; credentials?: Record<string, string> },
 ) => RfbInstance;
 
+type RfbLoader = () => Promise<{ default: RfbConstructor }>;
+
+const loadDefaultRfb: RfbLoader = () => import("@novnc/novnc");
+
 function applyFixedDesktopMode(rfb: RfbInstance, interactive: boolean) {
   rfb.clipViewport = false;
   rfb.scaleViewport = true;
@@ -64,6 +69,7 @@ export function DaytonaDesktopView({
   connectionRevision = 0,
   websocketUrlExpiresAt,
   onReconnectRequired,
+  loadRfb = loadDefaultRfb,
 }: DaytonaDesktopViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -155,11 +161,11 @@ export function DaytonaDesktopView({
     ) {
       recovery.recover("credentials");
     } else {
-      void import("@novnc/novnc")
+      void loadRfb()
         .then((module) => {
           if (disposed || !containerRef.current) return;
 
-          const RFB = module.default as RfbConstructor;
+          const RFB = module.default;
 
           const clearRetryTimer = () => {
             if (retryTimer !== undefined) clearTimeout(retryTimer);
@@ -282,7 +288,7 @@ export function DaytonaDesktopView({
       rfb?.disconnect();
       container.replaceChildren();
     };
-  }, [connectionRevision, interactive, websocketUrl, websocketUrlExpiresAt]);
+  }, [connectionRevision, interactive, loadRfb, websocketUrl, websocketUrlExpiresAt]);
 
   const showOverlay = loading || !websocketUrl || connection.state !== "connected";
   const loadingPresentation = connection.state === "error"

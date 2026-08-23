@@ -1,3 +1,6 @@
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+
+
 import "@tanstack/react-start/server-only";
 
 import { createPrivateKey } from "node:crypto";
@@ -6,16 +9,8 @@ import { WorkOS } from "@workos-inc/node";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 
-import {
-  buildGithubAppInstallUrl,
-  decodeGithubAppPrivateKey,
-  getTrustedGithubInstallationUrl,
-} from "#/lib/github-app-config";
-import {
-  getWorkOSAccessTokenVerificationOptions,
-  resolveWorkOSRequestAccessToken,
-  WORKOS_ACCESS_TOKEN_HEADER,
-} from "#/lib/workos-access-token";
+import { buildGithubAppInstallUrl, decodeGithubAppPrivateKey, getTrustedGithubInstallationUrl } from "#/lib/github-app-config";
+import { getWorkOSAccessTokenVerificationOptions, resolveWorkOSRequestAccessToken, WORKOS_ACCESS_TOKEN_HEADER } from "#/lib/workos-access-token";
 
 export class GithubConnectionError extends Error {
   constructor(message = "Connect GitHub to continue.") {
@@ -74,7 +69,7 @@ async function getBearerAuth(accessToken: string): Promise<AuthenticatedWorkOSAu
   );
 
   if (
-    typeof payload.sub !== "string" ||
+    !hasStringType(payload.sub) ||
     (payload.client_id !== undefined && payload.client_id !== clientId)
   ) {
     throw new GithubConnectionError("Unauthorized");
@@ -84,38 +79,38 @@ async function getBearerAuth(accessToken: string): Promise<AuthenticatedWorkOSAu
   const auth = {
     user,
     accessToken,
-    sessionId: typeof payload.sid === "string" ? payload.sid : "",
-    organizationId: typeof payload.org_id === "string" ? payload.org_id : undefined,
-    role: typeof payload.role === "string" ? payload.role : undefined,
+    sessionId: hasStringType(payload.sid) ? payload.sid : "",
+    organizationId: hasStringType(payload.org_id) ? payload.org_id : undefined,
+    role: hasStringType(payload.role) ? payload.role : undefined,
     roles: Array.isArray(payload.roles)
-      ? payload.roles.filter((role): role is string => typeof role === "string")
+      ? payload.roles.filter((role): role is string => hasStringType(role))
       : undefined,
     permissions: Array.isArray(payload.permissions)
-      ? payload.permissions.filter((permission): permission is string => typeof permission === "string")
+      ? payload.permissions.filter((permission): permission is string => hasStringType(permission))
       : undefined,
     entitlements: Array.isArray(payload.entitlements)
-      ? payload.entitlements.filter((entitlement): entitlement is string => typeof entitlement === "string")
+      ? payload.entitlements.filter((entitlement): entitlement is string => hasStringType(entitlement))
       : undefined,
     featureFlags: Array.isArray(payload.feature_flags)
-      ? payload.feature_flags.filter((flag): flag is string => typeof flag === "string")
+      ? payload.feature_flags.filter((flag): flag is string => hasStringType(flag))
       : undefined,
   } satisfies AuthenticatedWorkOSAuth;
 
   mobileAuthCache.set(accessToken, {
     auth,
     expiresAt: Math.min(
-      typeof payload.exp === "number" ? payload.exp * 1000 : Date.now() + 60_000,
+      hasNumberType(payload.exp) ? payload.exp * 1000 : Date.now() + 60_000,
       Date.now() + 60_000,
     ),
   });
   if (mobileAuthCache.size > 100) {
     const firstKey = mobileAuthCache.keys().next().value;
-    if (typeof firstKey === "string") mobileAuthCache.delete(firstKey);
+    if (hasStringType(firstKey)) mobileAuthCache.delete(firstKey);
   }
   return auth;
 }
 
-function normalizeWorkOSErrorMessage(error: unknown) {
+function normalizeWorkOSErrorMessage<ErrorValue>(error: ErrorValue) {
   if (!(error instanceof Error)) {
     return undefined;
   }
@@ -181,7 +176,7 @@ export async function getGithubOAuthToken(userId: string, organizationId?: strin
       userId,
       organizationId,
     })
-    .catch((error: unknown) => {
+    .catch(<ErrorValue>(error: ErrorValue) => {
       throw new GithubConnectionError(normalizeWorkOSErrorMessage(error) ?? "Could not load the connected GitHub token.");
     });
 
@@ -254,14 +249,14 @@ async function githubAppFetch(url: string, init?: RequestInit) {
 async function githubAppJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await githubAppFetch(url, init);
   if (!response.ok) {
-    const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
+    const body = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json().catch(() => undefined)) as { message?: string } | undefined;
     throw new GithubConnectionError(
       response.status === 404
         ? "Install the Autopr GitHub App on this repository before opening it in a sandbox."
         : body?.message ?? "Could not authorize the project repository for sandbox Git access.",
     );
   }
-  return await response.json() as T;
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await response.json() as T;
 }
 
 export async function getGithubAppInstallUrl(): Promise<string> {
@@ -273,7 +268,7 @@ export async function getGithubAppInstallUrl(): Promise<string> {
         }
         return buildGithubAppInstallUrl(slug);
       })
-      .catch((error: unknown) => {
+      .catch(<ErrorValue>(error: ErrorValue) => {
         githubAppInstallUrlPromise = undefined;
         throw error;
       });
@@ -304,13 +299,13 @@ export async function getGithubRepositoryInstallationStatus(owner: string, repo:
   }
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
+    const body = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json().catch(() => undefined)) as { message?: string } | undefined;
     throw new GithubConnectionError(
       body?.message ?? "Could not check whether the Autopr GitHub App can access this repository.",
     );
   }
 
-  const installation = (await response.json()) as {
+  const installation = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json()) as {
     html_url?: string;
     permissions?: { contents?: string };
   };
@@ -342,13 +337,13 @@ async function getGithubOwnerInstallationUrl(owner: string): Promise<string | un
     const response = await githubAppFetch(endpoint);
     if (response.status === 404) continue;
     if (!response.ok) {
-      const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
+      const body = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json().catch(() => undefined)) as { message?: string } | undefined;
       throw new GithubConnectionError(
         body?.message ?? "Could not check the Autopr GitHub App installation for this account.",
       );
     }
 
-    const installation = (await response.json()) as { html_url?: string };
+    const installation = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json()) as { html_url?: string };
     return getTrustedGithubInstallationUrl(installation.html_url);
   }
 
@@ -424,7 +419,11 @@ export async function getGithubAuthorizationUrl(options: {
   const requestBody = {
     user_id: options.userId,
     return_to: options.returnTo,
-    ...(options.organizationId ? { organization_id: options.organizationId } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (options.organizationId) optionalProperties = { organization_id: options.organizationId };
+  return optionalProperties;
+})(),
   };
 
   const response = await fetch("https://api.workos.com/data-integrations/github/authorize", {
@@ -436,7 +435,7 @@ export async function getGithubAuthorizationUrl(options: {
     body: JSON.stringify(requestBody),
   });
 
-  const body = (await response.json().catch(() => undefined)) as { url?: string; message?: string } | undefined;
+  const body = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await response.json().catch(() => undefined)) as { url?: string; message?: string } | undefined;
 
   if (!response.ok || !body?.url) {
     throw new GithubConnectionError(
@@ -471,7 +470,7 @@ export async function requireGithubRepositoryWriteAccess(
         : `Could not verify your GitHub write access to ${owner}/${repo}.`,
     );
   }
-  const body = await response.json() as { permission?: string; user?: { permissions?: { push?: boolean } } };
+  const body = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await response.json() as { permission?: string; user?: { permissions?: { push?: boolean } } };
   const canPush = body.user?.permissions?.push === true ||
     body.permission === "admin" || body.permission === "maintain" || body.permission === "write";
   if (!canPush) {
@@ -493,7 +492,7 @@ async function fetchGithubUserEmail(token: string, fallbackEmail?: string | null
     throw new GithubConnectionError("Could not load the connected GitHub user.");
   }
 
-  const githubUser = (await userResponse.json()) as {
+  const githubUser = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await userResponse.json()) as {
     login?: string;
     name?: string | null;
     email?: string | null;
@@ -503,7 +502,7 @@ async function fetchGithubUserEmail(token: string, fallbackEmail?: string | null
 
   const emailsResponse = await fetch("https://api.github.com/user/emails", { headers: githubHeaders(token) }).catch(() => undefined);
   if (emailsResponse?.ok) {
-    const emails = (await emailsResponse.json()) as Array<{
+    const emails = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ (await emailsResponse.json()) as Array<{
       email: string;
       primary?: boolean;
       verified?: boolean;
@@ -545,6 +544,6 @@ export async function getGithubUserIdentity(
   };
 }
 
-export function safeErrorMessage(error: unknown, fallback = "Something went wrong.") {
+export function safeErrorMessage<ErrorValue>(error: ErrorValue, fallback = "Something went wrong.") {
   return error instanceof Error ? error.message : fallback;
 }

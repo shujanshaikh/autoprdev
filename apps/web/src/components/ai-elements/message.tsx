@@ -1,14 +1,8 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+
 import { Button } from "@autopr/ui/components/button";
-import {
-  ButtonGroup,
-  ButtonGroupText,
-} from "@autopr/ui/components/button-group";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@autopr/ui/components/tooltip";
+import { ButtonGroup, ButtonGroupText } from "@autopr/ui/components/button-group";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -16,15 +10,7 @@ import { math } from "@streamdown/math";
 import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
-import {
-  createContext,
-  memo,
-  use,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { createContext, memo, use, useCallback, useEffect, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { markdownComponents } from "./markdown-components";
@@ -399,7 +385,7 @@ const minimalHarnessControls = {
 } as const;
 
 function normalizeHarnessMarkdown(content: MessageResponseProps["children"]) {
-  if (typeof content !== "string") {
+  if (!hasStringType(content)) {
     return content;
   }
 

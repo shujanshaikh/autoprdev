@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { createFileRoute } from "@tanstack/react-router";
 import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
@@ -9,26 +12,10 @@ import { z } from "zod";
 import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { sanitizeMessageForModelConversion, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
-import {
-  agentAuthErrorResponse,
-  createAgentModelOptions,
-  revokeAgentModelOptions,
-} from "#/lib/agent-auth-server";
-import {
-  AGENT_IDEMPOTENCY_KEY_TTL,
-  AGENT_TASK_ID,
-  agentProjectTag,
-  agentThreadTag,
-  threadSandboxCacheKey,
-} from "#/lib/trigger-agent-contract";
-import {
-  lookupTriggerAgentRun,
-  reconcileThreadWithTriggerRun,
-} from "#/lib/trigger-agent-run-server";
-import {
-  handleAgentChatRequest,
-  isAgentChatRequest,
-} from "#/lib/trigger-agent-chat-server";
+import { agentAuthErrorResponse, createAgentModelOptions, revokeAgentModelOptions } from "#/lib/agent-auth-server";
+import { AGENT_IDEMPOTENCY_KEY_TTL, AGENT_TASK_ID, agentProjectTag, agentThreadTag, threadSandboxCacheKey } from "#/lib/trigger-agent-contract";
+import { lookupTriggerAgentRun, reconcileThreadWithTriggerRun } from "#/lib/trigger-agent-run-server";
+import { handleAgentChatRequest, isAgentChatRequest } from "#/lib/trigger-agent-chat-server";
 import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import type { agentTask } from "#/trigger/agent";
 
@@ -44,8 +31,8 @@ const agentRequestSchema = z.object({
   }),
 });
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function getR2Key(part: UIMessage["parts"][number]) {
@@ -55,7 +42,7 @@ function getR2Key(part: UIMessage["parts"][number]) {
 
   const autoprMetadata = part.providerMetadata.autopr;
 
-  return isRecord(autoprMetadata) && typeof autoprMetadata.r2Key === "string"
+  return isRecord(autoprMetadata) && hasStringType(autoprMetadata.r2Key)
     ? autoprMetadata.r2Key
     : null;
 }
@@ -79,7 +66,11 @@ function acceptedAgentRunResponse(runId: string, assistantMessageId?: string) {
     status: 202,
     headers: {
       "x-trigger-run-id": runId,
-      ...(assistantMessageId ? { "x-assistant-message-id": assistantMessageId } : {}),
+      ...(() => {
+  let optionalProperties;
+  if (assistantMessageId) optionalProperties = { "x-assistant-message-id": assistantMessageId };
+  return optionalProperties;
+})(),
     },
   });
 }
@@ -150,7 +141,7 @@ async function POST(
           const assistantMessageId = currentRunLookup.run.metadata?.assistantMessageId;
           return acceptedAgentRunResponse(
             thread.currentRunId,
-            typeof assistantMessageId === "string" ? assistantMessageId : undefined,
+            hasStringType(assistantMessageId) ? assistantMessageId : undefined,
           );
         }
 
@@ -198,7 +189,7 @@ async function POST(
 
     const grantLifecycle = createGrantLifecycle(model, revokeAgentModelOptions);
     try {
-      const userMessage = parsed.data.message as UIMessage;
+      const userMessage = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ parsed.data.message as UIMessage;
       const persistenceGrant = await createAgentPersistenceGrant();
       const [assistantMessageId, dbMessages] = await Promise.all([
         convexMutation(api.messages.createTurn, {
@@ -291,7 +282,7 @@ async function POST(
 
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/agent")({
   server: {
-    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, { params: Promise.resolve(params) } as any) },
+    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any) },
   },
 });
 

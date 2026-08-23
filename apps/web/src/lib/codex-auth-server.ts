@@ -1,32 +1,9 @@
+
 import "@tanstack/react-start/server-only";
 
-import {
-  chatGPTAuth,
-  CodexConnectionError,
-  createCodexAgentGrant,
-  createCodexResponsesModel,
-  type CodexResponsesModel,
-  getWorkOSVault,
-  isMissingVaultObject,
-  isVaultConflict,
-  revokeCodexAgentGrant,
-  vaultObjectName,
-} from "#/lib/codex-auth-runtime-server";
-import {
-  DEFAULT_CODEX_MODEL,
-  DEFAULT_CODEX_REASONING_EFFORT,
-  isCodexReasoningEffortForModel,
-  normalizeCodexModelId,
-  normalizeCodexModelList,
-  selectCodexModel,
-} from "#/lib/codex-models";
-import {
-  createStoredCodexSessionLink,
-  getCodexSessionCookieHeaders,
-  parseStoredCodexSessionLink,
-  requestWithChatGPTSession,
-  resolveCodexSession,
-} from "#/lib/codex-session";
+import { chatGPTAuth, CodexConnectionError, createCodexAgentGrant, createCodexResponsesModel, type CodexResponsesModel, getWorkOSVault, isMissingVaultObject, isVaultConflict, revokeCodexAgentGrant, vaultObjectName } from "#/lib/codex-auth-runtime-server";
+import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, isCodexReasoningEffortForModel, normalizeCodexModelId, normalizeCodexModelList, selectCodexModel } from "#/lib/codex-models";
+import { createStoredCodexSessionLink, getCodexSessionCookieHeaders, parseStoredCodexSessionLink, requestWithChatGPTSession, resolveCodexSession } from "#/lib/codex-session";
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 import type { CodexAgentModelOptions } from "#/lib/trigger-agent-contract";
 
@@ -38,7 +15,7 @@ async function loadAccountCodexSessionLink() {
   const authState = await requireWorkOSAuth();
   const object = await getWorkOSVault()
     .readObjectByName(vaultObjectName("account-session", authState.user.id))
-    .catch((error: unknown) => {
+    .catch(<ErrorValue>(error: ErrorValue) => {
       if (isMissingVaultObject(error)) return undefined;
       throw error;
     });
@@ -56,7 +33,7 @@ async function persistAccountCodexSession(options: {
 }) {
   const value = JSON.stringify(createStoredCodexSessionLink(options.sessionCookieHeader));
   const objectName = vaultObjectName("account-session", options.userId);
-  const existingObject = await getWorkOSVault().readObjectByName(objectName).catch((error: unknown) => {
+  const existingObject = await getWorkOSVault().readObjectByName(objectName).catch(<ErrorValue>(error: ErrorValue) => {
     if (isMissingVaultObject(error)) return undefined;
     throw error;
   });
@@ -81,7 +58,7 @@ async function persistAccountCodexSession(options: {
           userId: options.userId,
         },
       })
-      .catch(async (error: unknown) => {
+      .catch(async <ErrorValue>(error: ErrorValue) => {
         if (!isVaultConflict(error)) {
           throw error;
         }
@@ -116,7 +93,7 @@ async function removeAccountCodexSessionLink() {
   if (accountLink) {
     await getWorkOSVault()
       .deleteObject({ id: accountLink.vaultObjectId })
-      .catch((error: unknown) => {
+      .catch(<ErrorValue>(error: ErrorValue) => {
         if (!isMissingVaultObject(error)) {
           throw error;
         }
@@ -317,7 +294,7 @@ export function revokeCodexAgentModelOptions(options: CodexAgentModelOptions) {
   return revokeCodexAgentGrant(options.credentialsGrantId);
 }
 
-export function codexErrorResponse(error: unknown, fallback: string) {
+export function codexErrorResponse<ErrorValue>(error: ErrorValue, fallback: string) {
   if (error instanceof CodexConnectionError) {
     return Response.json({ error: error.message }, { status: error.status });
   }

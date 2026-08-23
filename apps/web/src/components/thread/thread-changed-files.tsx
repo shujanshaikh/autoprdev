@@ -1,8 +1,4 @@
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@autopr/ui/components/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import { ChevronRight, Loader2 } from "lucide-react";
 

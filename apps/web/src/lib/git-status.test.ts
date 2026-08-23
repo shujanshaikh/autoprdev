@@ -1,10 +1,4 @@
-import {
-  attachGitNumstat,
-  classifyGitStatus,
-  parseGitNumstat,
-  parseGitStatusPorcelainV2,
-  type ThreadGitStatus,
-} from "@autopr/backend/convex/lib/gitStatus";
+import { attachGitNumstat, classifyGitStatus, parseGitNumstat, parseGitStatusPorcelainV2, type ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { describe, expect, it } from "vitest";
 
 const oid = "1234567890abcdef1234567890abcdef12345678";

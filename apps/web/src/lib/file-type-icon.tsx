@@ -1,6 +1,6 @@
 import { getIcon } from "material-file-icons";
 
-export function pathParts(path: string): { name: string; dir: string } {
+export function pathParts(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "") || path;
   const index = normalized.lastIndexOf("/");
   if (index === -1) {

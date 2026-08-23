@@ -1,3 +1,5 @@
+import { hasNumberType } from "@autopr/config/runtime-type";
+
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -43,14 +45,22 @@ const bashInputSchema = z.object({
 
 type BashInput = z.infer<typeof bashInputSchema>;
 
+export interface DaytonaBashDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{ workDir: string }>;
+  executeSandboxCommand: typeof executeSandboxCommand;
+}
+
+const defaultDependencies: DaytonaBashDependencies = { getSandboxContext, executeSandboxCommand };
+
 async function executeDaytonaBash(
   input: BashInput,
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
+  dependencies: DaytonaBashDependencies,
 ) {
   const command = requireString(input.command, "command", "bash");
-  const context = await getSandboxContext(sandboxOptions);
-  const result = await executeSandboxCommand(command, {
+  const context = await dependencies.getSandboxContext(sandboxOptions);
+  const result = await dependencies.executeSandboxCommand(command, {
     cwd: resolveSandboxPath(input.cwd, context.workDir),
     timeout: input.isBackground ? input.timeout : input.timeout ?? DEFAULT_BASH_TIMEOUT_SECONDS,
     env: input.env,
@@ -74,7 +84,7 @@ async function executeDaytonaBash(
   const commandPreview = truncateText(command, MAX_COMMAND_SUMMARY_CHARS);
   const isBackground = Boolean(input.isBackground);
   const timedOut = Boolean(result.timedOut);
-  const backgroundLaunchFailed = isBackground && typeof result.exitCode === "number" && result.exitCode !== 0;
+  const backgroundLaunchFailed = isBackground && hasNumberType(result.exitCode) && result.exitCode !== 0;
   const timeoutSummary = result.timeout
     ? `Command timed out after ${result.timeout} second${result.timeout === 1 ? "" : "s"}.`
     : "Daytona timed out while waiting for the command to finish.";
@@ -120,6 +130,7 @@ async function executeDaytonaBash(
 export function createDaytonaBashTool(
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
+  dependencies: DaytonaBashDependencies = defaultDependencies,
 ) {
   return tool({
     title: "bash",
@@ -127,6 +138,6 @@ export function createDaytonaBashTool(
       "Run shell commands inside Daytona with a 120-second default foreground timeout and tail-preserving bounded output. Use for package scripts, tests, type checks, installs, and Git inspection. Commands mutate state when the command does; use isBackground=true for servers/watchers and manage them with process. Environment values are never echoed. Do not retry a failed command unchanged without using the final diagnostic.",
     inputSchema: bashInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaBash(input, sandboxOptions, backgroundProcesses),
+    execute: (input) => executeDaytonaBash(input, sandboxOptions, backgroundProcesses, dependencies),
   });
 }

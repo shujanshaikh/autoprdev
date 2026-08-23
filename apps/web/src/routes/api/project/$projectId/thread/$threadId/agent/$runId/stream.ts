@@ -115,6 +115,6 @@ async function GET(
 
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/agent/$runId/stream")({
   server: {
-    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, { params: Promise.resolve(params) } as any) },
+    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, /* SAFETY: TanStack supplies the route's generated params shape to this handler at runtime. */ { params: Promise.resolve(params) } as any) },
   },
 });

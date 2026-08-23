@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  autoprSandboxLabels,
-  autoprSandboxName,
-  isExpectedAutoprSandbox,
-} from "@autopr/backend/convex/lib/sandboxIdentity";
+import { autoprSandboxLabels, autoprSandboxName, isExpectedAutoprSandbox } from "@autopr/backend/convex/lib/sandboxIdentity";
 
 describe("AutoPR sandbox identity", () => {
   const projectId = "c113125b-938c-409a-9d32-03b410f44330";

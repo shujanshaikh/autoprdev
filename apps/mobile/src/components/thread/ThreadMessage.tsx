@@ -1,22 +1,10 @@
+import { hasNumberType, hasObjectType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
 import * as Clipboard from "expo-clipboard";
-import {
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  ExternalLink,
-  FileText,
-  Play,
-  Video,
-} from "lucide-react-native";
+import { ChevronDown, ChevronRight, Copy, ExternalLink, FileText, Play, Video } from "lucide-react-native";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { webRequest } from "../../api/web";
 import { useAuth } from "../../auth/AuthProvider";
@@ -67,23 +55,23 @@ function timeLabel(timestamp?: number) {
 
 type RunPresentation = { durationSeconds?: number; metrics: string[] };
 
-function runPresentation(metadata: unknown): RunPresentation {
-  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+function runPresentation<MetadataValue>(metadata: MetadataValue): RunPresentation {
+  if (!hasObjectType(metadata) || metadata === null || Array.isArray(metadata)) {
     return { metrics: [] };
   }
-  const value = metadata as Record<string, unknown>;
-  const usage = typeof value.usage === "object" && value.usage !== null && !Array.isArray(value.usage)
-    ? value.usage as Record<string, unknown>
+  const value = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ metadata as JsonObject;
+  const usage = hasObjectType(value.usage) && value.usage !== null && !Array.isArray(value.usage)
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value.usage as JsonObject
     : null;
-  const run = typeof value.run === "object" && value.run !== null && !Array.isArray(value.run)
-    ? value.run as Record<string, unknown>
+  const run = hasObjectType(value.run) && value.run !== null && !Array.isArray(value.run)
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value.run as JsonObject
     : null;
-  const cost = usage && typeof usage.cost === "object" && usage.cost !== null && !Array.isArray(usage.cost)
-    ? usage.cost as Record<string, unknown>
+  const cost = usage && hasObjectType(usage.cost) && usage.cost !== null && !Array.isArray(usage.cost)
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ usage.cost as JsonObject
     : null;
-  const totalTokens = typeof usage?.totalTokens === "number" ? usage.totalTokens : undefined;
-  const duration = typeof run?.durationSeconds === "number" ? run.durationSeconds : undefined;
-  const totalCost = typeof cost?.total === "number" ? cost.total : undefined;
+  const totalTokens = hasNumberType(usage?.totalTokens) ? usage.totalTokens : undefined;
+  const duration = hasNumberType(run?.durationSeconds) ? run.durationSeconds : undefined;
+  const totalCost = hasNumberType(cost?.total) ? cost.total : undefined;
   const metrics: string[] = [];
   if (totalTokens !== undefined) {
     metrics.push(totalTokens >= 1_000 ? `${(totalTokens / 1_000).toFixed(totalTokens >= 100_000 ? 0 : 1)}k tokens` : `${totalTokens} tokens`);

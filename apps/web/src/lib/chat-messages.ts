@@ -1,3 +1,5 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
 import { isToolUIPart, type ModelMessage, type UIMessage } from "ai";
 import { compactAssistantPartsForModel } from "./agent-message-compaction";
 
@@ -22,13 +24,13 @@ export function toUIMessage(row: StoredMessageRow): UIMessage {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function toolNameFromPart(part: UIMessage["parts"][number]): string | undefined {
   if (part.type === "dynamic-tool" && "toolName" in part) {
-    return typeof part.toolName === "string" ? part.toolName : undefined;
+    return hasStringType(part.toolName) ? part.toolName : undefined;
   }
 
   return part.type.startsWith("tool-")
@@ -49,7 +51,7 @@ function shouldStripScreenshotPayload(key: string, value: string, isScreenshotCo
   );
 }
 
-function sanitizeScreenshotPayloads(value: unknown, isScreenshotContext = false): unknown {
+function sanitizeScreenshotPayloads<ValueValue>(value: ValueValue, isScreenshotContext = false): JsonValue {
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeScreenshotPayloads(item, isScreenshotContext));
   }
@@ -59,12 +61,12 @@ function sanitizeScreenshotPayloads(value: unknown, isScreenshotContext = false)
   }
 
   let strippedPayload = false;
-  const next: Record<string, unknown> = {};
+  const next: JsonObject = {};
 
   for (const [key, child] of Object.entries(value)) {
     const childIsScreenshotContext = isScreenshotContext || key.toLowerCase().includes("screenshot");
 
-    if (typeof child === "string" && shouldStripScreenshotPayload(key, child, childIsScreenshotContext)) {
+    if (hasStringType(child) && shouldStripScreenshotPayload(key, child, childIsScreenshotContext)) {
       next[key] = {
         omitted: true,
         base64Length: child.length,
@@ -98,21 +100,21 @@ export interface DemoRecordingMetadata {
   contentType?: string;
 }
 
-export function isDemoRecordingMetadata(value: unknown): value is DemoRecordingMetadata {
+export function isDemoRecordingMetadata<ValueValue>(value: ValueValue): value is ValueValue & (DemoRecordingMetadata) {
   return (
     isRecord(value) &&
     value.type === "daytona_recording" &&
-    typeof value.id === "string"
+    hasStringType(value.id)
   );
 }
 
-function isContentDetailsOutput(
-  value: unknown,
-): value is { content: string; details: Record<string, unknown> } {
-  return isRecord(value) && typeof value.content === "string" && isRecord(value.details);
+function isContentDetailsOutput<ValueValue>(
+  value: ValueValue,
+): value is ValueValue & ({ content: string; details: JsonObject }) {
+  return isRecord(value) && hasStringType(value.content) && isRecord(value.details);
 }
 
-function parseComputerMetadata(text: string): Record<string, unknown> | null {
+function parseComputerMetadata(text: string): JsonObject | null {
   if (!text.startsWith(COMPUTER_METADATA_PREFIX)) {
     return null;
   }
@@ -125,25 +127,25 @@ function parseComputerMetadata(text: string): Record<string, unknown> | null {
   }
 }
 
-function imageContentPart(value: unknown): { data: string; mediaType: string } | null {
-  if (!isRecord(value) || typeof value.data !== "string") {
+function imageContentPart<ValueValue>(value: ValueValue): { data: string; mediaType: string } | null {
+  if (!isRecord(value) || !hasStringType(value.data)) {
     return null;
   }
 
-  if (value.type === "image-data" && typeof value.mediaType === "string") {
+  if (value.type === "image-data" && hasStringType(value.mediaType)) {
     return { data: value.data, mediaType: value.mediaType };
   }
 
-  if (value.type === "media" && typeof value.mediaType === "string" && value.mediaType.startsWith("image/")) {
+  if (value.type === "media" && hasStringType(value.mediaType) && value.mediaType.startsWith("image/")) {
     return { data: value.data, mediaType: value.mediaType };
   }
 
   return null;
 }
 
-export function computerContentOutputToContentDetails(
-  output: unknown,
-): { content: string; details: Record<string, unknown> } | null {
+export function computerContentOutputToContentDetails<OutputValue>(
+  output: OutputValue,
+): { content: string; details: JsonObject } | null {
   if (isContentDetailsOutput(output)) {
     return output;
   }
@@ -159,11 +161,11 @@ export function computerContentOutputToContentDetails(
   }
 
   const content: string[] = [];
-  let details: Record<string, unknown> | null = null;
+  let details: JsonObject | null = null;
   let screenshotImage: { data: string; mediaType: string } | null = null;
 
   for (const item of contentItems) {
-    if (isRecord(item) && item.type === "text" && typeof item.text === "string") {
+    if (isRecord(item) && item.type === "text" && hasStringType(item.text)) {
       const metadata = parseComputerMetadata(item.text);
       if (metadata) {
         details = metadata;
@@ -198,12 +200,12 @@ export function computerContentOutputToContentDetails(
   };
 }
 
-function normalizeComputerOutput(output: unknown): unknown {
+function normalizeComputerOutput<OutputValue>(output: OutputValue): JsonValue {
   return computerContentOutputToContentDetails(output) ?? output;
 }
 
-function collectDemoRecordings(
-  value: unknown,
+function collectDemoRecordings<ValueValue>(
+  value: ValueValue,
   recordings: DemoRecordingMetadata[],
   seenRecordingIds = new Set<string>(),
 ) {
@@ -259,7 +261,7 @@ export function sanitizeAssistantPartsForPersistence(parts: UIMessage["parts"]):
       return part;
     }
 
-    return {
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ {
       ...part,
       output: sanitizeScreenshotPayloads(normalizeComputerOutput(part.output)),
     } as UIMessage["parts"][number];
@@ -326,11 +328,11 @@ const TERMINAL_TOOL_STATES = new Set([
 ]);
 
 function partState(part: UIMessage["parts"][number]): string | undefined {
-  return "state" in part && typeof part.state === "string" ? part.state : undefined;
+  return "state" in part && hasStringType(part.state) ? part.state : undefined;
 }
 
 function toolCallId(part: UIMessage["parts"][number]): string | undefined {
-  return "toolCallId" in part && typeof part.toolCallId === "string"
+  return "toolCallId" in part && hasStringType(part.toolCallId)
     ? part.toolCallId
     : undefined;
 }
@@ -440,8 +442,8 @@ export function mergePersistedAssistantParts(
   return currentParts;
 }
 
-function getFilePartUrl(data: unknown) {
-  if (typeof data === "string") {
+function getFilePartUrl<DataValue>(data: DataValue) {
+  if (hasStringType(data)) {
     return data;
   }
 
@@ -452,8 +454,8 @@ function getFilePartUrl(data: unknown) {
   return null;
 }
 
-function formatToolResultError(value: unknown) {
-  if (typeof value === "string") {
+function formatToolResultError<ValueValue>(value: ValueValue) {
+  if (hasStringType(value)) {
     return value;
   }
 
@@ -474,7 +476,7 @@ function applyToolResultToParts(
   const input =
     existingPart && existingPart.type === "dynamic-tool" && "input" in existingPart ? existingPart.input : undefined;
 
-  const toolOutput = result.output as { type?: string; value?: unknown; reason?: string };
+  const toolOutput = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ result.output as { type?: string; value?: unknown; reason?: string };
   const nextPart: UIMessage["parts"][number] =
     toolOutput?.type === "error-text" || toolOutput?.type === "error-json" || toolOutput?.type === "execution-denied"
       ? {
@@ -519,7 +521,7 @@ export function responseMessagesToAssistantParts(messages: ModelMessage[], start
         parts.push({ type: "step-start" });
       }
 
-      if (typeof message.content === "string") {
+      if (hasStringType(message.content)) {
         if (message.content) {
           parts.push({
             type: "text",

@@ -1,3 +1,4 @@
+
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useUploadFile } from "@convex-dev/r2/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -7,31 +8,9 @@ import { fetch as expoFetch } from "expo/fetch";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useConvex, useMutation, useQuery } from "convex/react";
-import {
-  ArrowDown,
-  FileDiff,
-  MoreHorizontal,
-  Pencil,
-  RefreshCw,
-  Settings2,
-  TerminalSquare,
-  Video,
-  X,
-} from "lucide-react-native";
+import { ArrowDown, FileDiff, MoreHorizontal, Pencil, RefreshCw, Settings2, TerminalSquare, Video, X } from "lucide-react-native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  AppState,
-  FlatList,
-  InteractionManager,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { AppState, FlatList, InteractionManager, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNotice, LoadingState } from "../components/ui";
@@ -52,23 +31,8 @@ import { extractDiffEntries } from "../lib/diff";
 import { consumeAgentRunStream } from "../lib/agentStream";
 import { reconcileThreadMessages } from "../lib/threadStreamState";
 import { consumeInitialThreadSubmit } from "../lib/initialThreadSubmit";
-import {
-  DEFAULT_THREAD_TITLE,
-  firstUserMessageText,
-  MAX_THREAD_TITLE_ATTEMPTS,
-  shouldRetryThreadTitleError,
-  threadTitleRetryDelayMs,
-} from "../lib/threadTitle";
-import {
-  DEFAULT_CODEX_REASONING_EFFORT,
-  formatCodexModelLabel,
-  formatReasoningEffort,
-  getCodexModelOptions,
-  getCodexReasoningEfforts,
-  isCodexReasoningEffortForModel,
-  selectCodexModel,
-  type CodexReasoningEffort,
-} from "../lib/codexModels";
+import { DEFAULT_THREAD_TITLE, firstUserMessageText, MAX_THREAD_TITLE_ATTEMPTS, shouldRetryThreadTitleError, threadTitleRetryDelayMs } from "../lib/threadTitle";
+import { DEFAULT_CODEX_REASONING_EFFORT, formatCodexModelLabel, formatReasoningEffort, getCodexModelOptions, getCodexReasoningEfforts, isCodexReasoningEffortForModel, selectCodexModel, type CodexReasoningEffort } from "../lib/codexModels";
 import type { PromptFilePart, RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Thread">;
@@ -141,7 +105,7 @@ function id() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const streamingFetch = expoFetch as unknown as typeof globalThis.fetch;
+const streamingFetch: typeof globalThis.fetch = (input, init) => expoFetch(input, init);
 
 export function ThreadScreen({ navigation, route }: Props) {
   const { projectId, threadId } = route.params;
@@ -537,7 +501,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           role: "assistant" as const,
           // Indexed reconnects replay from chunk zero. Seed only the stable ID
           // so persisted partial parts are not duplicated by replayed deltas.
-          parts: [] as UIMessage["parts"],
+          parts: /* SAFETY: An empty list is a valid initial UI message-parts collection. */ [] as UIMessage["parts"],
         }
       : undefined;
 
@@ -654,7 +618,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         },
       ).then(async (response) => {
         if (controller.signal.aborted) return;
-        const body = await response.json().catch(() => null) as {
+        const body = await response.json().catch(() => null) satisfies {
           error?: string;
           title?: string;
         } | null;
@@ -671,7 +635,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           new Error(body?.error ?? `Could not generate the title (${response.status}).`),
           { retryable },
         );
-      }).catch((cause: unknown) => {
+      }).catch(<CauseValue,>(cause: CauseValue) => {
         if (controller.signal.aborted) return;
         const retryable = shouldRetryThreadTitleError(cause);
         setTitleGeneration({
@@ -778,7 +742,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         const imageResponse = await fetch(image.uri);
         if (!imageResponse.ok) throw new Error(`The selected image ${image.fileName} could not be read.`);
         const blob = await imageResponse.blob();
-        const file = Object.assign(blob, {
+        const file = /* SAFETY: Adding the browser File metadata makes this Blob satisfy the upload API's File contract. */ Object.assign(blob, {
           name: image.fileName,
           lastModified: Date.now(),
         }) as File;
@@ -808,13 +772,17 @@ export function ThreadScreen({ navigation, route }: Props) {
           },
           body: JSON.stringify({
             message: { id: messageId, role: "user", parts },
-            ...(selectedModel ? { model: selectedModel } : {}),
+            ...(() => {
+  let optionalProperties;
+  if (selectedModel) optionalProperties = { model: selectedModel };
+  return optionalProperties;
+})(),
             reasoningEffort,
           }),
         },
       );
       if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
+        const body = await response.json().catch(() => null) satisfies { error?: string } | null;
         throw new Error(body?.error ?? `Could not start the agent (${response.status}).`);
       }
       const runId = response.headers.get("x-trigger-run-id");
@@ -865,14 +833,12 @@ export function ThreadScreen({ navigation, route }: Props) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...(finalAssistant ? {
+          body: JSON.stringify((finalAssistant ? {
               assistantMessage: {
                 id: finalAssistant.messageId,
                 parts: finalAssistant.parts,
               },
-            } : {}),
-          }),
+            } : {})),
         },
       );
       if (!response.ok) throw new Error("The active run could not be stopped.");

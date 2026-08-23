@@ -1,11 +1,6 @@
 import { useMemo } from "react";
 
-import {
-  DEFAULT_CODEX_REASONING_EFFORT,
-  formatCodexModelLabel,
-  formatReasoningEffort,
-  type CodexReasoningEffort,
-} from "../lib/codexModels";
+import { DEFAULT_CODEX_REASONING_EFFORT, formatCodexModelLabel, formatReasoningEffort, type CodexReasoningEffort } from "../lib/codexModels";
 import { MenuSheet, type MenuAnchor, type MenuOption } from "./MenuSheet";
 
 const AUTO_MODEL_ID = "auto";
@@ -87,7 +82,7 @@ export function ReasoningMenu({
     <MenuSheet
       anchor={anchor}
       onClose={onClose}
-      onSelect={(id) => onSelectEffort(id as CodexReasoningEffort)}
+      onSelect={(id) => onSelectEffort(/* SAFETY: Menu options are built exclusively from Codex reasoning effort identifiers. */ id as CodexReasoningEffort)}
       options={options}
       title="Reasoning"
       visible={visible}

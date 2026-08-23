@@ -1,11 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  externalUrlForOpen,
-  imageHostLabel,
-  isFirstPartyImageUrl,
-  trustedImageHosts,
-} from "./urls";
+import { externalUrlForOpen, imageHostLabel, isFirstPartyImageUrl, trustedImageHosts } from "./urls";
 
 afterEach(() => {
   delete process.env.EXPO_PUBLIC_TRUSTED_FILE_HOSTS;

@@ -1,6 +1,6 @@
 import { cn } from "@autopr/ui/lib/utils";
 import { Skeleton } from "@autopr/ui/components/skeleton";
-import type { WorkspaceProject, WorkspaceSandboxCost } from "./settings-dialog";
+import type { WorkspaceProject, WorkspaceSandboxCost } from "./settings-workspace";
 
 interface SettingsStatsProps {
   projects: WorkspaceProject[] | undefined;

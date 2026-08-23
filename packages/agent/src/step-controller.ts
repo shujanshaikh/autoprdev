@@ -1,9 +1,7 @@
-import type {
-  ModelMessage,
-  PrepareStepFunction,
-  StepResult,
-  ToolSet,
-} from "ai";
+import { hasNumberType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
+import type { ModelMessage, PrepareStepFunction } from "ai";
 
 const DEFAULT_REPEATED_FAILURE_LIMIT = 3;
 const DEFAULT_REPEATED_RESULT_LIMIT = 5;
@@ -19,6 +17,13 @@ export interface AgentStepControllerOptions {
   repeatedFailureLimit?: number;
   repeatedResultLimit?: number;
   onToolLoopDetected?: (detection: AgentToolLoopDetection) => void | Promise<void>;
+  detectToolLoop?: typeof detectRepeatedToolLoop;
+}
+
+export interface ToolLoopStep {
+  toolCalls: Array<{ type?: string; toolCallId?: string; toolName: string; input: unknown }>;
+  toolResults: Array<{ type?: string; toolCallId?: string; toolName?: string; input?: unknown; output: unknown }>;
+  content: Array<{ type: string; toolName?: string; output?: unknown; error?: unknown }>;
 }
 
 export function createAgentStepController(
@@ -30,7 +35,7 @@ export function createAgentStepController(
     const prepared = await options.prepareStep?.(input);
     if (intervened) return prepared;
 
-    const detection = detectRepeatedToolLoop(input.steps, {
+    const detection = (options.detectToolLoop ?? detectRepeatedToolLoop)(input.steps, {
       repeatedFailureLimit: options.repeatedFailureLimit,
       repeatedResultLimit: options.repeatedResultLimit,
     });
@@ -50,7 +55,7 @@ export function createAgentStepController(
 }
 
 export function detectRepeatedToolLoop(
-  steps: Array<StepResult<ToolSet>>,
+  steps: ToolLoopStep[],
   options: Pick<AgentStepControllerOptions, "repeatedFailureLimit" | "repeatedResultLimit"> = {},
 ): AgentToolLoopDetection | undefined {
   const observations = steps.flatMap((step) => {
@@ -63,10 +68,10 @@ export function detectRepeatedToolLoop(
       // Tool-call ids are unique per step, so compare only the semantic result.
       results: stableStringify(step.content.map((part) => {
         if (part.type === "tool-result") {
-          return { type: part.type, toolName: part.toolName, output: part.output };
+          return { type: part.type, toolName: part.toolName ?? "", output: part.output };
         }
         if (part.type === "tool-error") {
-          return { type: part.type, toolName: part.toolName, error: part.error };
+          return { type: part.type, toolName: part.toolName ?? "", error: part.error };
         }
         return undefined;
       }).filter((result) => result !== undefined)),
@@ -112,23 +117,25 @@ function normalizeLimit(value: number | undefined, fallback: number) {
   return Number.isFinite(value) ? Math.max(2, Math.floor(value!)) : fallback;
 }
 
-function isFailedToolOutput(output: unknown): boolean {
+function isFailedToolOutput<OutputValue>(output: OutputValue): boolean {
   if (!isRecord(output)) return false;
-  if (typeof output.error === "string" && output.error.trim()) return true;
+  if (hasStringType(output.error) && output.error.trim()) return true;
 
   const details = isRecord(output.details) ? output.details : output;
-  return typeof details.error === "string" && details.error.trim().length > 0
+  return hasStringType(details.error) && details.error.trim().length > 0
     || details.timedOut === true
-    || typeof details.exitCode === "number" && details.exitCode !== 0;
+    || hasNumberType(details.exitCode) && details.exitCode !== 0;
 }
 
-function stableStringify(value: unknown): string {
+function stableStringify<ValueValue>(value: ValueValue): string {
+  const parsed = jsonValueSchema.safeParse(value);
+  if (!parsed.success) return String(value);
   const seen = new WeakSet<object>();
-  return JSON.stringify(normalizeJson(value, seen)) ?? "undefined";
+  return JSON.stringify(normalizeJson(parsed.data, seen)) ?? "undefined";
 }
 
-function normalizeJson(value: unknown, seen: WeakSet<object>): unknown {
-  if (!value || typeof value !== "object") return value;
+function normalizeJson(value: JsonValue, seen: WeakSet<object>): JsonValue {
+  if (!value || !hasObjectType(value)) return value;
   if (seen.has(value)) return "[circular]";
   seen.add(value);
 
@@ -140,8 +147,8 @@ function normalizeJson(value: unknown, seen: WeakSet<object>): unknown {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function toolLoopNotice(detection: AgentToolLoopDetection): ModelMessage {

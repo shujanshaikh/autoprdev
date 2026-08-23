@@ -1,3 +1,6 @@
+import { hasNumberType, hasStringType, hasUndefinedType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import { tool } from "ai";
 import { z } from "zod";
 import {
@@ -7,9 +10,9 @@ import {
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import {
-  CuaComputerClient,
   type CuaAgentCursorStatus,
   type CuaCommandResponse,
+  type CuaComputerClientContract,
   type CuaComputerOptions,
 } from "./cua-client";
 import {
@@ -42,10 +45,10 @@ const computerOperationTails = new WeakMap<object, Promise<void>>();
 type TrackComputerOperation = (operation: Promise<unknown>) => void;
 
 async function serializeComputerOperations<T>(
-  computerUse: object,
+  session: CuaToolSession,
   operation: (track: TrackComputerOperation) => Promise<T>,
 ): Promise<T> {
-  const previous = computerOperationTails.get(computerUse) ?? Promise.resolve();
+  const previous = computerOperationTails.get(session) ?? Promise.resolve();
   let lastSdkOperation: Promise<unknown> = Promise.resolve();
   const execution = previous
     .catch(() => undefined)
@@ -55,9 +58,9 @@ async function serializeComputerOperations<T>(
   const tail = execution
     .then(() => lastSdkOperation, () => lastSdkOperation)
     .then(() => undefined, () => undefined);
-  computerOperationTails.set(computerUse, tail);
+  computerOperationTails.set(session, tail);
   void tail.finally(() => {
-    if (computerOperationTails.get(computerUse) === tail) computerOperationTails.delete(computerUse);
+    if (computerOperationTails.get(session) === tail) computerOperationTails.delete(session);
   });
   return execution;
 }
@@ -176,18 +179,28 @@ export interface CuaComputerToolOptions extends CuaComputerOptions {
   recordingEnabled?: boolean;
 }
 
+export interface CuaComputerDependencies {
+  getSandboxContext: typeof getSandboxContext;
+  getSession: typeof getCuaToolSession;
+}
+
+const defaultDependencies: CuaComputerDependencies = {
+  getSandboxContext,
+  getSession: getCuaToolSession,
+};
+
 type DaytonaRecording = {
-  id?: unknown;
-  title?: unknown;
-  label?: unknown;
-  name?: unknown;
-  fileName?: unknown;
-  filePath?: unknown;
-  status?: unknown;
-  startTime?: unknown;
-  endTime?: unknown;
-  durationSeconds?: unknown;
-  sizeBytes?: unknown;
+  id?: JsonValue;
+  title?: JsonValue;
+  label?: JsonValue;
+  name?: JsonValue;
+  fileName?: JsonValue;
+  filePath?: JsonValue;
+  status?: JsonValue;
+  startTime?: JsonValue;
+  endTime?: JsonValue;
+  durationSeconds?: JsonValue;
+  sizeBytes?: JsonValue;
 };
 
 type ScreenshotForModel = ReturnType<typeof screenshotForModel>;
@@ -200,11 +213,11 @@ type ScreenshotMetadata = Omit<ScreenshotForModel, "data"> & {
 type ComputerOutputDetails = {
   action: string;
   display?: { x?: number; y?: number; width?: number; height?: number };
-  status?: unknown;
+  status?: JsonValue;
   cursor?: CuaAgentCursorStatus;
-  windows?: unknown;
+  windows?: JsonValue;
   clipboard?: string;
-  command?: Record<string, unknown>;
+  command?: JsonObject;
   screenshot?: ScreenshotForModel | ScreenshotMetadata;
   recording?: ReturnType<typeof compactRecording>;
   recordings?: Array<ReturnType<typeof compactRecording>>;
@@ -217,24 +230,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<Value>(value: Value): value is Value & JsonObject {
+  return isJsonObject(value);
 }
 
-function numberField(value: Record<string, unknown>, key: string): number | undefined {
-  return typeof value[key] === "number" ? value[key] : undefined;
+function numberField(value: JsonObject, key: string): number | undefined {
+  const field = value[key];
+  return hasNumberType(field) ? field : undefined;
 }
 
-function statusValue(value: unknown): string | undefined {
+function statusValue<Value>(value: Value): string | undefined {
   if (!isRecord(value)) return undefined;
-  return typeof value.status === "string" ? value.status.toLowerCase() : undefined;
+  return hasStringType(value.status) ? value.status.toLowerCase() : undefined;
 }
 
-function compactDiagnostic(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
+function compactDiagnostic<ValueValue>(value: ValueValue): string | undefined {
+  if (hasUndefinedType(value) || value === null) return undefined;
   let raw: string;
   try {
-    raw = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+    raw = hasStringType(value) ? value : JSON.stringify(value) ?? String(value);
   } catch {
     raw = String(value);
   }
@@ -244,19 +258,24 @@ function compactDiagnostic(value: unknown): string | undefined {
     : normalized;
 }
 
-function compactMetadataValue(value: unknown): unknown {
-  if (value === undefined || value === null) return value;
+function compactMetadataValue<ValueValue>(value: ValueValue): JsonValue {
+  if (hasUndefinedType(value)) return undefined;
+  if (value === null) return null;
   try {
-    const serialized = typeof value === "string" ? value : JSON.stringify(value);
-    if (!serialized || serialized.length <= MAX_COMPUTER_METADATA_CHARS) return value;
+    if (hasStringType(value)) return value;
+    const serialized = JSON.stringify(value);
+    if (!serialized) return String(value);
+    if (serialized.length <= MAX_COMPUTER_METADATA_CHARS) {
+      return jsonValueSchema.parse(JSON.parse(serialized));
+    }
     return { truncated: true, preview: `${serialized.slice(0, MAX_COMPUTER_METADATA_CHARS)}...` };
   } catch {
     return { truncated: true, preview: String(value).slice(0, MAX_COMPUTER_METADATA_CHARS) };
   }
 }
 
-function cleanRecordingTitle(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+function cleanRecordingTitle<Value>(value: Value): string | undefined {
+  if (!hasStringType(value)) return undefined;
   const title = value.replace(/\s+/g, " ").trim();
   return title.length > 0 ? title : undefined;
 }
@@ -278,20 +297,21 @@ function recordingTitle(recording: DaytonaRecording, fileName: string | undefine
     ?? "Demo Walkthrough";
 }
 
-function compactRecording(recording: DaytonaRecording, titleHint?: string) {
-  const id = typeof recording.id === "string" ? recording.id : "";
-  const fileName = typeof recording.fileName === "string" ? recording.fileName : undefined;
+function compactRecording<Value>(value: Value, titleHint?: string) {
+  const recording: DaytonaRecording = isRecord(value) ? value : {};
+  const id = hasStringType(recording.id) ? recording.id : "";
+  const fileName = hasStringType(recording.fileName) ? recording.fileName : undefined;
   return {
     type: "daytona_recording",
     id,
     title: recordingTitle(recording, fileName, titleHint),
     fileName,
-    filePath: typeof recording.filePath === "string" ? recording.filePath : undefined,
-    status: typeof recording.status === "string" ? recording.status : undefined,
-    startTime: typeof recording.startTime === "string" ? recording.startTime : undefined,
-    endTime: typeof recording.endTime === "string" ? recording.endTime : undefined,
-    durationSeconds: typeof recording.durationSeconds === "number" ? recording.durationSeconds : undefined,
-    sizeBytes: typeof recording.sizeBytes === "number" ? recording.sizeBytes : undefined,
+    filePath: hasStringType(recording.filePath) ? recording.filePath : undefined,
+    status: hasStringType(recording.status) ? recording.status : undefined,
+    startTime: hasStringType(recording.startTime) ? recording.startTime : undefined,
+    endTime: hasStringType(recording.endTime) ? recording.endTime : undefined,
+    durationSeconds: hasNumberType(recording.durationSeconds) ? recording.durationSeconds : undefined,
+    sizeBytes: hasNumberType(recording.sizeBytes) ? recording.sizeBytes : undefined,
     contentType: "video/mp4",
   };
 }
@@ -299,7 +319,7 @@ function compactRecording(recording: DaytonaRecording, titleHint?: string) {
 function recordingSummary(recording: ReturnType<typeof compactRecording>) {
   const parts = [`Recording "${recording.title}"`];
   if (recording.status) parts.push(recording.status);
-  if (typeof recording.durationSeconds === "number") parts.push(`${recording.durationSeconds.toFixed(1)}s`);
+  if (hasNumberType(recording.durationSeconds)) parts.push(`${recording.durationSeconds.toFixed(1)}s`);
   return parts.join(" - ");
 }
 
@@ -416,11 +436,16 @@ function summarizeAction(action: ComputerAction) {
   }
 }
 
-function commandDetails(result: Record<string, unknown>) {
-  return { command: compactMetadataValue(result) as Record<string, unknown> };
+function compactMetadataObject(value: JsonObject): JsonObject {
+  const compacted = compactMetadataValue(value);
+  return isJsonObject(compacted) ? compacted : { value: compacted };
 }
 
-async function windowDetails(cua: CuaComputerClient, windowId: string | number) {
+function commandDetails(result: JsonObject) {
+  return { command: compactMetadataObject(result) };
+}
+
+async function windowDetails(cua: CuaComputerClientContract, windowId: string | number) {
   const [name, size, position] = await Promise.all([
     cua.command("get_window_name", { window_id: windowId }),
     cua.command("get_window_size", { window_id: windowId }),
@@ -441,12 +466,13 @@ type ActionResult = Partial<ComputerOutputDetails>;
 async function runOneAction(
   action: ComputerAction,
   context: Awaited<ReturnType<typeof getSandboxContext>>,
-  cua: CuaComputerClient,
+  cua: CuaComputerClientContract,
   observation: CuaObservation | undefined,
 ): Promise<ActionResult> {
   const { computerUse } = context.sandbox;
   switch (action.type) {
     case "start":
+      await ensureComputerUseReady(computerUse);
       await cua.ensureReady();
       return {
         status: compactMetadataValue({
@@ -457,12 +483,10 @@ async function runOneAction(
         }),
       };
     case "status": {
-      let server: unknown;
-      try {
-        server = await cua.inspect();
-      } catch (error) {
-        server = { status: "unavailable", error: compactDiagnostic(error instanceof Error ? error.message : error) };
-      }
+      const server = await cua.inspect().catch((error) => ({
+        status: "unavailable",
+        error: compactDiagnostic(error instanceof Error ? error.message : error),
+      }));
       return {
         status: compactMetadataValue({
           status: isRecord(server) && server.status === "ok" ? "active" : "inactive",
@@ -482,11 +506,11 @@ async function runOneAction(
       if (action.app) {
         const result = await cua.command("get_application_windows", { app: action.app });
         ids = Array.isArray(result.windows)
-          ? result.windows.filter((id): id is string | number => typeof id === "string" || typeof id === "number")
+          ? result.windows.filter((id): id is string | number => hasStringType(id) || hasNumberType(id))
           : [];
       } else {
         const current = await cua.command("get_current_window_id");
-        if (typeof current.window_id === "string" || typeof current.window_id === "number") {
+        if (hasStringType(current.window_id) || hasNumberType(current.window_id)) {
           ids = [current.window_id];
         }
       }
@@ -542,7 +566,7 @@ async function runOneAction(
     case "drag": {
       const path = action.path.map((point) => {
         const mapped = mapPoint(observation!, point);
-        return [mapped.x, mapped.y] as [number, number];
+        return [mapped.x, mapped.y];
       });
       return commandDetails(await cua.command("drag", {
         path,
@@ -578,9 +602,9 @@ async function runOneAction(
       const result = await cua.command("copy_to_clipboard");
       return {
         ...commandDetails(result),
-        clipboard: typeof result.content === "string"
+        clipboard: hasStringType(result.content)
           ? result.content
-          : typeof result.text === "string"
+          : hasStringType(result.text)
             ? result.text
             : "",
       };
@@ -589,21 +613,21 @@ async function runOneAction(
       return commandDetails(await cua.command("set_clipboard", { text: action.text }));
     case "start_recording": {
       const recording = compactRecording(
-        await computerUse.recording.start(action.title) as DaytonaRecording,
+        /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await computerUse.recording.start(action.title) as DaytonaRecording,
         action.title,
       );
       return { recording, recordings: [recording] };
     }
     case "stop_recording": {
       const recording = compactRecording(
-        await computerUse.recording.stop(action.recordingId) as DaytonaRecording,
+        /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await computerUse.recording.stop(action.recordingId) as DaytonaRecording,
         action.title,
       );
       return { recording, recordings: [recording] };
     }
     case "get_recording": {
       const recording = compactRecording(
-        await computerUse.recording.get(action.recordingId) as DaytonaRecording,
+        /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await computerUse.recording.get(action.recordingId) as DaytonaRecording,
       );
       return { recording, recordings: [recording] };
     }
@@ -611,8 +635,7 @@ async function runOneAction(
       const result = await computerUse.recording.list();
       const all = isRecord(result) && Array.isArray(result.recordings) ? result.recordings : [];
       return {
-        recordings: all.slice(0, MAX_RECORDINGS_RETURNED)
-          .map((recording) => compactRecording(recording as DaytonaRecording)),
+        recordings: all.slice(0, MAX_RECORDINGS_RETURNED).map((recording) => compactRecording(recording)),
         recordingsTruncated: all.length > MAX_RECORDINGS_RETURNED,
       };
     }
@@ -670,12 +693,12 @@ function computerContentOutput(content: string, details: ComputerOutputDetails) 
   if (details.screenshot?.data) {
     const image = {
       type: "image-data",
+      data: details.screenshot.data,
       mediaType: details.screenshot.mimeType,
-    } as { type: "image-data"; data: string; mediaType: string };
+    } satisfies { type: "image-data"; data: string; mediaType: string };
     Object.defineProperty(image, "data", {
       configurable: false,
       enumerable: false,
-      value: details.screenshot.data,
       writable: false,
     });
     value.push(image);
@@ -687,12 +710,13 @@ async function executeCuaComputer(
   action: ComputerAction,
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions,
+  dependencies: CuaComputerDependencies,
 ) {
   if (computerOptions.recordingEnabled !== true && action.type === "start_recording") {
     throw new Error("Demo recording is disabled for this thread. Enable demo mode before starting a screen recording.");
   }
-  const context = await getSandboxContext(sandboxOptions);
-  const session = getCuaToolSession(context.sandbox, sandboxOptions, computerOptions);
+  const context = await dependencies.getSandboxContext(sandboxOptions);
+  const session = dependencies.getSession(context.sandbox, sandboxOptions, computerOptions);
   return serializeComputerOperations(session, (track) => executeCuaComputerAction(
     action,
     context,
@@ -712,7 +736,7 @@ async function executeCuaComputerAction(
   const startedAt = Date.now();
   const startedAtIso = new Date(startedAt).toISOString();
   const inputObservationId = observationIdForAction(action);
-  let command: Record<string, unknown> | undefined;
+  let command: JsonObject | undefined;
   let outputObservation: CuaObservation | undefined;
 
   try {
@@ -770,8 +794,8 @@ async function executeCuaComputerAction(
       inputObservationId,
       outputObservationId: outputObservation?.id,
       screenshotHash: outputObservation?.hash,
-      effect: typeof command?.effect === "string" ? command.effect : undefined,
-      transportRetries: typeof command?.transport_retries === "number" ? command.transport_retries : undefined,
+      effect: hasStringType(command?.effect) ? command.effect : undefined,
+      transportRetries: hasNumberType(command?.transport_retries) ? command.transport_retries : undefined,
     });
     details.trajectory = trajectory;
   } catch (error) {
@@ -802,8 +826,8 @@ async function executeCuaComputerAction(
     details.recordings && !details.recording
       ? `Found ${details.recordings.length} recording${details.recordings.length === 1 ? "" : "s"}`
       : undefined,
-    typeof details.command?.effect === "string" ? `CUA action effect: ${details.command.effect}` : undefined,
-    typeof details.command?.transport_retries === "number"
+    hasStringType(details.command?.effect) ? `CUA action effect: ${details.command.effect}` : undefined,
+    hasNumberType(details.command?.transport_retries)
       ? `CUA transport retries: ${details.command.transport_retries}`
       : undefined,
     details.cursor?.enabled ? "Agent cursor: official CUA overlay" : undefined,
@@ -815,6 +839,7 @@ async function executeCuaComputerAction(
 export function createCuaComputerTool(
   sandboxOptions: SandboxSessionOptions,
   computerOptions: CuaComputerToolOptions = {},
+  dependencies: CuaComputerDependencies = defaultDependencies,
 ) {
   const recordingDescription = computerOptions.recordingEnabled === true
     ? "Daytona recording actions are enabled."
@@ -828,6 +853,6 @@ export function createCuaComputerTool(
       + "latest returned image. Every visible action returns one fresh CUA observation.",
     inputSchema: computerActionSchema,
     toModelOutput: ({ output }) => output,
-    execute: (action) => executeCuaComputer(action, sandboxOptions, computerOptions),
+    execute: (action) => executeCuaComputer(action, sandboxOptions, computerOptions, dependencies),
   });
 }

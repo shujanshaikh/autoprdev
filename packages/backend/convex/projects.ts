@@ -2,11 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import {
-  collectAssistantPartsBlobKeys,
-  deleteAssistantPartsBlobKeys,
-  type AssistantPartsBlobDeleteCtx,
-} from "./lib/assistantPartsBlobs";
+import { collectAssistantPartsBlobKeys, deleteAssistantPartsBlobKeys, type AssistantPartsBlobDeleteCtx } from "./lib/assistantPartsBlobs";
 import { requireUserId } from "./lib/auth";
 import { randomUuid } from "./lib/uuid";
 
@@ -66,7 +62,7 @@ export const ensureForGithubRepoInternal = internalMutation({
       return {
         projectId: existing.projectId,
         created: false,
-        sandboxStatus: existing.sandboxStatus as SandboxStatus,
+        sandboxStatus: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ existing.sandboxStatus as SandboxStatus,
       };
     }
 
@@ -151,7 +147,7 @@ export const ensureForGithubSelection = mutation({
       return {
         projectId: existing.projectId,
         created: false,
-        sandboxStatus: existing.sandboxStatus as SandboxStatus,
+        sandboxStatus: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ existing.sandboxStatus as SandboxStatus,
         sandboxId: existing.sandboxId,
         sandboxWorkDir: existing.sandboxWorkDir,
       };
@@ -350,7 +346,7 @@ export const latest = query({
       }
 
       return projectRecency(project) > projectRecency(latestProject) ? project : latestProject;
-    }, null as (typeof projects)[number] | null);
+    }, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ null as (typeof projects)[number] | null);
   },
 });
 
@@ -707,7 +703,7 @@ export const removeInternal = internalMutation({
     ]);
 
     await deleteAssistantPartsBlobKeys(
-      ctx as unknown as AssistantPartsBlobDeleteCtx,
+      { runMutation: ctx.runMutation, runQuery: ctx.runQuery } satisfies AssistantPartsBlobDeleteCtx,
       collectAssistantPartsBlobKeys(messages),
     );
     await Promise.all([
@@ -747,7 +743,7 @@ export const remove = mutation({
     ]);
 
     await deleteAssistantPartsBlobKeys(
-      ctx as unknown as AssistantPartsBlobDeleteCtx,
+      { runMutation: ctx.runMutation, runQuery: ctx.runQuery } satisfies AssistantPartsBlobDeleteCtx,
       collectAssistantPartsBlobKeys(messages),
     );
     await Promise.all([

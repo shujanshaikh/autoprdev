@@ -3,16 +3,9 @@ import "@tanstack/react-start/server-only";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
 import { getRequestHeader } from "@tanstack/react-start/server";
 import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
-import type {
-  FunctionArgs,
-  FunctionReference,
-  FunctionReturnType,
-} from "convex/server";
+import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 
-import {
-  resolveWorkOSRequestAccessToken,
-  WORKOS_ACCESS_TOKEN_HEADER,
-} from "#/lib/workos-access-token";
+import { resolveWorkOSRequestAccessToken, WORKOS_ACCESS_TOKEN_HEADER } from "#/lib/workos-access-token";
 
 const missingConvexAuthMessage =
   "Convex auth is not configured for WorkOS AuthKit. Set WORKOS_CLIENT_ID in Convex and make sure the app uses the same WorkOS environment.";

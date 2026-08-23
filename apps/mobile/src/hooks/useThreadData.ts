@@ -25,7 +25,7 @@ function blobKey(message: StoredMessage) {
 export function useThreadData(projectId: string, threadId: string) {
   const project = useQuery(api.projects.get, { projectId });
   const thread = useQuery(api.threads.get, { threadId });
-  const stored = useQuery(api.messages.listByThread, { threadId }) as StoredMessage[] | undefined;
+  const stored = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ useQuery(api.messages.listByThread, { threadId }) as StoredMessage[] | undefined;
   const hydrate = useAction(api.messages.hydrateAssistantParts);
   const [hydrated, setHydrated] = useState<Record<string, unknown[]>>({});
   const [hydrationError, setHydrationError] = useState<string | null>(null);

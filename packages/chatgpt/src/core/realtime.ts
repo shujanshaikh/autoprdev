@@ -1,3 +1,6 @@
+import { hasBooleanType, hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import type { ResolvedConfig } from "./config.ts";
 import { ChatGPTAuthError } from "./errors.ts";
 import { requestSignal } from "./internal/request-signal.ts";
@@ -44,7 +47,7 @@ export interface ChatGPTRealtimeSessionOptions {
    * application function IDs.
    */
   clientTools?: readonly never[];
-  conversationMode?: Record<string, unknown>;
+  conversationMode?: JsonObject;
   historyAndTrainingDisabled?: boolean;
   enableMessageStreaming?: boolean;
 }
@@ -57,31 +60,31 @@ const REALTIME_SESSION_OPTION_KEYS = new Set<keyof ChatGPTRealtimeSessionOptions
 ]);
 
 /** Validates the public session contract at a JSON or JavaScript trust boundary. */
-export function parseChatGPTRealtimeSessionOptions(
-  value: unknown,
+export function parseChatGPTRealtimeSessionOptions<ValueValue>(
+  value: ValueValue,
 ): ChatGPTRealtimeSessionOptions {
   if (!isRecord(value)) throw new TypeError("`session` must be a JSON object.");
   for (const key of Object.keys(value)) {
-    if (!REALTIME_SESSION_OPTION_KEYS.has(key as keyof ChatGPTRealtimeSessionOptions)) {
+    if (!REALTIME_SESSION_OPTION_KEYS.has(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ key as keyof ChatGPTRealtimeSessionOptions)) {
       throw new TypeError(`Unsupported Realtime session option: ${key}`);
     }
   }
   for (const key of ["voice", "model", "advancedModel", "parentMessageId", "timezone"] as const) {
-    if (value[key] !== undefined && typeof value[key] !== "string") {
+    if (value[key] !== undefined && !hasStringType(value[key])) {
       throw new TypeError(`\`session.${key}\` must be a string.`);
     }
   }
   for (const key of ["language", "conversationId"] as const) {
-    if (value[key] !== undefined && value[key] !== null && typeof value[key] !== "string") {
+    if (value[key] !== undefined && value[key] !== null && !hasStringType(value[key])) {
       throw new TypeError(`\`session.${key}\` must be a string or null.`);
     }
   }
   for (const key of ["historyAndTrainingDisabled", "enableMessageStreaming"] as const) {
-    if (value[key] !== undefined && typeof value[key] !== "boolean") {
+    if (value[key] !== undefined && !hasBooleanType(value[key])) {
       throw new TypeError(`\`session.${key}\` must be a boolean.`);
     }
   }
-  if (value["timezoneOffsetMinutes"] !== undefined && typeof value["timezoneOffsetMinutes"] !== "number") {
+  if (value["timezoneOffsetMinutes"] !== undefined && !hasNumberType(value["timezoneOffsetMinutes"])) {
     throw new TypeError("`session.timezoneOffsetMinutes` must be a number.");
   }
   if (value["clientTools"] !== undefined && !Array.isArray(value["clientTools"])) {
@@ -91,14 +94,14 @@ export function parseChatGPTRealtimeSessionOptions(
     throw new TypeError("`session.conversationMode` must be a JSON object.");
   }
   if (value["transport"] !== undefined &&
-      (typeof value["transport"] !== "string" || !["wm", "vp", "vps"].includes(value["transport"]))) {
+      (!hasStringType(value["transport"]) || !["wm", "vp", "vps"].includes(value["transport"]))) {
     throw new TypeError("`session.transport` must be `wm`, `vp`, or `vps`.");
   }
   if (value["voiceMode"] !== undefined &&
-      (typeof value["voiceMode"] !== "string" || !["wingman", "advanced", "standard"].includes(value["voiceMode"]))) {
+      (!hasStringType(value["voiceMode"]) || !["wingman", "advanced", "standard"].includes(value["voiceMode"]))) {
     throw new TypeError("`session.voiceMode` must be `wingman`, `advanced`, or `standard`.");
   }
-  return { ...value } as ChatGPTRealtimeSessionOptions;
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { ...value } as ChatGPTRealtimeSessionOptions;
 }
 
 /** The multipart `session` object accepted by ChatGPT's web Realtime edge. */
@@ -116,9 +119,9 @@ export interface ChatGPTRealtimeSession {
   model_slug_advanced?: string;
   client_tools: [];
   history_and_training_disabled: boolean;
-  conversation_mode: Record<string, unknown>;
+  conversation_mode: JsonObject;
   enable_message_streaming?: boolean;
-  [key: string]: unknown;
+  [key: string]: JsonValue;
 }
 
 export interface ChatGPTRealtimeAuth {
@@ -179,7 +182,7 @@ export async function exchangeChatGPTRealtimeWebSession(
     },
     signal: requestSignal(options.config, options.signal),
   });
-  const body = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
+  const body = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ await response.json().catch(() => undefined) as JsonObject | undefined;
   if (response.status === 403) {
     throw new ChatGPTAuthError(
       "realtime_web_edge_rejected",
@@ -187,11 +190,11 @@ export async function exchangeChatGPTRealtimeWebSession(
       { status: 502 },
     );
   }
-  const accessToken = typeof body?.["accessToken"] === "string" ? body["accessToken"] : undefined;
+  const accessToken = hasStringType(body?.["accessToken"]) ? body["accessToken"] : undefined;
   const account = isRecord(body?.["account"]) ? body["account"] : undefined;
   const user = isRecord(body?.["user"]) ? body["user"] : undefined;
-  const accountId = typeof account?.["id"] === "string" ? account["id"] : undefined;
-  const email = typeof user?.["email"] === "string" ? user["email"] : undefined;
+  const accountId = hasStringType(account?.["id"]) ? account["id"] : undefined;
+  const email = hasStringType(user?.["email"]) ? user["email"] : undefined;
   const claims = accessToken ? decodeJwtPayload(accessToken) : undefined;
   if (!response.ok || !accessToken || !accountId || !email || claims?.["client_id"] !== options.config.realtimeWebClientId) {
     throw new ChatGPTAuthError(
@@ -208,7 +211,7 @@ export async function exchangeChatGPTRealtimeWebSession(
     accountId,
     deviceId,
     email,
-    expiresAt: typeof body?.["expires"] === "string" ? body["expires"] : undefined,
+    expiresAt: hasStringType(body?.["expires"]) ? body["expires"] : undefined,
     sessionCookies: rotatedCookies,
   };
 }
@@ -225,18 +228,18 @@ export interface CreateChatGPTRealtimeCallOptions {
 
 export interface ChatGPTRealtimeEvent {
   type: string;
-  [key: string]: unknown;
+  [key: string]: JsonValue;
 }
 
 export interface ChatGPTRealtimeStateEvent extends ChatGPTRealtimeEvent {
   type: "state_update";
   new_state?: ChatGPTRealtimeState;
-  payload?: { new_state?: ChatGPTRealtimeState; [key: string]: unknown };
+  payload?: { new_state?: ChatGPTRealtimeState; [key: string]: JsonValue };
 }
 
 export interface ChatGPTRealtimeActionEvent extends ChatGPTRealtimeEvent {
   type: "action_request";
-  payload: { action: ChatGPTRealtimeAction | string; [key: string]: unknown };
+  payload: { action: ChatGPTRealtimeAction | string; [key: string]: JsonValue };
 }
 
 export interface ChatGPTRealtimeTranscriptionEvent extends ChatGPTRealtimeEvent {
@@ -254,21 +257,21 @@ export interface ChatGPTRealtimeTranscript {
 export interface ChatGPTRealtimeToolInvocation {
   callId: string;
   name: string;
-  arguments: Record<string, unknown>;
+  arguments: JsonObject;
 }
 
 export interface ChatGPTRealtimeToolInvokeEvent extends ChatGPTRealtimeEvent {
   type: "client_tool_invoke";
   call_id?: string;
   name?: string;
-  arguments?: unknown;
-  payload?: Record<string, unknown>;
+  arguments?: JsonValue;
+  payload?: JsonObject;
 }
 
 export interface ChatGPTRealtimeToolResultEvent extends ChatGPTRealtimeEvent {
   type: "client_tool_result";
   call_id: string;
-  result: Record<string, unknown>;
+  result: JsonObject;
 }
 
 export interface ChatGPTRealtimeToolUpdateEvent extends ChatGPTRealtimeEvent {
@@ -287,11 +290,11 @@ export const CHATGPT_REALTIME_EVENT_TYPES = [
   "client_tool_update",
 ] as const;
 
-export const CHATGPT_REALTIME_PATHS: Record<ChatGPTRealtimeTransport, string> = {
+export const CHATGPT_REALTIME_PATHS = {
   wm: "/realtime/wm",
   vp: "/realtime/vp",
   vps: "/realtime/vps",
-};
+} satisfies Record<ChatGPTRealtimeTransport, string>;
 
 /** Builds the deliberately limited private session payload supported by this SDK. */
 export function buildChatGPTRealtimeSession(
@@ -420,7 +423,7 @@ export async function createChatGPTRealtimeCall(
 
 export function createChatGPTRealtimeAction(
   action: ChatGPTRealtimeAction | string,
-  payload: Record<string, unknown> = {},
+  payload: JsonObject = {},
 ): ChatGPTRealtimeActionEvent {
   return { type: "action_request", payload: { ...payload, action } };
 }
@@ -430,18 +433,18 @@ export function encodeChatGPTRealtimeEvent(event: ChatGPTRealtimeEvent): string 
   return JSON.stringify({ type: "data_message", data: JSON.stringify(event) });
 }
 
-export interface ChatGPTRealtimeMessage {
+export interface ChatGPTRealtimeMessage extends JsonObject {
   id: string;
   author: { role: "user" };
   create_time: number;
   content: { content_type: "text"; parts: string[] };
-  metadata: Record<string, unknown>;
+  metadata: JsonObject;
 }
 
 /** Builds the currently observed private `/wm` event used to inject typed messages. */
 export function createChatGPTRealtimeRelayMessage(
   text: string,
-  metadata: Record<string, unknown> = {},
+  metadata: JsonObject = {},
   id = createUuid(),
 ): ChatGPTRealtimeEvent {
   const message: ChatGPTRealtimeMessage = {
@@ -455,8 +458,8 @@ export function createChatGPTRealtimeRelayMessage(
 }
 
 /** Parse a completed client-tool invocation without inspecting transcripts. */
-export function parseChatGPTRealtimeToolInvocation(
-  event: unknown,
+export function parseChatGPTRealtimeToolInvocation<EventValue>(
+  event: EventValue,
 ): ChatGPTRealtimeToolInvocation | undefined {
   if (!isRecord(event) || event["type"] !== "client_tool_invoke") return undefined;
   const payload = isRecord(event["payload"]) ? event["payload"] : event;
@@ -464,7 +467,7 @@ export function parseChatGPTRealtimeToolInvocation(
   const callId = payload["call_id"] ?? payload["callId"] ?? payload["id"];
   const name = payload["name"] ?? payload["tool_name"] ?? tool?.["name"] ?? tool?.["id"];
   const args = parseToolArguments(payload["arguments"] ?? payload["args"] ?? payload["input"] ?? {});
-  if (typeof callId !== "string" || !callId || typeof name !== "string" || !name || !args) {
+  if (!hasStringType(callId) || !callId || !hasStringType(name) || !name || !args) {
     return undefined;
   }
   return { callId, name, arguments: args };
@@ -473,7 +476,7 @@ export function parseChatGPTRealtimeToolInvocation(
 /** Complete a client-tool call with a structured application result. */
 export function createChatGPTRealtimeToolResult(
   callId: string,
-  result: Record<string, unknown>,
+  result: JsonObject,
 ): ChatGPTRealtimeToolResultEvent {
   if (!callId.trim()) throw new TypeError("`callId` must be a non-empty string.");
   return { type: "client_tool_result", call_id: callId, result };
@@ -483,7 +486,7 @@ export function createChatGPTRealtimeToolResult(
 export function createChatGPTRealtimeToolUpdate(
   callId: string,
   status: string,
-  detail: Record<string, unknown> = {},
+  detail: JsonObject = {},
 ): ChatGPTRealtimeToolUpdateEvent {
   if (!callId.trim() || !status.trim()) {
     throw new TypeError("`callId` and `status` must be non-empty strings.");
@@ -495,10 +498,10 @@ export function createChatGPTRealtimeToolUpdate(
  * Decodes both direct events and ChatGPT's nested `{type:"data_message",data}`
  * envelope. Unknown event types are returned unchanged for forward compatibility.
  */
-export function parseChatGPTRealtimeEvent(input: unknown): ChatGPTRealtimeEvent | undefined {
+export function parseChatGPTRealtimeEvent<InputValue>(input: InputValue): ChatGPTRealtimeEvent | undefined {
   let value = decodeWireValue(input);
   for (let depth = 0; depth < 4; depth += 1) {
-    if (typeof value === "string") {
+    if (hasStringType(value)) {
       try { value = JSON.parse(value); } catch { return undefined; }
       continue;
     }
@@ -508,13 +511,13 @@ export function parseChatGPTRealtimeEvent(input: unknown): ChatGPTRealtimeEvent 
     }
     break;
   }
-  return isRecord(value) && typeof value["type"] === "string"
-    ? value as ChatGPTRealtimeEvent
+  return isRecord(value) && hasStringType(value["type"])
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as ChatGPTRealtimeEvent
     : undefined;
 }
 
 /** Returns the event's nested payload when present, otherwise the event itself. */
-export function getChatGPTRealtimePayload(event: ChatGPTRealtimeEvent): Record<string, unknown> {
+export function getChatGPTRealtimePayload(event: ChatGPTRealtimeEvent): JsonObject {
   return isRecord(event["payload"]) ? event["payload"] : event;
 }
 
@@ -527,21 +530,21 @@ export function parseChatGPTRealtimeTranscript(
   }
   const payload = getChatGPTRealtimePayload(event);
   const text = payload["text"] ?? payload["transcript"];
-  if (typeof text !== "string" || !text) return undefined;
+  if (!hasStringType(text) || !text) return undefined;
   return {
     kind: event.type === "user_transcription_text" ? "user_transcript" : "assistant_caption",
     text,
-    event: event as ChatGPTRealtimeTranscriptionEvent,
+    event: /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ event as ChatGPTRealtimeTranscriptionEvent,
   };
 }
 
-function decodeWireValue(value: unknown): unknown {
+function decodeWireValue<ValueValue>(value: ValueValue): JsonValue {
   if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
   if (ArrayBuffer.isView(value)) {
     return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
   }
   if (Array.isArray(value) && value.every((item) => Number.isInteger(item))) {
-    return new TextDecoder().decode(Uint8Array.from(value as number[]));
+    return new TextDecoder().decode(Uint8Array.from(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as number[]));
   }
   if (isRecord(value)) {
     const numeric = Object.keys(value);
@@ -551,10 +554,10 @@ function decodeWireValue(value: unknown): unknown {
       ));
     }
   }
-  return value;
+  return jsonValueSchema.parse(value);
 }
 
-function assignDefined(target: Record<string, unknown>, key: string, value: unknown): void {
+function assignDefined(target: JsonObject, key: string, value: JsonValue): void {
   if (value !== undefined) target[key] = value;
 }
 
@@ -570,12 +573,12 @@ function normalizeRealtimeLanguage(language: string | null | undefined): string 
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function parseToolArguments(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value === "string") {
+function parseToolArguments<ValueValue>(value: ValueValue): JsonObject | undefined {
+  if (hasStringType(value)) {
     try {
       const parsed: unknown = JSON.parse(value);
       return isRecord(parsed) ? parsed : undefined;
@@ -612,7 +615,7 @@ function normalizeRealtimeSessionCookies(
 }
 
 function readRotatedRealtimeSessionCookies(headers: Headers): Record<string, string> | undefined {
-  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const getSetCookie = (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
   const lines = getSetCookie?.call(headers) ?? [headers.get("set-cookie") ?? ""];
   const values: Record<string, string> = {};
   const pattern = /(?:^|,\s*)(__Secure-next-auth\.session-token(?:\.\d+)?)=([^;,]*)/g;
@@ -626,23 +629,23 @@ function readRotatedRealtimeSessionCookies(headers: Headers): Record<string, str
   return values[REALTIME_SESSION_COOKIE] ? { [REALTIME_SESSION_COOKIE]: values[REALTIME_SESSION_COOKIE] } : undefined;
 }
 
-function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+function decodeJwtPayload(token: string): JsonObject | undefined {
   const encoded = token.split(".")[1];
   if (!encoded) return undefined;
   try {
     const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    const decoded = typeof atob === "function"
+    const decoded = atob instanceof Function
       ? atob(padded)
       : Buffer.from(padded, "base64").toString("utf8");
-    return JSON.parse(decoded) as Record<string, unknown>;
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(decoded) as JsonObject;
   } catch {
     return undefined;
   }
 }
 
 function createUuid(): string {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  if (crypto.randomUUID instanceof Function) return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;

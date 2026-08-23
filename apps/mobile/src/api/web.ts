@@ -1,3 +1,5 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+
 import { mobileConfig } from "../config";
 
 type ErrorBody = {
@@ -16,9 +18,9 @@ export class WebRequestError extends Error {
 }
 
 function errorMessage(body: ErrorBody | null, status: number) {
-  if (typeof body?.error === "string") return body.error;
-  if (body?.error && typeof body.error.message === "string") return body.error.message;
-  if (typeof body?.message === "string") return body.message;
+  if (hasStringType(body?.error)) return body.error;
+  if (body?.error && hasStringType(body.error.message)) return body.error.message;
+  if (hasStringType(body?.message)) return body.message;
   return `Request failed (${status}).`;
 }
 
@@ -52,8 +54,8 @@ export async function webRequest<T>(
     throw error;
   }
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as ErrorBody | null;
+    const body = (await response.json().catch(() => null)) satisfies ErrorBody | null;
     throw new WebRequestError(errorMessage(body, response.status), response.status);
   }
-  return await response.json() as T;
+  return await response.json() satisfies T;
 }

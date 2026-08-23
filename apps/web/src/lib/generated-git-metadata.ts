@@ -142,8 +142,20 @@ function promptCacheKey(kind: string, projectId: string, threadId: string) {
   return `autopr-${kind}-${stableSegment}`;
 }
 
-async function metadataModel(request: Request, disconnectedMessage: string) {
-  return createAuthenticatedCodexResponsesModel({
+export interface GitMetadataDependencies {
+  createCodexModel: typeof createAuthenticatedCodexResponsesModel;
+}
+
+const defaultDependencies: GitMetadataDependencies = {
+  createCodexModel: createAuthenticatedCodexResponsesModel,
+};
+
+async function metadataModel(
+  request: Request,
+  disconnectedMessage: string,
+  dependencies: GitMetadataDependencies,
+) {
+  return dependencies.createCodexModel({
     request,
     reasoningEffort: DEFAULT_CODEX_REASONING_EFFORT,
     disconnectedMessage,
@@ -189,8 +201,8 @@ export async function generateThreadTitle(options: {
   projectId: string;
   threadId: string;
   message: string;
-}) {
-  const model = await metadataModel(options.request, "Connect Codex before generating a thread title.");
+}, dependencies: GitMetadataDependencies = defaultDependencies) {
+  const model = await metadataModel(options.request, "Connect Codex before generating a thread title.", dependencies);
   const schema = z.object({ title: z.string().trim().min(1) });
   const text = await generateMetadataText({
     model,
@@ -224,10 +236,10 @@ export async function generateBranchName(options: {
   projectId: string;
   threadId: string;
   message: string;
-}) {
+}, dependencies: GitMetadataDependencies = defaultDependencies) {
   const fallback = createSemanticFeatureBranch(options.message);
   try {
-    const model = await metadataModel(options.request, "Connect Codex before generating a branch name.");
+    const model = await metadataModel(options.request, "Connect Codex before generating a branch name.", dependencies);
     const schema = z.object({ branch: z.string() });
     const text = await generateMetadataText({
       model,
@@ -267,12 +279,12 @@ export async function generateCommitMetadata(options: {
   diff: string;
   fallbackTitle?: string;
   includeBranch?: boolean;
-}) {
+}, dependencies: GitMetadataDependencies = defaultDependencies) {
   const fallbackCommitMessage = normalizeGeneratedCommitMessage(options.fallbackTitle || "Update project changes");
   const fallbackBranch = createSemanticFeatureBranch(options.fallbackTitle || fallbackCommitMessage);
 
   try {
-    const model = await metadataModel(options.request, "Connect Codex before generating Git metadata.");
+    const model = await metadataModel(options.request, "Connect Codex before generating Git metadata.", dependencies);
     const schema = options.includeBranch
       ? z.object({ subject: z.string(), branch: z.string() })
       : z.object({ subject: z.string(), branch: z.string().optional() });
@@ -336,10 +348,10 @@ export async function generatePullRequestContent(options: {
   diffSummary: string;
   diffPatch: string;
   template?: string;
-}) {
+}, dependencies: GitMetadataDependencies = defaultDependencies) {
   const fallback = createPullRequestFallback(options);
   try {
-    const model = await metadataModel(options.request, "Connect Codex before generating pull request details.");
+    const model = await metadataModel(options.request, "Connect Codex before generating pull request details.", dependencies);
     const hasTemplate = Boolean(options.template?.trim());
     const schema = z.object({ title: z.string(), body: z.string() });
     const text = await generateMetadataText({

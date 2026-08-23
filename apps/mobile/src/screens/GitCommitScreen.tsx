@@ -64,7 +64,11 @@ export function GitCommitScreen({ navigation, route }: Props) {
     try {
       await run({
         action,
-        ...(message ? { commitMessage: message } : {}),
+        ...(() => {
+  let optionalProperties;
+  if (message) optionalProperties = { commitMessage: message };
+  return optionalProperties;
+})(),
       });
       navigation.goBack();
     } catch (error) {

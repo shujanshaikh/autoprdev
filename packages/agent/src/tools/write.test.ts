@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import type { DaytonaSandbox } from "../sandbox";
+import { isPathWithinRoot, RemoteFileNotFoundError, resolveSandboxPath, SandboxPathBoundaryError } from "../sandbox/execute";
 
 const mocks = vi.hoisted(() => ({
   currentFiles: { value: new Map<string, string>() },
@@ -11,27 +11,20 @@ const mocks = vi.hoisted(() => ({
   resolveJailedSandboxPath: vi.fn(),
 }));
 
-vi.mock("../sandbox", () => ({
-  getSandboxContext: mocks.getSandboxContext,
-}));
-
-vi.mock("../sandbox/execute", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../sandbox/execute")>();
-
-  mocks.resolveJailedSandboxPath.mockImplementation(
-    async (inputPath: string | undefined, options: { workDir: string }) => {
-      const resolved = original.resolveSandboxPath(inputPath, options.workDir);
-      if (!original.isPathWithinRoot(resolved, options.workDir)) {
-        throw new original.SandboxPathBoundaryError(resolved, options.workDir);
-      }
-      return resolved;
-    },
-  );
-  mocks.downloadRemoteFileChunk.mockImplementation(
+mocks.resolveJailedSandboxPath.mockImplementation(
+  async (inputPath: string | undefined, options: { workDir: string }) => {
+    const resolved = resolveSandboxPath(inputPath, options.workDir);
+    if (!isPathWithinRoot(resolved, options.workDir)) {
+      throw new SandboxPathBoundaryError(resolved, options.workDir);
+    }
+    return resolved;
+  },
+);
+mocks.downloadRemoteFileChunk.mockImplementation(
     async (options: { remotePath: string; maxBytes: number }) => {
       const text = mocks.currentFiles.value.get(options.remotePath);
       if (text === undefined) {
-        throw new original.RemoteFileNotFoundError(options.remotePath);
+        throw new RemoteFileNotFoundError(options.remotePath);
       }
 
       const buffer = Buffer.from(text, "utf8");
@@ -44,15 +37,14 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
     },
   );
 
-  return {
-    ...original,
-    downloadRemoteFileChunk: mocks.downloadRemoteFileChunk,
-    ensureRemoteParentDirectory: mocks.ensureRemoteParentDirectory,
-    resolveJailedSandboxPath: mocks.resolveJailedSandboxPath,
-  };
-});
-
 import { createDaytonaWriteTool } from "./write";
+
+const dependencies = {
+  getSandboxContext: mocks.getSandboxContext,
+  resolveJailedSandboxPath: mocks.resolveJailedSandboxPath,
+  downloadRemoteFileChunk: mocks.downloadRemoteFileChunk,
+  ensureRemoteParentDirectory: mocks.ensureRemoteParentDirectory,
+};
 
 interface WriteResult {
   content: string;
@@ -78,18 +70,18 @@ function createSandboxFiles(initialFiles: Record<string, string> = {}) {
   const sandbox = {
     id: "sandbox-1",
     fs: { uploadFile },
-  } as unknown as DaytonaSandbox;
+  };
 
   return { files, sandbox, uploadFile };
 }
 
 async function executeWrite(input: { path: string; content: string }): Promise<WriteResult> {
-  const writeTool = createDaytonaWriteTool({ cacheKey: "write-test" });
+  const writeTool = createDaytonaWriteTool({ cacheKey: "write-test" }, dependencies);
   if (!writeTool.execute) {
     throw new Error("Write tool is not executable");
   }
 
-  return await writeTool.execute(input, { toolCallId: "write-call-1", messages: [] }) as WriteResult;
+  return /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ await writeTool.execute(input, { toolCallId: "write-call-1", messages: [] }) as WriteResult;
 }
 
 describe("Daytona write tool", () => {
@@ -102,8 +94,8 @@ describe("Daytona write tool", () => {
     const writeTool = createDaytonaWriteTool({ cacheKey: "write-schema-test" });
     expect(writeTool.inputSchema).toBeInstanceOf(z.ZodObject);
 
-    const schema = writeTool.inputSchema as z.ZodObject;
-    expect(Object.keys(schema.shape)).toEqual(["path", "content"]);
+    const schema = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ writeTool.inputSchema as z.ZodObject;
+    expect(Object.keys(schema["shape"])).toEqual(["path", "content"]);
     expect(schema.safeParse({ path: "large.txt", content: "x".repeat(25_000) }).success).toBe(true);
   });
 

@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import "@tanstack/react-start/server-only";
 
 import { api } from "@autopr/backend/convex/_generated/api";
@@ -7,24 +10,11 @@ import { z } from "zod";
 
 import { createAgentPersistenceGrant } from "#/lib/agent-persistence";
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
-import {
-  agentAuthErrorResponse,
-  createAgentModelOptions,
-  revokeAgentModelOptions,
-} from "#/lib/agent-auth-server";
+import { agentAuthErrorResponse, createAgentModelOptions, revokeAgentModelOptions } from "#/lib/agent-auth-server";
 import { isAgentProvider } from "#/lib/agent-models";
 import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import { appendToTriggerSession } from "#/lib/trigger-session-append";
-import {
-  AGENT_CHAT_TASK_ID,
-  AGENT_CHAT_OPERATION_HEADER,
-  agentProjectTag,
-  agentThreadTag,
-  agentUserTag,
-  threadSandboxCacheKey,
-  type AgentChatClientData,
-  type AgentChatClientInput,
-} from "#/lib/trigger-agent-contract";
+import { AGENT_CHAT_TASK_ID, AGENT_CHAT_OPERATION_HEADER, agentProjectTag, agentThreadTag, agentUserTag, threadSandboxCacheKey, type AgentChatClientData, type AgentChatClientInput } from "#/lib/trigger-agent-contract";
 import type { agentChatTask } from "#/trigger/agent-chat";
 
 const APPEND_OPERATION = "append";
@@ -105,16 +95,16 @@ const startAgentChatSession = chat.createStartSessionAction<typeof agentChatTask
   },
 );
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function requestedClientData(metadata: Record<string, unknown> | undefined): AgentChatClientInput {
+function requestedClientData(metadata: JsonObject | undefined): AgentChatClientInput {
   return {
     provider: isAgentProvider(metadata?.provider) ? metadata.provider : undefined,
-    model: typeof metadata?.model === "string" ? metadata.model : undefined,
+    model: hasStringType(metadata?.model) ? metadata.model : undefined,
     reasoningEffort:
-      typeof metadata?.reasoningEffort === "string"
+      hasStringType(metadata?.reasoningEffort)
         ? metadata.reasoningEffort
         : undefined,
   };
@@ -147,9 +137,9 @@ async function loadAgentContext(projectId: string, threadId: string) {
   }
 
   return {
-    project: project as AgentProject,
-    thread: thread as AgentThread,
-    userSettings: userSettings as AgentUserSettings,
+    project: project satisfies AgentProject,
+    thread: thread satisfies AgentThread,
+    userSettings: userSettings satisfies AgentUserSettings,
   } as const;
 }
 
@@ -315,7 +305,7 @@ async function proxyInputChunk(options: {
   }
 }
 
-export function isAgentChatRequest(request: Request, body: unknown) {
+export function isAgentChatRequest<BodyValue>(request: Request, body: BodyValue) {
   return (
     request.headers.get(AGENT_CHAT_OPERATION_HEADER) === APPEND_OPERATION ||
     (isRecord(body) &&

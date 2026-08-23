@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DaytonaSandbox } from "../sandbox";
+import { isPathWithinRoot, RemoteFileNotFoundError, resolveSandboxPath, SandboxPathBoundaryError } from "../sandbox/execute";
 
 const mocks = vi.hoisted(() => ({
   currentFiles: { value: new Map<string, string>() },
@@ -9,26 +9,8 @@ const mocks = vi.hoisted(() => ({
   resolveJailedSandboxPath: vi.fn(),
 }));
 
-vi.mock("../sandbox", () => ({
-  getSandboxContext: mocks.getSandboxContext,
-}));
-
-vi.mock("../sandbox/execute", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../sandbox/execute")>();
-
-  // Keep the lexical half of the jail; only the remote canonicalization is stubbed.
-  mocks.resolveJailedSandboxPath.mockImplementation(
-    async (inputPath: string | undefined, options: { workDir: string }) => {
-      const resolved = original.resolveSandboxPath(inputPath, options.workDir);
-      if (!original.isPathWithinRoot(resolved, options.workDir)) {
-        throw new original.SandboxPathBoundaryError(resolved, options.workDir);
-      }
-      return resolved;
-    },
-  );
-
-  // Emulates the remote `sed -n | head -c` window over the in-memory files.
-  mocks.downloadRemoteFileChunk.mockImplementation(
+// Emulates the remote `sed -n | head -c` window over the in-memory files.
+mocks.downloadRemoteFileChunk.mockImplementation(
     async (options: {
       remotePath: string;
       maxBytes: number;
@@ -39,7 +21,7 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
     }) => {
       const text = mocks.currentFiles.value.get(options.remotePath);
       if (text === undefined) {
-        throw new original.RemoteFileNotFoundError(options.remotePath);
+        throw new RemoteFileNotFoundError(options.remotePath);
       }
 
       const buffer = Buffer.from(text, "utf8");
@@ -66,12 +48,15 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
     },
   );
 
-  return {
-    ...original,
-    downloadRemoteFileChunk: mocks.downloadRemoteFileChunk,
-    resolveJailedSandboxPath: mocks.resolveJailedSandboxPath,
-  };
-});
+mocks.resolveJailedSandboxPath.mockImplementation(
+  async (inputPath: string | undefined, options: { workDir: string }) => {
+    const resolved = resolveSandboxPath(inputPath, options.workDir);
+    if (!isPathWithinRoot(resolved, options.workDir)) {
+      throw new SandboxPathBoundaryError(resolved, options.workDir);
+    }
+    return resolved;
+  },
+);
 
 import { createDaytonaReadTool } from "./read";
 
@@ -92,18 +77,22 @@ const WORK_DIR = "/workspace/repo";
 function createSandboxFiles(initialFiles: Record<string, string> = {}) {
   const files = new Map(Object.entries(initialFiles));
   mocks.currentFiles.value = files;
-  const sandbox = { id: "sandbox-read-test" } as unknown as DaytonaSandbox;
+  const sandbox = { id: "sandbox-read-test" };
   mocks.getSandboxContext.mockResolvedValue({ sandbox, workDir: WORK_DIR });
   return { files, sandbox };
 }
 
 async function executeRead(input: { path: string; offset?: number; limit?: number; byteOffset?: number }): Promise<ReadResult> {
-  const readTool = createDaytonaReadTool({ cacheKey: "read-test" });
+  const readTool = createDaytonaReadTool({ cacheKey: "read-test" }, {
+    getSandboxContext: mocks.getSandboxContext,
+    resolveJailedSandboxPath: mocks.resolveJailedSandboxPath,
+    downloadRemoteFileChunk: mocks.downloadRemoteFileChunk,
+  });
   if (!readTool.execute) {
     throw new Error("Read tool is not executable");
   }
 
-  return await readTool.execute(input, { toolCallId: "read-call-1", messages: [] }) as ReadResult;
+  return /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ await readTool.execute(input, { toolCallId: "read-call-1", messages: [] }) as ReadResult;
 }
 describe("Daytona read tool", () => {
   beforeEach(() => {

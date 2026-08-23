@@ -1,3 +1,5 @@
+import { hasNumberType } from "@autopr/config/runtime-type";
+
 import type { ResolvedConfig } from "./config.ts";
 import { ChatGPTAuthError } from "./errors.ts";
 import { deriveAccountId, getTokenExpiry } from "./jwt.ts";
@@ -11,7 +13,7 @@ const EXPIRY_MARGIN_MS = 60 * 1000;
 export function isAccessTokenExpired(tokens: ChatGPTTokens, now: () => number = Date.now): boolean {
   if (!tokens.accessToken) return true;
   const expiresAt = tokens.expiresAt ?? getTokenExpiry(tokens.accessToken);
-  if (typeof expiresAt !== "number") return false;
+  if (!hasNumberType(expiresAt)) return false;
   return expiresAt <= now() + EXPIRY_MARGIN_MS;
 }
 

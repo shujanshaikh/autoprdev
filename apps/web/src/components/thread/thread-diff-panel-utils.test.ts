@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  appendDiffPromptContexts,
-  changedFilesForMessage,
-  createDiffPromptContext,
-  createThreadDiffCodeViewItem,
-  mergeChangedFilesWithWorkspace,
-  parseThreadDiffDeepLink,
-  type ThreadDiffEntry,
-} from "./thread-diff-panel-utils";
+import { appendDiffPromptContexts, changedFilesForMessage, createDiffPromptContext, createThreadDiffCodeViewItem, mergeChangedFilesWithWorkspace, parseThreadDiffDeepLink, type ThreadDiffEntry } from "./thread-diff-panel-utils";
 
 const entry: ThreadDiffEntry = {
   id: "message:0",

@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
 import type { GitChangedFile } from "@autopr/backend/convex/lib/gitStatus";
 import { parseDiffFromFile, parsePatchFiles, type CodeViewItem } from "@pierre/diffs";
 import { parsePatch } from "diff";
@@ -122,19 +125,19 @@ export type ThreadDiffDeepLink = {
   endSide?: "additions" | "deletions";
 };
 
-function positiveLineNumber(value: unknown) {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
+function positiveLineNumber<ValueValue>(value: ValueValue) {
+  if (!hasStringType(value) || value.trim() === "") return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-export function parseThreadDiffDeepLink(search: Record<string, unknown>): ThreadDiffDeepLink | undefined {
-  if (typeof search.diff !== "string" || search.diff.length === 0) return undefined;
+export function parseThreadDiffDeepLink(search: JsonObject): ThreadDiffDeepLink | undefined {
+  if (!hasStringType(search.diff) || search.diff.length === 0) return undefined;
   const side = search.side === "deletions" ? "deletions" : search.side === "additions" ? "additions" : undefined;
   const endSide = search.endSide === "deletions" ? "deletions" : search.endSide === "additions" ? "additions" : undefined;
   return {
     entryId: search.diff,
-    file: typeof search.diffFile === "string" ? search.diffFile : undefined,
+    file: hasStringType(search.diffFile) ? search.diffFile : undefined,
     start: positiveLineNumber(search.line),
     end: positiveLineNumber(search.lineEnd),
     side,
@@ -172,7 +175,7 @@ export function createThreadDiffCodeViewItem(
     }
   }
 
-  if (typeof entry.newContent === "string") {
+  if (hasStringType(entry.newContent)) {
     const fileDiff = parseDiffFromFile(
       {
         name: entry.file,
@@ -205,7 +208,7 @@ export function createThreadDiffCodeViewItem(
 type SelectedLineRange = import("@pierre/diffs").SelectedLineRange;
 
 function numberedLines(contents: string | null | undefined, start: number, end: number) {
-  if (typeof contents !== "string") return "";
+  if (!hasStringType(contents)) return "";
 
   const first = Math.max(1, Math.min(start, end));
   const last = Math.max(first, Math.max(start, end));

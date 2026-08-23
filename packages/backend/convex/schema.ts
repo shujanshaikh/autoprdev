@@ -2,13 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 import { threadGitStatusValidator } from "./lib/gitStatus";
-import {
-  gitWorkflowActionValidator,
-  gitWorkflowFailureValidator,
-  gitWorkflowPhaseResultValidator,
-  gitWorkflowPhaseValidator,
-  gitWorkflowPushResultValidator,
-} from "./lib/gitWorkflow";
+import { gitWorkflowActionValidator, gitWorkflowFailureValidator, gitWorkflowPhaseResultValidator, gitWorkflowPhaseValidator, gitWorkflowPushResultValidator } from "./lib/gitWorkflow";
 
 export default defineSchema({
   projects: defineTable({

@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import type { ResolvedConfig } from "./config.ts";
 import { requestHeaderSignal } from "./internal/request-signal.ts";
 import { DEFAULT_CODEX_INSTRUCTIONS, REASONING_ENCRYPTED_CONTENT } from "./constants.ts";
@@ -55,8 +58,8 @@ export interface ListCodexModelsOptions {
   headers?: Record<string, string>;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = <ValueValue>(value: ValueValue): value is ValueValue & JsonObject =>
+  isJsonObject(value);
 
 /**
  * Adapts a standard OpenAI responses payload for the ChatGPT-backed Codex
@@ -74,12 +77,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * Caller-provided values win over the defaults.
  */
 export function normalizeResponsesBody(
-  body: Record<string, unknown>,
+  body: JsonObject,
   options: CodexResponsesOptions = {},
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...body };
+): JsonObject {
+  const out: JsonObject = { ...body };
 
-  if (typeof out["instructions"] !== "string") {
+  if (!hasStringType(out["instructions"])) {
     out["instructions"] = options.instructions ?? DEFAULT_CODEX_INSTRUCTIONS;
   }
 
@@ -90,21 +93,29 @@ export function normalizeResponsesBody(
   out["reasoning"] = {
     effort: options.reasoningEffort ?? "medium",
     summary: options.reasoningSummary ?? "auto",
-    ...(isRecord(out["reasoning"]) ? out["reasoning"] : {}),
+    ...(() => {
+  let optionalProperties;
+  if (isRecord(out["reasoning"])) optionalProperties = out["reasoning"];
+  return optionalProperties;
+})(),
   };
 
   out["text"] = {
     verbosity: options.textVerbosity ?? "medium",
-    ...(isRecord(out["text"]) ? out["text"] : {}),
+    ...(() => {
+  let optionalProperties;
+  if (isRecord(out["text"])) optionalProperties = out["text"];
+  return optionalProperties;
+})(),
   };
 
-  if (typeof out["service_tier"] !== "string" && options.serviceTier) {
+  if (!hasStringType(out["service_tier"]) && options.serviceTier) {
     out["service_tier"] = options.serviceTier;
   }
 
   // Ensure encrypted reasoning content is included.
   const include = new Set<string>(
-    Array.isArray(out["include"]) ? out["include"].filter((v): v is string => typeof v === "string") : [],
+    Array.isArray(out["include"]) ? out["include"].filter((v): v is string => hasStringType(v)) : [],
   );
   include.add(REASONING_ENCRYPTED_CONTENT);
   out["include"] = [...include];
@@ -122,15 +133,16 @@ export function normalizeResponsesBody(
  * Strips server-side ids from input items and removes `item_reference` entries,
  * which the stateless Codex API does not accept.
  */
-export function filterCodexInput(input: unknown[]): unknown[] {
-  const filtered: unknown[] = [];
+export function filterCodexInput(input: unknown[]): JsonValue[] {
+  const filtered: JsonValue[] = [];
   for (const item of input) {
     if (isRecord(item) && item["type"] === "item_reference") continue;
     if (isRecord(item) && "id" in item) {
       const { id, ...rest } = item;
       filtered.push(rest);
     } else {
-      filtered.push(item);
+      const parsed = jsonValueSchema.safeParse(item);
+      if (parsed.success) filtered.push(parsed.data);
     }
   }
   return filtered;
@@ -145,6 +157,7 @@ export function createCodexFetch(options: CodexFetchOptions): FetchLike {
   const { config } = options;
   const baseFetch = config.fetch;
 
+  /* SAFETY: This adapter preserves the declared FetchLike input and response contract. */
   const codexFetch = (async (input: Parameters<FetchLike>[0], init?: Parameters<FetchLike>[1]) => {
     const request = await readRequest(input, init);
     const targetUrl = withClientVersion(resolveTargetUrl(request.url, config.codexBaseUrl), config.clientVersion);
@@ -205,17 +218,17 @@ export async function listCodexModels(options: ListCodexModelsOptions): Promise<
  * lists. Unknown entries are ignored so SDK callers can rely on a clean string
  * array while the raw endpoint remains undocumented.
  */
-export function extractCodexModelSlugs(value: unknown): string[] {
+export function extractCodexModelSlugs<ValueValue>(value: ValueValue): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
 
-  const visit = (item: unknown) => {
-    const candidate = typeof item === "string"
+  const visit = <ItemValue>(item: ItemValue) => {
+    const candidate = hasStringType(item)
       ? item
       : isRecord(item)
         ? item["slug"] ?? item["id"] ?? item["model"] ?? item["name"]
         : undefined;
-    if (typeof candidate !== "string") return;
+    if (!hasStringType(candidate)) return;
     const slug = candidate.trim();
     if (!slug || seen.has(slug)) return;
     seen.add(slug);
@@ -259,7 +272,7 @@ async function readRequest(
     };
   }
   return {
-    url: typeof input === "string" ? input : input.toString(),
+    url: hasStringType(input) ? input : input.toString(),
     method: init?.method ?? "GET",
     headers: new Headers(init?.headers),
     body: init?.body,
@@ -307,12 +320,12 @@ async function maybeNormalizeBody(
   if (contentType && !contentType.includes("application/json")) return body;
 
   const text = await decodeBody(body);
-  if (typeof text !== "string") return body;
+  if (!hasStringType(text)) return body;
 
   try {
     const parsed = JSON.parse(text);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return body;
-    return JSON.stringify(normalizeResponsesBody(parsed as Record<string, unknown>, options));
+    if (!isRecord(parsed)) return body;
+    return JSON.stringify(normalizeResponsesBody(parsed, options));
   } catch {
     return body;
   }
@@ -320,11 +333,13 @@ async function maybeNormalizeBody(
 
 async function decodeBody(body: BodyInit | null | undefined): Promise<string | undefined> {
   if (body == null) return undefined;
-  if (typeof body === "string") return body;
+  if (hasStringType(body)) return body;
   if (body instanceof URLSearchParams || body instanceof FormData || body instanceof ReadableStream) return undefined;
   if (body instanceof Blob) return body.text();
   if (body instanceof ArrayBuffer) return new TextDecoder().decode(body);
-  if (ArrayBuffer.isView(body)) return new TextDecoder().decode(body as ArrayBufferView);
+  if (ArrayBuffer.isView(body)) {
+    return new TextDecoder().decode(/* SAFETY: ArrayBuffer.isView establishes the ArrayBufferView contract. */ body as ArrayBufferView);
+  }
   return undefined;
 }
 

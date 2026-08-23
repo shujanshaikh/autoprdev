@@ -2,19 +2,9 @@ import { MockLanguageModelV3, simulateReadableStream } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import {
-  createPullRequestFallback,
-  generateThreadTitle,
-  normalizeGeneratedCommitMessage,
-  normalizeGeneratedThreadTitle,
-  parseGeneratedMetadata,
-} from "./generated-git-metadata";
+import { createPullRequestFallback, generateThreadTitle, normalizeGeneratedCommitMessage, normalizeGeneratedThreadTitle, parseGeneratedMetadata } from "./generated-git-metadata";
 
-const { createCodexModel } = vi.hoisted(() => ({ createCodexModel: vi.fn() }));
-
-vi.mock("#/lib/codex-auth-server", () => ({
-  createAuthenticatedCodexResponsesModel: createCodexModel,
-}));
+const createCodexModel = vi.fn();
 
 describe("generated Git metadata", () => {
   it("normalizes concise generated thread titles and bounds fallback prompts", () => {
@@ -89,7 +79,7 @@ describe("generated Git metadata", () => {
       projectId: "project-1",
       threadId: "thread-1",
       message: "the thread title generation keeps failing with a bad request",
-    })).resolves.toBe("Fix thread title generation");
+    }, { createCodexModel })).resolves.toBe("Fix thread title generation");
     expect(doGenerate).not.toHaveBeenCalled();
   });
 });

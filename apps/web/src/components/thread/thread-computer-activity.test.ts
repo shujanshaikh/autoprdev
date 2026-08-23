@@ -36,7 +36,7 @@ describe("computer tool activity", () => {
   it("ignores computer parts in user messages", () => {
     const message = {
       id: "user-1",
-      role: "user",
+      role: "user" as const,
       parts: [{
         type: "dynamic-tool",
         toolName: "computer",
@@ -44,7 +44,7 @@ describe("computer tool activity", () => {
         state: "input-available",
         input: {},
       }],
-    } as UIMessage;
+    } satisfies UIMessage;
 
     expect(latestComputerToolCallId(message)).toBeUndefined();
   });

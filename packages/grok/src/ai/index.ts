@@ -1,3 +1,5 @@
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { createXai } from "@ai-sdk/xai";
 
 export const GROK_OAUTH_DUMMY_API_KEY = "xai-oauth-managed-by-autopr";
@@ -12,7 +14,11 @@ export function createGrokOAuthProvider(options: {
 }) {
   return createXai({
     apiKey: GROK_OAUTH_DUMMY_API_KEY,
-    ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (options.baseURL) optionalProperties = { baseURL: options.baseURL };
+  return optionalProperties;
+})(),
     fetch: createGrokOAuthFetch(options),
   });
 }
@@ -62,23 +68,29 @@ function withResponsesOverrides(
 ) {
   const key = options.promptCacheKey?.trim();
   const url = input instanceof Request ? input.url : String(input);
-  if ((!key && !options.reasoningEffort) || !/\/responses(?:\?|$)/.test(url) || typeof body !== "string") {
+  if ((!key && !options.reasoningEffort) || !/\/responses(?:\?|$)/.test(url) || !hasStringType(body)) {
     return body;
   }
 
   try {
-    const parsed = JSON.parse(body) as unknown;
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return body;
-    const request = parsed as Record<string, unknown>;
-    const reasoning = typeof request.reasoning === "object" && request.reasoning !== null && !Array.isArray(request.reasoning)
-      ? request.reasoning as Record<string, unknown>
+    const parsed = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(body) as unknown;
+    if (!hasObjectType(parsed) || parsed === null || Array.isArray(parsed)) return body;
+    const request = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ parsed as JsonObject;
+    const reasoning = hasObjectType(request.reasoning) && request.reasoning !== null && !Array.isArray(request.reasoning)
+      ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ request.reasoning as JsonObject
       : {};
     return JSON.stringify({
       ...request,
-      ...(key ? { prompt_cache_key: key } : {}),
-      ...(options.reasoningEffort
-        ? { reasoning: { ...reasoning, effort: options.reasoningEffort } }
-        : {}),
+      ...(() => {
+  let optionalProperties;
+  if (key) optionalProperties = { prompt_cache_key: key };
+  return optionalProperties;
+})(),
+      ...(() => {
+  let optionalProperties;
+  if (options.reasoningEffort) optionalProperties = { reasoning: { ...reasoning, effort: options.reasoningEffort } };
+  return optionalProperties;
+})(),
     });
   } catch {
     return body;

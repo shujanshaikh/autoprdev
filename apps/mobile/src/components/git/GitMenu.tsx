@@ -1,13 +1,4 @@
-import {
-  CircleArrowDown,
-  CircleArrowOutUpRight,
-  CircleArrowUp,
-  CircleCheckBig,
-  GitBranch,
-  MessageSquareText,
-  MoreHorizontal,
-  type LucideIcon,
-} from "lucide-react-native";
+import { CircleArrowDown, CircleArrowOutUpRight, CircleArrowUp, CircleCheckBig, GitBranch, MessageSquareText, MoreHorizontal, type LucideIcon } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,7 +8,7 @@ import { useThreadGit } from "../../hooks/useThreadGit";
 import { gitStatusSummary, type ThreadGitAction } from "../../lib/gitActions";
 import { openExternalUrl } from "../../lib/openUrl";
 
-const actionIcons: Record<ThreadGitAction, LucideIcon> = {
+const actionIcons = {
   commit: CircleCheckBig,
   commit_push: CircleArrowOutUpRight,
   commit_push_create_pr: CircleArrowOutUpRight,
@@ -26,7 +17,7 @@ const actionIcons: Record<ThreadGitAction, LucideIcon> = {
   create_pr: CircleArrowOutUpRight,
   pull: CircleArrowDown,
   view_pr: CircleArrowOutUpRight,
-};
+} satisfies Record<ThreadGitAction, LucideIcon>;
 
 function MenuRow({
   icon: Icon,

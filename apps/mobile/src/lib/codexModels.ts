@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+
+
 import { CHATGPT_CODEX_MODEL_LIMITS } from "@autopr/chatgpt/codex-model-limits";
 
 const STANDARD_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -29,14 +32,14 @@ const MODELS: readonly ModelDefinition[] = [
   },
 ];
 
-const REASONING_EFFORT_DESCRIPTIONS: Record<CodexReasoningEffort, string> = {
+const REASONING_EFFORT_DESCRIPTIONS = {
   low: "Fastest replies. Best for small, well-scoped edits.",
   medium: "Balanced speed and depth for everyday tasks.",
   high: "Thinks longer before acting on tricky changes.",
   xhigh: "Extended reasoning for complex, multi-file work.",
   max: "Deliberates as long as the model allows.",
   ultra: "The longest thinking budget. Slowest, most thorough.",
-};
+} satisfies Record<CodexReasoningEffort, string>;
 
 export const PREFERRED_CODEX_MODEL = "gpt-5.6-sol";
 export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = "low";
@@ -68,11 +71,11 @@ export function getCodexReasoningEfforts(modelId: string | undefined): readonly 
   return MODELS.find((model) => model.id === modelId)?.reasoningEfforts ?? STANDARD_REASONING_EFFORTS;
 }
 
-export function isCodexReasoningEffortForModel(
+export function isCodexReasoningEffortForModel<ValueValue>(
   modelId: string | undefined,
-  value: unknown,
-): value is CodexReasoningEffort {
-  return typeof value === "string" && getCodexReasoningEfforts(modelId).includes(value as CodexReasoningEffort);
+  value: ValueValue,
+): value is ValueValue & (CodexReasoningEffort) {
+  return hasStringType(value) && getCodexReasoningEfforts(modelId).includes(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as CodexReasoningEffort);
 }
 
 export function formatCodexModelLabel(modelId: string | undefined) {

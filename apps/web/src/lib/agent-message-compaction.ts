@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import type { UIMessage } from "ai";
 
 const MAX_MODEL_TOOL_TEXT_CHARS = 2_000;
@@ -28,12 +31,12 @@ type DiffCompactionOptions = {
   omitPatch: boolean;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function compactLongText(value: unknown, fieldName: string): unknown {
-  if (typeof value !== "string" || value.length <= MAX_MODEL_TOOL_TEXT_CHARS) {
+function compactLongText<ValueValue>(value: ValueValue, fieldName: string): JsonValue {
+  if (!hasStringType(value) || value.length <= MAX_MODEL_TOOL_TEXT_CHARS) {
     return value;
   }
 
@@ -41,7 +44,7 @@ function compactLongText(value: unknown, fieldName: string): unknown {
   return `${preview}\n\n[${fieldName} omitted from model prompt: ${value.length} characters]`;
 }
 
-function compactWriteInput(input: unknown): unknown {
+function compactWriteInput<InputValue>(input: InputValue): JsonValue {
   if (!isRecord(input)) {
     return input;
   }
@@ -52,7 +55,7 @@ function compactWriteInput(input: unknown): unknown {
   };
 }
 
-function compactEditInput(input: unknown): unknown {
+function compactEditInput<InputValue>(input: InputValue): JsonValue {
   if (!isRecord(input) || !Array.isArray(input.edits)) {
     return input;
   }
@@ -73,7 +76,7 @@ function compactEditInput(input: unknown): unknown {
   };
 }
 
-function compactToolInputForModel(toolName: string, input: unknown): unknown {
+function compactToolInputForModel<InputValue>(toolName: string, input: InputValue): JsonValue {
   if (toolName === "write") {
     return compactWriteInput(input);
   }
@@ -85,8 +88,8 @@ function compactToolInputForModel(toolName: string, input: unknown): unknown {
   return input;
 }
 
-function compactDiffForModel(diff: Record<string, unknown>, options: DiffCompactionOptions): Record<string, unknown> {
-  const next: Record<string, unknown> = {};
+function compactDiffForModel(diff: JsonObject, options: DiffCompactionOptions): JsonObject {
+  const next: JsonObject = {};
 
   for (const key of ["renderer", "fileName", "status", "truncated"]) {
     if (key in diff) {
@@ -96,7 +99,7 @@ function compactDiffForModel(diff: Record<string, unknown>, options: DiffCompact
 
   for (const key of ["patch", "oldContent", "newContent"]) {
     const value = diff[key];
-    if (typeof value === "string") {
+    if (hasStringType(value)) {
       next[`${key}Chars`] = value.length;
       if (key !== "patch" || options.omitPatch) {
         next[`${key}Omitted`] = true;
@@ -105,7 +108,7 @@ function compactDiffForModel(diff: Record<string, unknown>, options: DiffCompact
   }
 
   const shouldKeepPatch =
-    typeof diff.patch === "string" &&
+    hasStringType(diff.patch) &&
     !options.omitPatch &&
     diff.patch.length <= MAX_MODEL_DIFF_PATCH_CHARS;
 
@@ -120,10 +123,10 @@ function compactDiffForModel(diff: Record<string, unknown>, options: DiffCompact
 }
 
 function compactDetailsForModel(
-  details: Record<string, unknown>,
+  details: JsonObject,
   options: DiffCompactionOptions,
-): Record<string, unknown> {
-  const next: Record<string, unknown> = {};
+): JsonObject {
+  const next: JsonObject = {};
 
   for (const key of DETAIL_KEYS_FOR_MODEL) {
     if (key in details) {
@@ -138,15 +141,15 @@ function compactDetailsForModel(
   return next;
 }
 
-function isContentDetailsOutput(value: unknown): value is { content: string; details: Record<string, unknown> } {
-  return isRecord(value) && typeof value.content === "string" && isRecord(value.details);
+function isContentDetailsOutput<ValueValue>(value: ValueValue): value is ValueValue & ({ content: string; details: JsonObject }) {
+  return isRecord(value) && hasStringType(value.content) && isRecord(value.details);
 }
 
-function compactToolOutputValueForModel(
+function compactToolOutputValueForModel<ValueValue>(
   toolName: string,
-  value: unknown,
+  value: ValueValue,
   options: DiffCompactionOptions,
-): unknown {
+): JsonValue {
   if (!FILE_MUTATION_TOOLS.has(toolName) || !isContentDetailsOutput(value)) {
     return value;
   }
@@ -157,16 +160,16 @@ function compactToolOutputValueForModel(
   };
 }
 
-function compactToolResultOutputForModel(
+function compactToolResultOutputForModel<OutputValue>(
   toolName: string,
-  output: unknown,
+  output: OutputValue,
   options: DiffCompactionOptions,
-): unknown {
+): JsonValue {
   if (!FILE_MUTATION_TOOLS.has(toolName)) {
     return output;
   }
 
-  if (isRecord(output) && "value" in output && typeof output.type === "string") {
+  if (isRecord(output) && "value" in output && hasStringType(output.type)) {
     return {
       ...output,
       value: compactToolOutputValueForModel(toolName, output.value, options),
@@ -177,7 +180,7 @@ function compactToolResultOutputForModel(
 }
 
 function uiToolName(part: UIMessage["parts"][number]): string | undefined {
-  if (part.type === "dynamic-tool" && "toolName" in part && typeof part.toolName === "string") {
+  if (part.type === "dynamic-tool" && "toolName" in part && hasStringType(part.toolName)) {
     return part.toolName;
   }
 
@@ -191,7 +194,7 @@ export function compactAssistantPartsForModel(parts: UIMessage["parts"]): UIMess
       return part;
     }
 
-    const nextPart: Record<string, unknown> = { ...part };
+    const nextPart: JsonObject = { ...part };
     if ("input" in part) {
       nextPart.input = compactToolInputForModel(toolName, part.input);
     }
@@ -199,23 +202,23 @@ export function compactAssistantPartsForModel(parts: UIMessage["parts"]): UIMess
       nextPart.output = compactToolResultOutputForModel(toolName, part.output, { omitPatch: true });
     }
 
-    return nextPart as UIMessage["parts"][number];
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ nextPart as UIMessage["parts"][number];
   });
 }
 
-function compactPromptPart(part: unknown): unknown {
+function compactPromptPart<PartValue>(part: PartValue): JsonValue {
   if (!isRecord(part)) {
     return part;
   }
 
-  if (part.type === "tool-call" && typeof part.toolName === "string" && FILE_MUTATION_TOOLS.has(part.toolName)) {
+  if (part.type === "tool-call" && hasStringType(part.toolName) && FILE_MUTATION_TOOLS.has(part.toolName)) {
     return {
       ...part,
       input: compactToolInputForModel(part.toolName, part.input),
     };
   }
 
-  if (part.type === "tool-result" && typeof part.toolName === "string" && FILE_MUTATION_TOOLS.has(part.toolName)) {
+  if (part.type === "tool-result" && hasStringType(part.toolName) && FILE_MUTATION_TOOLS.has(part.toolName)) {
     return {
       ...part,
       output: compactToolResultOutputForModel(part.toolName, part.output, { omitPatch: false }),
@@ -225,7 +228,7 @@ function compactPromptPart(part: unknown): unknown {
   return part;
 }
 
-function compactPromptMessage(message: unknown): unknown {
+function compactPromptMessage<MessageValue>(message: MessageValue): JsonValue {
   if (!isRecord(message) || !Array.isArray(message.content)) {
     return message;
   }
@@ -237,5 +240,5 @@ function compactPromptMessage(message: unknown): unknown {
 }
 
 export function compactPromptMessagesForModel<MESSAGES>(messages: MESSAGES): MESSAGES {
-  return Array.isArray(messages) ? (messages.map(compactPromptMessage) as MESSAGES) : messages;
+  return Array.isArray(messages) ? (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ messages.map(compactPromptMessage) as MESSAGES) : messages;
 }

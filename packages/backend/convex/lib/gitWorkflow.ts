@@ -65,14 +65,14 @@ export const gitWorkflowPhases: GitWorkflowPhase[] = [
   "pull_request",
 ];
 
-const actionPhases: Record<GitWorkflowAction, GitWorkflowPhase[]> = {
+const actionPhases = {
   commit: ["branch", "validate", "commit"],
   push: ["branch", "validate", "push"],
   create_pr: ["branch", "validate", "push", "pull_request"],
   commit_push: ["branch", "validate", "commit", "push"],
   push_create_pr: ["branch", "validate", "push", "pull_request"],
   commit_push_create_pr: ["branch", "validate", "commit", "push", "pull_request"],
-};
+} satisfies Record<GitWorkflowAction, GitWorkflowPhase[]>;
 
 export function phasesForGitWorkflowAction(action: GitWorkflowAction) {
   return actionPhases[action];

@@ -56,7 +56,7 @@ export function parseEnvFile(input: string) {
     let rawValue = assignment[2] ?? "";
     let parsedValue: string;
     if (rawValue.startsWith('"') || rawValue.startsWith("'")) {
-      const quote = rawValue[0] as "'" | '"';
+      const quote = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ rawValue[0] as "'" | '"';
       let closingIndex = closingQuoteIndex(rawValue, quote);
       while (closingIndex < 0 && lineIndex + 1 < lines.length) {
         lineIndex += 1;

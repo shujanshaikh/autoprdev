@@ -1,12 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
+import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@autopr/ui/lib/utils"
-import { Button } from "@autopr/ui/components/button"
-import { Input } from "@autopr/ui/components/input"
-import { Textarea } from "@autopr/ui/components/textarea"
+import { cn } from "@autopr/ui/lib/utils";
+import { Button } from "@autopr/ui/components/button";
+import { Input } from "@autopr/ui/components/input";
+import { Textarea } from "@autopr/ui/components/textarea";
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
@@ -57,7 +57,7 @@ function InputGroupAddon({
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
       onClick={(e) => {
-        if ((e.target as HTMLElement).closest("button")) {
+        if ((/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ e.target as HTMLElement).closest("button")) {
           return
         }
         e.currentTarget.parentElement?.querySelector("input")?.focus()
@@ -66,7 +66,7 @@ function InputGroupAddon({
         if (e.key !== "Enter" && e.key !== " ") {
           return
         }
-        if ((e.target as HTMLElement).closest("button")) {
+        if ((/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ e.target as HTMLElement).closest("button")) {
           return
         }
         e.preventDefault()

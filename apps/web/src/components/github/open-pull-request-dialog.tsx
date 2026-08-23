@@ -1,14 +1,9 @@
+import { hasObjectType } from "@autopr/config/runtime-type";
+
 import { api } from "@autopr/backend/convex/_generated/api";
 import { isThreadCompatibleWithGithubPullRequest } from "@autopr/backend/convex/lib/githubPullRequest";
 import { Button } from "@autopr/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@autopr/ui/components/select";
 import { useNavigate } from "@tanstack/react-router";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -36,10 +31,10 @@ type PullRequestPreview = {
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.";
+    const message = data && hasObjectType(data) && "error" in data ? String(data.error) : "Request failed.";
     throw new Error(message);
   }
-  return data as T;
+  return data satisfies T;
 }
 
 export function OpenGithubPullRequestDialog({

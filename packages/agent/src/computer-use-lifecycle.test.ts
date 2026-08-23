@@ -21,9 +21,9 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses();
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "partial" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       restartProcess: vi.fn(async () => undefined),
       start: vi.fn(async () => undefined),
@@ -41,12 +41,12 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses({ novnc: false });
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "active" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
-      restartProcess: vi.fn(async (name: string) => {
-        statuses.set(name as ComputerUseProcessName, true);
+      restartProcess: vi.fn(async (name: ComputerUseProcessName) => {
+        statuses.set(name, true);
       }),
       start: vi.fn(async () => undefined),
     };
@@ -68,9 +68,9 @@ describe("Daytona computer-use lifecycle", () => {
         await statusGate;
         return { status: "active" };
       }),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       start: vi.fn(async () => undefined),
     };
@@ -106,12 +106,12 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses({ x11vnc: false });
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "partial" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
-      restartProcess: vi.fn(async (name: string) => {
-        statuses.set(name as ComputerUseProcessName, true);
+      restartProcess: vi.fn(async (name: ComputerUseProcessName) => {
+        statuses.set(name, true);
       }),
       start: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
@@ -144,9 +144,9 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses({ novnc: false });
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "partial" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       getProcessErrors: vi.fn(async () => ({ errors: "still unavailable" })),
       restartProcess: vi.fn(async () => undefined),
@@ -191,9 +191,9 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses({ novnc: false });
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "partial" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       getProcessErrors: vi.fn(() => never),
       getProcessLogs: vi.fn(() => never),
@@ -218,9 +218,9 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses();
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "active" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       restartProcess: vi.fn(async () => undefined),
       start: vi.fn(async () => undefined),
@@ -240,9 +240,9 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses();
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "active" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       restartProcess: vi.fn(async (name: string) => {
         if (name === "x11vnc") await restartGate;
@@ -262,9 +262,9 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses();
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "active" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       restartProcess: vi.fn(async () => undefined),
       start: vi.fn(async () => undefined),
@@ -285,11 +285,11 @@ describe("Daytona computer-use lifecycle", () => {
     const probes = new Map([[5901, 0], [6080, 0]]);
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "active" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
-      restartProcess: vi.fn(async (name: string) => {
+      restartProcess: vi.fn(async (name: ComputerUseProcessName) => {
         events.push(`restart:${name}`);
       }),
       start: vi.fn(async () => undefined),
@@ -320,9 +320,9 @@ describe("Daytona computer-use lifecycle", () => {
     const statuses = processStatuses();
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "active" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
-        running: statuses.get(name as ComputerUseProcessName),
+        running: statuses.get(name),
       })),
       getProcessErrors: vi.fn(async () => ({ errors: "caught signal: 11" })),
       restartProcess: vi.fn(async () => undefined),
@@ -341,7 +341,7 @@ describe("Daytona computer-use lifecycle", () => {
   it("requires explicit transport process health after stream recovery", async () => {
     const computerUse = {
       getStatus: vi.fn(async () => ({ status: "active" })),
-      getProcessStatus: vi.fn(async (name: string) => ({
+      getProcessStatus: vi.fn(async (name: ComputerUseProcessName) => ({
         processName: name,
         running: name === "x11vnc" || name === "novnc" ? undefined : true,
         status: name === "x11vnc" || name === "novnc" ? "starting" : "running",

@@ -1,9 +1,5 @@
 import type { ResolvedConfig } from "../core/config.ts";
-import {
-  exchangeDeviceAuthorization,
-  pollDeviceCode,
-  requestDeviceCode,
-} from "../core/device.ts";
+import { exchangeDeviceAuthorization, pollDeviceCode, requestDeviceCode } from "../core/device.ts";
 import { ChatGPTAuthError } from "../core/errors.ts";
 import { parseUser } from "../core/jwt.ts";
 import type { KeyValueStore } from "../core/store.ts";

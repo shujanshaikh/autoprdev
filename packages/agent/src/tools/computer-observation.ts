@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
 import sharp from "sharp";
 
-import { CuaComputerClient } from "./cua-client";
+import type { CuaComputerClientContract } from "./cua-client";
 
 export type ScreenshotRegion = {
   x: number;
@@ -10,6 +12,8 @@ export type ScreenshotRegion = {
   width: number;
   height: number;
 };
+
+type ScreenPoint = { x: number; y: number };
 
 export type ScreenshotRequest = {
   format?: "jpeg" | "png";
@@ -23,7 +27,7 @@ export type CuaObservation = {
   data: string;
   mimeType: string;
   sizeBytes: number;
-  cursorPosition?: { x: number; y: number };
+  cursorPosition?: ScreenPoint;
   width: number;
   height: number;
   format: "jpeg" | "png";
@@ -48,7 +52,7 @@ type RawCapture = {
   sourceHeight?: number;
   screenWidth: number;
   screenHeight: number;
-  cursorPosition?: { x: number; y: number };
+  cursorPosition?: ScreenPoint;
   captureKind: CuaObservation["captureKind"];
 };
 
@@ -60,13 +64,9 @@ type ProcessedCapture = Omit<
 const DEFAULT_FORMAT = "png";
 const DEFAULT_QUALITY = 85;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function numberField(value: Record<string, unknown> | undefined, key: string): number | undefined {
+function numberField(value: JsonObject | undefined, key: string): number | undefined {
   const field = value?.[key];
-  return typeof field === "number" && Number.isFinite(field) ? field : undefined;
+  return hasNumberType(field) && Number.isFinite(field) ? field : undefined;
 }
 
 function parseImageData(raw: string | undefined, fallbackMimeType: string) {
@@ -78,18 +78,18 @@ function parseImageData(raw: string | undefined, fallbackMimeType: string) {
   };
 }
 
-function parsePoint(value: unknown): { x: number; y: number } | undefined {
-  if (!isRecord(value)) return undefined;
+function parsePoint<Value>(value: Value): ScreenPoint | undefined {
+  if (!isJsonObject(value)) return undefined;
   const x = numberField(value, "x");
   const y = numberField(value, "y");
   return x === undefined || y === undefined ? undefined : { x, y };
 }
 
-async function rawCapture(cua: CuaComputerClient): Promise<RawCapture> {
+async function rawCapture(cua: CuaComputerClientContract): Promise<RawCapture> {
   if (cua.supports("get_desktop_state")) {
     const desktop = await cua.command("get_desktop_state");
     const { data, mimeType } = parseImageData(
-      typeof desktop.image_data === "string" ? desktop.image_data : undefined,
+      hasStringType(desktop.image_data) ? desktop.image_data : undefined,
       "image/png",
     );
     const screenWidth = numberField(desktop, "screen_width");
@@ -115,12 +115,12 @@ async function rawCapture(cua: CuaComputerClient): Promise<RawCapture> {
     cua.command("get_screen_size"),
     cua.command("get_cursor_position").catch(() => undefined),
   ]);
-  const dimensions = isRecord(size.size) ? size.size : undefined;
+  const dimensions = isJsonObject(size.size) ? size.size : undefined;
   const screenWidth = numberField(dimensions, "width");
   const screenHeight = numberField(dimensions, "height");
   if (!screenWidth || !screenHeight) throw new Error("CUA returned an invalid desktop size.");
   const { data, mimeType } = parseImageData(
-    typeof shot.image_data === "string" ? shot.image_data : undefined,
+    hasStringType(shot.image_data) ? shot.image_data : undefined,
     "image/png",
   );
   return {
@@ -143,7 +143,7 @@ async function imageDimensions(buffer: Buffer, raw: RawCapture): Promise<{ width
 }
 
 async function windowRegion(
-  cua: CuaComputerClient,
+  cua: CuaComputerClientContract,
   windowId: string | number,
   source: { width: number; height: number },
   screen: { width: number; height: number },
@@ -189,7 +189,7 @@ function boundedRegion(region: ScreenshotRegion, source: { width: number; height
 }
 
 async function processCapture(
-  cua: CuaComputerClient,
+  cua: CuaComputerClientContract,
   raw: RawCapture,
   request: ScreenshotRequest,
 ): Promise<ProcessedCapture> {
@@ -263,7 +263,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function captureCuaObservation(
-  cua: CuaComputerClient,
+  cua: CuaComputerClientContract,
   request: ScreenshotRequest,
   options: {
     sequence: number;
@@ -284,8 +284,8 @@ export async function captureCuaObservation(
 
 export function observationPointToScreen(
   observation: CuaObservation,
-  point: { x: number; y: number },
-): { x: number; y: number } {
+  point: ScreenPoint,
+): ScreenPoint {
   if (point.x < 0 || point.y < 0 || point.x >= observation.width || point.y >= observation.height) {
     throw new Error(
       `Coordinate (${point.x}, ${point.y}) is outside observation ${observation.id} `

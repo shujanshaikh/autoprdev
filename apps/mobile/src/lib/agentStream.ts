@@ -1,10 +1,4 @@
-import {
-  parseJsonEventStream,
-  readUIMessageStream,
-  uiMessageChunkSchema,
-  type UIMessage,
-  type UIMessageChunk,
-} from "ai";
+import { parseJsonEventStream, readUIMessageStream, uiMessageChunkSchema, type UIMessage, type UIMessageChunk } from "ai";
 
 type StreamStatus = "connecting" | "reconnecting" | "streaming";
 

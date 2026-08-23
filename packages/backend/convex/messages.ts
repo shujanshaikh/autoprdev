@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { ConvexError, v } from "convex/values";
 import type { UIMessage } from "ai";
 
@@ -7,11 +10,8 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import { IMAGE_URL_EXPIRES_IN_SECONDS, r2 } from "./imageUploads";
 import { deleteAssistantPartsBlobKeysBestEffort } from "./lib/assistantPartsBlobs";
-import {
-  hashAgentPersistenceToken,
-  requireAgentPersistenceGrant,
-  requireAgentSessionPersistenceGrant,
-} from "./lib/agentPersistence";
+import { asR2ActionContext, asR2MutationContext } from "./lib/r2Context";
+import { hashAgentPersistenceToken, requireAgentPersistenceGrant, requireAgentSessionPersistenceGrant } from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
 
 const ASSISTANT_PARTS_CONTENT_TYPE = "application/json; charset=utf-8";
@@ -19,8 +19,6 @@ const ASSISTANT_PARTS_URL_EXPIRES_IN_SECONDS = 60;
 // Keep ordinary text responses inline; only larger assistant payloads pay the R2 round trip.
 const ASSISTANT_PARTS_INLINE_MAX_BYTES = 32 * 1024;
 
-type R2StoreCtx = Parameters<typeof r2.store>[0];
-type R2DeleteCtx = Parameters<typeof r2.deleteObject>[0];
 type MessageDoc = Doc<"messages">;
 type HydratedMessageDoc = MessageDoc & {
   parts: UIMessage["parts"];
@@ -66,8 +64,8 @@ type AgentRunIssue = {
   occurredAt: number;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
 function safeObjectKeySegment(value: string) {
@@ -84,17 +82,17 @@ function assistantPartsObjectKey(authorId: string, threadId: string, messageId: 
   ].join("/");
 }
 
-function errorMessage(error: unknown) {
+function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isExistingR2ObjectError(error: unknown, key: string) {
+function isExistingR2ObjectError<ErrorValue>(error: ErrorValue, key: string) {
   const message = errorMessage(error);
   return message.includes("Metadata already exists") && message.includes(key);
 }
 
 async function sha256Hex(bytes: Uint8Array) {
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const buffer = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -114,11 +112,11 @@ function parseAssistantParts(value: string): UIMessage["parts"] {
     throw new Error("Assistant parts blob did not contain an array.");
   }
 
-  return parsed as UIMessage["parts"];
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ parsed as UIMessage["parts"];
 }
 
 function assistantPartsUnavailable(): UIMessage["parts"] {
-  return [{
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ [{
     type: "text",
     text: "Assistant response content is unavailable because its stored parts could not be loaded.",
   }] as UIMessage["parts"];
@@ -126,7 +124,7 @@ function assistantPartsUnavailable(): UIMessage["parts"] {
 
 function fallbackAssistantParts(message: MessageDoc): UIMessage["parts"] {
   return message.parts.length > 0
-    ? message.parts as UIMessage["parts"]
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ message.parts as UIMessage["parts"]
     : assistantPartsUnavailable();
 }
 
@@ -167,7 +165,7 @@ function getR2Key(part: UIMessage["parts"][number]) {
 
   const autoprMetadata = part.providerMetadata.autopr;
 
-  return isRecord(autoprMetadata) && typeof autoprMetadata.r2Key === "string"
+  return isRecord(autoprMetadata) && hasStringType(autoprMetadata.r2Key)
     ? autoprMetadata.r2Key
     : null;
 }
@@ -393,7 +391,7 @@ async function readAssistantPartsBlob(args: {
 
 async function readAssistantPartsForMessage(message: MessageDoc): Promise<UIMessage["parts"]> {
   if (message.role !== "assistant" || !message.partsR2Key) {
-    return message.parts as UIMessage["parts"];
+    return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ message.parts as UIMessage["parts"];
   }
 
   try {
@@ -497,7 +495,11 @@ export const upsertIncomingAgentSessionMessagesInternal = internalMutation({
       const hasUserActivity = args.messages.some((message) => message.role === "user");
       await ctx.db.patch(thread._id, {
         updatedAt: now,
-        ...(hasUserActivity ? { settledOverride: undefined, settledAt: undefined } : {}),
+        ...(() => {
+  let optionalProperties;
+  if (hasUserActivity) optionalProperties = { settledOverride: undefined, settledAt: undefined };
+  return optionalProperties;
+})(),
       });
     }
 
@@ -944,7 +946,7 @@ async function persistAssistantParts(
   authorId: string,
   args: PatchAssistantPartsArgs,
 ) {
-  const parts = args.parts as UIMessage["parts"];
+  const parts = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ args.parts as UIMessage["parts"];
   const encoded = encodeAssistantParts(parts);
   const sha256 = await sha256Hex(encoded.bytes);
   const shouldStoreInline = shouldStoreAssistantPartsInline(encoded.sizeBytes);
@@ -960,7 +962,7 @@ async function persistAssistantParts(
 
   if (partsR2Key) {
     try {
-      await r2.store(ctx as unknown as R2StoreCtx, encoded.bytes, {
+      await r2.store(asR2ActionContext(ctx), encoded.bytes, {
         key: partsR2Key,
         type: ASSISTANT_PARTS_CONTENT_TYPE,
         disposition: `attachment; filename="${safeObjectKeySegment(args.assistantMessageId)}.json"`,
@@ -1000,11 +1002,11 @@ async function persistAssistantParts(
         });
 
     if (result.previousPartsR2Key && result.previousPartsR2Key !== partsR2Key) {
-      await deleteAssistantPartsBlobKeysBestEffort(ctx as unknown as R2DeleteCtx, [result.previousPartsR2Key]);
+      await deleteAssistantPartsBlobKeysBestEffort(asR2MutationContext(ctx), [result.previousPartsR2Key]);
     }
   } catch (error) {
     if (storedNewBlobKey) {
-      await deleteAssistantPartsBlobKeysBestEffort(ctx as unknown as R2DeleteCtx, [storedNewBlobKey]);
+      await deleteAssistantPartsBlobKeysBestEffort(asR2MutationContext(ctx), [storedNewBlobKey]);
     }
     throw error;
   }

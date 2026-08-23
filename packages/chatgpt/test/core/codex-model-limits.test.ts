@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CHATGPT_CODEX_MODEL_LIMITS,
-  getChatGPTCodexModelLimits,
-} from "../../src/core/codex-model-limits";
+import { CHATGPT_CODEX_MODEL_LIMITS, getChatGPTCodexModelLimits } from "../../src/core/codex-model-limits";
 
 describe("ChatGPT Codex model limits", () => {
   it("uses the ChatGPT catalog limits instead of public API limits", () => {

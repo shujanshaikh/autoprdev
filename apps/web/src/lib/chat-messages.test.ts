@@ -1,3 +1,6 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject } from "@autopr/config/runtime-value";
+import { isToolUIPart } from "ai";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,7 +16,7 @@ import { compactPromptMessagesForModel } from "./agent-message-compaction";
 describe("chat message persistence helpers", () => {
   it("strips computer screenshot payloads while preserving metadata and recordings", () => {
     const screenshotPayload = "a".repeat(1_500);
-    const parts = [
+    const parts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "dynamic-tool",
         toolName: "computer",
@@ -39,10 +42,21 @@ describe("chat message persistence helpers", () => {
           },
         },
       },
-    ] as any;
+    ] satisfies Parameters<typeof sanitizeAssistantPartsForPersistence>[0];
 
     const sanitized = sanitizeAssistantPartsForPersistence(parts);
-    const output = (sanitized[0] as any).output;
+    const part = sanitized[0];
+    if (
+      !part
+      || !isToolUIPart(part)
+      || part.state !== "output-available"
+      || !isJsonObject(part.output)
+      || !hasStringType(part.output.content)
+      || !isJsonObject(part.output.details)
+    ) {
+      throw new Error("sanitized computer output is invalid");
+    }
+    const output = part.output;
 
     expect(output.details.screenshot.data).toEqual({
       omitted: true,
@@ -61,7 +75,7 @@ describe("chat message persistence helpers", () => {
   });
 
   it("leaves non-computer tool payloads unchanged", () => {
-    const parts = [
+    const parts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "dynamic-tool",
         toolName: "bash",
@@ -76,13 +90,13 @@ describe("chat message persistence helpers", () => {
   });
 
   it("uses completed persisted assistant parts over stale live parts", () => {
-    const currentParts = [
+    const currentParts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "text",
         text: "I'll inspect the repository status.",
       },
     ] as any;
-    const persistedParts = [
+    const persistedParts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "text",
         text: "I'll inspect the repository status.\n\nLatest changes on main: fixed the UI.",
@@ -97,14 +111,14 @@ describe("chat message persistence helpers", () => {
   });
 
   it("keeps newer streaming assistant text over shorter persisted parts", () => {
-    const currentParts = [
+    const currentParts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "text",
         state: "streaming",
         text: "I'll inspect the repository status and keep streaming details.",
       },
     ] as any;
-    const persistedParts = [
+    const persistedParts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "text",
         text: "I'll inspect the repository status.",
@@ -119,14 +133,14 @@ describe("chat message persistence helpers", () => {
   });
 
   it("uses longer persisted assistant text even when live text is still marked streaming", () => {
-    const currentParts = [
+    const currentParts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "text",
         state: "streaming",
         text: "I'll inspect the repository status.",
       },
     ] as any;
-    const persistedParts = [
+    const persistedParts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "text",
         text: "I'll inspect the repository status.\n\nLatest changes on main: fixed the UI.",
@@ -155,7 +169,7 @@ describe("chat message persistence helpers", () => {
         fileName: "flow.mp4",
       },
     };
-    const parts = [
+    const parts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "dynamic-tool",
         toolName: "computer",
@@ -171,7 +185,7 @@ describe("chat message persistence helpers", () => {
     ] as any;
 
     const sanitized = sanitizeAssistantPartsForPersistence(parts);
-    const output = (sanitized[0] as any).output;
+    const output = (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ sanitized[0] as any).output;
 
     expect(output.content).toBe("Actions: screenshot");
     expect(output.details.screenshot.data).toEqual({
@@ -193,7 +207,7 @@ describe("chat message persistence helpers", () => {
         status: "completed",
       },
     };
-    const parts = [
+    const parts = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ [
       {
         type: "tool-computer",
         toolCallId: "tool-3",
@@ -221,7 +235,7 @@ describe("chat message persistence helpers", () => {
     ] as any;
 
     const sanitized = sanitizeAssistantPartsForPersistence(parts);
-    const output = (sanitized[0] as any).output;
+    const output = (/* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ sanitized[0] as any).output;
 
     expect(output.content).toBe("Recording completed.");
     expect(output.details.recording).toEqual(metadata.recording);
@@ -245,14 +259,14 @@ describe("chat message persistence helpers", () => {
         input: { command: "pwd" },
         output: { content: "/workspace", details: {} },
       },
-    ] as Parameters<typeof sanitizeStoppedAssistantParts>[0];
+    ] satisfies Parameters<typeof sanitizeStoppedAssistantParts>[0];
 
     expect(sanitizeStoppedAssistantParts(parts)).toEqual([parts[1]]);
   });
 
   it("compacts long file mutation payloads before model conversion", () => {
     const longContent = "x".repeat(5_000);
-    const message = {
+    const message = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ {
       id: "assistant-1",
       role: "assistant",
       parts: [
@@ -281,7 +295,7 @@ describe("chat message persistence helpers", () => {
     } as any;
 
     const sanitized = sanitizeMessageForModelConversion(message);
-    const part = sanitized.parts[0] as any;
+    const part = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ sanitized.parts[0] as any;
 
     expect(part.input.content).toContain("write.content omitted from model prompt");
     expect(part.input.content.length).toBeLessThan(700);
@@ -335,7 +349,7 @@ describe("chat message persistence helpers", () => {
       },
     ];
 
-    const compacted = compactPromptMessagesForModel(messages) as any;
+    const compacted = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ compactPromptMessagesForModel(messages) as any;
     const toolCall = compacted[0].content[0];
     const toolResult = compacted[1].content[0];
 

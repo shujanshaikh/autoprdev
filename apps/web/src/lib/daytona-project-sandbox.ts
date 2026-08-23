@@ -1,30 +1,14 @@
+import { hasNumberType } from "@autopr/config/runtime-type";
+
 import "@tanstack/react-start/server-only";
 
-import {
-  createSandbox,
-  deleteSandbox,
-  DEFAULT_SANDBOX_WORKDIR,
-  sandboxRepositoryDirectoryName,
-  sandboxRepositoryPath,
-  type DaytonaSandbox,
-} from "@autopr/agent/sandbox";
-import {
-  autoprSandboxLabels,
-  autoprSandboxName,
-} from "@autopr/backend/convex/lib/sandboxIdentity";
+import { createSandbox, deleteSandbox, DEFAULT_SANDBOX_WORKDIR, sandboxRepositoryDirectoryName, sandboxRepositoryPath, type DaytonaSandbox } from "@autopr/agent/sandbox";
+import { autoprSandboxLabels, autoprSandboxName } from "@autopr/backend/convex/lib/sandboxIdentity";
 
 import { runAuthenticatedSandboxCommand, withEphemeralGitAuth } from "#/lib/sandbox-git-auth";
 import { redactGitDiagnostic } from "#/lib/git-diagnostics";
-import {
-  sandboxCommandOutput,
-  sandboxCommandStdout,
-} from "@autopr/backend/convex/lib/sandboxCommandOutput";
-import {
-  decideWorktreeProvision,
-  parseGitRemoteHeadNames,
-  parseGitWorktreeList,
-  resolveAvailableThreadFeatureBranch,
-} from "@autopr/backend/convex/lib/threadWorktree";
+import { sandboxCommandOutput, sandboxCommandStdout } from "@autopr/backend/convex/lib/sandboxCommandOutput";
+import { decideWorktreeProvision, parseGitRemoteHeadNames, parseGitWorktreeList, resolveAvailableThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
 export class SandboxGitConflictError extends Error {
   constructor(message = "Could not switch branches because the sandbox has uncommitted changes.") {
@@ -62,7 +46,7 @@ async function runSandboxCommand(sandbox: DaytonaSandbox, command: string) {
       120,
     );
 
-    if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+    if (hasNumberType(result.exitCode) && result.exitCode !== 0) {
       const output = sandboxCommandOutput(result);
 
       if (
@@ -142,7 +126,7 @@ export async function createProjectSandbox(options: {
     `git clone --branch ${shellEscape(options.branch)} --single-branch -- ${shellEscape(options.cloneUrl)} ${shellEscape(repoPath)}`,
     DEFAULT_SANDBOX_WORKDIR,
   );
-  if (typeof clone.exitCode === "number" && clone.exitCode !== 0) {
+  if (hasNumberType(clone.exitCode) && clone.exitCode !== 0) {
     throw new SandboxGitCommandError(
       "Could not clone the selected repository.",
       redactGitDiagnostic(sandboxCommandOutput(clone), [options.githubToken]),
@@ -179,7 +163,7 @@ export async function switchProjectSandboxBranch(options: {
     "git fetch origin --prune",
     repoPath,
   );
-  if (typeof fetchResult.exitCode === "number" && fetchResult.exitCode !== 0) {
+  if (hasNumberType(fetchResult.exitCode) && fetchResult.exitCode !== 0) {
     throw new Error(fetchResult.stderr || fetchResult.result || "Could not fetch the selected branch.");
   }
   await runSandboxCommand(
@@ -203,7 +187,7 @@ export async function materializeGithubPullRequestWorktree(options: {
   return withEphemeralGitAuth(sandbox, options.githubToken, async (env) => {
     const runGit = async (cwd: string, args: string, allowFailure = false) => {
       const result = await sandbox.process.executeCommand(`git ${args}`, cwd, env, 120);
-      const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
+      const exitCode = hasNumberType(result.exitCode) ? result.exitCode : 0;
       const output = sandboxCommandOutput({
         result: result.result,
         stderr: result.stderr,
@@ -290,7 +274,7 @@ export async function materializeGithubPullRequestWorktree(options: {
         undefined,
         30,
       );
-      if (typeof mkdir.exitCode === "number" && mkdir.exitCode !== 0) {
+      if (hasNumberType(mkdir.exitCode) && mkdir.exitCode !== 0) {
         throw new SandboxGitCommandError("Could not create the thread worktree directory.");
       }
       await runGit(
@@ -410,7 +394,7 @@ export async function commitPreparedProjectSandboxChanges(options: {
     result: commitResult.result,
     stderr: commitResult.stderr,
   }));
-  if (typeof commitResult.exitCode === "number" && commitResult.exitCode !== 0) {
+  if (hasNumberType(commitResult.exitCode) && commitResult.exitCode !== 0) {
     throw new SandboxGitCommandError("Git validation or commit hooks rejected the commit.", diagnostics);
   }
   const commitSha = sandboxCommandOutput(
@@ -473,7 +457,7 @@ export async function createProjectSandboxFeatureBranch(options: {
     `git ls-remote --heads origin ${shellEscape(`refs/heads/${options.preferredBranch}*`)}`,
     repoPath,
   );
-  if (typeof remoteBranchesResult.exitCode === "number" && remoteBranchesResult.exitCode !== 0) {
+  if (hasNumberType(remoteBranchesResult.exitCode) && remoteBranchesResult.exitCode !== 0) {
     throw new SandboxGitCommandError(
       "Could not inspect remote branches before creating the feature branch.",
       redactGitDiagnostic(sandboxCommandOutput(remoteBranchesResult), [options.githubToken]),
@@ -499,7 +483,7 @@ export async function validatePreparedProjectSandboxCommit(options: {
   const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const result = await sandbox.process.executeCommand("git diff --cached --check", repoPath, undefined, 120);
   const diagnostics = redactGitDiagnostic(sandboxCommandOutput({ result: result.result, stderr: result.stderr }));
-  if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+  if (hasNumberType(result.exitCode) && result.exitCode !== 0) {
     throw new SandboxGitCommandError("Git validation found whitespace or conflict-marker errors.", diagnostics);
   }
   return { diagnostics: diagnostics || undefined };
@@ -527,7 +511,7 @@ async function inspectRemoteBranch(
     `git ls-remote --heads ${shellEscape(target?.remoteUrl ?? "origin")} ${shellEscape(`refs/heads/${target?.remoteBranch ?? branch}`)}`,
     repoPath,
   );
-  if (typeof remote.exitCode === "number" && remote.exitCode !== 0) {
+  if (hasNumberType(remote.exitCode) && remote.exitCode !== 0) {
     throw new SandboxGitCommandError(
       "Could not inspect the remote branch.",
       redactGitDiagnostic(sandboxCommandOutput({ result: remote.result, stderr: remote.stderr }), [githubToken]),
@@ -575,7 +559,7 @@ export async function pushProjectSandboxBranchIfNeeded(options: {
       `git push ${setUpstream}${shellEscape(remote)} ${shellEscape(`HEAD:refs/heads/${remoteBranch}`)}`,
       repoPath,
     );
-    if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+    if (hasNumberType(result.exitCode) && result.exitCode !== 0) {
       throw new Error(sandboxCommandOutput(result) || "Could not push the thread branch.");
     }
   } catch (error) {
@@ -621,7 +605,7 @@ export async function readProjectSandboxPullRequestContext(options: {
     `git fetch --no-tags origin ${shellEscape(`refs/heads/${options.baseBranch}:${remoteBase}`)}`,
     repoPath,
   );
-  if (typeof fetchBase.exitCode === "number" && fetchBase.exitCode !== 0) {
+  if (hasNumberType(fetchBase.exitCode) && fetchBase.exitCode !== 0) {
     throw new SandboxGitCommandError(
       `Could not refresh the base branch ${options.baseBranch}.`,
       redactGitDiagnostic(sandboxCommandOutput(fetchBase), [options.githubToken]),
@@ -688,7 +672,7 @@ export async function pullProjectSandboxBranch(options: {
       : "git fetch origin --prune",
     repoPath,
   );
-  if (typeof fetchResult.exitCode === "number" && fetchResult.exitCode !== 0) {
+  if (hasNumberType(fetchResult.exitCode) && fetchResult.exitCode !== 0) {
     throw new Error(fetchResult.stderr || fetchResult.result || "Could not fetch the thread branch.");
   }
 

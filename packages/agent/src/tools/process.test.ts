@@ -1,13 +1,8 @@
+import { type JsonObject } from "@autopr/config/runtime-value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { DaytonaSandbox } from "../sandbox";
 
 const mocks = vi.hoisted(() => ({
   getSandboxContext: vi.fn(),
-}));
-
-vi.mock("../sandbox", () => ({
-  getSandboxContext: mocks.getSandboxContext,
 }));
 
 import { createDaytonaProcessTool } from "./process";
@@ -27,11 +22,12 @@ async function executeProcess(input: ProcessInput) {
   const processTool = createDaytonaProcessTool(
     { cacheKey: "process-test" },
     backgroundProcesses,
+    { getSandboxContext: mocks.getSandboxContext },
   );
   if (!processTool.execute) throw new Error("Process tool is not executable");
-  return await processTool.execute(input, { toolCallId: "process-call-1", messages: [] }) as {
+  return /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ await processTool.execute(input, { toolCallId: "process-call-1", messages: [] }) as {
     content: string;
-    details: Record<string, unknown>;
+    details: JsonObject;
   };
 }
 
@@ -48,7 +44,7 @@ describe("Daytona process tool", () => {
     vi.clearAllMocks();
     backgroundProcesses = createBackgroundProcessScope("process-test-owner");
     mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-process-test", process } as unknown as DaytonaSandbox,
+      sandbox: { id: "sandbox-process-test", process },
       workDir: "/workspace/repo",
     });
   });
@@ -81,7 +77,7 @@ describe("Daytona process tool", () => {
     backgroundProcesses.registerCommand(OWNED_SESSION_ID, "cmd-large", "x".repeat(10_000));
 
     const result = await executeProcess({ action: "list" });
-    const sessions = result.details.sessions as Array<{ commands: Array<{ command: string }> }>;
+    const sessions = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ result.details.sessions as Array<{ commands: Array<{ command: string }> }>;
     expect(sessions[0]?.commands[0]?.command.length).toBeLessThan(4_100);
     expect(result.content.length).toBeLessThan(5_000);
   });

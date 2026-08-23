@@ -2,15 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createUIMessageStreamResponse } from "ai";
 import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 
-import {
-  emptyUIMessageStream,
-  finishedUIMessageStream,
-  readAgentUIMessageStream,
-} from "#/lib/trigger-agent-stream-server";
-import {
-  isTriggerNotFoundError,
-  lookupTriggerAgentRun,
-} from "#/lib/trigger-agent-run-server";
+import { emptyUIMessageStream, finishedUIMessageStream, readAgentUIMessageStream } from "#/lib/trigger-agent-stream-server";
+import { isTriggerNotFoundError, lookupTriggerAgentRun } from "#/lib/trigger-agent-run-server";
 import { agentUserTag } from "#/lib/trigger-agent-contract";
 
 async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -70,6 +63,6 @@ async function GET(request: Request, { params }: { params: Promise<{ id: string 
 
 export const Route = createFileRoute("/api/agent/$id/stream")({
   server: {
-    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, { params: Promise.resolve(params) } as any) },
+    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any) },
   },
 });

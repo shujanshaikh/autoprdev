@@ -1,11 +1,6 @@
-import {
-  MultiFileDiff,
-  PatchDiff,
-  Virtualizer,
-  WorkerPoolContextProvider,
-  useWorkerPool,
-  type FileContents,
-} from "@pierre/diffs/react";
+import { hasUndefinedType } from "@autopr/config/runtime-type";
+
+import { MultiFileDiff, PatchDiff, Virtualizer, WorkerPoolContextProvider, useWorkerPool, type FileContents } from "@pierre/diffs/react";
 import { DEFAULT_THEMES, type FileDiffOptions, type SelectedLineRange, type ThemeTypes } from "@pierre/diffs";
 import { useTheme } from "next-themes";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -42,7 +37,7 @@ const DEFAULT_DIFF_PREFERENCES: PierreDiffPreferenceState = {
 const PierreDiffPreferencesContext = createContext<PierreDiffPreferences | undefined>(undefined);
 
 function readStoredDiffPreferences(): PierreDiffPreferenceState {
-  if (typeof window === "undefined") {
+  if (hasUndefinedType(globalThis.window)) {
     return DEFAULT_DIFF_PREFERENCES;
   }
 
@@ -52,7 +47,7 @@ function readStoredDiffPreferences(): PierreDiffPreferenceState {
       return DEFAULT_DIFF_PREFERENCES;
     }
 
-    const stored = JSON.parse(raw) as Partial<PierreDiffPreferenceState>;
+    const stored = JSON.parse(raw) satisfies Partial<PierreDiffPreferenceState>;
     return {
       diffStyle: stored.diffStyle === "split" ? "split" : "unified",
       lineDiffType: stored.lineDiffType === "word-alt" ? "word-alt" : "none",
@@ -166,7 +161,7 @@ function useIdleMount(defer: boolean): boolean {
       return;
     }
 
-    if (typeof window.requestIdleCallback === "function") {
+    if (window.requestIdleCallback instanceof Function) {
       const handle = window.requestIdleCallback(() => setReady(true), { timeout: 500 });
       return () => window.cancelIdleCallback(handle);
     }

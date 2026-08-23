@@ -25,6 +25,16 @@ interface FileListEntry {
   permissions?: string;
 }
 
+export interface DaytonaLsDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{
+    sandbox: { fs: { listFiles: (path: string) => Promise<FileListEntry[]> } };
+    workDir: string;
+  }>;
+  resolveJailedSandboxPath: typeof resolveJailedSandboxPath;
+}
+
+const defaultDependencies: DaytonaLsDependencies = { getSandboxContext, resolveJailedSandboxPath };
+
 function formatEntry(entry: FileListEntry): string {
   const suffix = entry.isDir ? "/" : "";
   const size = entry.isDir ? "-" : formatSize(entry.size ?? 0);
@@ -32,9 +42,9 @@ function formatEntry(entry: FileListEntry): string {
   return `${permissions}  ${size.padStart(8)}  ${entry.name}${suffix}`;
 }
 
-async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOptions) {
-  const context = await getSandboxContext(sandboxOptions);
-  const remotePath = await resolveJailedSandboxPath(input.path, {
+async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOptions, dependencies: DaytonaLsDependencies) {
+  const context = await dependencies.getSandboxContext(sandboxOptions);
+  const remotePath = await dependencies.resolveJailedSandboxPath(input.path, {
     workDir: context.workDir,
     sandboxOptions,
   });
@@ -44,9 +54,7 @@ async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOp
     () => context.sandbox.fs.listFiles(remotePath),
     LS_TIMEOUT_MS,
     () => new Error(`Timed out listing ${remotePath} in Daytona.`),
-  ))
-    .map((entry) => entry as FileListEntry)
-    .sort((left, right) => left.name.localeCompare(right.name));
+  )).sort((left, right) => left.name.localeCompare(right.name));
 
   if (allEntries.length === 0) {
     return {
@@ -98,13 +106,16 @@ async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOp
   };
 }
 
-export function createDaytonaLsTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaLsTool(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaLsDependencies = defaultDependencies,
+) {
   return tool({
     title: "ls",
     description:
       "List one Daytona sandbox directory in stable name order with 1-based offset pagination. Use for quick directory inspection before broader searches or reads, and follow nextOffset when more entries remain. Paths are canonicalized inside the workspace jail. Read-only and safe to retry.",
     inputSchema: lsInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaLs(input, sandboxOptions),
+    execute: (input) => executeDaytonaLs(input, sandboxOptions, dependencies),
   });
 }

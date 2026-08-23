@@ -14,36 +14,14 @@ import { fetchAction } from "convex/nextjs";
 import { stepCountIs, streamText, type UIMessage, wrapLanguageModel } from "ai";
 import { z } from "zod";
 
-import {
-  createAgentContextCompactor,
-  createContextOverflowRecoveryMiddleware,
-} from "#/lib/agent-context-compaction";
+import { createAgentContextCompactor, createContextOverflowRecoveryMiddleware } from "#/lib/agent-context-compaction";
 import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
-import {
-  agentRunIssueFromError,
-  displayAgentError,
-} from "#/lib/agent-run-issue";
-import {
-  createAssistantUsageMetadata,
-  type AssistantUsageMetadata,
-} from "#/lib/agent-usage";
-import {
-  sanitizeAssistantPartsForPersistence,
-  sanitizeStoppedAssistantParts,
-  toUIMessage,
-  type StoredMessageRow,
-} from "#/lib/chat-messages";
-import {
-  agentProviderOptions,
-  agentSystemPrompt,
-  createAgentResponsesModel,
-  revokeAgentModelGrant,
-} from "#/lib/agent-auth-runtime-server";
+import { agentRunIssueFromError, displayAgentError } from "#/lib/agent-run-issue";
+import { createAssistantUsageMetadata, type AssistantUsageMetadata } from "#/lib/agent-usage";
+import { sanitizeAssistantPartsForPersistence, sanitizeStoppedAssistantParts, toUIMessage, type StoredMessageRow } from "#/lib/chat-messages";
+import { agentProviderOptions, agentSystemPrompt, createAgentResponsesModel, revokeAgentModelGrant } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit, isAgentReasoningEffortSupported } from "#/lib/agent-models";
-import {
-  AGENT_CHAT_TASK_ID,
-  type AgentChatClientData,
-} from "#/lib/trigger-agent-contract";
+import { AGENT_CHAT_TASK_ID, type AgentChatClientData } from "#/lib/trigger-agent-contract";
 
 const MAX_AGENT_STEPS = 100;
 

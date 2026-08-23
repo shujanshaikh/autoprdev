@@ -13,31 +13,13 @@ import { task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
 import { stepCountIs, streamText, wrapLanguageModel } from "ai";
 
-import {
-  createAgentContextCompactor,
-  createContextOverflowRecoveryMiddleware,
-} from "#/lib/agent-context-compaction";
-import {
-  createAssistantUsageMetadata,
-  type AssistantUsageMetadata,
-} from "#/lib/agent-usage";
-import {
-  agentRunIssueFromError,
-  type AgentRunIssue,
-} from "#/lib/agent-run-issue";
+import { createAgentContextCompactor, createContextOverflowRecoveryMiddleware } from "#/lib/agent-context-compaction";
+import { createAssistantUsageMetadata, type AssistantUsageMetadata } from "#/lib/agent-usage";
+import { agentRunIssueFromError, type AgentRunIssue } from "#/lib/agent-run-issue";
 import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
-import {
-  agentProviderOptions,
-  agentSystemPrompt,
-  createAgentResponsesModel,
-  revokeAgentModelGrant,
-} from "#/lib/agent-auth-runtime-server";
+import { agentProviderOptions, agentSystemPrompt, createAgentResponsesModel, revokeAgentModelGrant } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit } from "#/lib/agent-models";
-import {
-  AGENT_TASK_ID,
-  type AgentTaskOptions,
-  type AgentTaskPayload,
-} from "#/lib/trigger-agent-contract";
+import { AGENT_TASK_ID, type AgentTaskOptions, type AgentTaskPayload } from "#/lib/trigger-agent-contract";
 import { agentUIStream } from "#/trigger/streams";
 
 interface AssistantPersistenceOptions {
@@ -56,11 +38,11 @@ function getConvexUrl() {
   return url;
 }
 
-function isPersistenceUnauthenticatedError(error: unknown) {
+function isPersistenceUnauthenticatedError<ErrorValue>(error: ErrorValue) {
   return error instanceof Error && /unauthorized/i.test(error.message);
 }
 
-function isCancellation(error: unknown, signal: AbortSignal) {
+function isCancellation<ErrorValue>(error: ErrorValue, signal: AbortSignal) {
   return signal.aborted || (error instanceof Error && error.name === "AbortError");
 }
 
@@ -140,9 +122,9 @@ function modelPromptCacheKey(options: AgentTaskOptions) {
   return `autopr-${stableSegment}`;
 }
 
-async function reportAgentFailure(
+async function reportAgentFailure<ErrorValue>(
   options: AgentTaskOptions,
-  error: unknown,
+  error: ErrorValue,
   runId: string,
   attempt: number,
 ) {
@@ -230,6 +212,7 @@ async function runAgentTask(
   };
   let persistenceFinished = false;
   let streamFinished = false;
+  let persistenceFinalizationError: Error | undefined;
   const runStartedAt = Date.now();
 
   if (options.assistantMessageId) {
@@ -339,11 +322,15 @@ async function runAgentTask(
         });
       } catch (error) {
         if (!isPersistenceUnauthenticatedError(error) && !signal.aborted) {
-          throw error;
+          persistenceFinalizationError = error instanceof Error
+            ? error
+            : new Error("Failed to finalize the agent run.", { cause: error });
         }
       }
     }
   }
+
+  if (persistenceFinalizationError) throw persistenceFinalizationError;
 }
 
 export const agentTask = task<typeof AGENT_TASK_ID, AgentTaskPayload, { ok: true }>({

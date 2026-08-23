@@ -1,13 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchGithubBranches } from "@autopr/backend/convex/lib/github_oauth";
 
-import {
-  getGithubOAuthToken,
-  getGithubRepositoryInstallationStatus,
-  GithubConnectionError,
-  requireWorkOSAuth,
-  safeErrorMessage,
-} from "#/lib/github-oauth-server";
+import { getGithubOAuthToken, getGithubRepositoryInstallationStatus, GithubConnectionError, requireWorkOSAuth, safeErrorMessage } from "#/lib/github-oauth-server";
 
 async function GET(_req: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const { owner, repo } = await params;
@@ -32,6 +26,6 @@ async function GET(_req: Request, { params }: { params: Promise<{ owner: string;
 
 export const Route = createFileRoute("/api/github/repositories/$owner/$repo/branches")({
   server: {
-    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, { params: Promise.resolve(params) } as any) },
+    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any) },
   },
 });

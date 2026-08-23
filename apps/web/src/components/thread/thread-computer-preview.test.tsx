@@ -1,45 +1,51 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { hasFunctionType } from "@autopr/config/runtime-type";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
+import {
+  ThreadComputerPreviewView,
+} from "./thread-computer-preview";
+import {
+  resetDaytonaDesktopSessionsForTests,
+} from "./daytona-desktop-connection";
+import type { DaytonaDesktopViewProps } from "./daytona-desktop-view";
+
+const mocks = {
   getDesktopPreview: vi.fn(),
   refreshDesktopActivity: vi.fn(),
-}));
+};
 
-vi.mock("convex/react", () => ({
-  useAction: (action: string) => action === "refreshDesktopActivity"
-    ? mocks.refreshDesktopActivity
-    : mocks.getDesktopPreview,
-}));
-
-vi.mock("@autopr/backend/convex/_generated/api", () => ({
-  api: { projectActions: {
-    getDesktopPreview: "getDesktopPreview",
-    refreshDesktopActivity: "refreshDesktopActivity",
-  } },
-}));
-
-vi.mock("./daytona-desktop-view", () => ({
-  DaytonaDesktopView: ({
-    websocketUrl,
-    connectionRevision,
-    onReconnectRequired,
-  }: {
-    websocketUrl?: string;
-    connectionRevision?: number;
-    onReconnectRequired?: (reason: "credentials" | "stream", failedRevision: number) => void;
-  }) => (
+function MockDesktopView({
+  websocketUrl,
+  connectionRevision,
+  onReconnectRequired,
+}: DaytonaDesktopViewProps) {
+  return (
     <div data-testid="desktop-view">
       {websocketUrl}:{connectionRevision}
       <button type="button" onClick={() => onReconnectRequired?.("stream", connectionRevision ?? 0)}>Simulate VNC disconnect</button>
     </div>
-  ),
-}));
+  );
+}
 
-import { ThreadComputerPreview } from "./thread-computer-preview";
-import { resetDaytonaDesktopSessionsForTests } from "./daytona-desktop-connection";
+type PreviewProps = Pick<
+  ComponentProps<typeof ThreadComputerPreviewView>,
+  "activityKey" | "projectId"
+>;
+
+function ThreadComputerPreview(props: PreviewProps) {
+  return (
+    <ThreadComputerPreviewView
+      {...props}
+      getDesktopPreview={mocks.getDesktopPreview}
+      refreshDesktopActivity={mocks.refreshDesktopActivity}
+      DesktopView={MockDesktopView}
+    />
+  );
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -231,7 +237,7 @@ describe("ThreadComputerPreview", () => {
 
     expect(await screen.findByText("wss://desktop.example.test:1")).toBeTruthy();
     const heartbeat = intervalSpy.mock.calls.at(-1)?.[0];
-    if (typeof heartbeat !== "function") throw new Error("desktop heartbeat is missing");
+    if (!hasFunctionType(heartbeat)) throw new Error("desktop heartbeat is missing");
 
     await act(async () => {
       heartbeat();

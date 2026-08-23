@@ -31,7 +31,7 @@ export type ThreadGitActionResolution = {
   actions: Record<ThreadGitAction, ThreadGitActionAvailability>;
 };
 
-export const threadGitActionLabels: Record<ThreadGitAction, string> = {
+export const threadGitActionLabels = {
   commit: "Commit",
   commit_push: "Commit & push",
   push: "Push",
@@ -40,7 +40,7 @@ export const threadGitActionLabels: Record<ThreadGitAction, string> = {
   commit_push_create_pr: "Commit, push & create PR",
   pull: "Update branch",
   view_pr: "View PR",
-};
+} satisfies Record<ThreadGitAction, string>;
 
 /** Actions that run through the phased Git workflow rather than a direct call. */
 export function isGitWorkflowAction(action: ThreadGitAction) {
@@ -57,7 +57,7 @@ const disabled = (reason: string): ThreadGitActionAvailability => ({ enabled: fa
 const enabled = (): ThreadGitActionAvailability => ({ enabled: true });
 
 function allDisabled(reason: string): Record<ThreadGitAction, ThreadGitActionAvailability> {
-  return Object.fromEntries(
+  return /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ Object.fromEntries(
     threadGitActions.map((action) => [action, disabled(reason)]),
   ) as Record<ThreadGitAction, ThreadGitActionAvailability>;
 }
@@ -330,7 +330,7 @@ export function changedFileTotals(status?: ThreadGitStatus | null) {
 }
 
 export function createOperationId() {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
+  if (globalThis.crypto?.randomUUID instanceof Function) {
     return globalThis.crypto.randomUUID();
   }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {

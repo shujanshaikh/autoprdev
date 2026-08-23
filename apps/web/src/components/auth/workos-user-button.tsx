@@ -1,13 +1,5 @@
 import { Button } from "@autopr/ui/components/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@autopr/ui/components/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
 import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { LogOut, UserRound } from "lucide-react";
 import { useState } from "react";

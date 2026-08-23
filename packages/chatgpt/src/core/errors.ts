@@ -1,4 +1,5 @@
 /** Discriminates {@link ChatGPTAuthError} instances without `instanceof`. */
+
 export type ChatGPTAuthErrorCode =
   | "device_code_request_failed"
   | "device_code_disabled"
@@ -42,6 +43,6 @@ export class ChatGPTAuthError extends Error {
 }
 
 /** `true` when the refresh token can no longer be used and the user must re-authenticate. */
-export function isRefreshTokenInvalid(error: unknown): boolean {
+export function isRefreshTokenInvalid<ErrorValue>(error: ErrorValue): boolean {
   return error instanceof ChatGPTAuthError && error.code === "refresh_token_invalid";
 }

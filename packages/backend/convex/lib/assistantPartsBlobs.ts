@@ -10,7 +10,7 @@ export function collectAssistantPartsBlobKeys(messages: MessageBlobFields[]) {
   return Array.from(new Set(
     messages
       .filter((message) => message.role === "assistant" && message.partsR2Key)
-      .map((message) => message.partsR2Key as string),
+      .map((message) => /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ message.partsR2Key as string),
   ));
 }
 

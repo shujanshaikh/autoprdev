@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  extractDiffEntries,
-  hunkContext,
-  hunkRange,
-  parseUnifiedDiff,
-  visibleWhitespace,
-  wordDiffSegments,
-} from "./diff";
+import { extractDiffEntries, hunkContext, hunkRange, parseUnifiedDiff, visibleWhitespace, wordDiffSegments } from "./diff";
 
 describe("parseUnifiedDiff", () => {
   it("tracks line numbers across hunks and normalizes CRLF", () => {

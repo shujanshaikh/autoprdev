@@ -25,7 +25,7 @@ export interface FileMutationQueueOptions {
 }
 
 function resolveTimeoutBudget(budget: TimeoutBudget | undefined): number | undefined {
-  return typeof budget === "function" ? budget() : budget;
+  return budget instanceof Function ? budget() : budget;
 }
 
 /**

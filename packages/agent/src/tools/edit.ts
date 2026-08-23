@@ -2,11 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
-import {
-  downloadRemoteFileChunk,
-  ensureRemoteParentDirectory,
-  resolveJailedSandboxPath,
-} from "../sandbox/execute";
+import { downloadRemoteFileChunk, ensureRemoteParentDirectory, resolveJailedSandboxPath } from "../sandbox/execute";
 import { createFileMutationQueueKey, withFileMutationQueue } from "./file-mutation-queue";
 import { createBoundedToolDiff } from "./diff";
 import { formatSize, isProbablyBinary, toTextModelOutput } from "./format";
@@ -49,6 +45,25 @@ const editInputSchema = z.object({
 });
 
 type EditInput = z.infer<typeof editInputSchema>;
+
+interface EditSandbox {
+  id: string;
+  fs: { uploadFile: (content: Buffer, remotePath: string) => Promise<void> };
+}
+
+export interface DaytonaEditDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{ sandbox: EditSandbox; workDir: string }>;
+  resolveJailedSandboxPath: typeof resolveJailedSandboxPath;
+  downloadRemoteFileChunk: typeof downloadRemoteFileChunk;
+  ensureRemoteParentDirectory: typeof ensureRemoteParentDirectory;
+}
+
+const defaultDependencies: DaytonaEditDependencies = {
+  getSandboxContext,
+  resolveJailedSandboxPath,
+  downloadRemoteFileChunk,
+  ensureRemoteParentDirectory,
+};
 
 function stripBom(text: string): { bom: string; text: string } {
   return text.startsWith("\uFEFF") ? { bom: "\uFEFF", text: text.slice(1) } : { bom: "", text };
@@ -118,20 +133,20 @@ function applyExactEdits(
   return output;
 }
 
-async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessionOptions) {
+async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessionOptions, dependencies: DaytonaEditDependencies) {
   const path = requireString(input.path, "path", "edit");
   const edits = requireArray<{ oldText?: string; newText?: string }>(input.edits, "edits", "edit").map((edit, index) => ({
     oldText: requireString(edit.oldText, `edits[${index}].oldText`, "edit"),
     newText: requireString(edit.newText, `edits[${index}].newText`, "edit", { allowEmpty: true }),
   }));
-  const context = await getSandboxContext(sandboxOptions);
-  const remotePath = await resolveJailedSandboxPath(path, {
+  const context = await dependencies.getSandboxContext(sandboxOptions);
+  const remotePath = await dependencies.resolveJailedSandboxPath(path, {
     workDir: context.workDir,
     sandboxOptions,
   });
 
   return withFileMutationQueue(createFileMutationQueueKey(context.sandbox.id, remotePath), async () => {
-    const chunk = await downloadRemoteFileChunk({
+    const chunk = await dependencies.downloadRemoteFileChunk({
       remotePath,
       maxBytes: MAX_EDIT_FILE_BYTES,
       sandboxOptions,
@@ -160,7 +175,7 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
     const nextText = bom + restoreLineEndings(normalizedNext, lineEnding);
     const nextBuffer = Buffer.from(nextText, "utf8");
 
-    await ensureRemoteParentDirectory(remotePath, sandboxOptions);
+    await dependencies.ensureRemoteParentDirectory(remotePath, sandboxOptions);
     await context.sandbox.fs.uploadFile(nextBuffer, remotePath);
 
     return {
@@ -185,13 +200,16 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
   });
 }
 
-export function createDaytonaEditTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaEditTool(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaEditDependencies = defaultDependencies,
+) {
   return tool({
     title: "edit",
     description:
       "Edit one existing non-binary file using up to 50 exact replacements matched against the same original content. Each oldText must be unique and change the file; combine nearby or overlapping changes. Preserves BOM/line endings, canonicalizes paths inside the workspace jail, serializes same-file mutations, and bounds stored diffs. Re-read after mismatch errors before retrying.",
     inputSchema: editInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaEdit(input, sandboxOptions),
+    execute: (input) => executeDaytonaEdit(input, sandboxOptions, dependencies),
   });
 }

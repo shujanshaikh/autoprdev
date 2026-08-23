@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  firstUserMessageText,
-  shouldRetryThreadTitleError,
-  threadTitleRetryDelayMs,
-} from "./threadTitle";
+import { firstUserMessageText, shouldRetryThreadTitleError, threadTitleRetryDelayMs } from "./threadTitle";
 
 describe("threadTitle", () => {
   it("uses the first non-empty user text", () => {

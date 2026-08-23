@@ -8,28 +8,56 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
+  type ComponentType,
 } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import {
   getDaytonaDesktopSession,
   subscribeDesktopActivity,
+  type DaytonaDesktopPreview,
 } from "./daytona-desktop-connection";
 
-type ThreadComputerPreviewProps = {
+export type ThreadComputerPreviewProps = {
   projectId: string;
   activityKey?: string;
+};
+
+type ThreadComputerPreviewViewProps = ThreadComputerPreviewProps & {
+  getDesktopPreview: (
+    args: { projectId: string; recoverStream?: boolean },
+  ) => Promise<DaytonaDesktopPreview>;
+  refreshDesktopActivity: (args: { projectId: string }) => Promise<null>;
+  DesktopView?: ComponentType<ComponentProps<typeof DaytonaDesktopView>>;
 };
 
 export function ThreadComputerPreview({
   projectId,
   activityKey,
 }: ThreadComputerPreviewProps) {
+  const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
+  const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
+  return (
+    <ThreadComputerPreviewView
+      projectId={projectId}
+      activityKey={activityKey}
+      getDesktopPreview={getDesktopPreview}
+      refreshDesktopActivity={refreshDesktopActivity}
+    />
+  );
+}
+
+export function ThreadComputerPreviewView({
+  projectId,
+  activityKey,
+  getDesktopPreview,
+  refreshDesktopActivity,
+  DesktopView = DaytonaDesktopView,
+}: ThreadComputerPreviewViewProps) {
   const initialActivityKeyRef = useRef(activityKey);
   const [previewActivityKey, setPreviewActivityKey] = useState<string>();
   const [dismissedActivityKey, setDismissedActivityKey] = useState<string>();
-  const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
-  const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
   const desktopSession = useMemo(() => getDaytonaDesktopSession(projectId), [projectId]);
   const desktop = useSyncExternalStore(
     desktopSession.subscribe,
@@ -115,7 +143,7 @@ export function ThreadComputerPreview({
             </button>
           </div>
         ) : (
-          <DaytonaDesktopView
+          <DesktopView
             websocketUrl={websocketUrl}
             websocketUrlExpiresAt={currentConnection?.expiresAt}
             connectionRevision={currentConnection?.revision}

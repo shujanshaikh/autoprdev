@@ -1,3 +1,4 @@
+import { hasStringType } from "@autopr/config/runtime-type";
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 
 import { toolSlugFromPart } from "@/components/ai-elements/tool";
@@ -13,7 +14,7 @@ function computerToolCallId(message: UIMessage, index: number) {
     return undefined;
   }
 
-  return "toolCallId" in part && typeof part.toolCallId === "string"
+  return "toolCallId" in part && hasStringType(part.toolCallId)
     ? part.toolCallId
     : `${message.id}:${index}`;
 }

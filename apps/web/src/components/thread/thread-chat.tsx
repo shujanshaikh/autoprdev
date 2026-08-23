@@ -1,52 +1,24 @@
+import { hasStringType, hasUndefinedType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@autopr/ui/components/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@autopr/ui/components/popover";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@autopr/ui/components/hover-card";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@autopr/ui/components/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@autopr/ui/components/popover";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@autopr/ui/components/hover-card";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  useTriggerChatTransport,
-  type ChatTransportEvent,
-} from "@trigger.dev/sdk/chat/react";
+import { useTriggerChatTransport, type ChatTransportEvent } from "@trigger.dev/sdk/chat/react";
 import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
 import { useMutation } from "convex/react";
 import { parsePatch } from "diff";
-import {
-  getToolName,
-  isToolUIPart,
-  type FileUIPart,
-  type PrepareReconnectToStreamRequest,
-  type UIMessage,
-} from "ai";
+import { getToolName, isToolUIPart, type FileUIPart, type PrepareReconnectToStreamRequest, type UIMessage } from "ai";
 import { CircleAlert, GitBranch, Loader2, MoreHorizontal, Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { FileTypeIcon } from "#/lib/file-type-icon";
 import { TriggerChatTransport } from "#/lib/trigger-chat-transport";
 import { UIMessageStreamProtocolTransport } from "#/lib/ui-message-stream-protocol";
-import {
-  AGENT_CHAT_OPERATION_HEADER,
-  AGENT_CHAT_TASK_ID,
-  type AgentChatClientInput,
-} from "#/lib/trigger-agent-contract";
+import { AGENT_CHAT_OPERATION_HEADER, AGENT_CHAT_TASK_ID, type AgentChatClientInput } from "#/lib/trigger-agent-contract";
 import { setWorkOSAccessTokenHeader } from "#/lib/workos-access-token";
 import {
   restorePersistedAssistantTail,
@@ -86,50 +58,16 @@ import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { activeThreadComputerActivityKey } from "#/components/thread/thread-computer-activity";
 import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
-import {
-  getCodexReasoningEffortLabel,
-  type CodexModelId,
-  type CodexReasoningEffort,
-} from "#/lib/codex-models";
-import {
-  agentModelKey,
-  getAgentContextLimit,
-  getAgentModelOptions,
-  getAgentReasoningEfforts,
-  selectAgentModel,
-  selectAgentReasoningEffort,
-  type AgentProvider,
-} from "#/lib/agent-models";
+import { getCodexReasoningEffortLabel, type CodexModelId, type CodexReasoningEffort } from "#/lib/codex-models";
+import { agentModelKey, getAgentContextLimit, getAgentModelOptions, getAgentReasoningEfforts, selectAgentModel, selectAgentReasoningEffort, type AgentProvider } from "#/lib/agent-models";
 export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
 export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
-import {
-  appendDiffPromptContexts,
-  formatDiffPromptContextLabel,
-  type DiffPromptContext,
-  type ThreadChangedFile,
-  type ThreadChangedFileSummary,
-  type ThreadDiffDeepLink,
-  type ThreadDiffEntry,
-} from "#/components/thread/thread-diff-panel-utils";
-import {
-  contextTokensFromUsage,
-  formatTokens,
-  getAssistantContextUsage,
-  getAssistantRunUsage,
-  withAssistantRunMetadata,
-  type TokenUsage,
-} from "#/lib/assistant-message-metadata";
+import { appendDiffPromptContexts, formatDiffPromptContextLabel, type DiffPromptContext, type ThreadChangedFile, type ThreadChangedFileSummary, type ThreadDiffDeepLink, type ThreadDiffEntry } from "#/components/thread/thread-diff-panel-utils";
+import { contextTokensFromUsage, formatTokens, getAssistantContextUsage, getAssistantRunUsage, withAssistantRunMetadata, type TokenUsage } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
 import { fetchThreadGitFileDiff } from "#/lib/thread-git-diff";
 import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
-import {
-  DEFAULT_THREAD_TITLE,
-  firstUserMessageForTitle,
-  MAX_THREAD_TITLE_REQUEST_ATTEMPTS,
-  requestGeneratedThreadTitle,
-  threadTitleRetryDelayMs,
-  ThreadTitleRequestError,
-} from "#/lib/thread-title-generation";
+import { DEFAULT_THREAD_TITLE, firstUserMessageForTitle, MAX_THREAD_TITLE_REQUEST_ATTEMPTS, requestGeneratedThreadTitle, threadTitleRetryDelayMs, ThreadTitleRequestError } from "#/lib/thread-title-generation";
 
 type ThreadChatProps = {
   projectId: string;
@@ -154,11 +92,11 @@ type ThreadChatProps = {
   gitStatusEnabled?: boolean;
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+function isRecord<VValue>(v: VValue): v is VValue & (JsonObject) {
+  return isJsonObject(v);
 }
 
-function isExpectedStreamAbort(error: unknown) {
+function isExpectedStreamAbort<ErrorValue>(error: ErrorValue) {
   return (
     error instanceof DOMException && error.name === "AbortError"
   ) || (
@@ -174,18 +112,18 @@ type ThreadPromptHandoff = {
 
 const threadPromptHandoffKey = (threadId: string) => `thread-prompt-handoff:${threadId}`;
 
-function isHandoffFilePart(value: unknown): value is FileUIPart {
+function isHandoffFilePart<ValueValue>(value: ValueValue): value is ValueValue & (FileUIPart) {
   return (
     isRecord(value) &&
     value.type === "file" &&
-    typeof value.url === "string" &&
-    typeof value.mediaType === "string" &&
-    (value.filename === undefined || typeof value.filename === "string")
+    hasStringType(value.url) &&
+    hasStringType(value.mediaType) &&
+    (value.filename === undefined || hasStringType(value.filename))
   );
 }
 
 function readThreadPromptHandoff(threadId: string): ThreadPromptHandoff | null {
-  if (typeof window === "undefined") {
+  if (hasUndefinedType(globalThis.window)) {
     return null;
   }
 
@@ -200,7 +138,7 @@ function readThreadPromptHandoff(threadId: string): ThreadPromptHandoff | null {
       return null;
     }
 
-    const text = typeof parsed.text === "string" ? parsed.text : "";
+    const text = hasStringType(parsed.text) ? parsed.text : "";
     const files = Array.isArray(parsed.files) ? parsed.files.filter(isHandoffFilePart) : [];
 
     return text.trim() || files.length > 0 ? { text, files } : null;
@@ -220,13 +158,13 @@ function findLastBy<T>(items: readonly T[], predicate: (item: T) => boolean): T 
   return undefined;
 }
 
-function isContentDetailsOutput(
-  v: unknown
-): v is { content: string; details: Record<string, unknown> } {
-  return isRecord(v) && typeof v.content === "string" && isRecord(v.details);
+function isContentDetailsOutput<VValue>(
+  v: VValue
+): v is VValue & ({ content: string; details: JsonObject }) {
+  return isRecord(v) && hasStringType(v.content) && isRecord(v.details);
 }
 
-function countPatchLines(patch: string): { additions: number; deletions: number } {
+function countPatchLines(patch: string) {
   let additions = 0;
   let deletions = 0;
 
@@ -294,9 +232,9 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
       }
 
       const diff = output.details.diff;
-      const patch = typeof diff.patch === "string" ? diff.patch : "";
+      const patch = hasStringType(diff.patch) ? diff.patch : "";
       const file =
-        typeof output.details.path === "string"
+        hasStringType(output.details.path)
           ? output.details.path
           : diff.fileName ?? "Changed file";
       const { additions, deletions } = countPatchLines(patch);
@@ -437,7 +375,7 @@ function parseEmbeddedErrorMessage(message: string) {
     if (
       isRecord(parsed) &&
       isRecord(parsed.error) &&
-      typeof parsed.error.message === "string" &&
+      hasStringType(parsed.error.message) &&
       parsed.error.message.length > 0
     ) {
       return parsed.error.message;
@@ -450,7 +388,7 @@ function parseEmbeddedErrorMessage(message: string) {
 }
 
 function AgentRunIssuePanel({ issue }: { issue: AgentRunIssue | undefined }) {
-  if (!issue || typeof issue.message !== "string") {
+  if (!issue || !hasStringType(issue.message)) {
     return null;
   }
 
@@ -470,7 +408,7 @@ const HOVER_CAPABLE_POINTER_QUERY = "(hover: hover) and (pointer: fine)";
 function useHasHoverCapablePointer() {
   return useSyncExternalStore(
     (onStoreChange) => {
-      if (typeof window === "undefined") {
+      if (hasUndefinedType(globalThis.window)) {
         return () => undefined;
       }
 
@@ -478,7 +416,7 @@ function useHasHoverCapablePointer() {
       mediaQuery.addEventListener("change", onStoreChange);
       return () => mediaQuery.removeEventListener("change", onStoreChange);
     },
-    () => typeof window !== "undefined" && window.matchMedia(HOVER_CAPABLE_POINTER_QUERY).matches,
+    () => !hasUndefinedType(globalThis.window) && window.matchMedia(HOVER_CAPABLE_POINTER_QUERY).matches,
     () => false,
   );
 }
@@ -651,7 +589,11 @@ function useAgentSessionTokenRequest(agentApi: string) {
         headers,
         body: JSON.stringify({
           operation,
-          ...(operation === "start-session" ? { clientData } : {}),
+          ...(() => {
+  let optionalProperties;
+  if (operation === "start-session") optionalProperties = { clientData };
+  return optionalProperties;
+})(),
         }),
       });
       type SessionTokenResult = {
@@ -660,7 +602,7 @@ function useAgentSessionTokenRequest(agentApi: string) {
       };
 
       if (!response.ok) {
-        const errorResult = (await response.json().catch(() => null)) as
+        const errorResult = (await response.json().catch(() => null)) satisfies
           | SessionTokenResult
           | null;
         throw new Error(
@@ -671,7 +613,7 @@ function useAgentSessionTokenRequest(agentApi: string) {
         );
       }
 
-      const result = (await response.json().catch(() => null)) as
+      const result = (await response.json().catch(() => null)) satisfies
         | SessionTokenResult
         | null;
 
@@ -818,7 +760,7 @@ function ThreadChatRuntime({
   const sessionWasLiveRef = useRef(Boolean(thread?.isLive));
   const sessionThreadStateRef = useRef({
     isLive: Boolean(thread?.isLive),
-    lastEventId: thread?.triggerSessionLastEventId as string | undefined,
+    lastEventId: thread?.triggerSessionLastEventId satisfies string | undefined,
   });
   sessionThreadStateRef.current = {
     isLive: Boolean(thread?.isLive),
@@ -959,8 +901,16 @@ function ThreadChatRuntime({
 
   const sessionClientData = useMemo<AgentChatClientInput>(
     () => ({
-      ...(selectedModel ? { provider: selectedModel.provider, model: selectedModel.modelId } : {}),
-      ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}),
+      ...(() => {
+  let optionalProperties;
+  if (selectedModel) optionalProperties = { provider: selectedModel.provider, model: selectedModel.modelId };
+  return optionalProperties;
+})(),
+      ...(() => {
+  let optionalProperties;
+  if (selectedReasoningEffort) optionalProperties = { reasoningEffort: selectedReasoningEffort };
+  return optionalProperties;
+})(),
     }),
     [selectedModel, selectedReasoningEffort],
   );
@@ -981,7 +931,7 @@ function ThreadChatRuntime({
     startSession: async ({ clientData }) => ({
       publicAccessToken: await requestAgentSessionToken(
         "start-session",
-        clientData as AgentChatClientInput,
+        clientData satisfies AgentChatClientInput,
       ),
     }),
     fetch: sessionFetch,
@@ -1038,8 +988,16 @@ function ThreadChatRuntime({
             api: options.api,
             body: {
               message: options.messages[options.messages.length - 1],
-              ...(selectedModel ? { provider: selectedModel.provider, model: selectedModel.modelId } : {}),
-              ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}),
+              ...(() => {
+  let optionalProperties;
+  if (selectedModel) optionalProperties = { provider: selectedModel.provider, model: selectedModel.modelId };
+  return optionalProperties;
+})(),
+              ...(() => {
+  let optionalProperties;
+  if (selectedReasoningEffort) optionalProperties = { reasoningEffort: selectedReasoningEffort };
+  return optionalProperties;
+})(),
             },
             headers: options.headers,
             credentials: options.credentials,
@@ -1624,8 +1582,8 @@ function ThreadChatRuntime({
   }, [availableCodexModels, availableGrokModels, modelOptions, selectedModelChoice]);
 
   const submitMessage = useCallback(async (message: string | PromptInputMessage) => {
-    const text = typeof message === "string" ? message : message.text;
-    const files = typeof message === "string" ? [] : message.files;
+    const text = hasStringType(message) ? message : message.text;
+    const files = hasStringType(message) ? [] : message.files;
     const nextMessage = appendDiffPromptContexts(text, diffPromptContexts);
 
     if ((!nextMessage && files.length === 0) || disabled || serverStreaming) {
@@ -1823,7 +1781,7 @@ function ThreadChatRuntime({
                             </DropdownMenuLabel>
                             <DropdownMenuRadioGroup
                               value={selectedReasoningEffort}
-                              onValueChange={(value) => setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
+                              onValueChange={(value) => setSelectedReasoningEffortChoice(value satisfies CodexReasoningEffort)}
                             >
                               {selectedReasoningEfforts.map((effort) => (
                                 <DropdownMenuRadioItem

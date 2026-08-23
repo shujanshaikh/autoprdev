@@ -1,19 +1,26 @@
+import { hasBooleanType, hasStringType, hasUndefinedType } from "./runtime-type";
+import { type JsonValue } from "./runtime-value";
+import { z } from "zod";
+
 export const COMPUTER_USE_PROCESS_NAMES = ["xvfb", "xfce4", "x11vnc", "novnc"] as const;
 
 export type ComputerUseProcessName = (typeof COMPUTER_USE_PROCESS_NAMES)[number];
 
+/** Daytona SDK responses are JSON-like owner objects; test doubles may perform void operations. */
+export type ComputerUseOperationResult = JsonValue | object | void;
+
 export type ComputerUseLifecycle = {
-  start(): Promise<unknown>;
-  getStatus(): Promise<unknown>;
-  getProcessStatus?(processName: string): Promise<unknown>;
-  restartProcess?(processName: string): Promise<unknown>;
-  getProcessLogs?(processName: string): Promise<unknown>;
-  getProcessErrors?(processName: string): Promise<unknown>;
+  start(): Promise<ComputerUseOperationResult>;
+  getStatus(): Promise<ComputerUseOperationResult>;
+  getProcessStatus?(processName: ComputerUseProcessName): Promise<ComputerUseOperationResult>;
+  restartProcess?(processName: ComputerUseProcessName): Promise<ComputerUseOperationResult>;
+  getProcessLogs?(processName: ComputerUseProcessName): Promise<ComputerUseOperationResult>;
+  getProcessErrors?(processName: ComputerUseProcessName): Promise<ComputerUseOperationResult>;
 };
 
 export type EnsureComputerUseReadyOptions = {
   cacheMs?: number;
-  coordinationKey?: object;
+  coordinationKey?: WeakKey;
   pollIntervalMs?: number;
   timeoutMs?: number;
 };
@@ -44,32 +51,40 @@ const DIAGNOSTIC_TIMEOUT_MS = 1_000;
 const MAX_DIAGNOSTIC_LENGTH = 400;
 const VNC_SERVER_PORT = 5_901;
 const NOVNC_SERVER_PORT = 6_080;
-const readyUntil = new WeakMap<object, number>();
-const readinessPromises = new WeakMap<object, Promise<void>>();
-const streamRecoveryPromises = new WeakMap<object, Promise<void>>();
+const readyUntil = new WeakMap<WeakKey, number>();
+const readinessPromises = new WeakMap<WeakKey, Promise<void>>();
+const streamRecoveryPromises = new WeakMap<WeakKey, Promise<void>>();
+const aggregateStatusSchema = z.union([
+  z.string(),
+  z.object({ status: z.string().optional() }),
+]);
+const processStatusSchema = z.object({
+  running: z.boolean().optional(),
+  status: z.string().optional(),
+});
+const processErrorsSchema = z.object({
+  errors: z.union([z.string(), z.array(z.string())]).optional(),
+});
+const processLogsSchema = z.object({
+  logs: z.union([z.string(), z.array(z.string())]).optional(),
+});
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function responseField(value: unknown, field: string): unknown {
-  return isRecord(value) ? value[field] : undefined;
-}
-
-function errorMessage(error: unknown): string {
+function errorMessage<ErrorValue>(error: ErrorValue): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function normalizedStatus(value: unknown): string | undefined {
-  const raw = typeof value === "string" ? value : responseField(value, "status");
-  return typeof raw === "string" ? raw.trim().toLowerCase() : undefined;
+function normalizedStatus<Value>(value: Value): string | undefined {
+  const parsed = aggregateStatusSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  const raw = hasStringType(parsed.data) ? parsed.data : parsed.data.status;
+  return hasStringType(raw) ? raw.trim().toLowerCase() : undefined;
 }
 
-function compactDiagnostic(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
+function compactDiagnostic<Value>(value: Value): string | undefined {
+  if (hasUndefinedType(value) || value === null) return undefined;
   let raw: string;
   try {
-    raw = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+    raw = hasStringType(value) ? value : JSON.stringify(value) ?? String(value);
   } catch {
     raw = String(value);
   }
@@ -109,12 +124,13 @@ async function inspectProcesses(
         deadline,
         `Timed out reading ${processName} status.`,
       );
-      const running = responseField(response, "running");
-      const status = responseField(response, "status");
+      const parsed = processStatusSchema.safeParse(response);
+      const running = parsed.success ? parsed.data.running : undefined;
+      const status = parsed.success ? parsed.data.status : undefined;
       return {
         processName,
-        running: typeof running === "boolean" ? running : undefined,
-        status: typeof status === "string" ? status : undefined,
+        running: hasBooleanType(running) ? running : undefined,
+        status: hasStringType(status) ? status : undefined,
       };
     } catch (error) {
       return { processName, error: errorMessage(error) };
@@ -229,13 +245,12 @@ async function processDiagnostic(computerUse: ComputerUseLifecycle, process: Pro
   ];
 
   try {
-    const errors = compactDiagnostic(responseField(
-      await diagnosticBeforeTimeout(
-        Promise.resolve().then(() => computerUse.getProcessErrors?.(process.processName)),
-        `Timed out reading ${process.processName} errors.`,
-      ),
-      "errors",
-    ));
+    const response = await diagnosticBeforeTimeout(
+      Promise.resolve().then(() => computerUse.getProcessErrors?.(process.processName)),
+      `Timed out reading ${process.processName} errors.`,
+    );
+    const parsed = processErrorsSchema.safeParse(response);
+    const errors = compactDiagnostic(parsed.success ? parsed.data.errors : undefined);
     if (errors) parts.push(`errors=${errors}`);
   } catch (error) {
     parts.push(`errors_error=${compactDiagnostic(errorMessage(error))}`);
@@ -243,13 +258,12 @@ async function processDiagnostic(computerUse: ComputerUseLifecycle, process: Pro
 
   if (!parts.some((part) => part?.startsWith("errors="))) {
     try {
-      const logs = compactDiagnostic(responseField(
-        await diagnosticBeforeTimeout(
-          Promise.resolve().then(() => computerUse.getProcessLogs?.(process.processName)),
-          `Timed out reading ${process.processName} logs.`,
-        ),
-        "logs",
-      ));
+      const response = await diagnosticBeforeTimeout(
+        Promise.resolve().then(() => computerUse.getProcessLogs?.(process.processName)),
+        `Timed out reading ${process.processName} logs.`,
+      );
+      const parsed = processLogsSchema.safeParse(response);
+      const logs = compactDiagnostic(parsed.success ? parsed.data.logs : undefined);
       if (logs) parts.push(`logs=${logs}`);
     } catch (error) {
       parts.push(`logs_error=${compactDiagnostic(errorMessage(error))}`);
@@ -306,7 +320,7 @@ async function restartFailedProcesses(
  */
 async function ensureComputerUseReadyUncoalesced(
   computerUse: ComputerUseLifecycle,
-  coordinationKey: object,
+  coordinationKey: WeakKey,
   options: EnsureComputerUseReadyOptions = {},
 ): Promise<void> {
   const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
@@ -438,6 +452,6 @@ export async function recoverComputerUseStream(
   }
 }
 
-export function invalidateComputerUseReadiness(coordinationKey: object): void {
+export function invalidateComputerUseReadiness(coordinationKey: WeakKey): void {
   readyUntil.delete(coordinationKey);
 }

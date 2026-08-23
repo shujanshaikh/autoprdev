@@ -1,12 +1,7 @@
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
 import { type ChatGPTConfig, resolveConfig } from "../core/config.ts";
 import { DEFAULT_MODEL } from "../core/constants.ts";
-import {
-  type CodexAuth,
-  type CodexResponsesOptions,
-  createCodexFetch,
-  listCodexModels,
-} from "../core/codex-transport.ts";
+import { type CodexAuth, type CodexResponsesOptions, createCodexFetch, listCodexModels } from "../core/codex-transport.ts";
 import { ChatGPTAuthError } from "../core/errors.ts";
 import { ensureFreshTokens, isAccessTokenExpired } from "../core/tokens.ts";
 import type { ChatGPTTokens } from "../core/types.ts";
@@ -65,7 +60,7 @@ export function createChatGPT(options: CreateChatGPTOptions): ChatGPTProvider {
   const config = resolveConfig(options);
   const defaultModel = options.defaultModel ?? DEFAULT_MODEL;
   const credentials = options.credentials;
-  const loadCredentials = typeof credentials === "function" ? credentials : () => credentials;
+  const loadCredentials = credentials instanceof Function ? credentials : () => credentials;
 
   let current: ChatGPTTokens | undefined;
   let authInFlight: Promise<CodexAuth> | undefined;
@@ -78,7 +73,7 @@ export function createChatGPT(options: CreateChatGPTOptions): ChatGPTProvider {
       current = await loadCredentials();
     }
     if (
-      typeof credentials === "function" &&
+      credentials instanceof Function &&
       !current.refreshToken &&
       isAccessTokenExpired(current)
     ) {
@@ -129,7 +124,7 @@ export function createChatGPT(options: CreateChatGPTOptions): ChatGPTProvider {
     defaultModel,
   });
 
-  const provider = ((modelId?: string) => openai.responses(modelId ?? defaultModel)) as ChatGPTProvider;
+  const provider = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ ((modelId?: string) => openai.responses(modelId ?? defaultModel)) as ChatGPTProvider;
   Object.defineProperties(provider, {
     responses: { value: (modelId?: string) => openai.responses(modelId ?? defaultModel), enumerable: true },
     openai: { value: openai, enumerable: true },

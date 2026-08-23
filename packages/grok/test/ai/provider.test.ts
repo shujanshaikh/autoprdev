@@ -14,7 +14,7 @@ describe("Grok OAuth provider", () => {
       Response.json({ ok: true }));
     const oauthFetch = createGrokOAuthFetch({
       accessToken: async () => "subscription-token",
-      fetch: requestFetch as typeof fetch,
+      fetch: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ requestFetch as typeof fetch,
       userAgent: "autopr/test",
     });
 
@@ -33,7 +33,7 @@ describe("Grok OAuth provider", () => {
       Response.json({ ok: true }));
     const oauthFetch = createGrokOAuthFetch({
       accessToken: () => "subscription-token",
-      fetch: requestFetch as typeof fetch,
+      fetch: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ requestFetch as typeof fetch,
       promptCacheKey: "thread-123",
     });
 
@@ -53,7 +53,7 @@ describe("Grok OAuth provider", () => {
       Response.json({ ok: true }));
     const oauthFetch = createGrokOAuthFetch({
       accessToken: () => "subscription-token",
-      fetch: requestFetch as typeof fetch,
+      fetch: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ requestFetch as typeof fetch,
       reasoningEffort: "xhigh",
     });
 
@@ -72,7 +72,7 @@ describe("Grok OAuth provider", () => {
       Response.json({ ok: true }));
     const oauthFetch = createGrokOAuthFetch({
       accessToken: () => "subscription-token",
-      fetch: requestFetch as typeof fetch,
+      fetch: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ requestFetch as typeof fetch,
       promptCacheKey: "thread-request",
       reasoningEffort: "xhigh",
     });
@@ -96,7 +96,7 @@ describe("Grok OAuth provider", () => {
       Response.json({ ok: true }));
     const oauthFetch = createGrokOAuthFetch({
       accessToken: () => "subscription-token",
-      fetch: requestFetch as typeof fetch,
+      fetch: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ requestFetch as typeof fetch,
       promptCacheKey: "thread-request",
     });
     const request = new Request("https://api.x.ai/v1/responses", {

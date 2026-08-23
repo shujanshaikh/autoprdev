@@ -1,9 +1,4 @@
-import {
-  addCodexUsageCosts,
-  calculateCodexUsageCost,
-  emptyCodexUsageCost,
-  type CodexUsageCost,
-} from "#/lib/codex-models";
+import { addCodexUsageCosts, calculateCodexUsageCost, emptyCodexUsageCost, type CodexUsageCost } from "#/lib/codex-models";
 
 export type AssistantTokenUsageMetadata = {
   inputTokens: number;

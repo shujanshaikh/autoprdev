@@ -88,23 +88,29 @@ const { objectsByName, vault } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@workos-inc/node", () => ({
-  WorkOS: class {
-    vault = vault;
-  },
-}));
-
-vi.mock("@autopr/chatgpt/ai", () => ({ createChatGPTProxyProvider }));
-
 import {
-  chatGPTAuth,
   CodexConnectionError,
-  createCodexAgentGrant,
+  createCodexAgentGrant as createCodexAgentGrantImpl,
   createCodexResponsesModel,
-  resolveCodexAgentGrant,
+  resolveCodexAgentGrant as resolveCodexAgentGrantImpl,
   vaultObjectName,
   WorkOSVaultStore,
 } from "./codex-auth-runtime-server";
+
+const grantStore = new WorkOSVaultStore<Parameters<typeof createCodexAgentGrantImpl>[0]>(
+  "agent-codex-grant-test",
+  () => vault,
+);
+const createCodexAgentGrant = (grant: Parameters<typeof createCodexAgentGrantImpl>[0]) =>
+  createCodexAgentGrantImpl(grant, grantStore);
+const resolveCodexAgentGrant = (
+  grantId: string,
+  expected: Parameters<typeof resolveCodexAgentGrantImpl>[1],
+) => resolveCodexAgentGrantImpl(grantId, expected, grantStore);
+const auth = {
+  basePath: "/api/chatgpt",
+  proxyFetch: vi.fn(),
+};
 
 const expectedContext = {
   userId: "user-1",
@@ -160,9 +166,10 @@ describe("Codex agent grants", () => {
 
   it("runs models through a request-scoped proxy without exporting bearer tokens", async () => {
     const proxiedFetch = vi.fn(async () => Response.json({ models: [] }));
-    const proxyFetchSpy = vi
-      .spyOn(chatGPTAuth, "proxyFetch")
-      .mockReturnValue(proxiedFetch as typeof fetch);
+    auth.proxyFetch.mockReturnValue(
+      /* SAFETY: The test fetch implements the request behavior exercised by the proxy model. */
+      proxiedFetch as typeof fetch,
+    );
     const grantId = await createCodexAgentGrant({
       ...expectedContext,
       sessionCookieHeader: "lwc_session=signed-session",
@@ -173,7 +180,7 @@ describe("Codex agent grants", () => {
       reasoningEffort: "high",
       credentialsGrantId: grantId,
       credentialsGrantContext: expectedContext,
-    });
+    }, { auth, createProvider: createChatGPTProxyProvider, grantStore });
 
     expect(model).toBe(proxyModel);
     expect(createChatGPTProxyProvider).toHaveBeenCalledWith(
@@ -192,18 +199,17 @@ describe("Codex agent grants", () => {
     await providerOptions?.fetch?.("/api/chatgpt/models");
 
     expect(objectsByName.size).toBe(0);
-    expect(proxyFetchSpy).toHaveBeenCalledTimes(1);
-    const sessionRequest = proxyFetchSpy.mock.calls[0]?.[0];
+    expect(auth.proxyFetch).toHaveBeenCalledTimes(1);
+    const sessionRequest = auth.proxyFetch.mock.calls[0]?.[0];
     expect(sessionRequest?.headers.get("cookie")).toBe("lwc_session=signed-session");
     expect(proxiedFetch).toHaveBeenCalledWith("/api/chatgpt/models", undefined);
 
-    proxyFetchSpy.mockRestore();
   });
 });
 
 describe("WorkOSVaultStore", () => {
   it("does not delete a value renewed while expired cleanup is in flight", async () => {
-    const store = new WorkOSVaultStore<number>("race-test");
+    const store = new WorkOSVaultStore<number>("race-test", () => vault);
     await store.set("key", 1, { ttlMs: -1 });
     const name = vaultObjectName("race-test", "key");
     const initial = objectsByName.get(name);
@@ -226,7 +232,7 @@ describe("WorkOSVaultStore", () => {
   });
 
   it("retries an update when a stale object is deleted before the write", async () => {
-    const store = new WorkOSVaultStore<number>("race-test");
+    const store = new WorkOSVaultStore<number>("race-test", () => vault);
     await store.set("key", 1);
     const name = vaultObjectName("race-test", "key");
     const initial = objectsByName.get(name);

@@ -1,15 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import {
-  decodeGrokIdentity,
-  fetchGrokModels,
-  GROK_FALLBACK_MODELS,
-  grokAccessTokenIsExpiring,
-  pollGrokDeviceToken,
-  refreshGrokTokens,
-  requestGrokDeviceCode,
-  type GrokOAuthTokens,
-} from "@autopr/grok/core";
+import { decodeGrokIdentity, fetchGrokModels, GROK_FALLBACK_MODELS, grokAccessTokenIsExpiring, pollGrokDeviceToken, refreshGrokTokens, requestGrokDeviceCode, type GrokOAuthTokens } from "@autopr/grok/core";
 import { createGrokOAuthProvider, type GrokResponsesModel } from "@autopr/grok/ai";
 import { nanoid } from "nanoid";
 
@@ -22,13 +13,13 @@ const DEVICE_FLOW_TTL_LIMIT_MS = 15 * 60 * 1000;
 const GROK_AGENT_GRANT_TTL_MS = 2 * 60 * 60 * 1000;
 const GROK_MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 
-type GrokStoredCredentials = GrokOAuthTokens & {
+export type GrokStoredCredentials = GrokOAuthTokens & {
   refreshLease?: { id: string; expiresAt: number };
   models?: string[];
   modelsUpdatedAt?: number;
 };
 
-type GrokDeviceFlow = {
+export type GrokDeviceFlow = {
   userId: string;
   deviceCode: string;
   userCode: string;
@@ -52,6 +43,28 @@ const deviceFlowStore = new WorkOSVaultStore<GrokDeviceFlow>("grok-device-flow")
 const agentGrantStore = new WorkOSVaultStore<GrokAgentGrant>("agent-grok-grant");
 const refreshPromises = new Map<string, Promise<GrokStoredCredentials>>();
 
+type GrokStore<T> = Pick<WorkOSVaultStore<T>, "delete" | "get" | "set" | "take" | "update">;
+
+export interface GrokAuthDependencies {
+  credentialsStore: GrokStore<GrokStoredCredentials>;
+  deviceFlowStore: GrokStore<GrokDeviceFlow>;
+  fetchModels: typeof fetchGrokModels;
+  pollDeviceToken: typeof pollGrokDeviceToken;
+  refreshPromises: Map<string, Promise<GrokStoredCredentials>>;
+  refreshTokens: typeof refreshGrokTokens;
+  requestDeviceCode: typeof requestGrokDeviceCode;
+}
+
+const defaultDependencies: GrokAuthDependencies = {
+  credentialsStore,
+  deviceFlowStore,
+  fetchModels: fetchGrokModels,
+  pollDeviceToken: pollGrokDeviceToken,
+  refreshPromises,
+  refreshTokens: refreshGrokTokens,
+  requestDeviceCode: requestGrokDeviceCode,
+};
+
 export class GrokConnectionError extends Error {
   constructor(message: string, readonly status = 400) {
     super(message);
@@ -59,8 +72,11 @@ export class GrokConnectionError extends Error {
   }
 }
 
-export async function startGrokDeviceAuthorization(userId: string) {
-  const device = await requestGrokDeviceCode({ referrer: "autopr" });
+export async function startGrokDeviceAuthorization(
+  userId: string,
+  dependencies: GrokAuthDependencies = defaultDependencies,
+) {
+  const device = await dependencies.requestDeviceCode({ referrer: "autopr" });
   const flowId = nanoid(32);
   const now = Date.now();
   const expiresInMs = Math.min(device.expiresInSeconds * 1000, DEVICE_FLOW_TTL_LIMIT_MS);
@@ -74,7 +90,7 @@ export async function startGrokDeviceAuthorization(userId: string) {
     intervalMs: Math.max(1_000, device.intervalSeconds * 1000),
     nextPollAt: now,
   };
-  await deviceFlowStore.set(flowId, flow, { ttlMs: expiresInMs });
+  await dependencies.deviceFlowStore.set(flowId, flow, { ttlMs: expiresInMs });
 
   return {
     flowId,
@@ -86,17 +102,21 @@ export async function startGrokDeviceAuthorization(userId: string) {
   };
 }
 
-export async function pollGrokDeviceAuthorization(userId: string, flowId: string) {
-  const flow = await deviceFlowStore.get(flowId);
+export async function pollGrokDeviceAuthorization(
+  userId: string,
+  flowId: string,
+  dependencies: GrokAuthDependencies = defaultDependencies,
+) {
+  const flow = await dependencies.deviceFlowStore.get(flowId);
   if (!flow || flow.userId !== userId) {
     throw new GrokConnectionError("This Grok connection request is missing or expired.", 404);
   }
   if (flow.expiresAt <= Date.now()) {
-    await deviceFlowStore.delete(flowId);
+    await dependencies.deviceFlowStore.delete(flowId);
     return { status: "expired" as const };
   }
 
-  const reserved = await deviceFlowStore.update(flowId, (current) => {
+  const reserved = await dependencies.deviceFlowStore.update(flowId, (current) => {
     if (!current || current.userId !== userId) {
       throw new GrokConnectionError("This Grok connection request is missing or expired.", 404);
     }
@@ -108,20 +128,20 @@ export async function pollGrokDeviceAuthorization(userId: string, flowId: string
       ttlMs: Math.max(1_000, current.expiresAt - Date.now()),
     };
   });
-  const result = await pollGrokDeviceToken(reserved.deviceCode);
+  const result = await dependencies.pollDeviceToken(reserved.deviceCode);
 
   if (result.status === "success") {
-    await credentialsStore.set(userId, result.tokens);
-    await deviceFlowStore.delete(flowId);
+    await dependencies.credentialsStore.set(userId, result.tokens);
+    await dependencies.deviceFlowStore.delete(flowId);
     return { status: "connected" as const };
   }
   if (result.status === "denied" || result.status === "expired") {
-    await deviceFlowStore.delete(flowId);
+    await dependencies.deviceFlowStore.delete(flowId);
     return { status: result.status };
   }
 
   const intervalMs = result.slowDown ? reserved.intervalMs + 5_000 : reserved.intervalMs;
-  await deviceFlowStore.update(flowId, (current) => ({
+  await dependencies.deviceFlowStore.update(flowId, (current) => ({
     value: {
       ...(current ?? reserved),
       intervalMs,
@@ -132,11 +152,14 @@ export async function pollGrokDeviceAuthorization(userId: string, flowId: string
   return { status: "pending" as const, intervalMs };
 }
 
-export async function getGrokConnectionStatus(userId: string) {
-  const credentials = await credentialsStore.get(userId);
+export async function getGrokConnectionStatus(
+  userId: string,
+  dependencies: GrokAuthDependencies = defaultDependencies,
+) {
+  const credentials = await dependencies.credentialsStore.get(userId);
   if (!credentials) return { connected: false as const };
-  const fresh = await getFreshGrokCredentials(userId, credentials);
-  const models = await getAvailableGrokModels(userId, fresh);
+  const fresh = await getFreshGrokCredentials(userId, credentials, dependencies);
+  const models = await getAvailableGrokModels(userId, fresh, dependencies);
   const identity = decodeGrokIdentity(fresh.idToken ?? fresh.accessToken);
   return {
     connected: true as const,
@@ -146,8 +169,11 @@ export async function getGrokConnectionStatus(userId: string) {
   };
 }
 
-export async function disconnectGrok(userId: string) {
-  await credentialsStore.delete(userId);
+export async function disconnectGrok(
+  userId: string,
+  dependencies: GrokAuthDependencies = defaultDependencies,
+) {
+  await dependencies.credentialsStore.delete(userId);
 }
 
 export async function createGrokAgentGrant(grant: GrokAgentGrant) {
@@ -204,26 +230,30 @@ export async function createGrokResponsesModel(options: {
   return provider.responses(options.modelId);
 }
 
-async function getFreshGrokCredentials(userId: string, loaded?: GrokStoredCredentials): Promise<GrokStoredCredentials> {
-  const current = loaded ?? await credentialsStore.get(userId);
+async function getFreshGrokCredentials(
+  userId: string,
+  loaded?: GrokStoredCredentials,
+  dependencies: GrokAuthDependencies = defaultDependencies,
+): Promise<GrokStoredCredentials> {
+  const current = loaded ?? await dependencies.credentialsStore.get(userId);
   if (!current) throw new GrokConnectionError("Connect Grok before starting an AI stream.", 401);
   const expiresSoon = current.expiresAt <= Date.now() + TOKEN_REFRESH_SKEW_MS
     || grokAccessTokenIsExpiring(current.accessToken, TOKEN_REFRESH_SKEW_MS);
   if (!expiresSoon) return current;
 
-  const existingRefresh = refreshPromises.get(userId);
+  const existingRefresh = dependencies.refreshPromises.get(userId);
   if (existingRefresh) return existingRefresh;
-  const refresh = refreshGrokCredentialsWithLease(userId)
+  const refresh = refreshGrokCredentialsWithLease(userId, dependencies)
     .finally(() => {
-      if (refreshPromises.get(userId) === refresh) refreshPromises.delete(userId);
+      if (dependencies.refreshPromises.get(userId) === refresh) dependencies.refreshPromises.delete(userId);
     });
-  refreshPromises.set(userId, refresh);
+  dependencies.refreshPromises.set(userId, refresh);
   return refresh;
 }
 
-async function refreshGrokCredentialsWithLease(userId: string): Promise<GrokStoredCredentials> {
+async function refreshGrokCredentialsWithLease(userId: string, dependencies: GrokAuthDependencies): Promise<GrokStoredCredentials> {
   const leaseId = nanoid(16);
-  const leased = await credentialsStore.update(userId, (latest) => {
+  const leased = await dependencies.credentialsStore.update(userId, (latest) => {
     if (!latest) throw new GrokConnectionError("Connect Grok before starting an AI stream.", 401);
     const alreadyFresh = latest.expiresAt > Date.now() + TOKEN_REFRESH_SKEW_MS
       && !grokAccessTokenIsExpiring(latest.accessToken, TOKEN_REFRESH_SKEW_MS);
@@ -233,11 +263,11 @@ async function refreshGrokCredentialsWithLease(userId: string): Promise<GrokStor
   });
   if (!leased.refreshLease) return leased;
   if (leased.refreshLease.id !== leaseId) {
-    return waitForGrokCredentialRefresh(userId, leased.refreshLease.expiresAt);
+    return waitForGrokCredentialRefresh(userId, leased.refreshLease.expiresAt, dependencies);
   }
 
   try {
-    const refreshed = await refreshGrokTokens(leased.refreshToken);
+    const refreshed = await dependencies.refreshTokens(leased.refreshToken);
     const completeRefresh = {
       ...refreshed,
       idToken: refreshed.idToken ?? leased.idToken,
@@ -246,7 +276,7 @@ async function refreshGrokCredentialsWithLease(userId: string): Promise<GrokStor
       models: leased.models,
       modelsUpdatedAt: leased.modelsUpdatedAt,
     };
-    return await credentialsStore.update(userId, (latest) => {
+    return await dependencies.credentialsStore.update(userId, (latest) => {
       if (!latest) {
         throw new GrokConnectionError("Grok was disconnected while refreshing credentials.", 401);
       }
@@ -258,7 +288,7 @@ async function refreshGrokCredentialsWithLease(userId: string): Promise<GrokStor
       };
     });
   } catch (error) {
-    await credentialsStore.update(userId, (latest) => {
+    await dependencies.credentialsStore.update(userId, (latest) => {
       if (!latest) {
         throw new GrokConnectionError("Grok was disconnected while refreshing credentials.", 401);
       }
@@ -273,17 +303,17 @@ async function refreshGrokCredentialsWithLease(userId: string): Promise<GrokStor
   }
 }
 
-async function getAvailableGrokModels(userId: string, credentials: GrokStoredCredentials) {
+async function getAvailableGrokModels(userId: string, credentials: GrokStoredCredentials, dependencies: GrokAuthDependencies) {
   const cachedModels = credentials.models?.length ? credentials.models : undefined;
   if (cachedModels && (credentials.modelsUpdatedAt ?? 0) > Date.now() - GROK_MODEL_CACHE_TTL_MS) {
     return cachedModels;
   }
 
-  const discovered = await fetchGrokModels(credentials.accessToken).catch(() => undefined);
+  const discovered = await dependencies.fetchModels(credentials.accessToken).catch(() => undefined);
   const models = discovered?.length
     ? discovered
     : cachedModels ?? [...GROK_FALLBACK_MODELS];
-  await credentialsStore.update(userId, (latest) => {
+  await dependencies.credentialsStore.update(userId, (latest) => {
     if (!latest) {
       throw new GrokConnectionError("Grok was disconnected while loading models.", 401);
     }
@@ -299,10 +329,10 @@ async function getAvailableGrokModels(userId: string, credentials: GrokStoredCre
   return models;
 }
 
-async function waitForGrokCredentialRefresh(userId: string, leaseExpiresAt: number) {
+async function waitForGrokCredentialRefresh(userId: string, leaseExpiresAt: number, dependencies: GrokAuthDependencies) {
   while (Date.now() < leaseExpiresAt) {
     await new Promise<void>((resolve) => setTimeout(resolve, 250));
-    const current = await credentialsStore.get(userId);
+    const current = await dependencies.credentialsStore.get(userId);
     if (!current) throw new GrokConnectionError("Connect Grok before starting an AI stream.", 401);
     if (!current.refreshLease) {
       const fresh = current.expiresAt > Date.now() + TOKEN_REFRESH_SKEW_MS

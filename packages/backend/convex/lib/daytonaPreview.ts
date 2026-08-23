@@ -11,7 +11,6 @@ function delay(ms: number): Promise<void> {
 async function probePreviewRoute(url: string): Promise<number> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PREVIEW_PROBE_TIMEOUT_MS);
-  timer.unref?.();
 
   try {
     const response = await fetch(url, {

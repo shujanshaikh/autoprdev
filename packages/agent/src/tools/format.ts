@@ -1,3 +1,6 @@
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject } from "@autopr/config/runtime-value";
+
 export const MAX_FILE_OUTPUT_CHARS = 20_000;
 export const MAX_COMMAND_OUTPUT_BYTES = 50 * 1024;
 export const MAX_COMMAND_OUTPUT_LINES = 2_000;
@@ -11,7 +14,7 @@ export function combineCommandOutput(stdout?: string, stderr?: string): string {
   return stdout ?? stderr ?? "";
 }
 
-export function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
+export function truncateText(text: string, maxChars: number) {
   if (text.length <= maxChars) {
     return { text, truncated: false };
   }
@@ -218,14 +221,14 @@ function isValidUtf8SequencePrefix(suffix: Buffer, lead: number): boolean {
   return true;
 }
 
-export interface ToolTextOutput<DETAILS extends Record<string, unknown> = Record<string, unknown>> {
+export interface ToolTextOutput<DETAILS extends JsonObject = JsonObject> {
   content: string;
   details: DETAILS;
 }
 
-export function toTextModelOutput(output: unknown) {
+export function toTextModelOutput<OutputValue>(output: OutputValue) {
   const value =
-    typeof output === "object" && output !== null && "content" in output && typeof output.content === "string"
+    hasObjectType(output) && output !== null && "content" in output && hasStringType(output.content)
       ? output.content
       : JSON.stringify(output);
 

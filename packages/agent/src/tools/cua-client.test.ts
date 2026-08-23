@@ -1,21 +1,27 @@
+import { hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, jsonValueSchema, type JsonObject } from "@autopr/config/runtime-value";
+
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  CuaComputerClient,
-  cuaBootstrapCommand,
-  parseCuaCommandResponse,
-} from "./cua-client";
-import type { DaytonaSandbox } from "../sandbox";
+import { CuaComputerClient, cuaBootstrapCommand, parseCuaCommandResponse, type CuaClientSandbox, type CuaComputerOptions } from "./cua-client";
 
 const executeMocks = vi.hoisted(() => ({
   executeSandboxCommand: vi.fn(),
 }));
 
-vi.mock("../sandbox/execute", () => ({
-  executeSandboxCommand: executeMocks.executeSandboxCommand,
-}));
+const clientDependencies = { executeSandboxCommand: executeMocks.executeSandboxCommand };
+
+function createClient(sandbox: CuaClientSandbox, options: CuaComputerOptions = {}) {
+  return new CuaComputerClient(sandbox, {}, options, clientDependencies);
+}
+
+function requestBody(init?: RequestInit): JsonObject {
+  if (!hasStringType(init?.body)) return {};
+  const parsed = jsonValueSchema.parse(JSON.parse(init.body));
+  return isJsonObject(parsed) ? parsed : {};
+}
 
 beforeEach(() => {
   executeMocks.executeSandboxCommand.mockResolvedValue({
@@ -149,7 +155,10 @@ describe("CUA gateway response parsing", () => {
 });
 
 describe("CUA client configuration", () => {
-  const sandbox = {} as DaytonaSandbox;
+  const sandbox: CuaClientSandbox = {
+    id: "validation-sandbox",
+    getSignedPreviewUrl: vi.fn(),
+  };
   const requiredCommandNames = [
     "version", "open", "get_current_window_id", "get_application_windows", "get_window_name", "get_window_size",
     "get_window_position", "activate_window", "maximize_window", "move_cursor", "left_click", "middle_click", "right_click",
@@ -184,10 +193,7 @@ describe("CUA client configuration", () => {
         'data: {"success":true,"effect":"suspected_noop","verified":false}\n\n',
       ));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
-      {},
-    );
+    const client = createClient({ id: "command-sandbox", getSignedPreviewUrl });
 
     await expect(client.command("left_click", { x: 1, y: 2 }))
       .rejects.toThrow("CUA command left_click was refused: permission denied");
@@ -207,10 +213,7 @@ describe("CUA client configuration", () => {
         'data: {"success":true,"size":{"width":1920,"height":1080}}\n\n',
       ));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
-      {},
-    );
+    const client = createClient({ id: "safe-retry-sandbox", getSignedPreviewUrl });
 
     await expect(client.command("get_screen_size")).resolves.toMatchObject({
       success: true,
@@ -225,10 +228,7 @@ describe("CUA client configuration", () => {
     const getSignedPreviewUrl = vi.fn(async () => ({ url: "https://cua.test/token/" }));
     const fetchMock = vi.fn(async () => new Response("unavailable", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
-      {},
-    );
+    const client = createClient({ id: "mutating-retry-sandbox", getSignedPreviewUrl });
 
     await expect(client.command("left_click", { x: 1, y: 2 }))
       .rejects.toThrow("failed with HTTP 503");
@@ -249,9 +249,8 @@ describe("CUA client configuration", () => {
       return new Response(stream);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
-      {},
+    const client = createClient(
+      { id: "request-timeout-sandbox", getSignedPreviewUrl },
       { requestTimeoutMs: 1_000 },
     );
 
@@ -282,7 +281,7 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { command?: string } : {};
+      const body = hasStringType(init?.body) ? JSON.parse(init.body) satisfies { command?: string } : {};
       if (body.command === "get_screen_size") {
         return Response.json({ success: true, size: { width: 1920, height: 1080 } });
       }
@@ -295,7 +294,7 @@ describe("CUA client configuration", () => {
       });
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = createClient({ id: "inspect-sandbox", getSignedPreviewUrl });
     await expect(client.inspect()).resolves.toEqual({
       status: "ok",
       os_type: "linux",
@@ -327,8 +326,8 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as {
+      const body = hasStringType(init?.body)
+        ? JSON.parse(init.body) satisfies {
             command?: string;
           }
         : {};
@@ -356,7 +355,7 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true}\n\n');
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = createClient({ id: "ready-sandbox", getSignedPreviewUrl });
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "cua-driver",
       cursor: {
@@ -395,9 +394,7 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as { command?: string }
-        : {};
+      const body = requestBody(init);
       if (body.command === "version") {
         return Response.json({ success: true, package: "autopr-cua-gateway" });
       }
@@ -418,10 +415,10 @@ describe("CUA client configuration", () => {
       return Response.json({ success: true });
     }));
 
-    const client = new CuaComputerClient({
+    const client = createClient({
       id: "embedded-cursorless-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    });
 
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "cua-driver",
@@ -460,8 +457,8 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as {
+      const body = hasStringType(init?.body)
+        ? JSON.parse(init.body) satisfies {
             command?: string;
             params?: Record<string, boolean | number | string> & { enabled?: boolean };
           }
@@ -492,7 +489,7 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true}\n\n');
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = createClient({ id: "legacy-cursor-sandbox", getSignedPreviewUrl });
     await expect(client.ensureReady()).resolves.toMatchObject({
       cursor: {
         enabled: false,
@@ -528,8 +525,8 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as { command?: string }
+      const body = hasStringType(init?.body)
+        ? JSON.parse(init.body) satisfies { command?: string }
         : {};
       if (body.command === "version") {
         return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
@@ -554,10 +551,10 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true}\n\n');
     }));
 
-    const client = new CuaComputerClient({
+    const client = createClient({
       id: "legacy-cursor-disable-failure",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    });
     await expect(client.ensureReady()).rejects.toThrow(
       "Could not disable the labeled legacy cursor: CUA gateway command failed: overlay did not stop",
     );
@@ -578,9 +575,7 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(commandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as { command?: string }
-        : {};
+      const body = requestBody(init);
       if (body.command === "version") {
         return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
       }
@@ -601,10 +596,10 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true}\n\n');
     }));
 
-    const client = new CuaComputerClient({
+    const client = createClient({
       id: "capture-miss-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    });
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "cua-driver",
       cursor: {
@@ -634,8 +629,8 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(requiredCommandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as { command?: string }
+      const body = hasStringType(init?.body)
+        ? JSON.parse(init.body) satisfies { command?: string }
         : {};
       commands.push(body.command ?? "");
       if (body.command === "version") {
@@ -644,10 +639,10 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
     }));
 
-    const client = new CuaComputerClient({
+    const client = createClient({
       id: "native-fallback-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    });
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "native",
       cursor: {
@@ -684,8 +679,8 @@ describe("CUA client configuration", () => {
           commands: Object.fromEntries(requiredCommandNames.map((name) => [name, { params: [] }])),
         });
       }
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as { command?: string }
+      const body = hasStringType(init?.body)
+        ? JSON.parse(init.body) satisfies { command?: string }
         : {};
       if (body.command === "version") {
         return new Response('data: {"success":true,"package":"autopr-cua-gateway"}\n\n');
@@ -693,10 +688,10 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true,"size":{"width":1920,"height":1080}}\n\n');
     }));
 
-    const client = new CuaComputerClient({
+    const client = createClient({
       id: "concurrent-recovery-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    });
     const first = client.ensureReady();
     const second = client.ensureReady();
     let secondSettled = false;
@@ -721,10 +716,10 @@ describe("CUA client configuration", () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new Error("gateway unavailable");
     }));
-    const client = new CuaComputerClient({
+    const client = createClient({
       id: "failed-recovery-retry-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    });
 
     await expect(client.ensureReady()).rejects.toThrow("transient startup failure");
     await expect(client.ensureReady()).rejects.toThrow("transient startup failure");

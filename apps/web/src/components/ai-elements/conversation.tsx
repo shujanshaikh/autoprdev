@@ -1,15 +1,7 @@
 import { Button } from "@autopr/ui/components/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@autopr/ui/components/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
-import {
-  MessageScroller,
-  useMessageScroller,
-  useMessageScrollerVisibility,
-} from "@shadcn/react/message-scroller";
+import { MessageScroller, useMessageScroller, useMessageScrollerVisibility } from "@shadcn/react/message-scroller";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";

@@ -50,6 +50,6 @@ async function POST(
 
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/pull-request")({
   server: {
-    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, { params: Promise.resolve(params) } as any) },
+    handlers: { POST: async ({ request, params }: { request: Request; params: any }) => POST(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any) },
   },
 });

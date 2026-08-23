@@ -1,25 +1,12 @@
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@autopr/ui/components/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@autopr/ui/components/collapsible";
 import { cn } from "@autopr/ui/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { ComponentProps, ReactNode } from "react";
-import {
-  createContext,
-  memo,
-  use,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { createContext, memo, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { Shimmer } from "./shimmer";

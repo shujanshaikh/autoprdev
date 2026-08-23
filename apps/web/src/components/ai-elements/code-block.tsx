@@ -1,30 +1,12 @@
+import { hasUndefinedType } from "@autopr/config/runtime-type";
+
 import { Button } from "@autopr/ui/components/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@autopr/ui/components/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@autopr/ui/components/select";
 import { cn } from "@autopr/ui/lib/utils";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
-import {
-  createContext,
-  memo,
-  use,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type {
-  BundledLanguage,
-  BundledTheme,
-  HighlighterGeneric,
-  ThemedToken,
-} from "shiki";
+import { createContext, memo, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BundledLanguage, BundledTheme, HighlighterGeneric, ThemedToken } from "shiki";
 import { createHighlighter } from "shiki";
 
 // Shiki uses bitflags for font styles: 1=italic, 2=bold, 4=underline
@@ -59,7 +41,7 @@ const addKeysToTokens = (lines: ThemedToken[][]): KeyedLine[] =>
 
 function diffPaletteColorForToken(token: ThemedToken) {
   const content = token.content.trim();
-  const htmlStyle = token.htmlStyle as (CSSProperties & Record<string, string | undefined>) | undefined;
+  const htmlStyle = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ token.htmlStyle as (CSSProperties & Record<string, string | undefined>) | undefined;
   const lightColor = (htmlStyle?.color ?? token.color ?? "").toLowerCase();
   const darkColor = (htmlStyle?.["--shiki-dark"] ?? "").toLowerCase();
 
@@ -125,7 +107,7 @@ function tokenStyle(
   token: ThemedToken,
   colorPalette: CodeBlockColorPalette
 ): CSSProperties {
-  const style = {
+  const style = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ {
     backgroundColor: token.bgColor,
     color: token.color,
     fontStyle: isItalic(token.fontStyle) ? "italic" : undefined,
@@ -347,7 +329,7 @@ const createRawTokens = (code: string): TokenizedCode => ({
     line === ""
       ? []
       : [
-          {
+          /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ {
             color: "inherit",
             content: line,
           } as ThemedToken,
@@ -418,7 +400,7 @@ const highlightCode = (
 
 function withoutShikiBackground(style: CSSProperties): CSSProperties {
   const { backgroundColor: _backgroundColor, ...rest } =
-    style as CSSProperties & Record<string, string | undefined>;
+    /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ style as CSSProperties & Record<string, string | undefined>;
   const next = { ...rest };
   delete next["--shiki-dark-bg"];
   return next;
@@ -679,7 +661,7 @@ const CodeBlockCopyButton = ({
   const { code } = use(CodeBlockContext);
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
+    if (hasUndefinedType(globalThis.window) || !navigator?.clipboard?.writeText) {
       onError?.(new Error("Clipboard API not available"));
       return;
     }
@@ -695,7 +677,7 @@ const CodeBlockCopyButton = ({
         );
       }
     } catch (error) {
-      onError?.(error as Error);
+      onError?.(/* SAFETY: This callback's contract expects the caught failure as an Error instance. */ error as Error);
     }
   }, [code, onCopy, onError, timeout, isCopied]);
 

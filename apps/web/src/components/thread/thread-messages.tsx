@@ -1,75 +1,29 @@
+import { hasUndefinedType } from "@autopr/config/runtime-type";
+
 import type { GitChangedFile } from "@autopr/backend/convex/lib/gitStatus";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@autopr/ui/components/collapsible";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogTrigger,
-} from "@autopr/ui/components/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@autopr/ui/components/collapsible";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
 import { getToolName, isFileUIPart, isReasoningUIPart, isTextUIPart, isToolUIPart, type UIMessage } from "ai";
 import { Bot, Check, ChevronDown, Copy } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  Conversation,
-  ConversationContent,
-  ConversationEmptyState,
-  ConversationMessage,
-  ConversationMessageNavigation,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import {
-  Message,
-  MessageAction,
-  MessageActions,
-  MessageContent,
-  MessageFooter,
-  MessageGroup,
-  MessageHeader,
-  MessageResponse,
-} from "@/components/ai-elements/message";
+import { Conversation, ConversationContent, ConversationEmptyState, ConversationMessage, ConversationMessageNavigation, ConversationScrollButton } from "@/components/ai-elements/conversation";
+import { Message, MessageAction, MessageActions, MessageContent, MessageFooter, MessageGroup, MessageHeader, MessageResponse } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
-import {
-  contextTokensFromUsage,
-  formatRunCost,
-  formatTokens,
-  formatRunDuration,
-  getAssistantRunCost,
-  getAssistantRunUsage,
-  readAssistantRunMetadata,
-} from "#/lib/assistant-message-metadata";
+import { contextTokensFromUsage, formatRunCost, formatTokens, formatRunDuration, getAssistantRunCost, getAssistantRunUsage, readAssistantRunMetadata } from "#/lib/assistant-message-metadata";
 import { calculateCodexUsageCost } from "#/lib/codex-models";
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-  ToolRecordingOutput,
-  ExploreToolRow,
-  isExploreTool,
-  isComputerRecordingTool,
-  toolSlugFromPart,
-  type ToolPart,
-} from "@/components/ai-elements/tool";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ToolRecordingOutput, ExploreToolRow, isExploreTool, isComputerRecordingTool, toolSlugFromPart, type ToolPart } from "@/components/ai-elements/tool";
 import { ThreadChangedFiles } from "./thread-changed-files";
-import {
-  changedFilesForMessage,
-  mergeChangedFilesWithWorkspace,
-  type ThreadChangedFileSummary,
-  type ThreadDiffEntry,
-} from "./thread-diff-panel-utils";
+import { changedFilesForMessage, mergeChangedFilesWithWorkspace, type ThreadChangedFileSummary, type ThreadDiffEntry } from "./thread-diff-panel-utils";
 
-function getPartState(part: object) {
+type ThreadMessagePart = UIMessage["parts"][number] | ToolPart;
+
+function getPartState(part: ThreadMessagePart) {
   return "state" in part ? part.state : undefined;
 }
 
-function getToolState(part: object): ToolPart["state"] {
+function getToolState(part: ThreadMessagePart): ToolPart["state"] {
   const state = getPartState(part);
   if (
     state === "approval-requested" ||
@@ -120,7 +74,7 @@ function useElapsedSeconds(startedAt: number | undefined) {
 }
 
 async function writeClipboardText(text: string) {
-  if (typeof window === "undefined") {
+  if (hasUndefinedType(globalThis.window)) {
     return false;
   }
 

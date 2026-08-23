@@ -1,12 +1,7 @@
 import { jwtVerify, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 
-import {
-  getWorkOSAccessTokenVerificationOptions,
-  resolveWorkOSRequestAccessToken,
-  setWorkOSAccessTokenHeader,
-  WORKOS_ACCESS_TOKEN_HEADER,
-} from "./workos-access-token";
+import { getWorkOSAccessTokenVerificationOptions, resolveWorkOSRequestAccessToken, setWorkOSAccessTokenHeader, WORKOS_ACCESS_TOKEN_HEADER } from "./workos-access-token";
 
 const clientId = "client_test";
 const signingKey = new TextEncoder().encode("test-signing-key-with-enough-entropy");

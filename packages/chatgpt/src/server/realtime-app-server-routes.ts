@@ -1,17 +1,8 @@
-import type {
-  ChatGPTRealtimeSessionOptions,
-  ChatGPTTokens,
-  ReasoningEffort,
-} from "../core/index.ts";
-import type {
-  ChatGPTRealtimeAppServerOptions,
-  RealtimeBridgeEvent,
-  RealtimeConfirmationResult,
-  RealtimeDynamicTool,
-  RealtimeToolContext,
-  RealtimeToolResult,
-  StartRealtimeAppServerOptions,
-} from "./realtime-app-server.ts";
+import { hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
+import type { ChatGPTRealtimeSessionOptions, ChatGPTTokens, ReasoningEffort } from "../core/index.ts";
+import type { ChatGPTRealtimeAppServerOptions, RealtimeBridgeEvent, RealtimeConfirmationResult, RealtimeDynamicTool, RealtimeToolContext, RealtimeToolResult, StartRealtimeAppServerOptions } from "./realtime-app-server.ts";
 import { readTextBody } from "./request-body.ts";
 
 const DEFAULT_SESSION_TTL_MS = 30 * 60 * 1000;
@@ -39,10 +30,10 @@ export interface RealtimeAppServerSessionHandle {
   readonly id: string;
   start(options: StartRealtimeAppServerOptions): Promise<string>;
   onEvent(listener: (event: RealtimeBridgeEvent) => void): () => void;
-  resolveConfirmation(
+  resolveConfirmation<ConfirmationValue>(
     callId: string,
-    confirmation: unknown,
-  ): Promise<unknown>;
+    confirmation: ConfirmationValue,
+  ): Promise<RealtimeConfirmationResult>;
   close(): Promise<void>;
 }
 
@@ -187,25 +178,41 @@ export function createRealtimeAppServerRoutes(options: {
           return fresh;
         },
         tools: policy.tools,
-        executeTool: (context) => policy.executeTool({
+        executeTool: (context: RealtimeToolContext) => policy.executeTool({
           ...context,
           loginSessionId: ownerSessionId,
           liveSessionId,
           request: requestSnapshot,
         }),
-        ...(policy.confirmTool
-          ? {
-              confirmTool: (context) => policy.confirmTool!({
+        ...(() => {
+  let optionalProperties;
+  if (policy.confirmTool) optionalProperties = {
+              confirmTool: (
+                context: Parameters<NonNullable<ChatGPTRealtimeAppServerOptions["confirmTool"]>>[0],
+              ) => policy.confirmTool!({
                 ...context,
                 loginSessionId: ownerSessionId,
                 liveSessionId,
                 request: requestSnapshot,
               }),
-            }
-          : {}),
-        ...(policy.command ? { command: policy.command } : {}),
-        ...(policy.executionInstructions ? { executionInstructions: policy.executionInstructions } : {}),
-        ...(policy.realtimePrompt ? { realtimePrompt: policy.realtimePrompt } : {}),
+            };
+  return optionalProperties;
+})(),
+        ...(() => {
+  let optionalProperties;
+  if (policy.command) optionalProperties = { command: policy.command };
+  return optionalProperties;
+})(),
+        ...(() => {
+  let optionalProperties;
+  if (policy.executionInstructions) optionalProperties = { executionInstructions: policy.executionInstructions };
+  return optionalProperties;
+})(),
+        ...(() => {
+  let optionalProperties;
+  if (policy.realtimePrompt) optionalProperties = { realtimePrompt: policy.realtimePrompt };
+  return optionalProperties;
+})(),
       };
       const session = policy.sessionFactory
         ? policy.sessionFactory(sessionOptions)
@@ -258,9 +265,17 @@ export function createRealtimeAppServerRoutes(options: {
       const expires = setTimeout(() => {
         void closeSession(liveSessionId).catch(() => {});
       }, policy.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS);
-      if (typeof expires === "object" && "unref" in expires) expires.unref();
-      managed = { ownerSessionId, session, expires, queuedEvents, subscribers, unsubscribe };
-      sessions.set(liveSessionId, managed);
+      if (hasObjectType(expires) && "unref" in expires) expires.unref();
+      const completedManaged: ManagedSession = {
+        ownerSessionId,
+        session,
+        expires,
+        queuedEvents,
+        subscribers,
+        unsubscribe,
+      };
+      managed = completedManaged;
+      sessions.set(liveSessionId, completedManaged);
       if (queuedEvents.some((event) => event.type === "session.closed")) {
         await closeSession(liveSessionId, ownerSessionId).catch(() => {});
         return json(
@@ -290,7 +305,7 @@ export function createRealtimeAppServerRoutes(options: {
     let active = true;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        const write = (event: unknown) => {
+        const write = <EventValue>(event: EventValue) => {
           if (!active) return;
           if (controller.desiredSize !== null && controller.desiredSize <= 0) {
             active = false;
@@ -360,7 +375,7 @@ export function createRealtimeAppServerRoutes(options: {
     } catch {
       return json({ error: "invalid_realtime_confirmation" }, { status: 400 });
     }
-    if (!isRecord(payload) || typeof payload["callId"] !== "string" || !("confirmation" in payload)) {
+    if (!isRecord(payload) || !hasStringType(payload["callId"]) || !("confirmation" in payload)) {
       return json(
         {
           error: "invalid_realtime_confirmation",
@@ -422,14 +437,14 @@ function isModelAllowed(
   allowedModels: RealtimeAppServerPolicy["allowedModels"],
 ): boolean {
   if (!allowedModels) return true;
-  return typeof allowedModels === "function" ? allowedModels(model) : allowedModels.includes(model);
+  return allowedModels instanceof Function ? allowedModels(model) : allowedModels.includes(model);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function json(data: unknown, init?: ResponseInit): Response {
+function json<DataValue>(data: DataValue, init?: ResponseInit): Response {
   const headers = new Headers(init?.headers);
   headers.set("content-type", "application/json; charset=utf-8");
   headers.set("cache-control", "no-store");

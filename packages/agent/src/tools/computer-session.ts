@@ -1,5 +1,9 @@
 import type { DaytonaSandbox, SandboxSessionOptions } from "../sandbox";
-import { CuaComputerClient, type CuaComputerOptions } from "./cua-client";
+import {
+  CuaComputerClient,
+  type CuaComputerClientContract,
+  type CuaComputerOptions,
+} from "./cua-client";
 import type { CuaObservation, ScreenshotRequest } from "./computer-observation";
 
 export type CuaTrajectoryEvent = {
@@ -17,7 +21,7 @@ export type CuaTrajectoryEvent = {
 };
 
 export type CuaToolSession = {
-  client: CuaComputerClient;
+  client: CuaComputerClientContract;
   lastObservation?: CuaObservation;
   observationRequest?: ScreenshotRequest;
   observationSequence: number;

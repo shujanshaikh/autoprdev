@@ -6,8 +6,26 @@ import { toTextModelOutput } from "./format";
 
 const sandboxInfoInputSchema = z.object({});
 
-async function executeDaytonaSandboxInfo(sandboxOptions: SandboxSessionOptions) {
-  const context = await getSandboxContext(sandboxOptions);
+export interface DaytonaSandboxInfoDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{
+    sandbox: {
+      id: string;
+      name?: string;
+      snapshot?: string;
+      state?: string;
+      autoArchiveInterval?: number;
+    };
+    workDir: string;
+  }>;
+}
+
+const defaultDependencies: DaytonaSandboxInfoDependencies = { getSandboxContext };
+
+async function executeDaytonaSandboxInfo(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaSandboxInfoDependencies,
+) {
+  const context = await dependencies.getSandboxContext(sandboxOptions);
 
   return {
     content:
@@ -28,13 +46,16 @@ async function executeDaytonaSandboxInfo(sandboxOptions: SandboxSessionOptions) 
   };
 }
 
-export function createDaytonaSandboxInfoTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaSandboxInfoTool(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaSandboxInfoDependencies = defaultDependencies,
+) {
   return tool({
     title: "sandboxInfo",
     description:
       "Inspect the active Daytona sandbox metadata. Use when you need the sandbox id, name, snapshot, or working directory before choosing paths, commands, previews, or follow-up actions. Read-only and safe to retry.",
     inputSchema: sandboxInfoInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: () => executeDaytonaSandboxInfo(sandboxOptions),
+    execute: () => executeDaytonaSandboxInfo(sandboxOptions, dependencies),
   });
 }

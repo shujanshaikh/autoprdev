@@ -1,3 +1,5 @@
+import { hasObjectType } from "@autopr/config/runtime-type";
+
 import { useQuery } from "@tanstack/react-query";
 
 export type GrokStatus = {
@@ -15,9 +17,9 @@ async function fetchGrokStatus(): Promise<GrokStatus> {
   const response = await fetch("/api/grok/status");
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.");
+    throw new Error(data && hasObjectType(data) && "error" in data ? String(data.error) : "Request failed.");
   }
-  return await response.json() as GrokStatus;
+  return await response.json() satisfies GrokStatus;
 }
 
 export function useGrokStatus(enabled: boolean) {

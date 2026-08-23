@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
+import { getSandboxContext, type DaytonaSandbox, type SandboxSessionOptions } from "../sandbox";
 import { combineCommandOutput, toTextModelOutput, truncateText, truncateToolOutput } from "./format";
 import { raceWithTimeout } from "./timeout";
 import { requireString } from "./validation";
@@ -36,6 +36,23 @@ const processInputSchema = z.discriminatedUnion("action", [
 
 type ProcessInput = z.infer<typeof processInputSchema>;
 
+type ProcessApi = Pick<DaytonaSandbox["process"],
+  | "deleteSession"
+  | "getSessionCommand"
+  | "getSessionCommandLogs"
+  | "listSessions"
+  | "sendSessionCommandInput"
+>;
+
+export interface DaytonaProcessDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{
+    sandbox: { process: ProcessApi };
+    workDir: string;
+  }>;
+}
+
+const defaultDependencies: DaytonaProcessDependencies = { getSandboxContext };
+
 function requireOwnedSessionId(
   value: string | undefined,
   backgroundProcesses: BackgroundProcessScope,
@@ -51,8 +68,9 @@ async function executeDaytonaProcess(
   input: ProcessInput,
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
+  dependencies: DaytonaProcessDependencies,
 ) {
-  const { sandbox } = await getSandboxContext(sandboxOptions);
+  const { sandbox } = await dependencies.getSandboxContext(sandboxOptions);
 
   if (input.action === "list") {
     const ownedSessions = (await runProcessOperation("list sessions", () => sandbox.process.listSessions()))
@@ -181,6 +199,7 @@ function runProcessOperation<T>(label: string, operation: () => Promise<T>) {
 export function createDaytonaProcessTool(
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
+  dependencies: DaytonaProcessDependencies = defaultDependencies,
 ) {
   return tool({
     title: "process",
@@ -188,6 +207,6 @@ export function createDaytonaProcessTool(
       "Manage long-running commands started by bash with isBackground=true in the current agent run. Use list to discover this run's sessions, poll for tail-preserving bounded logs and exit status, input to send stdin, and terminate to clean up. Each Daytona operation has a bounded wait. Poll only when new output or completion is expected.",
     inputSchema: processInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaProcess(input, sandboxOptions, backgroundProcesses),
+    execute: (input) => executeDaytonaProcess(input, sandboxOptions, backgroundProcesses, dependencies),
   });
 }

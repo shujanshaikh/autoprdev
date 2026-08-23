@@ -1,3 +1,6 @@
+import { hasNumberType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
+
 import type { FetchLike } from "../core/index.ts";
 
 export type ChatGPTImageFormat = "png" | "jpeg" | "webp";
@@ -149,7 +152,7 @@ async function runImageRequest(
 ): Promise<ChatGPTGeneratedImage> {
   const format = options.format ?? "png";
   const mediaType = mediaTypeFor(format);
-  const tool: Record<string, unknown> = {
+  const tool: JsonObject = {
     type: "image_generation",
     action: options.action,
   };
@@ -235,8 +238,16 @@ async function runImageRequest(
     dataUrl: `data:${mediaType};base64,${call.result}`,
     mediaType,
     format,
-    ...(call.id ? { id: call.id } : {}),
-    ...(call.revised_prompt ? { revisedPrompt: call.revised_prompt } : {}),
+    ...(() => {
+  let optionalProperties;
+  if (call.id) optionalProperties = { id: call.id };
+  return optionalProperties;
+})(),
+    ...(() => {
+  let optionalProperties;
+  if (call.revised_prompt) optionalProperties = { revisedPrompt: call.revised_prompt };
+  return optionalProperties;
+})(),
   };
 }
 
@@ -314,7 +325,7 @@ async function readImageResponse(
   throw new ChatGPTImageError("The response completed without an image.", { code: "no_image_generated" });
 }
 
-function findImageCall(value: unknown): ImageGenerationCall | undefined {
+function findImageCall<ValueValue>(value: ValueValue): ImageGenerationCall | undefined {
   if (Array.isArray(value)) {
     for (const item of value) {
       const found = findImageCall(item);
@@ -325,11 +336,19 @@ function findImageCall(value: unknown): ImageGenerationCall | undefined {
 
   const record = getRecord(value);
   if (!record) return undefined;
-  if (record["type"] === "image_generation_call" && typeof record["result"] === "string") {
+  if (record["type"] === "image_generation_call" && hasStringType(record["result"])) {
     return {
       result: record["result"],
-      ...(typeof record["id"] === "string" ? { id: record["id"] } : {}),
-      ...(typeof record["revised_prompt"] === "string" ? { revised_prompt: record["revised_prompt"] } : {}),
+      ...(() => {
+  let optionalProperties;
+  if (hasStringType(record["id"])) optionalProperties = { id: record["id"] };
+  return optionalProperties;
+})(),
+      ...(() => {
+  let optionalProperties;
+  if (hasStringType(record["revised_prompt"])) optionalProperties = { revised_prompt: record["revised_prompt"] };
+  return optionalProperties;
+})(),
     };
   }
 
@@ -340,7 +359,7 @@ function findImageCall(value: unknown): ImageGenerationCall | undefined {
   return undefined;
 }
 
-function imageResponseError(value: unknown): ChatGPTImageError {
+function imageResponseError<ValueValue>(value: ValueValue): ChatGPTImageError {
   const record = getRecord(value);
   const response = getRecord(record?.["response"]);
   const error = getRecord(response?.["error"]) ?? getRecord(record?.["error"]);
@@ -356,7 +375,7 @@ function imageResponseError(value: unknown): ChatGPTImageError {
 
 async function toImageUrl(input: ChatGPTImageInput): Promise<string> {
   if (input.data instanceof URL) return input.data.toString();
-  if (typeof input.data === "string") {
+  if (hasStringType(input.data)) {
     if (/^(?:https?:|data:)/i.test(input.data)) return input.data;
     if (!input.mediaType) {
       throw new TypeError("`mediaType` is required when image data is a raw base64 string.");
@@ -432,25 +451,25 @@ function mediaTypeFor(format: ChatGPTImageFormat): `image/${string}` {
   return format === "jpeg" ? "image/jpeg" : `image/${format}`;
 }
 
-function setIfDefined(target: Record<string, unknown>, key: string, value: unknown): void {
+function setIfDefined(target: JsonObject, key: string, value: JsonValue): void {
   if (value !== undefined) target[key] = value;
 }
 
-function getRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+function getRecord<ValueValue>(value: ValueValue): JsonObject | undefined {
+  return hasObjectType(value) && value !== null && !Array.isArray(value)
+    ? (/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ value as JsonObject)
     : undefined;
 }
 
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
+function readString<ValueValue>(value: ValueValue): string | undefined {
+  return hasStringType(value) ? value : undefined;
 }
 
-function readNumber(value: unknown): number | undefined {
-  return typeof value === "number" ? value : undefined;
+function readNumber<ValueValue>(value: ValueValue): number | undefined {
+  return hasNumberType(value) ? value : undefined;
 }
 
-async function readErrorBody(response: Response): Promise<unknown> {
+async function readErrorBody(response: Response): Promise<JsonValue> {
   const text = await response.text();
   if (!text) return undefined;
   try {

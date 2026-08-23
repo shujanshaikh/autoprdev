@@ -1,18 +1,21 @@
 "use node";
 
+import { hasNumberType, hasStringType } from "@autopr/config/runtime-type";
+import { isJsonObject, type JsonObject } from "@autopr/config/runtime-value";
+
 import { Daytona } from "@daytona/sdk";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import { IMAGE_URL_EXPIRES_IN_SECONDS, r2 } from "./imageUploads";
+import { asR2ActionContext } from "./lib/r2Context";
 
 type EnsureUploadedResult = {
   status: "uploaded";
   url: string;
 };
 
-type R2StoreCtx = Parameters<typeof r2.store>[0];
 
 const RECORDING_SOURCE_FETCH_TIMEOUT_MS = 60_000;
 const RECORDING_DASHBOARD_PORT = 33333;
@@ -52,28 +55,28 @@ function recordingObjectKey(authorId: string, threadId: string, recordingId: str
   ].join("/");
 }
 
-function errorMessage(error: unknown) {
+function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isExistingR2ObjectError(error: unknown, key: string) {
+function isExistingR2ObjectError<ErrorValue>(error: ErrorValue, key: string) {
   const message = errorMessage(error);
   return message.includes("Metadata already exists") && message.includes(key);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord<ValueValue>(value: ValueValue): value is ValueValue & (JsonObject) {
+  return isJsonObject(value);
 }
 
-function normalizeRecording(value: unknown): DaytonaRecording {
+function normalizeRecording<ValueValue>(value: ValueValue): DaytonaRecording {
   if (!isRecord(value)) return {};
 
   return {
-    fileName: typeof value.fileName === "string" ? value.fileName : undefined,
-    status: typeof value.status === "string" ? value.status : undefined,
-    endTime: typeof value.endTime === "string" ? value.endTime : undefined,
-    durationSeconds: typeof value.durationSeconds === "number" ? value.durationSeconds : undefined,
-    sizeBytes: typeof value.sizeBytes === "number" ? value.sizeBytes : undefined,
+    fileName: hasStringType(value.fileName) ? value.fileName : undefined,
+    status: hasStringType(value.status) ? value.status : undefined,
+    endTime: hasStringType(value.endTime) ? value.endTime : undefined,
+    durationSeconds: hasNumberType(value.durationSeconds) ? value.durationSeconds : undefined,
+    sizeBytes: hasNumberType(value.sizeBytes) ? value.sizeBytes : undefined,
   };
 }
 
@@ -81,7 +84,7 @@ function isPlayableRecording(recording: DaytonaRecording) {
   return Boolean(
     recording.fileName?.trim()
       && (!recording.status || recording.status === "completed")
-      && (recording.endTime || typeof recording.durationSeconds === "number" || typeof recording.sizeBytes === "number"),
+      && (recording.endTime || hasNumberType(recording.durationSeconds) || hasNumberType(recording.sizeBytes)),
   );
 }
 
@@ -220,7 +223,7 @@ export const ensureUploaded = action({
     const recording = await getPlayableRecording(sandbox, args.recordingId);
     const sourceFileName = recording.fileName?.trim();
     if (!sourceFileName) throw new Error("Recording file name is not available yet.");
-    if (typeof recording.sizeBytes === "number" && recording.sizeBytes > MAX_RECORDING_BYTES) {
+    if (hasNumberType(recording.sizeBytes) && recording.sizeBytes > MAX_RECORDING_BYTES) {
       throw new Error("Recording exceeds the maximum upload size.");
     }
     const preview = await sandbox.getSignedPreviewUrl(
@@ -256,7 +259,7 @@ export const ensureUploaded = action({
       const { blob, sizeBytes } = await fetchRecordingSource(sourceUrl);
 
       try {
-        await r2.store(ctx as unknown as R2StoreCtx, blob, {
+        await r2.store(asR2ActionContext(ctx), blob, {
           key: r2Key,
           type: contentType,
           disposition: contentDisposition(fileName),

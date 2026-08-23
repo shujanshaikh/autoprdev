@@ -69,22 +69,38 @@ interface FffGrepResult {
   };
 }
 
-async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessionOptions) {
+export interface DaytonaGrepDependencies {
+  getSandboxContext: (options: SandboxSessionOptions) => Promise<{ workDir: string }>;
+  resolveJailedSandboxPath: typeof resolveJailedSandboxPath;
+  executeFff: (
+    subcommand: string,
+    flags: Parameters<typeof executeAutoprFff>[1],
+    options: SandboxSessionOptions,
+  ) => Promise<Awaited<ReturnType<typeof executeAutoprFff<FffGrepResult>>>>;
+}
+
+const defaultDependencies: DaytonaGrepDependencies = {
+  getSandboxContext,
+  resolveJailedSandboxPath,
+  executeFff: executeAutoprFff<FffGrepResult>,
+};
+
+async function executeDaytonaGrep(input: GrepInput, sandboxOptions: SandboxSessionOptions, dependencies: DaytonaGrepDependencies) {
   const pattern = requireString(input.pattern, "pattern", "grep");
   if (isWildcardOnlyPattern(pattern)) {
     throw new Error(
       `Pattern "${pattern}" matches everything. grep requires a concrete substring or identifier; use read for a known file or find for file discovery.`,
     );
   }
-  const context = await getSandboxContext(sandboxOptions);
+  const context = await dependencies.getSandboxContext(sandboxOptions);
   const remotePath = context.workDir;
   const scopePath = input.path
-    ? await resolveJailedSandboxPath(input.path, { workDir: context.workDir, sandboxOptions })
+    ? await dependencies.resolveJailedSandboxPath(input.path, { workDir: context.workDir, sandboxOptions })
     : undefined;
   const limit = clampLimit(input.limit, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
   const contextLines = Math.max(0, input.context ?? 0);
   const mode = input.mode ?? (input.literal ? "plain" : "auto");
-  const result = await executeAutoprFff<FffGrepResult>("grep", {
+  const result = await dependencies.executeFff("grep", {
     cwd: remotePath,
     pattern,
     path: scopePath,
@@ -244,13 +260,16 @@ function formatExcludeFlag(exclude: GrepInput["exclude"]): string | undefined {
   return exclude;
 }
 
-export function createDaytonaGrepTool(sandboxOptions: SandboxSessionOptions) {
+export function createDaytonaGrepTool(
+  sandboxOptions: SandboxSessionOptions,
+  dependencies: DaytonaGrepDependencies = defaultDependencies,
+) {
   return tool({
     title: "grep",
     description:
       "Search workspace file contents using FFF indexed grep with bounded line/context output. Use a concrete substring, identifier, or intentional regex to locate behavior before editing; use read instead of wildcard-only patterns to inspect a known file. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
     inputSchema: grepInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaGrep(input, sandboxOptions),
+    execute: (input) => executeDaytonaGrep(input, sandboxOptions, dependencies),
   });
 }

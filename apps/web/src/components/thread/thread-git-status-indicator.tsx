@@ -13,7 +13,7 @@ interface ThreadGitStatusIndicatorProps {
   enabled: boolean;
 }
 
-const kindLabels: Record<ThreadGitStatus["kind"], string> = {
+const kindLabels = {
   not_repository: "Not a Git repository",
   synchronized: "Clean and synchronized",
   uncommitted: "Uncommitted changes",
@@ -24,7 +24,7 @@ const kindLabels: Record<ThreadGitStatus["kind"], string> = {
   no_upstream: "No upstream",
   no_remote: "No remote",
   remote_unavailable: "Remote unavailable",
-};
+} satisfies Record<ThreadGitStatus["kind"], string>;
 
 /**
  * A healthy repository stays quiet — only deviations earn a colour, and the
@@ -32,7 +32,7 @@ const kindLabels: Record<ThreadGitStatus["kind"], string> = {
  */
 type StatusTone = "quiet" | "info" | "attention" | "danger";
 
-const kindTones: Record<ThreadGitStatus["kind"], StatusTone> = {
+const kindTones = {
   not_repository: "quiet",
   synchronized: "quiet",
   no_remote: "quiet",
@@ -43,14 +43,14 @@ const kindTones: Record<ThreadGitStatus["kind"], StatusTone> = {
   diverged: "danger",
   detached: "danger",
   remote_unavailable: "danger",
-};
+} satisfies Record<ThreadGitStatus["kind"], StatusTone>;
 
-const toneText: Record<StatusTone, string> = {
+const toneText = {
   quiet: "text-muted-foreground",
   info: "text-[color:var(--framer-accent-blue)]",
   attention: "text-[color:var(--framer-gradient-orange)]",
   danger: "text-[color:var(--framer-gradient-coral)]",
-};
+} satisfies Record<StatusTone, string>;
 
 const shellClassName =
   "hidden h-7 min-w-0 max-w-full items-center gap-2 rounded-[var(--radius-pill)] border border-transparent pl-2 pr-2 font-mono text-[11px] lg:inline-flex";

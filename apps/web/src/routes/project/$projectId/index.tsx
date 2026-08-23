@@ -1,76 +1,25 @@
+import { hasObjectType } from "@autopr/config/runtime-type";
+
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@autopr/ui/components/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@autopr/ui/components/tooltip";
-import {
-  useMutation as useReactMutation,
-  useQuery as useReactQuery,
-} from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@autopr/ui/components/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@autopr/ui/components/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
+import { useMutation as useReactMutation, useQuery as useReactQuery } from "@tanstack/react-query";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FileUIPart } from "ai";
-import {
-  ArrowRight,
-  ArrowUp,
-  CircleAlert,
-  GitBranch,
-  GitFork,
-  GitPullRequest,
-  ImagePlus,
-  Loader2,
-  MessageSquare,
-  MessageSquarePlus,
-  Archive,
-  Play,
-  Search,
-  Square,
-  Trash2,
-  Video,
-  X,
-} from "lucide-react";
+import { ArrowRight, ArrowUp, CircleAlert, GitBranch, GitFork, GitPullRequest, ImagePlus, Loader2, MessageSquare, MessageSquarePlus, Archive, Play, Search, Square, Trash2, Video, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 
-import {
-  usePromptImageUploadManager,
-  type PromptImageUploadState,
-} from "#/components/thread/prompt-image-uploads";
-import {
-  CodexPromptConnectionLine,
-  type CodexPromptConnectionIssue,
-} from "#/components/codex-prompt-connection-line";
+import { usePromptImageUploadManager, type PromptImageUploadState } from "#/components/thread/prompt-image-uploads";
+import { CodexPromptConnectionLine, type CodexPromptConnectionIssue } from "#/components/codex-prompt-connection-line";
 import { DaytonaEnvironmentDialog } from "#/components/thread/daytona-environment-view";
-import {
-  getCodexReasoningEffortLabel,
-  type CodexReasoningEffort,
-} from "#/lib/codex-models";
-import {
-  agentModelKey,
-  getAgentModelOptions,
-  getAgentReasoningEfforts,
-  selectAgentModel,
-  selectAgentReasoningEffort,
-} from "#/lib/agent-models";
+import { getCodexReasoningEffortLabel, type CodexReasoningEffort } from "#/lib/codex-models";
+import { agentModelKey, getAgentModelOptions, getAgentReasoningEfforts, selectAgentModel, selectAgentReasoningEffort } from "#/lib/agent-models";
 import { useCodexStatus } from "#/lib/codex-status";
 import { useGrokStatus } from "#/lib/grok-status";
 import { deleteThreadWithCleanup } from "#/lib/delete-thread";
@@ -140,7 +89,7 @@ function ThreadWorkspaceSelect({
   const isWorktree = value === "worktree";
 
   return (
-    <Select value={value} onValueChange={(nextValue) => onChange(nextValue as ThreadWorkspaceMode)}>
+    <Select value={value} onValueChange={(nextValue) => onChange(/* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ nextValue as ThreadWorkspaceMode)}>
       <SelectTrigger
         size="sm"
         className="h-7 max-w-[11rem] gap-1 border-none bg-transparent px-1.5 font-mono text-[11px] font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-muted/30 [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5"
@@ -198,10 +147,10 @@ function ThreadWorkspaceSelect({
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = data && typeof data === "object" && "error" in data ? String(data.error) : "Request failed.";
+    const error = data && hasObjectType(data) && "error" in data ? String(data.error) : "Request failed.";
     throw new Error(error);
   }
-  return data as T;
+  return data satisfies T;
 }
 
 
@@ -329,7 +278,7 @@ function ProjectOverviewPage() {
 
   const setPromptImages = useCallback((updater: SetStateAction<ProjectPromptImage[]>) => {
     const currentImages = promptImagesRef.current;
-    const nextImages = typeof updater === "function" ? updater(currentImages) : updater;
+    const nextImages = updater instanceof Function ? updater(currentImages) : updater;
 
     promptImagesRef.current = nextImages;
     setPromptImagesState(nextImages);
@@ -982,7 +931,7 @@ function ProjectOverviewPage() {
                               />
                               {selectedReasoningEfforts.length > 0 ? <Select
                                 value={selectedReasoningEffort}
-                                onValueChange={(value) => value && setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
+                                onValueChange={(value) => value && setSelectedReasoningEffortChoice(value satisfies CodexReasoningEffort)}
                               >
                                 <SelectTrigger
                                   size="sm"

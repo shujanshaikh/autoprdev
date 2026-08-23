@@ -1,21 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  buildChatGPTRealtimeSession,
-  createChatGPTRealtimeAction,
-  createChatGPTRealtimeRelayMessage,
-  createChatGPTRealtimeToolResult,
-  createChatGPTRealtimeToolUpdate,
-  createChatGPTRealtimeCall,
-  encodeChatGPTRealtimeEvent,
-  exchangeChatGPTRealtimeWebSession,
-  getChatGPTRealtimePayload,
-  parseChatGPTRealtimeEvent,
-  parseChatGPTRealtimeSessionOptions,
-  parseChatGPTRealtimeTranscript,
-  parseChatGPTRealtimeAppServerEvent,
-  parseChatGPTRealtimeToolInvocation,
-  resolveConfig,
-} from "../../src/core/index.ts";
+import { buildChatGPTRealtimeSession, createChatGPTRealtimeAction, createChatGPTRealtimeRelayMessage, createChatGPTRealtimeToolResult, createChatGPTRealtimeToolUpdate, createChatGPTRealtimeCall, encodeChatGPTRealtimeEvent, exchangeChatGPTRealtimeWebSession, getChatGPTRealtimePayload, parseChatGPTRealtimeEvent, parseChatGPTRealtimeSessionOptions, parseChatGPTRealtimeTranscript, parseChatGPTRealtimeAppServerEvent, parseChatGPTRealtimeToolInvocation, resolveConfig } from "../../src/core/index.ts";
 import { createMockFetch, makeJwt } from "./helpers.ts";
 
 describe("ChatGPT Realtime", () => {
@@ -49,15 +33,18 @@ describe("ChatGPT Realtime", () => {
     expect(() => buildChatGPTRealtimeSession({ timezoneOffsetMinutes: 2000 })).toThrow("timezoneOffsetMinutes");
     expect(() => buildChatGPTRealtimeSession({ historyAndTrainingDisabled: true })).toThrow("must be false");
     expect(() => buildChatGPTRealtimeSession({ transport: "wm", voiceMode: "advanced" })).toThrow("must be `wingman`");
-    expect(() => buildChatGPTRealtimeSession({ transport: "bogus" as "wm" })).toThrow("session.transport");
+    expect(() => buildChatGPTRealtimeSession({ transport: /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ "bogus" as "wm" })).toThrow("session.transport");
     expect(() => buildChatGPTRealtimeSession({ transport: "vp" })).toThrow("`model` is required");
-    expect(() => buildChatGPTRealtimeSession({
+    const invalidClientTools = {
       clientTools: [{
         type: "function",
         name: "tool",
         parameters: { type: "object" },
-      }] as unknown as never[],
-    })).toThrow("reserved first-party device tool IDs");
+      }],
+    };
+    const parsedInvalidClientTools = parseChatGPTRealtimeSessionOptions(invalidClientTools);
+    expect(() => buildChatGPTRealtimeSession(parsedInvalidClientTools))
+      .toThrow("reserved first-party device tool IDs");
   });
 
   test("extracts user transcripts and assistant captions", () => {
@@ -112,7 +99,7 @@ describe("ChatGPT Realtime", () => {
     expect(headers.get("chatgpt-account-id")).toBe("acct_123");
     expect(headers.get("oai-device-id")).toBe("8aacad9c-15c9-4d87-9516-855d3d223bf8");
     expect(headers.has("openai-beta")).toBe(false);
-    const form = call.init?.body as FormData;
+    const form = /* SAFETY: This deliberately partial fixture implements exactly the owner-contract members exercised by this isolated test. */ call.init?.body as FormData;
     expect(form.get("sdp")).toBe("v=0\r\no=- offer");
     expect(JSON.parse(String(form.get("session")))).toMatchObject({
       voice: "juniper",

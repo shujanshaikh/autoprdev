@@ -1,15 +1,6 @@
-import {
-  DMSans_400Regular,
-  DMSans_500Medium,
-  DMSans_700Bold,
-  useFonts,
-} from "@expo-google-fonts/dm-sans";
+import { DMSans_400Regular, DMSans_500Medium, DMSans_700Bold, useFonts } from "@expo-google-fonts/dm-sans";
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  DarkTheme as NavigationDarkTheme,
-  DefaultTheme as NavigationLightTheme,
-  NavigationContainer,
-} from "@react-navigation/native";
+import { DarkTheme as NavigationDarkTheme, DefaultTheme as NavigationLightTheme, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { GitPullRequest, X } from "lucide-react-native";

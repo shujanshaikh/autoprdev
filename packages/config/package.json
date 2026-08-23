@@ -4,8 +4,13 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./runtime-type": "./runtime-type.ts",
+    "./runtime-value": "./runtime-value.ts",
     "./computer-use-lifecycle": "./computer-use-lifecycle.ts",
     "./tsconfig.base.json": "./tsconfig.base.json",
     "./sandbox-network-policy": "./sandbox-network-policy.ts"
+  },
+  "dependencies": {
+    "zod": "catalog:"
   }
 }

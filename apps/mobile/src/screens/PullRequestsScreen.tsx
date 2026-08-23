@@ -115,7 +115,11 @@ export function PullRequestsScreen({ navigation, route }: Props) {
           body: JSON.stringify({
             action: mode,
             reference,
-            ...(mode === "attach" ? { threadId: selectedThreadId } : {}),
+            ...(() => {
+  let optionalProperties;
+  if (mode === "attach") optionalProperties = { threadId: selectedThreadId };
+  return optionalProperties;
+})(),
           }),
         },
       );

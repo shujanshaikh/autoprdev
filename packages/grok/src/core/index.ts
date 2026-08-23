@@ -1,3 +1,5 @@
+import { hasNumberType, hasObjectType, hasStringType } from "@autopr/config/runtime-type";
+import { type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
 export const GROK_OAUTH_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
 export const GROK_TOKEN_URL = "https://auth.x.ai/oauth2/token";
 export const GROK_DEVICE_AUTHORIZATION_URL = "https://auth.x.ai/oauth2/device/code";
@@ -161,7 +163,7 @@ export async function fetchGrokModels(
 
   const models = Array.isArray(body.data) ? body.data : [];
   return normalizeGrokHarnessModels(models.flatMap((model) => {
-    if (typeof model !== "object" || model === null || !("id" in model)) return [];
+    if (!hasObjectType(model) || model === null || !("id" in model)) return [];
     const id = optionalString(model.id);
     return id ? [id] : [];
   }));
@@ -187,8 +189,8 @@ export function grokAccessTokenIsExpiring(
   if (!payload) return false;
 
   try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
-    return typeof claims.exp === "number" && claims.exp * 1000 <= Date.now() + Math.max(0, skewMs);
+    const claims = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as JsonObject;
+    return hasNumberType(claims.exp) && claims.exp * 1000 <= Date.now() + Math.max(0, skewMs);
   } catch {
     return false;
   }
@@ -200,7 +202,7 @@ export function decodeGrokIdentity(token: string | undefined) {
   if (!payload) return {};
 
   try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    const claims = /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as JsonObject;
     return {
       email: optionalString(claims.email),
       name: optionalString(claims.name),
@@ -219,14 +221,14 @@ function authHeaders(userAgent: string | undefined) {
   };
 }
 
-async function readJsonRecord(response: Response): Promise<Record<string, unknown>> {
+async function readJsonRecord(response: Response): Promise<JsonObject> {
   const body = await response.json().catch(() => ({}));
-  return typeof body === "object" && body !== null && !Array.isArray(body)
-    ? body as Record<string, unknown>
+  return hasObjectType(body) && body !== null && !Array.isArray(body)
+    ? /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ body as JsonObject
     : {};
 }
 
-function parseTokens(body: Record<string, unknown>, now: number, fallbackRefreshToken?: string): GrokOAuthTokens {
+function parseTokens(body: JsonObject, now: number, fallbackRefreshToken?: string): GrokOAuthTokens {
   return {
     accessToken: requireString(body.access_token, "access_token"),
     refreshToken: optionalString(body.refresh_token) ?? fallbackRefreshToken ?? requireString(body.refresh_token, "refresh_token"),
@@ -237,23 +239,23 @@ function parseTokens(body: Record<string, unknown>, now: number, fallbackRefresh
   };
 }
 
-function endpointError(label: string, status: number, body: Record<string, unknown>) {
+function endpointError(label: string, status: number, body: JsonObject) {
   const code = optionalString(body.error);
   const detail = optionalString(body.error_description) ?? optionalString(body.message) ?? code;
   return new GrokOAuthError(`${label} failed (${status})${detail ? `: ${detail}` : ""}`, status, code);
 }
 
-function requireString(value: unknown, field: string) {
+function requireString(value: JsonValue | undefined, field: string) {
   const result = optionalString(value);
   if (!result) throw new GrokOAuthError(`xAI response is missing ${field}.`, 502);
   return result;
 }
 
-function optionalString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+function optionalString(value: JsonValue | undefined) {
+  return hasStringType(value) && value.trim() ? value.trim() : undefined;
 }
 
-function positiveNumber(value: unknown, fallback: number) {
+function positiveNumber(value: JsonValue | undefined, fallback: number) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }

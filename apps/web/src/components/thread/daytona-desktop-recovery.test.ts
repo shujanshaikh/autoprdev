@@ -58,4 +58,19 @@ describe("Daytona desktop recovery machine", () => {
     });
     expect(states.at(-1)).toEqual(recovery.getState());
   });
+
+  it("does not retry when another viewer already published the current route", async () => {
+    vi.useFakeTimers();
+    const recover = vi.fn(async () => "current" as const);
+    const recovery = createDesktopRecoveryMachine({
+      recover,
+      onStateChange: () => undefined,
+    });
+
+    recovery.recover("stream");
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(recover).toHaveBeenCalledExactlyOnceWith("stream");
+    recovery.dispose();
+  });
 });

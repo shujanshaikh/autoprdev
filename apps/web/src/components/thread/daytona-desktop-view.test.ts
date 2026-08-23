@@ -84,7 +84,7 @@ describe("DaytonaDesktopView", () => {
     expect(onReconnectRequired).not.toHaveBeenCalled();
   });
 
-  it("hands the first failed noVNC connection to the route owner", async () => {
+  it("retries the first short-lived noVNC connection without restarting the route", async () => {
     const onReconnectRequired = vi.fn(async () => true);
     render(createElement(DaytonaDesktopView, {
       websocketUrl: "wss://desktop.test/websockify",
@@ -98,12 +98,16 @@ describe("DaytonaDesktopView", () => {
     });
     await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
+    expect(onReconnectRequired).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(299));
     expect(mocks.instances).toHaveLength(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+
+    expect(mocks.instances).toHaveLength(2);
     expect(mocks.instances[0]?.disconnect).not.toHaveBeenCalled();
   });
 
-  it("backs off failed server recovery without creating more RFB clients", async () => {
+  it("backs off failed server recovery after bounded local retries", async () => {
     const onReconnectRequired = vi.fn(async () => false);
     render(createElement(DaytonaDesktopView, {
       websocketUrl: "wss://desktop.test/websockify",
@@ -111,10 +115,16 @@ describe("DaytonaDesktopView", () => {
     }));
     await flushDesktopImport();
 
-    act(() => {
-      mocks.instances[0]?.dispatchEvent(new CustomEvent("disconnect", { detail: { clean: false } }));
-    });
-    await flushDesktopImport();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      act(() => {
+        mocks.instances[attempt]?.dispatchEvent(new CustomEvent("connect"));
+        mocks.instances[attempt]?.dispatchEvent(new CustomEvent("disconnect", {
+          detail: { clean: false },
+        }));
+      });
+      await flushDesktopImport();
+      if (attempt < 2) await act(() => vi.advanceTimersByTimeAsync(300));
+    }
 
     expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
     await act(() => vi.advanceTimersByTimeAsync(499));
@@ -123,7 +133,7 @@ describe("DaytonaDesktopView", () => {
     await flushDesktopImport();
 
     expect(onReconnectRequired).toHaveBeenCalledTimes(2);
-    expect(mocks.instances).toHaveLength(1);
+    expect(mocks.instances).toHaveLength(3);
   });
 
   it("recovers when a noVNC handshake never completes", async () => {

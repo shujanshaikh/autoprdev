@@ -7,11 +7,15 @@ import {
   createDesktopRecoveryMachine,
   type DesktopConnectionState,
   type DesktopRecoveryReason,
+  type DesktopRecoveryResult,
 } from "./daytona-desktop-recovery";
 
 const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
+const LOCAL_RECONNECT_DELAY_MS = 300;
+const CONNECTION_STABLE_MS = 10_000;
+const MAX_LOCAL_CONNECTION_ATTEMPTS = 3;
 
 type DaytonaDesktopViewProps = {
   websocketUrl?: string;
@@ -23,7 +27,7 @@ type DaytonaDesktopViewProps = {
   onReconnectRequired?: (
     reason: DesktopRecoveryReason,
     failedRevision: number,
-  ) => boolean | void | Promise<boolean | void>;
+  ) => DesktopRecoveryResult | Promise<DesktopRecoveryResult>;
 };
 
 type RfbInstance = {
@@ -134,6 +138,9 @@ export function DaytonaDesktopView({
     let removeActiveListeners: (() => void) | undefined;
     let disconnectActiveRfb: (() => void) | undefined;
     let focusFrame: number | undefined;
+    let connectionAttempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stabilityTimer: ReturnType<typeof setTimeout> | undefined;
     container.replaceChildren();
 
     const recovery = createDesktopRecoveryMachine({
@@ -154,10 +161,20 @@ export function DaytonaDesktopView({
 
           const RFB = module.default as RfbConstructor;
 
-          const connect = () => {
+          const clearRetryTimer = () => {
+            if (retryTimer !== undefined) clearTimeout(retryTimer);
+            retryTimer = undefined;
+          };
+          const clearStabilityTimer = () => {
+            if (stabilityTimer !== undefined) clearTimeout(stabilityTimer);
+            stabilityTimer = undefined;
+          };
+          const connect = (phase: "opening" | "reconnecting" = "opening") => {
             if (disposed || !containerRef.current) return;
 
-            recovery.opening();
+            clearRetryTimer();
+            connectionAttempt += 1;
+            recovery.opening(phase);
             containerRef.current.replaceChildren();
 
             const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
@@ -180,19 +197,30 @@ export function DaytonaDesktopView({
             };
             const release = (disconnectClient: boolean) => {
               clearFocusFrame();
+              clearStabilityTimer();
               removeListeners();
               activeRfb = null;
               rfbRef.current = null;
               disconnectActiveRfb = undefined;
               if (disconnectClient) rfb.disconnect();
             };
-            const reconnect = (disconnectClient = true) => {
+            const reconnectLocally = (disconnectClient = true) => {
               if (!isCurrent()) return;
               release(disconnectClient);
 
-              // One failed handshake is enough to distrust this proxy route.
-              // The session owner verifies and publishes the replacement.
-              recovery.recover("stream");
+              // Startup can briefly replace noVNC after an RFB has connected.
+              // Retry the signed route locally before restarting the shared
+              // proxy and disconnecting any other healthy viewer.
+              if (connectionAttempt >= MAX_LOCAL_CONNECTION_ATTEMPTS) {
+                recovery.recover("stream");
+                return;
+              }
+
+              recovery.opening("reconnecting");
+              retryTimer = setTimeout(
+                () => connect("reconnecting"),
+                LOCAL_RECONNECT_DELAY_MS,
+              );
             };
             const fail = (error: string) => {
               if (!isCurrent()) return;
@@ -204,10 +232,16 @@ export function DaytonaDesktopView({
               recovery.connected();
               applyFixedDesktopMode(rfb, interactive);
               if (interactive) focusFrame = window.requestAnimationFrame(() => rfb.focus());
+
+              stabilityTimer = setTimeout(() => {
+                if (!isCurrent()) return;
+                connectionAttempt = 0;
+                stabilityTimer = undefined;
+              }, CONNECTION_STABLE_MS);
             };
             const handleDisconnect: EventListener = () => {
               // noVNC already moved this RFB into its disconnected state.
-              reconnect(false);
+              reconnectLocally(false);
             };
             const handleSecurityFailure: EventListener = () => {
               fail("The VNC server rejected the connection.");
@@ -237,6 +271,8 @@ export function DaytonaDesktopView({
     return () => {
       disposed = true;
       recovery.dispose();
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+      if (stabilityTimer !== undefined) clearTimeout(stabilityTimer);
       if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame);
       removeActiveListeners?.();
       disconnectActiveRfb = undefined;

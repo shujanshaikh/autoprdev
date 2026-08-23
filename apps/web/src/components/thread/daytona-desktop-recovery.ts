@@ -3,6 +3,7 @@ export const DESKTOP_RECOVERY_CONFIRMATION_TIMEOUT_MS = 5_000;
 export const DESKTOP_CONNECTION_RETRY_DELAYS_MS = [500, 1_000, 2_000, 5_000, 10_000] as const;
 
 export type DesktopRecoveryReason = "credentials" | "stream";
+export type DesktopRecoveryResult = boolean | "current" | void;
 
 export type DesktopConnectionState =
   | { state: "idle" }
@@ -11,7 +12,9 @@ export type DesktopConnectionState =
   | { state: "error"; error: string };
 
 type DesktopRecoveryMachineOptions = {
-  recover?: (reason: DesktopRecoveryReason) => boolean | void | Promise<boolean | void>;
+  recover?: (
+    reason: DesktopRecoveryReason,
+  ) => DesktopRecoveryResult | Promise<DesktopRecoveryResult>;
   onStateChange: (state: DesktopConnectionState) => void;
   onOpeningTimeout?: () => void;
   openingTimeoutMs?: number;
@@ -77,6 +80,10 @@ export function createDesktopRecoveryMachine({
           return;
         }
 
+        // Another viewer already published a newer route. Its store update
+        // disposes this stale machine, so no confirmation retry is needed.
+        if (recovered === "current") return;
+
         // The route owner disposes this machine when it publishes a new
         // revision. Ask again if that handoff never reaches the adapter.
         timer = setTimeout(() => requestRecovery(reason), confirmationTimeoutMs);
@@ -92,13 +99,13 @@ export function createDesktopRecoveryMachine({
 
   return {
     getState: () => state,
-    opening: () => {
+    opening: (phase: "opening" | "reconnecting" = "opening") => {
       if (disposed) return;
       operation += 1;
       recoveryPending = false;
       recoveryAttempt = 0;
       clearTimer();
-      transition({ state: "connecting", phase: "opening" });
+      transition({ state: "connecting", phase });
       timer = setTimeout(() => {
         onOpeningTimeout?.();
         requestRecovery("stream");

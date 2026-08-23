@@ -429,13 +429,13 @@ export function ThreadDiffPanel({
   }, [desktopError, loadDesktop]);
 
   useEffect(() => {
-    if (!desktopWebsocketUrl || renderedActiveTab !== "desktop") return;
+    if (!open || !desktopWebsocketUrl || renderedActiveTab !== "desktop") return;
 
     return subscribeDesktopActivity(
       projectId,
       () => refreshDesktopActivity({ projectId }),
     );
-  }, [desktopWebsocketUrl, projectId, refreshDesktopActivity, renderedActiveTab]);
+  }, [desktopWebsocketUrl, open, projectId, refreshDesktopActivity, renderedActiveTab]);
 
   return (
     <aside
@@ -732,7 +732,7 @@ export function ThreadDiffPanel({
         ) : null}
 
         <div className={cn("min-h-0 flex-1 flex-col bg-background", renderedActiveTab === "desktop" ? "flex" : "hidden")}>
-          {hasOpenedDesktop ? (
+          {hasOpenedDesktop && open && renderedActiveTab === "desktop" ? (
           <>
             {desktopWebsocketUrl ? (
               <div className="flex h-10 shrink-0 items-center justify-end gap-2 border-b border-border/45 px-3">

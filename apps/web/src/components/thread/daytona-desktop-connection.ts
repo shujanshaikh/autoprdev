@@ -77,7 +77,7 @@ function createDesktopSession(
         && currentConnection
         && failedRevision < currentConnection.revision
       ) {
-        return Promise.resolve(true);
+        return Promise.resolve("current" as const);
       }
 
       if (

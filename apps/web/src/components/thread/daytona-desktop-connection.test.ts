@@ -90,7 +90,7 @@ describe("Daytona desktop connection", () => {
       recoverStream: true,
       preserveConnection: true,
       failedRevision,
-    })).resolves.toBe(true);
+    })).resolves.toBe("current");
     expect(recover).toHaveBeenCalledOnce();
 
     closeCompact();

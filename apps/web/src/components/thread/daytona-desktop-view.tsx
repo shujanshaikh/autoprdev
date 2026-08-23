@@ -7,10 +7,9 @@ import { DESKTOP_PREVIEW_REFRESH_MARGIN_MS } from "./daytona-desktop-connection"
 const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
-const CONNECTION_RETRY_DELAY_MS = 300;
 const CONNECTION_OPEN_TIMEOUT_MS = 15_000;
-const CONNECTION_STABLE_MS = 10_000;
-const MAX_CONNECTION_ATTEMPTS = 3;
+const RECOVERY_CONFIRMATION_TIMEOUT_MS = 5_000;
+const CONNECTION_RETRY_DELAYS_MS = [500, 1_000, 2_000, 5_000, 10_000] as const;
 
 type ConnectionState =
   | { state: "idle" }
@@ -25,8 +24,9 @@ type DaytonaDesktopViewProps = {
   interactive?: boolean;
   connectionRevision?: number;
   websocketUrlExpiresAt?: number;
-  onConnectionStable?: () => void;
-  onReconnectRequired?: () => void;
+  onReconnectRequired?: (
+    reason: "credentials" | "stream",
+  ) => boolean | void | Promise<boolean | void>;
 };
 
 type RfbInstance = {
@@ -62,14 +62,12 @@ export function DaytonaDesktopView({
   interactive = true,
   connectionRevision = 0,
   websocketUrlExpiresAt,
-  onConnectionStable,
   onReconnectRequired,
 }: DaytonaDesktopViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RfbInstance | null>(null);
   const reconnectRequiredRef = useRef(onReconnectRequired);
-  const connectionStableRef = useRef(onConnectionStable);
   // react-doctor-disable-next-line react-doctor/no-initialize-state -- Frame size depends on measured DOM layout after mount.
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>();
   const [connection, updateConnection] = useReducer(
@@ -80,10 +78,6 @@ export function DaytonaDesktopView({
   useEffect(() => {
     reconnectRequiredRef.current = onReconnectRequired;
   }, [onReconnectRequired]);
-
-  useEffect(() => {
-    connectionStableRef.current = onConnectionStable;
-  }, [onConnectionStable]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -124,176 +118,180 @@ export function DaytonaDesktopView({
     };
   }, []);
 
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps -- This effect owns the active RFB instance and clears the shared focus ref on teardown.
   useEffect(() => {
     if (!frameSize) return;
     const resizeEvent = new Event("resize");
-    window.requestAnimationFrame(() => window.dispatchEvent(resizeEvent));
+    const frame = window.requestAnimationFrame(() => window.dispatchEvent(resizeEvent));
+    return () => window.cancelAnimationFrame(frame);
   }, [frameSize]);
 
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- The final cleanup owns both timers, the focus frame, the async import guard, the RFB client, and the container.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !websocketUrl) {
       return;
     }
 
-    if (
-      websocketUrlExpiresAt !== undefined
-      && Date.now() >= websocketUrlExpiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
-      && reconnectRequiredRef.current
-    ) {
-      updateConnection({ state: "connecting", phase: "reconnecting" });
-      reconnectRequiredRef.current();
-      return;
-    }
-
     let disposed = false;
     let activeRfb: RfbInstance | null = null;
-    let connectionAttempt = 0;
+    let recoveryAttempt = 0;
+    let recoveryPending = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let openingTimer: ReturnType<typeof setTimeout> | undefined;
-    let stabilityTimer: ReturnType<typeof setTimeout> | undefined;
+    let focusFrame: number | undefined;
     updateConnection({ state: "connecting", phase: "opening" });
     container.replaceChildren();
 
-    void import("@novnc/novnc")
-      .then((module) => {
-        if (disposed || !containerRef.current) return;
-
-        const RFB = module.default as RfbConstructor;
-
-        const connect = () => {
-          if (disposed || !containerRef.current) return;
-
-          connectionAttempt += 1;
-          updateConnection({
-            state: "connecting",
-            phase: connectionAttempt === 1 ? "opening" : "reconnecting",
-          });
-          containerRef.current.replaceChildren();
-
-          const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
-          activeRfb = rfb;
-          rfbRef.current = rfb;
-          applyFixedDesktopMode(rfb, interactive);
-          rfb.background = "#000000";
-
-          const isCurrent = () => !disposed && activeRfb === rfb;
-          const clearStabilityTimer = () => {
-            if (stabilityTimer) clearTimeout(stabilityTimer);
-            stabilityTimer = undefined;
-          };
-          const clearOpeningTimer = () => {
-            if (openingTimer) clearTimeout(openingTimer);
-            openingTimer = undefined;
-          };
-          const removeListeners = () => {
-            rfb.removeEventListener("connect", handleConnect);
-            rfb.removeEventListener("disconnect", handleDisconnect);
-            rfb.removeEventListener("securityfailure", handleSecurityFailure);
-            rfb.removeEventListener("credentialsrequired", handleCredentialsRequired);
-          };
-          const reconnect = (disconnectClient = true) => {
-            if (!isCurrent()) return;
-            clearOpeningTimer();
-            clearStabilityTimer();
-            removeListeners();
-            activeRfb = null;
-            rfbRef.current = null;
-            if (disconnectClient) rfb.disconnect();
-
-            if (
-              websocketUrlExpiresAt !== undefined
-              && Date.now() >= websocketUrlExpiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
-              && reconnectRequiredRef.current
-            ) {
-              updateConnection({ state: "connecting", phase: "reconnecting" });
-              reconnectRequiredRef.current();
-              return;
-            }
-
-            if (connectionAttempt >= MAX_CONNECTION_ATTEMPTS) {
-              updateConnection({ state: "connecting", phase: "reconnecting" });
-              if (reconnectRequiredRef.current) {
-                // The current signed URL or Daytona proxy route is no longer
-                // trustworthy. Its owner will replace this component's URL;
-                // retrying the stale URL here creates overlapping RFB clients.
-                reconnectRequiredRef.current();
-              } else {
-                updateConnection({
-                  state: "error",
-                  error: "The desktop stream ended repeatedly.",
-                });
-              }
-              return;
-            }
-
-            updateConnection({ state: "connecting", phase: "reconnecting" });
-            retryTimer = setTimeout(connect, CONNECTION_RETRY_DELAY_MS);
-          };
-          const fail = (error: string) => {
-            if (!isCurrent()) return;
-            clearOpeningTimer();
-            clearStabilityTimer();
-            removeListeners();
-            activeRfb = null;
-            rfbRef.current = null;
-            rfb.disconnect();
-            updateConnection({ state: "error", error });
-          };
-          const handleConnect: EventListener = () => {
-            if (!isCurrent()) return;
-            clearOpeningTimer();
-            applyFixedDesktopMode(rfb, interactive);
-            updateConnection({ state: "connected" });
-            if (interactive) window.requestAnimationFrame(() => rfb.focus());
-
-            // A connection that survives this window is healthy. Until then,
-            // preserve the failure count so short-lived proxy connections can
-            // still trigger a fresh signed Daytona URL.
-            clearStabilityTimer();
-            stabilityTimer = setTimeout(() => {
-              if (!isCurrent()) return;
-              connectionAttempt = 0;
-              stabilityTimer = undefined;
-              connectionStableRef.current?.();
-            }, CONNECTION_STABLE_MS);
-          };
-          const handleDisconnect: EventListener = () => {
-            // noVNC already moved this RFB into its disconnected state. Calling
-            // disconnect again produces the repeated "Tried changing state"
-            // warning and does not help recovery.
-            reconnect(false);
-          };
-          const handleSecurityFailure: EventListener = () => {
-            fail("The VNC server rejected the connection.");
-          };
-          const handleCredentialsRequired: EventListener = () => {
-            fail("This VNC desktop requires credentials.");
-          };
-
-          rfb.addEventListener("connect", handleConnect);
-          rfb.addEventListener("disconnect", handleDisconnect);
-          rfb.addEventListener("securityfailure", handleSecurityFailure);
-          rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
-          openingTimer = setTimeout(() => reconnect(), CONNECTION_OPEN_TIMEOUT_MS);
-        };
-
-        connect();
-      })
-      .catch((err) => {
-        if (disposed) return;
+    const retryDelay = (attempt: number) => CONNECTION_RETRY_DELAYS_MS[
+      Math.min(attempt, CONNECTION_RETRY_DELAYS_MS.length - 1)
+    ]!;
+    const scheduleRecovery = (delayMs: number, reason: "credentials" | "stream") => {
+      if (disposed) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => requestRecovery(reason), delayMs);
+    };
+    const requestRecovery = (reason: "credentials" | "stream") => {
+      if (disposed || recoveryPending) return;
+      const recover = reconnectRequiredRef.current;
+      if (!recover) {
         updateConnection({
           state: "error",
-          error: err instanceof Error ? err.message : "Could not load the VNC client.",
+          error: "The desktop stream ended and no recovery handler is available.",
         });
-      });
+        return;
+      }
+
+      recoveryPending = true;
+      updateConnection({ state: "connecting", phase: "reconnecting" });
+      void Promise.resolve()
+        .then(() => recover(reason))
+        .then((recovered) => {
+          if (disposed) return;
+          recoveryPending = false;
+          if (recovered === false) {
+            scheduleRecovery(retryDelay(recoveryAttempt), reason);
+            recoveryAttempt += 1;
+            return;
+          }
+
+          // A successful owner refresh changes the URL revision and disposes
+          // this effect. Retry recovery if that handoff never arrives.
+          scheduleRecovery(RECOVERY_CONFIRMATION_TIMEOUT_MS, reason);
+        })
+        .catch(() => {
+          if (disposed) return;
+          recoveryPending = false;
+          scheduleRecovery(retryDelay(recoveryAttempt), reason);
+          recoveryAttempt += 1;
+        });
+    };
+
+    if (
+      websocketUrlExpiresAt !== undefined
+      && Date.now() >= websocketUrlExpiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
+    ) {
+      requestRecovery("credentials");
+    } else {
+      void import("@novnc/novnc")
+        .then((module) => {
+          if (disposed || !containerRef.current) return;
+
+          const RFB = module.default as RfbConstructor;
+
+          const connect = () => {
+            if (disposed || !containerRef.current) return;
+
+            updateConnection({ state: "connecting", phase: "opening" });
+            containerRef.current.replaceChildren();
+
+            const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
+            activeRfb = rfb;
+            rfbRef.current = rfb;
+            applyFixedDesktopMode(rfb, interactive);
+            rfb.background = "#000000";
+
+            const isCurrent = () => !disposed && activeRfb === rfb;
+            const clearOpeningTimer = () => {
+              if (openingTimer) clearTimeout(openingTimer);
+              openingTimer = undefined;
+            };
+            const clearFocusFrame = () => {
+              if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame);
+              focusFrame = undefined;
+            };
+            const removeListeners = () => {
+              rfb.removeEventListener("connect", handleConnect);
+              rfb.removeEventListener("disconnect", handleDisconnect);
+              rfb.removeEventListener("securityfailure", handleSecurityFailure);
+              rfb.removeEventListener("credentialsrequired", handleCredentialsRequired);
+            };
+            const reconnect = (disconnectClient = true) => {
+              if (!isCurrent()) return;
+              clearOpeningTimer();
+              clearFocusFrame();
+              removeListeners();
+              activeRfb = null;
+              rfbRef.current = null;
+              if (disconnectClient) rfb.disconnect();
+
+              // One failed handshake is enough to distrust this proxy route.
+              // The owner verifies a replacement route before this component
+              // creates another RFB client, preventing a noVNC retry storm.
+              requestRecovery("stream");
+            };
+            const fail = (error: string) => {
+              if (!isCurrent()) return;
+              clearOpeningTimer();
+              clearFocusFrame();
+              removeListeners();
+              activeRfb = null;
+              rfbRef.current = null;
+              rfb.disconnect();
+              updateConnection({ state: "error", error });
+            };
+            const handleConnect: EventListener = () => {
+              if (!isCurrent()) return;
+              clearOpeningTimer();
+              applyFixedDesktopMode(rfb, interactive);
+              updateConnection({ state: "connected" });
+              if (interactive) focusFrame = window.requestAnimationFrame(() => rfb.focus());
+            };
+            const handleDisconnect: EventListener = () => {
+              // noVNC already moved this RFB into its disconnected state. Calling
+              // disconnect again produces the repeated "Tried changing state"
+              // warning and does not help recovery.
+              reconnect(false);
+            };
+            const handleSecurityFailure: EventListener = () => {
+              fail("The VNC server rejected the connection.");
+            };
+            const handleCredentialsRequired: EventListener = () => {
+              fail("This VNC desktop requires credentials.");
+            };
+
+            rfb.addEventListener("connect", handleConnect);
+            rfb.addEventListener("disconnect", handleDisconnect);
+            rfb.addEventListener("securityfailure", handleSecurityFailure);
+            rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
+            openingTimer = setTimeout(() => reconnect(), CONNECTION_OPEN_TIMEOUT_MS);
+          };
+
+          connect();
+        })
+        .catch((err) => {
+          if (disposed) return;
+          updateConnection({
+            state: "error",
+            error: err instanceof Error ? err.message : "Could not load the VNC client.",
+          });
+        });
+    }
 
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
       if (openingTimer) clearTimeout(openingTimer);
-      if (stabilityTimer) clearTimeout(stabilityTimer);
+      if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame);
       const rfb = activeRfb;
       rfbRef.current = null;
       activeRfb = null;

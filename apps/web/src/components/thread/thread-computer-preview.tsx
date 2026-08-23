@@ -28,7 +28,7 @@ type DesktopPreviewConnection = {
 };
 type DesktopPreviewRequest = {
   projectId: string;
-  promise: Promise<void>;
+  promise: Promise<boolean>;
 };
 
 type ThreadComputerPreviewProps = {
@@ -39,7 +39,6 @@ type ThreadComputerPreviewProps = {
 
 const PREVIEW_EDGE_GAP = 12;
 const KEYBOARD_MOVE_STEP = 16;
-const MAX_STREAM_RECOVERIES = 2;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -69,7 +68,6 @@ export function ThreadComputerPreview({
   const previewRef = useRef<HTMLElement | null>(null);
   const loadingRequestRef = useRef<DesktopPreviewRequest | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
-  const streamRecoveryCountRef = useRef(0);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
 
@@ -93,21 +91,13 @@ export function ThreadComputerPreview({
     );
   }, []);
 
-  const loadDesktop = useCallback((force = false) => {
-    if (force && streamRecoveryCountRef.current >= MAX_STREAM_RECOVERIES) {
-      setConnection((current) => current?.projectId === projectId ? undefined : current);
-      setPreviewError({
-        projectId,
-        message: "The desktop stream could not be restored. Retry to start a fresh connection.",
-      });
-      return Promise.resolve();
-    }
+  const loadDesktop = useCallback((force = false, preserveConnection = false) => {
     if (
       !force
       && currentConnection
       && Date.now() < currentConnection.expiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
     ) {
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
 
     const existingRequest = loadingRequestRef.current;
@@ -121,13 +111,12 @@ export function ThreadComputerPreview({
     setLoadingProjectId(projectId);
     setPreviewError(undefined);
     const connectionAtRequest = currentConnection;
-    if (force) streamRecoveryCountRef.current += 1;
     const pending = requestSharedDesktopPreview(projectId, force, () =>
       getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId }),
     )
       .then((preview) => {
         if (loadingRequestRef.current?.promise !== pending) {
-          return;
+          return false;
         }
         setConnection({
           projectId,
@@ -135,11 +124,18 @@ export function ThreadComputerPreview({
           expiresAt: Date.now() + preview.expiresInSeconds * 1_000,
           revision: (connectionAtRequest?.revision ?? 0) + 1,
         });
+        return true;
       })
       .catch((cause: unknown) => {
         if (loadingRequestRef.current?.promise === pending) {
-          if (!force && connectionAtRequest && Date.now() < connectionAtRequest.expiresAt) {
-            return;
+          if (preserveConnection && connectionAtRequest) {
+            // DaytonaDesktopView owns the backoff and will ask again. Keeping
+            // even an expired route mounted keeps that recovery loop alive
+            // until fresh credentials become available.
+            return false;
+          }
+          if (connectionAtRequest && Date.now() < connectionAtRequest.expiresAt) {
+            return false;
           }
           setConnection((current) => current?.projectId === projectId ? undefined : current);
           setPreviewError({
@@ -147,6 +143,7 @@ export function ThreadComputerPreview({
             message: cause instanceof Error ? cause.message : "Could not open the desktop preview.",
           });
         }
+        return false;
       })
       .finally(() => {
         if (loadingRequestRef.current?.promise === pending) {
@@ -160,13 +157,8 @@ export function ThreadComputerPreview({
   }, [currentConnection, getDesktopPreview, projectId]);
 
   const retryDesktop = useCallback(() => {
-    streamRecoveryCountRef.current = 0;
     void loadDesktop(true);
   }, [loadDesktop]);
-
-  useEffect(() => {
-    streamRecoveryCountRef.current = 0;
-  }, [projectId]);
 
   useEffect(() => {
     if (!open || error) {
@@ -350,10 +342,7 @@ export function ThreadComputerPreview({
             loading={loading && !websocketUrl}
             interactive={false}
             className="absolute inset-0"
-            onConnectionStable={() => {
-              streamRecoveryCountRef.current = 0;
-            }}
-            onReconnectRequired={() => void loadDesktop(true)}
+            onReconnectRequired={(reason) => loadDesktop(reason === "stream", true)}
           />
         )}
       </div>

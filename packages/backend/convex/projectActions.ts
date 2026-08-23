@@ -11,6 +11,10 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { action, type ActionCtx } from "./_generated/server";
+import {
+  previewWebsocketUrl,
+  waitForPreviewRoute,
+} from "./lib/daytonaPreview";
 import { normalizeGithubUrl } from "./lib/github";
 import { sandboxCommandText } from "./lib/sandboxCommandOutput";
 import {
@@ -118,7 +122,10 @@ interface SandboxRuntimeStatusResult {
 }
 
 const sandboxStartPromises = new Map<string, Promise<DaytonaSandbox>>();
-const desktopPreviewPromises = new Map<string, Promise<DesktopPreviewResult>>();
+const desktopPreviewPromises = new Map<string, {
+  promise: Promise<DesktopPreviewResult>;
+  recoverStream: boolean;
+}>();
 const recentlyStartedSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
 let daytonaClientCache: {
   apiKey?: string;
@@ -345,14 +352,6 @@ function terminalWebsocketUrl(value: string): string {
   return previewWebsocketUrl(value, "/ws");
 }
 
-function previewWebsocketUrl(value: string, pathname: string): string {
-  const url = new URL(value);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = pathname;
-  url.hash = "";
-  return url.toString();
-}
-
 function normalizePreviewUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol === "http:") {
@@ -521,6 +520,7 @@ async function getDaytonaDesktopPreviewUncoalesced(
 
     const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
     const url = normalizePreviewUrl(preview.url);
+    await waitForPreviewRoute(url);
 
     return {
       url,
@@ -535,17 +535,23 @@ async function getDaytonaDesktopPreview(
   sandboxId: string,
   recoverStream: boolean,
 ): Promise<DesktopPreviewResult> {
-  const key = `${sandboxId}:${recoverStream ? "recover" : "open"}`;
-  const existing = desktopPreviewPromises.get(key);
-  if (existing) return await existing;
+  const existing = desktopPreviewPromises.get(sandboxId);
+  if (existing) {
+    if (existing.recoverStream || !recoverStream) return await existing.promise;
+
+    // A recovery must run after an in-flight open rather than racing it. All
+    // callers waiting here will coalesce onto the first recovery that starts.
+    await existing.promise.catch(() => undefined);
+    return getDaytonaDesktopPreview(sandboxId, true);
+  }
 
   const pending = getDaytonaDesktopPreviewUncoalesced(sandboxId, recoverStream);
-  desktopPreviewPromises.set(key, pending);
+  desktopPreviewPromises.set(sandboxId, { promise: pending, recoverStream });
   try {
     return await pending;
   } finally {
-    if (desktopPreviewPromises.get(key) === pending) {
-      desktopPreviewPromises.delete(key);
+    if (desktopPreviewPromises.get(sandboxId)?.promise === pending) {
+      desktopPreviewPromises.delete(sandboxId);
     }
   }
 }

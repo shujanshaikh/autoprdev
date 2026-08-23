@@ -175,8 +175,7 @@ export function ThreadDiffPanel({
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
-  const desktopPreviewRequestRef = useRef<Promise<void> | undefined>(undefined);
-  const desktopRecoveryCountRef = useRef(0);
+  const desktopPreviewRequestRef = useRef<Promise<boolean> | undefined>(undefined);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
@@ -398,21 +397,14 @@ export function ThreadDiffPanel({
     [activeTabId],
   );
 
-  const loadDesktop = useCallback((force = false) => {
+  const loadDesktop = useCallback((force = false, preserveConnection = false) => {
     if (desktopPreviewRequestRef.current) return desktopPreviewRequestRef.current;
-    if (force && desktopRecoveryCountRef.current >= 2) {
-      setDesktopWebsocketUrl(undefined);
-      setDesktopWebsocketUrlExpiresAt(undefined);
-      setDesktopError("The desktop stream could not be restored. Start it again to create a fresh connection.");
-      return Promise.resolve();
-    }
 
     const pending = (async () => {
       setDesktopLoading(true);
       setDesktopError(undefined);
 
       try {
-        if (force) desktopRecoveryCountRef.current += 1;
         const data = await requestSharedDesktopPreview(projectId, force, () =>
           getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId }),
         );
@@ -421,13 +413,20 @@ export function ThreadDiffPanel({
         setDesktopConnectionRevision((current) => current + 1);
         setDesktopRuntimeStatus("started");
         setDesktopRawState("started");
+        return true;
       } catch (error) {
+        if (preserveConnection && desktopWebsocketUrl) {
+          // The viewer keeps this route mounted and retries recovery with
+          // backoff, including while signed credentials are being renewed.
+          return false;
+        }
         if (force) {
           setDesktopWebsocketUrl(undefined);
           setDesktopWebsocketUrlExpiresAt(undefined);
         }
         setDesktopError(error instanceof Error ? error.message : "Could not start the Daytona desktop.");
         void refreshDesktopStatus();
+        return false;
       } finally {
         setDesktopLoading(false);
       }
@@ -439,17 +438,12 @@ export function ThreadDiffPanel({
 
     desktopPreviewRequestRef.current = pending;
     return pending;
-  }, [getDesktopPreview, projectId, refreshDesktopStatus]);
+  }, [desktopWebsocketUrl, getDesktopPreview, projectId, refreshDesktopStatus]);
 
   const openDesktop = useCallback(() => {
     const recoverStream = desktopError !== undefined;
-    desktopRecoveryCountRef.current = 0;
     void loadDesktop(recoverStream);
   }, [desktopError, loadDesktop]);
-
-  useEffect(() => {
-    desktopRecoveryCountRef.current = 0;
-  }, [projectId]);
 
   useEffect(() => {
     if (!desktopWebsocketUrl || renderedActiveTab !== "desktop") return;
@@ -834,10 +828,7 @@ export function ThreadDiffPanel({
                     connectionRevision={desktopConnectionRevision}
                     loading={desktopLoading && !desktopWebsocketUrl}
                     className="absolute inset-0"
-                    onConnectionStable={() => {
-                      desktopRecoveryCountRef.current = 0;
-                    }}
-                    onReconnectRequired={() => void loadDesktop(true)}
+                    onReconnectRequired={(reason) => loadDesktop(reason === "stream", true)}
                   />
                 </div>
               </div>

@@ -84,44 +84,65 @@ describe("DaytonaDesktopView", () => {
     expect(onReconnectRequired).not.toHaveBeenCalled();
   });
 
-  it("renews the signed URL after repeated short-lived noVNC connections", async () => {
-    const onReconnectRequired = vi.fn();
+  it("hands the first failed noVNC connection to the route owner", async () => {
+    const onReconnectRequired = vi.fn(async () => true);
     render(createElement(DaytonaDesktopView, {
       websocketUrl: "wss://desktop.test/websockify",
       onReconnectRequired,
     }));
     await flushDesktopImport();
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const rfb = mocks.instances[attempt];
-      expect(rfb).toBeDefined();
-      act(() => {
-        rfb?.dispatchEvent(new CustomEvent("connect"));
-        rfb?.dispatchEvent(new CustomEvent("disconnect", { detail: { clean: false } }));
-      });
-      await act(() => vi.advanceTimersByTimeAsync(300));
-    }
+    act(() => {
+      mocks.instances[0]?.dispatchEvent(new CustomEvent("connect"));
+      mocks.instances[0]?.dispatchEvent(new CustomEvent("disconnect", { detail: { clean: false } }));
+    });
+    await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledTimes(1);
-    expect(mocks.instances.every((instance) => !instance.disconnect.mock.calls.length)).toBe(true);
-    await act(() => vi.advanceTimersByTimeAsync(30_000));
-    expect(mocks.instances).toHaveLength(3);
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    expect(mocks.instances).toHaveLength(1);
+    expect(mocks.instances[0]?.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("backs off failed server recovery without creating more RFB clients", async () => {
+    const onReconnectRequired = vi.fn(async () => false);
+    render(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop.test/websockify",
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+
+    act(() => {
+      mocks.instances[0]?.dispatchEvent(new CustomEvent("disconnect", { detail: { clean: false } }));
+    });
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    await act(() => vi.advanceTimersByTimeAsync(499));
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledTimes(2);
+    expect(mocks.instances).toHaveLength(1);
   });
 
   it("recovers when a noVNC handshake never completes", async () => {
+    const onReconnectRequired = vi.fn(async () => true);
     render(createElement(DaytonaDesktopView, {
       websocketUrl: "wss://desktop.test/websockify",
+      onReconnectRequired,
     }));
     await flushDesktopImport();
 
     await act(() => vi.advanceTimersByTimeAsync(15_000));
-    await act(() => vi.advanceTimersByTimeAsync(300));
+    await flushDesktopImport();
 
-    expect(mocks.instances).toHaveLength(2);
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    expect(mocks.instances).toHaveLength(1);
   });
 
   it("renews credentials immediately instead of opening an expiring signed URL", async () => {
-    const onReconnectRequired = vi.fn();
+    const onReconnectRequired = vi.fn(async () => true);
     render(createElement(DaytonaDesktopView, {
       websocketUrl: "wss://desktop-expiring.test/websockify",
       websocketUrlExpiresAt: Date.now() + 10_000,
@@ -129,7 +150,24 @@ describe("DaytonaDesktopView", () => {
     }));
     await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledOnce();
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials");
+    expect(mocks.instances).toHaveLength(0);
+  });
+
+  it("keeps renewing expired credentials after a transient owner failure", async () => {
+    const onReconnectRequired = vi.fn(async () => false);
+    render(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop-expired.test/websockify",
+      websocketUrlExpiresAt: Date.now(),
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials");
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledTimes(2);
     expect(mocks.instances).toHaveLength(0);
   });
 

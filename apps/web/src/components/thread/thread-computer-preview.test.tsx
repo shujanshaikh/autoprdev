@@ -29,11 +29,11 @@ vi.mock("./daytona-desktop-view", () => ({
   }: {
     websocketUrl?: string;
     connectionRevision?: number;
-    onReconnectRequired?: () => void;
+    onReconnectRequired?: (reason: "credentials" | "stream") => void;
   }) => (
     <div data-testid="desktop-view">
       {websocketUrl}:{connectionRevision}
-      <button type="button" onClick={onReconnectRequired}>Simulate VNC disconnect</button>
+      <button type="button" onClick={() => onReconnectRequired?.("stream")}>Simulate VNC disconnect</button>
     </div>
   ),
 }));
@@ -161,7 +161,7 @@ describe("ThreadComputerPreview", () => {
     });
   });
 
-  it("rebuilds an RFB connection for an unchanged URL and bounds automatic recovery", async () => {
+  it("keeps rebuilding an RFB connection instead of permanently exhausting recovery", async () => {
     render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
 
     expect(await screen.findByText("wss://desktop.example.test:1")).toBeTruthy();
@@ -171,25 +171,34 @@ describe("ThreadComputerPreview", () => {
     expect(await screen.findByText("wss://desktop.example.test:3")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
 
-    expect(await screen.findByText(/desktop stream could not be restored/i)).toBeTruthy();
-    expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(3);
+    expect(await screen.findByText("wss://desktop.example.test:4")).toBeTruthy();
+    expect(screen.queryByText(/desktop stream could not be restored/i)).toBeNull();
+    expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(4);
   });
 
-  it("shows the refresh failure instead of retaining a disconnected signed URL", async () => {
+  it("keeps the current route mounted through a transient recovery failure", async () => {
     mocks.getDesktopPreview
       .mockResolvedValueOnce({
         websocketUrl: "wss://desktop-disconnected.test",
         expiresInSeconds: 3_600,
       })
-      .mockRejectedValueOnce(new Error("Desktop services are unavailable"));
+      .mockRejectedValueOnce(new Error("Desktop services are unavailable"))
+      .mockResolvedValueOnce({
+        websocketUrl: "wss://desktop-restored.test",
+        expiresInSeconds: 3_600,
+      });
 
     render(<ThreadComputerPreview projectId="project-1" activityKey="computer-1" active />);
 
     expect(await screen.findByText("wss://desktop-disconnected.test:1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
+    await waitFor(() => expect(mocks.getDesktopPreview).toHaveBeenCalledTimes(2));
 
-    expect(await screen.findByText("Desktop services are unavailable")).toBeTruthy();
-    expect(screen.queryByText("wss://desktop-disconnected.test:1")).toBeNull();
+    expect(screen.getByText("wss://desktop-disconnected.test:1")).toBeTruthy();
+    expect(screen.queryByText("Desktop services are unavailable")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Simulate VNC disconnect" }));
+    expect(await screen.findByText("wss://desktop-restored.test:2")).toBeTruthy();
   });
 
   it("refreshes sandbox activity without rotating healthy noVNC credentials", async () => {

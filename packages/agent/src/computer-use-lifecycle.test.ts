@@ -258,6 +258,27 @@ describe("Daytona computer-use lifecycle", () => {
     expect(computerUse.restartProcess.mock.calls).toEqual([["x11vnc"], ["novnc"]]);
   });
 
+  it("keeps a reachable x11vnc session alive while replacing noVNC", async () => {
+    const statuses = processStatuses();
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      restartProcess: vi.fn(async () => undefined),
+      start: vi.fn(async () => undefined),
+    };
+
+    await recoverComputerUseStream(computerUse, {
+      pollIntervalMs: 0,
+      timeoutMs: 10,
+      probePort: async () => true,
+    });
+
+    expect(computerUse.restartProcess).toHaveBeenCalledExactlyOnceWith("novnc");
+  });
+
   it("waits for x11vnc before restarting noVNC and returning the stream", async () => {
     const statuses = processStatuses();
     const events: string[] = [];
@@ -286,8 +307,8 @@ describe("Daytona computer-use lifecycle", () => {
     });
 
     expect(events).toEqual([
-      "restart:x11vnc",
       "probe:5901",
+      "restart:x11vnc",
       "probe:5901",
       "restart:novnc",
       "probe:6080",

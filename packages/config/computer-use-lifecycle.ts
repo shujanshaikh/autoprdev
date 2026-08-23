@@ -204,6 +204,22 @@ async function waitForPort(
   }
 }
 
+async function probePortOnce(
+  probePort: (port: number) => Promise<boolean>,
+  port: number,
+  deadline: number,
+): Promise<boolean> {
+  try {
+    return await beforeDeadline(
+      Promise.resolve().then(() => probePort(port)),
+      deadline,
+      `Timed out probing desktop port ${port}.`,
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function processDiagnostic(computerUse: ComputerUseLifecycle, process: ProcessSnapshot): Promise<string> {
   const parts = [
     process.processName,
@@ -348,9 +364,9 @@ export async function ensureComputerUseReady(
 }
 
 /**
- * Replaces only the two VNC transport processes after a client proves that a
- * nominally running stream cannot reach its downstream server. The desktop
- * and its applications stay alive while x11vnc and noVNC are reattached.
+ * Reattaches the VNC transport after a client proves that a nominally running
+ * stream cannot reach its downstream server. A healthy x11vnc stays attached
+ * to the desktop while noVNC is replaced, preserving the active VNC session.
  */
 async function recoverComputerUseStreamUncoalesced(
   computerUse: ComputerUseLifecycle,
@@ -366,11 +382,20 @@ async function recoverComputerUseStreamUncoalesced(
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   const deadline = Date.now() + timeoutMs;
 
-  await restartFailedProcesses(computerUse, ["x11vnc"], errors, deadline);
-  if (
-    options.probePort
-    && !await waitForPort(options.probePort, VNC_SERVER_PORT, deadline, pollIntervalMs)
-  ) {
+  const x11vncWasReady = options.probePort
+    ? await probePortOnce(options.probePort, VNC_SERVER_PORT, deadline)
+    : false;
+  if (!x11vncWasReady) {
+    await restartFailedProcesses(computerUse, ["x11vnc"], errors, deadline);
+  }
+
+  const x11vncReady = x11vncWasReady || !options.probePort || await waitForPort(
+    options.probePort,
+    VNC_SERVER_PORT,
+    deadline,
+    pollIntervalMs,
+  );
+  if (!x11vncReady) {
     errors.push(new Error(`x11vnc did not accept connections on port ${VNC_SERVER_PORT}.`));
   } else {
     // noVNC must start after x11vnc is accepting downstream connections. A

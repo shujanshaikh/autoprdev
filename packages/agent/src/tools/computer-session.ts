@@ -30,10 +30,11 @@ export type CuaToolSession = {
 };
 
 const MAX_TRAJECTORY_EVENTS = 100;
-const sessions = new WeakMap<DaytonaSandbox, Map<string, CuaToolSession>>();
+const sessions = new WeakMap<object, Map<string, CuaToolSession>>();
 
-function clientKey(options: CuaComputerOptions): string {
+function clientKey(sandboxId: string, options: CuaComputerOptions): string {
   return JSON.stringify([
+    sandboxId,
     options.display ?? null,
     options.serverPort ?? null,
     options.requestTimeoutMs ?? null,
@@ -45,11 +46,17 @@ export function getCuaToolSession(
   sandboxOptions: SandboxSessionOptions,
   options: CuaComputerOptions,
 ): CuaToolSession {
-  const key = clientKey(options);
-  const sandboxSessions = sessions.get(sandbox) ?? new Map<string, CuaToolSession>();
-  sessions.set(sandbox, sandboxSessions);
+  // Daytona refreshes its SDK wrapper on a short TTL. The tool options object
+  // lives for the whole agent turn, so keying by it preserves the observation,
+  // trajectory, and operation queue when the wrapper is refreshed.
+  const key = clientKey(sandbox.id, options);
+  const sandboxSessions = sessions.get(sandboxOptions) ?? new Map<string, CuaToolSession>();
+  sessions.set(sandboxOptions, sandboxSessions);
   const existing = sandboxSessions.get(key);
-  if (existing) return existing;
+  if (existing) {
+    existing.client.updateSandbox(sandbox);
+    return existing;
+  }
 
   const session: CuaToolSession = {
     client: new CuaComputerClient(sandbox, sandboxOptions, options),

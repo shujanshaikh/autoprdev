@@ -1,86 +1,47 @@
 import { api } from "@autopr/backend/convex/_generated/api";
-import { hasUndefinedType } from "@autopr/config/runtime-type";
-import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { GripHorizontal, Monitor, RotateCw, X } from "lucide-react";
+import { Monitor, RotateCw, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type ComponentType,
+  useSyncExternalStore,
   type ComponentProps,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
+  type ComponentType,
 } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
-import { DESKTOP_PREVIEW_HEARTBEAT_MS } from "./daytona-desktop-connection";
-
-type PreviewPosition = { x: number; y: number };
-type DesktopPreviewConnection = {
-  projectId: string;
-  websocketUrl: string;
-  expiresAt: number;
-  revision: number;
-};
-type DesktopPreviewRequest = {
-  projectId: string;
-  promise: Promise<void>;
-};
+import {
+  getDaytonaDesktopSession,
+  subscribeDesktopActivity,
+  type DaytonaDesktopPreview,
+} from "./daytona-desktop-connection";
 
 export type ThreadComputerPreviewProps = {
   projectId: string;
   activityKey?: string;
-  active: boolean;
-};
-
-type DesktopPreviewResult = {
-  websocketUrl: string;
-  expiresInSeconds: number;
 };
 
 type ThreadComputerPreviewViewProps = ThreadComputerPreviewProps & {
-  getDesktopPreview: (args: { projectId: string; recoverStream?: boolean }) => Promise<DesktopPreviewResult>;
+  getDesktopPreview: (
+    args: { projectId: string; recoverStream?: boolean },
+  ) => Promise<DaytonaDesktopPreview>;
   refreshDesktopActivity: (args: { projectId: string }) => Promise<null>;
   DesktopView?: ComponentType<ComponentProps<typeof DaytonaDesktopView>>;
 };
 
-const PREVIEW_EDGE_GAP = 12;
-const KEYBOARD_MOVE_STEP = 16;
-const PREVIEW_REFRESH_MARGIN_MS = 30_000;
-const MAX_STREAM_RECOVERIES = 2;
-const KEYBOARD_DELTAS = new Map<string, readonly [number, number]>([
-  ["ArrowDown", [0, KEYBOARD_MOVE_STEP]],
-  ["ArrowLeft", [-KEYBOARD_MOVE_STEP, 0]],
-  ["ArrowRight", [KEYBOARD_MOVE_STEP, 0]],
-  ["ArrowUp", [0, -KEYBOARD_MOVE_STEP]],
-]);
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), Math.max(min, max));
-}
-
-export function clampComputerPreviewPosition(
-  position: PreviewPosition,
-  boundary: Pick<DOMRect, "width" | "height">,
-  preview: Pick<DOMRect, "width" | "height">,
-): PreviewPosition {
-  return {
-    x: clamp(position.x, PREVIEW_EDGE_GAP, boundary.width - preview.width - PREVIEW_EDGE_GAP),
-    y: clamp(position.y, PREVIEW_EDGE_GAP, boundary.height - preview.height - PREVIEW_EDGE_GAP),
-  };
-}
-
 export function ThreadComputerPreview({
-  ...props
+  projectId,
+  activityKey,
 }: ThreadComputerPreviewProps) {
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
   return (
     <ThreadComputerPreviewView
-      {...props}
+      projectId={projectId}
+      activityKey={activityKey}
       getDesktopPreview={getDesktopPreview}
       refreshDesktopActivity={refreshDesktopActivity}
     />
@@ -90,113 +51,46 @@ export function ThreadComputerPreview({
 export function ThreadComputerPreviewView({
   projectId,
   activityKey,
-  active,
   getDesktopPreview,
   refreshDesktopActivity,
   DesktopView = DaytonaDesktopView,
 }: ThreadComputerPreviewViewProps) {
+  const initialActivityKeyRef = useRef(activityKey);
+  const [previewActivityKey, setPreviewActivityKey] = useState<string>();
   const [dismissedActivityKey, setDismissedActivityKey] = useState<string>();
-  const [position, setPosition] = useState<PreviewPosition>();
-  const [connection, setConnection] = useState<DesktopPreviewConnection>();
-  const [loadingProjectId, setLoadingProjectId] = useState<string>();
-  const [previewError, setPreviewError] = useState<{ projectId: string; message: string }>();
-  const previewRef = useRef<HTMLElement | null>(null);
-  const loadingRequestRef = useRef<DesktopPreviewRequest | null>(null);
-  const dragCleanupRef = useRef<(() => void) | null>(null);
-  const streamRecoveryCountRef = useRef(0);
+  const desktopSession = useMemo(() => getDaytonaDesktopSession(projectId), [projectId]);
+  const desktop = useSyncExternalStore(
+    desktopSession.subscribe,
+    desktopSession.getSnapshot,
+    desktopSession.getServerSnapshot,
+  );
 
-  const open = Boolean(activityKey && dismissedActivityKey !== activityKey);
-  const currentConnection = connection?.projectId === projectId ? connection : undefined;
+  const open = Boolean(
+    previewActivityKey
+    && dismissedActivityKey !== previewActivityKey
+  );
+  const currentConnection = desktop.connection;
   const websocketUrl = currentConnection?.websocketUrl;
-  const loading = loadingProjectId === projectId;
-  const error = previewError?.projectId === projectId ? previewError.message : undefined;
+  const { loading, error } = desktop;
 
-  const constrainPosition = useCallback((nextPosition: PreviewPosition) => {
-    const preview = previewRef.current;
-    const boundary = preview?.parentElement;
-    if (!preview || !boundary) {
-      return nextPosition;
-    }
-
-    return clampComputerPreviewPosition(
-      nextPosition,
-      boundary.getBoundingClientRect(),
-      preview.getBoundingClientRect(),
-    );
-  }, []);
-
-  const loadDesktop = useCallback((force = false) => {
-    if (force && streamRecoveryCountRef.current >= MAX_STREAM_RECOVERIES) {
-      setConnection((current) => current?.projectId === projectId ? undefined : current);
-      setPreviewError({
-        projectId,
-        message: "The desktop stream could not be restored. Retry to start a fresh connection.",
-      });
-      return Promise.resolve();
-    }
-    if (
-      !force
-      && currentConnection
-      && Date.now() < currentConnection.expiresAt - PREVIEW_REFRESH_MARGIN_MS
-    ) {
-      return Promise.resolve();
-    }
-
-    const existingRequest = loadingRequestRef.current;
-    if (existingRequest?.projectId === projectId) {
-      return existingRequest.promise;
-    }
-
-    if (!currentConnection) {
-      setConnection((current) => current?.projectId === projectId ? undefined : current);
-    }
-    setLoadingProjectId(projectId);
-    setPreviewError(undefined);
-    const connectionAtRequest = currentConnection;
-    if (force) streamRecoveryCountRef.current += 1;
-    const pending = getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId })
-      .then((preview) => {
-        if (loadingRequestRef.current?.promise !== pending) {
-          return;
-        }
-        setConnection({
-          projectId,
-          websocketUrl: preview.websocketUrl,
-          expiresAt: Date.now() + preview.expiresInSeconds * 1_000,
-          revision: (connectionAtRequest?.revision ?? 0) + 1,
-        });
-      })
-      .catch((cause: unknown) => {
-        if (loadingRequestRef.current?.promise === pending) {
-          if (!force && connectionAtRequest && Date.now() < connectionAtRequest.expiresAt) {
-            return;
-          }
-          setConnection((current) => current?.projectId === projectId ? undefined : current);
-          setPreviewError({
-            projectId,
-            message: cause instanceof Error ? cause.message : "Could not open the desktop preview.",
-          });
-        }
-      })
-      .finally(() => {
-        if (loadingRequestRef.current?.promise === pending) {
-          loadingRequestRef.current = null;
-          setLoadingProjectId(undefined);
-        }
-      });
-
-    loadingRequestRef.current = { projectId, promise: pending };
-    return pending;
-  }, [currentConnection, getDesktopPreview, projectId]);
+  const loadDesktop = useCallback((
+    recoverStream = false,
+    preserveConnection = false,
+    failedRevision?: number,
+  ) => desktopSession.request(
+    () => getDesktopPreview(recoverStream ? { projectId, recoverStream: true } : { projectId }),
+    { recoverStream, preserveConnection, failedRevision },
+  ), [desktopSession, getDesktopPreview, projectId]);
 
   const retryDesktop = useCallback(() => {
-    streamRecoveryCountRef.current = 0;
     void loadDesktop(true);
   }, [loadDesktop]);
 
   useEffect(() => {
-    streamRecoveryCountRef.current = 0;
-  }, [projectId]);
+    if (activityKey && activityKey !== initialActivityKeyRef.current) {
+      setPreviewActivityKey(activityKey);
+    }
+  }, [activityKey]);
 
   useEffect(() => {
     if (!open || error) {
@@ -204,156 +98,37 @@ export function ThreadComputerPreviewView({
     }
 
     void loadDesktop();
-    const heartbeat = window.setInterval(() => {
-      void refreshDesktopActivity({ projectId }).catch(() => undefined);
-    }, DESKTOP_PREVIEW_HEARTBEAT_MS);
-
-    return () => window.clearInterval(heartbeat);
-  }, [error, loadDesktop, open, projectId, refreshDesktopActivity]);
-
-  useEffect(() => {
-    const preview = previewRef.current;
-    const boundary = preview?.parentElement;
-    if (!preview || !boundary || hasUndefinedType(globalThis.ResizeObserver)) {
-      return;
-    }
-
-    const observer = new ResizeObserver(() => {
-      setPosition((current) => current ? constrainPosition(current) : current);
-    });
-    observer.observe(boundary);
-    return () => observer.disconnect();
-  }, [constrainPosition, open]);
-
-  useEffect(() => () => dragCleanupRef.current?.(), []);
+    return subscribeDesktopActivity(
+      projectId,
+      () => refreshDesktopActivity({ projectId }),
+    );
+  }, [currentConnection?.revision, error, loadDesktop, open, projectId, refreshDesktopActivity]);
 
   const closePreview = useCallback(() => {
-    if (activityKey) {
-      setDismissedActivityKey(activityKey);
+    if (previewActivityKey) {
+      setDismissedActivityKey(previewActivityKey);
     }
-  }, [activityKey]);
-
-  const movePreview = useCallback((deltaX: number, deltaY: number) => {
-    const preview = previewRef.current;
-    const boundary = preview?.parentElement;
-    if (!preview || !boundary) return;
-
-    const previewRect = preview.getBoundingClientRect();
-    const boundaryRect = boundary.getBoundingClientRect();
-    const current = position ?? {
-      x: previewRect.left - boundaryRect.left,
-      y: previewRect.top - boundaryRect.top,
-    };
-    setPosition(constrainPosition({ x: current.x + deltaX, y: current.y + deltaY }));
-  }, [constrainPosition, position]);
-
-  const handleMoveKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const delta = KEYBOARD_DELTAS.get(event.key);
-    if (!delta) return;
-
-    event.preventDefault();
-    movePreview(...delta);
-  }, [movePreview]);
-
-  const startDrag = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    const preview = previewRef.current;
-    const boundary = preview?.parentElement;
-    if (!preview || !boundary) return;
-
-    event.preventDefault();
-    dragCleanupRef.current?.();
-
-    const pointerId = event.pointerId;
-    const target = event.currentTarget;
-    const previewRect = preview.getBoundingClientRect();
-    const boundaryRect = boundary.getBoundingClientRect();
-    const startPointer = { x: event.clientX, y: event.clientY };
-    const startPosition = {
-      x: previewRect.left - boundaryRect.left,
-      y: previewRect.top - boundaryRect.top,
-    };
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    let dragging = true;
-
-    target.setPointerCapture(pointerId);
-    document.body.style.cursor = "grabbing";
-    document.body.style.userSelect = "none";
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      setPosition(constrainPosition({
-        x: startPosition.x + moveEvent.clientX - startPointer.x,
-        y: startPosition.y + moveEvent.clientY - startPointer.y,
-      }));
-    };
-
-    const stopDrag = () => {
-      if (!dragging) return;
-      dragging = false;
-      if (target.hasPointerCapture(pointerId)) {
-        target.releasePointerCapture(pointerId);
-      }
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopDrag);
-      window.removeEventListener("pointercancel", stopDrag);
-      dragCleanupRef.current = null;
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopDrag);
-    window.addEventListener("pointercancel", stopDrag);
-    dragCleanupRef.current = stopDrag;
-  }, [constrainPosition]);
+  }, [previewActivityKey]);
 
   if (!open) {
     return null;
   }
 
-  const positionStyle: CSSProperties = position
-    ? { left: position.x, top: position.y }
-    : { right: PREVIEW_EDGE_GAP, top: PREVIEW_EDGE_GAP };
-
   return (
     <aside
-      ref={previewRef}
       aria-label="Live computer preview"
-      className="absolute z-30 w-[calc(100%-1.5rem)] max-w-[360px] overflow-hidden border border-border/80 bg-background text-foreground shadow-md"
-      style={positionStyle}
+      className="absolute right-3 top-3 z-30 w-[calc(100%-1.5rem)] max-w-[360px] overflow-hidden rounded-md border border-border/80 bg-black text-foreground shadow-md"
     >
-      <header className="flex h-8 items-center border-b border-border/70 bg-muted/50">
-        <button
-          type="button"
-          aria-label="Move desktop preview"
-          title="Drag to move. Arrow keys also move the preview."
-          className="flex h-full min-w-0 flex-1 touch-none cursor-grab items-center gap-2 px-2.5 text-left active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-          onKeyDown={handleMoveKeyDown}
-          onPointerDown={startDrag}
-        >
-          <GripHorizontal className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-          <span
-            className={cn(
-              "size-1.5 shrink-0 bg-muted-foreground/50",
-              active && "bg-[color:var(--cohere-deep-green)]",
-            )}
-            aria-hidden="true"
-          />
-          <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-            {active ? "Computer active" : "Desktop preview"}
-          </span>
-        </button>
+      <div className="relative aspect-video bg-black">
         <button
           type="button"
           aria-label="Close desktop preview"
           onClick={closePreview}
-          className="flex size-8 shrink-0 items-center justify-center border-l border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-sm border border-white/15 bg-black/70 text-white/80 transition-colors hover:bg-black/90 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
         >
           <X className="size-3.5" aria-hidden="true" />
         </button>
-      </header>
 
-      <div className="relative aspect-video bg-black">
         {error && !websocketUrl ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background px-5 text-center">
             <Monitor className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -370,14 +145,14 @@ export function ThreadComputerPreviewView({
         ) : (
           <DesktopView
             websocketUrl={websocketUrl}
+            websocketUrlExpiresAt={currentConnection?.expiresAt}
             connectionRevision={currentConnection?.revision}
             loading={loading && !websocketUrl}
             interactive={false}
             className="absolute inset-0"
-            onConnectionStable={() => {
-              streamRecoveryCountRef.current = 0;
-            }}
-            onReconnectRequired={() => void loadDesktop(true)}
+            onReconnectRequired={(reason, failedRevision) => (
+              loadDesktop(reason === "stream", true, failedRevision)
+            )}
           />
         )}
       </div>

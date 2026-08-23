@@ -97,9 +97,13 @@ describe("consumeAgentRunStream", () => {
     expect(fetchAuthenticated).toHaveBeenCalledTimes(1);
   });
 
-  it("stops reconnecting after repeated empty responses", async () => {
+  it("keeps a durable run attached through repeated empty responses", async () => {
     vi.useFakeTimers();
-    const fetchAuthenticated = vi.fn().mockImplementation(async () => chunkResponse());
+    const fetchAuthenticated = vi.fn();
+    for (let index = 0; index < 6; index += 1) {
+      fetchAuthenticated.mockResolvedValueOnce(chunkResponse());
+    }
+    fetchAuthenticated.mockResolvedValueOnce(chunkResponse({ type: "finish" }));
     const consume = consumeAgentRunStream({
       runId: "run-empty",
       streamPath: "/agent/run-empty/stream",
@@ -110,10 +114,9 @@ describe("consumeAgentRunStream", () => {
     });
 
     try {
-      const rejection = expect(consume).rejects.toThrow("The live response produced no output.");
       await vi.runAllTimersAsync();
-      await rejection;
-      expect(fetchAuthenticated).toHaveBeenCalledTimes(5);
+      await expect(consume).resolves.toBeUndefined();
+      expect(fetchAuthenticated).toHaveBeenCalledTimes(7);
     } finally {
       vi.useRealTimers();
     }

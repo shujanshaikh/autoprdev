@@ -1,21 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  delete: vi.fn(),
   get: vi.fn(),
 }));
 
-import { createSandbox, getSandboxContext } from "./index";
+import { createSandbox, deleteSandbox, getSandboxContext } from "./index";
 
 const dependencies = {
   createDaytonaClient: vi.fn(async () => ({
     get: mocks.get,
     create: vi.fn(),
-    delete: vi.fn(),
+    delete: mocks.delete,
   })),
 };
 
 describe("sandbox lookup coalescing", () => {
   beforeEach(() => {
+    mocks.delete.mockReset();
     mocks.get.mockReset();
     delete process.env.DAYTONA_DOMAIN_ALLOW_LIST;
   });
@@ -125,5 +127,26 @@ describe("sandbox lookup coalescing", () => {
     await expect(createSandbox({ sandboxId: sandbox.id }, dependencies)).rejects.toThrow("Refusing to start a sandbox");
     expect(sandbox.start).not.toHaveBeenCalled();
     expect(sandbox.updateNetworkSettings).not.toHaveBeenCalled();
+  });
+
+  it("waits through a Daytona state transition before deleting", async () => {
+    vi.useFakeTimers();
+    const sandbox = { id: "sandbox-deleting" };
+    mocks.get.mockResolvedValue(sandbox);
+    mocks.delete
+      .mockRejectedValueOnce(new Error("Sandbox state change in progress"))
+      .mockResolvedValueOnce(undefined);
+
+    try {
+      const deletion = deleteSandbox(sandbox.id, dependencies);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await expect(deletion).resolves.toBeUndefined();
+
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+      expect(mocks.delete).toHaveBeenCalledTimes(2);
+      expect(mocks.delete.mock.calls[0]).toEqual([sandbox, 120]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

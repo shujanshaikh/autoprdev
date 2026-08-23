@@ -1,7 +1,15 @@
-import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
+import {
+  readUIMessageStream,
+  type ChatTransport,
+  type UIMessage,
+  type UIMessageChunk,
+} from "ai";
 import { describe, expect, it } from "vitest";
 
-import { repairUIMessageStreamProtocol } from "./ui-message-stream-protocol";
+import {
+  repairUIMessageStreamProtocol,
+  UIMessageStreamProtocolTransport,
+} from "./ui-message-stream-protocol";
 
 function chunkStream(chunks: UIMessageChunk[]) {
   return new ReadableStream<UIMessageChunk>({
@@ -104,6 +112,33 @@ describe("repairUIMessageStreamProtocol", () => {
       { type: "text-start", id: "msg_b" },
       { type: "text-delta", id: "msg_b", delta: "Second" },
       { type: "text-end", id: "msg_b" },
+      { type: "finish" },
+    ]);
+  });
+
+  it("repairs malformed chunks returned by a transport send", async () => {
+    const source: ChatTransport<UIMessage> = {
+      sendMessages: async () => chunkStream([
+        { type: "text-delta", id: "msg_task", delta: "Finished" },
+        { type: "text-end", id: "msg_task" },
+        { type: "finish" },
+      ]),
+      reconnectToStream: async () => null,
+    };
+    const transport = new UIMessageStreamProtocolTransport(source);
+
+    const repaired = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "thread_1",
+      messageId: undefined,
+      messages: [],
+      abortSignal: undefined,
+    });
+
+    await expect(collect(repaired)).resolves.toEqual([
+      { type: "text-start", id: "msg_task" },
+      { type: "text-delta", id: "msg_task", delta: "Finished" },
+      { type: "text-end", id: "msg_task" },
       { type: "finish" },
     ]);
   });

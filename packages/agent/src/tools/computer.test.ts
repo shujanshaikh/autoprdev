@@ -20,6 +20,7 @@ const mocks = {
   inspect: vi.fn(),
   command: vi.fn(),
   supports: vi.fn(),
+  updateSandbox: vi.fn(),
   clientConstructions: 0,
 };
 
@@ -174,8 +175,11 @@ describe("CUA computer execution", () => {
       }
       return { success: true, effect: "confirmed" };
     });
-    mocks.getSession.mockImplementation(() => {
-      if (session) return session;
+    mocks.getSession.mockImplementation((currentSandbox) => {
+      if (session) {
+        session.client.updateSandbox(currentSandbox);
+        return session;
+      }
       mocks.clientConstructions += 1;
       session = {
         client: {
@@ -183,6 +187,7 @@ describe("CUA computer execution", () => {
           inspect: mocks.inspect,
           command: mocks.command,
           supports: mocks.supports,
+          updateSandbox: mocks.updateSandbox,
         },
         observationSequence: 0,
         trajectorySequence: 0,
@@ -206,6 +211,31 @@ describe("CUA computer execution", () => {
     expect(metadata(second)).toMatchObject({
       screenshot: { captureKind: "desktop_state" },
     });
+  });
+
+  it("preserves the latest observation across refreshed Daytona SDK wrappers", async () => {
+    const firstWrapper = sandbox;
+    const secondWrapper = { ...sandbox };
+    mocks.getSandboxContext
+      .mockResolvedValueOnce({ sandbox: firstWrapper, workDir: "/workspace/repo" })
+      .mockResolvedValueOnce({ sandbox: secondWrapper, workDir: "/workspace/repo" });
+    const computer = createComputer("refreshed-wrapper");
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    const shot = await computer.execute(
+      { type: "screenshot" },
+      { toolCallId: "shot", messages: [] },
+    );
+    await computer.execute({
+      type: "click",
+      observationId: observationId(shot),
+      x: 10,
+      y: 20,
+    }, { toolCallId: "click", messages: [] });
+
+    expect(mocks.clientConstructions).toBe(1);
+    expect(mocks.updateSandbox).toHaveBeenCalledWith(secondWrapper);
+    expect(mocks.command).toHaveBeenCalledWith("left_click", { x: 10, y: 20 });
   });
 
   it("rejects stale coordinates and translates cropped coordinates back to the screen", async () => {

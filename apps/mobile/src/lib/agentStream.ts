@@ -22,13 +22,6 @@ class AgentStreamResponseError extends Error {
   }
 }
 
-class EmptyAgentStreamError extends Error {
-  constructor() {
-    super("The live response produced no output.");
-    this.name = "EmptyAgentStreamError";
-  }
-}
-
 function isRetryableStatus(status: number) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
@@ -135,25 +128,16 @@ export async function consumeAgentRunStream({
 
         if (!receivedChunk && !finished) {
           consecutiveErrors += 1;
-          if (consecutiveErrors >= 5) throw new EmptyAgentStreamError();
           await wait(Math.min(250 * 2 ** (consecutiveErrors - 1), 2_000), signal);
         } else {
           consecutiveErrors = 0;
         }
       } catch (error) {
         if (signal.aborted) return;
-        if (error instanceof EmptyAgentStreamError) throw error;
         if (error instanceof AgentStreamResponseError && !isRetryableStatus(error.status)) {
           throw error;
         }
         consecutiveErrors += 1;
-        if (consecutiveErrors >= 5) {
-          throw new Error(
-            error instanceof Error
-              ? `The live response disconnected: ${error.message}`
-              : "The live response disconnected.",
-          );
-        }
         await wait(Math.min(250 * 2 ** (consecutiveErrors - 1), 2_000), signal);
       }
     }

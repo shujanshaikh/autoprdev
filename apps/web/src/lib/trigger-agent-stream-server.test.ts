@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { UIMessageChunk } from "ai";
 
-import { ensureTerminalRunFinishes } from "./trigger-agent-stream-server";
+import {
+  ensureTerminalRunFinishes,
+  isTriggerRunVisibilityPending,
+} from "./trigger-agent-stream-server";
 
 function chunkStream(chunks: UIMessageChunk[]) {
   return new ReadableStream<UIMessageChunk>({
@@ -38,6 +41,23 @@ async function collect(stream: ReadableStream<UIMessageChunk>) {
 }
 
 describe("Trigger agent stream settlement", () => {
+  it("keeps a newly started run attached while Trigger read visibility catches up", () => {
+    const now = Date.parse("2026-08-23T12:00:00Z");
+
+    expect(isTriggerRunVisibilityPending({
+      currentRunId: "run-new",
+      updatedAt: now - 5_000,
+    }, "run-new", now)).toBe(true);
+    expect(isTriggerRunVisibilityPending({
+      currentRunId: "run-new",
+      updatedAt: now - 30_000,
+    }, "run-new", now)).toBe(false);
+    expect(isTriggerRunVisibilityPending({
+      currentRunId: "run-other",
+      updatedAt: now,
+    }, "run-new", now)).toBe(false);
+  });
+
   it("settles and closes even when the upstream stays open after finish", async () => {
     const events: string[] = [];
     const cancelled = vi.fn();

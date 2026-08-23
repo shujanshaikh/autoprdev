@@ -2,9 +2,11 @@ import { hasNumberType, hasStringType, hasUndefinedType } from "@autopr/config/r
 import { isJsonObject, jsonValueSchema, type JsonObject, type JsonValue } from "@autopr/config/runtime-value";
 
 import { tool } from "ai";
-import type { ComputerUse } from "@daytona/sdk";
 import { z } from "zod";
-import { ensureComputerUseReady } from "@autopr/config/computer-use-lifecycle";
+import {
+  ensureComputerUseReady,
+  invalidateComputerUseReadiness,
+} from "@autopr/config/computer-use-lifecycle";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import {
@@ -37,16 +39,16 @@ const MAX_RECORDINGS_RETURNED = 25;
 const MAX_TRAJECTORY_RETURNED = 10;
 const COMPUTER_ACTION_TIMEOUT_MS = 120_000;
 const COMPUTER_START_TIMEOUT_MS = 8 * 60_000;
+const COMPUTER_DESKTOP_READY_CACHE_MS = 60_000;
 const computerOperationTails = new WeakMap<object, Promise<void>>();
 
-type ComputerUseLifecycle = ComputerUse;
 type TrackComputerOperation = (operation: Promise<unknown>) => void;
 
 async function serializeComputerOperations<T>(
-  computerUse: ComputerUseLifecycle,
+  session: CuaToolSession,
   operation: (track: TrackComputerOperation) => Promise<T>,
 ): Promise<T> {
-  const previous = computerOperationTails.get(computerUse) ?? Promise.resolve();
+  const previous = computerOperationTails.get(session) ?? Promise.resolve();
   let lastSdkOperation: Promise<unknown> = Promise.resolve();
   const execution = previous
     .catch(() => undefined)
@@ -56,9 +58,9 @@ async function serializeComputerOperations<T>(
   const tail = execution
     .then(() => lastSdkOperation, () => lastSdkOperation)
     .then(() => undefined, () => undefined);
-  computerOperationTails.set(computerUse, tail);
+  computerOperationTails.set(session, tail);
   void tail.finally(() => {
-    if (computerOperationTails.get(computerUse) === tail) computerOperationTails.delete(computerUse);
+    if (computerOperationTails.get(session) === tail) computerOperationTails.delete(session);
   });
   return execution;
 }
@@ -715,7 +717,7 @@ async function executeCuaComputer(
   }
   const context = await dependencies.getSandboxContext(sandboxOptions);
   const session = dependencies.getSession(context.sandbox, sandboxOptions, computerOptions);
-  return serializeComputerOperations(context.sandbox.computerUse, (track) => executeCuaComputerAction(
+  return serializeComputerOperations(session, (track) => executeCuaComputerAction(
     action,
     context,
     session,
@@ -742,7 +744,10 @@ async function executeCuaComputerAction(
       await runBoundedComputerOperation(
         track,
         async () => {
-          await ensureComputerUseReady(context.sandbox.computerUse);
+          await ensureComputerUseReady(context.sandbox.computerUse, {
+            cacheMs: COMPUTER_DESKTOP_READY_CACHE_MS,
+            coordinationKey: session,
+          });
           if (requiresCua(action)) details.cursor = (await session.client.ensureReady()).cursor;
         },
         () => new Error("Timed out waiting for the Daytona desktop and CUA gateway to become ready."),
@@ -794,6 +799,7 @@ async function executeCuaComputerAction(
     });
     details.trajectory = trajectory;
   } catch (error) {
+    invalidateComputerUseReadiness(session);
     recordTrajectory(session, {
       action: summary,
       startedAt: startedAtIso,

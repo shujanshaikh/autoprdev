@@ -6,6 +6,16 @@ import { retrieveTriggerAgentRun, type TriggerAgentRun } from "#/lib/trigger-age
 import { agentUIStream } from "#/trigger/streams";
 
 const REALTIME_REQUEST_TIMEOUT_SECONDS = 55;
+const TRIGGER_RUN_VISIBILITY_GRACE_MS = 30_000;
+
+export function isTriggerRunVisibilityPending(
+  thread: { currentRunId?: string; updatedAt: number },
+  runId: string,
+  now = Date.now(),
+) {
+  return thread.currentRunId === runId
+    && now - thread.updatedAt < TRIGGER_RUN_VISIBILITY_GRACE_MS;
+}
 
 export function finishedUIMessageStream() {
   return new ReadableStream<UIMessageChunk>({

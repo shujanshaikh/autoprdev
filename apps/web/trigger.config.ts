@@ -9,6 +9,9 @@ if (!project) {
 
 export default defineConfig({
   project,
+  // Node 24 has crashed inside its native AES worker during long agent turns.
+  // Keep Trigger tasks on Node 22 until that native failure is resolved upstream.
+  runtime: "node-22",
   dirs: ["./src/trigger"],
   machine: "small-1x",
   maxDuration: 3_600,

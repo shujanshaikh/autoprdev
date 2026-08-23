@@ -55,10 +55,7 @@ import {
 } from "#/components/codex-prompt-connection-line";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
-import {
-  activeComputerToolCallId,
-  latestComputerToolCallId,
-} from "#/components/thread/thread-computer-activity";
+import { activeThreadComputerActivityKey } from "#/components/thread/thread-computer-activity";
 import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import { getCodexReasoningEffortLabel, type CodexModelId, type CodexReasoningEffort } from "#/lib/codex-models";
@@ -940,10 +937,6 @@ function ThreadChatRuntime({
     fetch: sessionFetch,
     onEvent: handleSessionTransportEvent,
   });
-  const repairedSessionTransport = useMemo(
-    () => new UIMessageStreamProtocolTransport<UIMessage>(sessionTransport),
-    [sessionTransport],
-  );
   const [sessionReconnectTick, setSessionReconnectTick] = useState(0);
 
   const handleChatSendMessage = useCallback((response: Response) => {
@@ -1022,9 +1015,13 @@ function ThreadChatRuntime({
       selectedReasoningEffort,
     ],
   );
-  // Trigger owns reconnect/cursor state; this wrapper only repairs malformed
-  // text boundaries inside each logical stream.
-  const transport = usingSessionTransport ? repairedSessionTransport : legacyTransport;
+  // Both Trigger transports can resume at a durable chunk boundary. Normalize
+  // text-part lifecycles before AI SDK consumes either stream.
+  const selectedTransport = usingSessionTransport ? sessionTransport : legacyTransport;
+  const transport = useMemo(
+    () => new UIMessageStreamProtocolTransport<UIMessage>(selectedTransport),
+    [selectedTransport],
+  );
 
   const { messages, setMessages, sendMessage, resumeStream, status, stop, error, clearError } = useChat<UIMessage>({
     id: threadId,
@@ -1531,13 +1528,9 @@ function ThreadChatRuntime({
   const activeAssistantMessageId = (busy || serverStreaming) && lastMessage?.role === "assistant"
     ? lastMessage.id
     : undefined;
-  const activeComputerToolCall = useMemo(
-    () => activeAssistantMessageId ? activeComputerToolCallId(lastMessage) : undefined,
-    [activeAssistantMessageId, lastMessage],
-  );
-  const latestComputerToolCall = useMemo(
-    () => latestComputerToolCallId(lastMessage),
-    [lastMessage],
+  const activeComputerActivityKey = useMemo(
+    () => activeThreadComputerActivityKey(messages, activeAssistantMessageId),
+    [activeAssistantMessageId, messages],
   );
   const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {
@@ -1720,9 +1713,9 @@ function ThreadChatRuntime({
             onSelectChangedFile={handleSelectChangedFile}
           />
           <ThreadComputerPreview
+            key={threadId}
             projectId={projectId}
-            activityKey={latestComputerToolCall}
-            active={Boolean(activeComputerToolCall)}
+            activityKey={activeComputerActivityKey}
           />
         </div>
 

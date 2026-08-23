@@ -89,14 +89,10 @@ export function AuthProvider({
   const sessionRef = useRef(session);
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
   const authGenerationRef = useRef(0);
-  const sessionPersisterRef = useRef<ReturnType<typeof createSessionPersister> | null>(null);
-  if (sessionPersisterRef.current === null) {
-    sessionPersisterRef.current = createSessionPersister({
-      currentGeneration: () => authGenerationRef.current,
-      persist: (next) => saveSession(next, dependencies),
-    });
-  }
-  const persistSession = sessionPersisterRef.current;
+  const [persistSession] = useState(() => createSessionPersister({
+    currentGeneration: () => authGenerationRef.current,
+    persist: (next) => saveSession(next, dependencies),
+  }));
 
   useEffect(() => {
     sessionRef.current = session;

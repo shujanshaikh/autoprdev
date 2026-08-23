@@ -14,6 +14,10 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { action, type ActionCtx } from "./_generated/server";
+import {
+  previewWebsocketUrl,
+  waitForPreviewRoute,
+} from "./lib/daytonaPreview";
 import { normalizeGithubUrl } from "./lib/github";
 import { sandboxCommandText } from "./lib/sandboxCommandOutput";
 import { autoprSandboxLabels, autoprSandboxName, isExpectedAutoprSandbox } from "./lib/sandboxIdentity";
@@ -43,6 +47,7 @@ const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const SANDBOX_START_POLL_MS = 1_000;
 const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
 const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
+const DAYTONA_DELETE_TIMEOUT_MS = 2 * 60_000;
 const DAYTONA_RATE_LIMIT_RETRY_BASE_MS = 1_000;
 const DAYTONA_RATE_LIMIT_RETRY_MAX_MS = 10_000;
 const SANDBOX_STARTED_CACHE_MS = 5_000;
@@ -107,7 +112,16 @@ interface SandboxRuntimeStatusResult {
 }
 
 const sandboxStartPromises = new Map<string, Promise<DaytonaSandbox>>();
+const desktopPreviewPromises = new Map<string, {
+  promise: Promise<DesktopPreviewResult>;
+  recoverStream: boolean;
+}>();
 const recentlyStartedSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
+let daytonaClientCache: {
+  apiKey?: string;
+  apiUrl?: string;
+  client: InstanceType<typeof daytonaSdk.Daytona>;
+} | undefined;
 
 function errorMessage<ErrorValue>(error: ErrorValue) {
   return error instanceof Error ? error.message : "Something went wrong.";
@@ -238,10 +252,19 @@ async function retryDaytonaRateLimit<T>(operation: () => Promise<T>): Promise<T>
 
 function createDaytonaClient() {
   const { Daytona } = daytonaSdk;
-  return new Daytona({
-    apiKey: process.env.DAYTONA_API_KEY,
-    apiUrl: process.env.DAYTONA_API_URL,
-  });
+  const apiKey = process.env.DAYTONA_API_KEY;
+  const apiUrl = process.env.DAYTONA_API_URL;
+  if (
+    daytonaClientCache
+    && daytonaClientCache.apiKey === apiKey
+    && daytonaClientCache.apiUrl === apiUrl
+  ) {
+    return daytonaClientCache.client;
+  }
+
+  const client = new Daytona({ apiKey, apiUrl });
+  daytonaClientCache = { apiKey, apiUrl, client };
+  return client;
 }
 
 async function secureSandboxNetwork(sandbox: DaytonaSandbox) {
@@ -270,10 +293,41 @@ function validateSandboxEnvironmentInput(envName: string, value: string) {
 }
 
 async function deleteDaytonaSandbox(sandboxId: string) {
-  const daytona = createDaytonaClient();
-  const sandbox = await daytona.get(sandboxId);
+  const pendingStart = sandboxStartPromises.get(sandboxId);
+  if (pendingStart) await pendingStart.catch(() => undefined);
+  recentlyStartedSandboxes.delete(sandboxId);
 
-  await daytona.delete(sandbox);
+  const daytona = createDaytonaClient();
+  const deadline = Date.now() + DAYTONA_DELETE_TIMEOUT_MS;
+  let lastError: unknown;
+  let rateLimitAttempt = 0;
+
+  while (Date.now() <= deadline) {
+    try {
+      const sandbox = await daytona.get(sandboxId);
+      const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1_000));
+      await daytona.delete(sandbox, timeoutSeconds);
+      return;
+    } catch (error) {
+      if (isSandboxNotFoundError(error)) return;
+      lastError = error;
+
+      if (isSandboxStateChangeInProgressError(error)) {
+        await sleep(DAYTONA_OPERATION_READY_POLL_MS);
+        continue;
+      }
+      if (isDaytonaRateLimitError(error) && Date.now() < deadline) {
+        await sleep(daytonaRateLimitRetryDelay(rateLimitAttempt));
+        rateLimitAttempt += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Sandbox deletion did not become available before the timeout.");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -286,14 +340,6 @@ function desktopWebsocketUrl(value: string): string {
 
 function terminalWebsocketUrl(value: string): string {
   return previewWebsocketUrl(value, "/ws");
-}
-
-function previewWebsocketUrl(value: string, pathname: string): string {
-  const url = new URL(value);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = pathname;
-  url.hash = "";
-  return url.toString();
 }
 
 function normalizePreviewUrl(value: string): string {
@@ -439,7 +485,7 @@ async function stopDaytonaSandbox(sandboxId: string) {
   return "stopped" as const;
 }
 
-async function getDaytonaDesktopPreview(
+async function getDaytonaDesktopPreviewUncoalesced(
   sandboxId: string,
   recoverStream: boolean,
 ): Promise<DesktopPreviewResult> {
@@ -464,6 +510,7 @@ async function getDaytonaDesktopPreview(
 
     const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
     const url = normalizePreviewUrl(preview.url);
+    await waitForPreviewRoute(url);
 
     return {
       url,
@@ -472,6 +519,31 @@ async function getDaytonaDesktopPreview(
       expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
     };
   });
+}
+
+async function getDaytonaDesktopPreview(
+  sandboxId: string,
+  recoverStream: boolean,
+): Promise<DesktopPreviewResult> {
+  const existing = desktopPreviewPromises.get(sandboxId);
+  if (existing) {
+    if (existing.recoverStream || !recoverStream) return await existing.promise;
+
+    // A recovery must run after an in-flight open rather than racing it. All
+    // callers waiting here will coalesce onto the first recovery that starts.
+    await existing.promise.catch(() => undefined);
+    return getDaytonaDesktopPreview(sandboxId, true);
+  }
+
+  const pending = getDaytonaDesktopPreviewUncoalesced(sandboxId, recoverStream);
+  desktopPreviewPromises.set(sandboxId, { promise: pending, recoverStream });
+  try {
+    return await pending;
+  } finally {
+    if (desktopPreviewPromises.get(sandboxId)?.promise === pending) {
+      desktopPreviewPromises.delete(sandboxId);
+    }
+  }
 }
 
 async function refreshDaytonaDesktopActivity(sandboxId: string): Promise<void> {

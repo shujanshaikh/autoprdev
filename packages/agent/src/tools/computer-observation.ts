@@ -87,10 +87,7 @@ function parsePoint<Value>(value: Value): ScreenPoint | undefined {
 
 async function rawCapture(cua: CuaComputerClientContract): Promise<RawCapture> {
   if (cua.supports("get_desktop_state")) {
-    const [desktop, cursor] = await Promise.all([
-      cua.command("get_desktop_state"),
-      cua.command("get_cursor_position").catch(() => undefined),
-    ]);
+    const desktop = await cua.command("get_desktop_state");
     const { data, mimeType } = parseImageData(
       hasStringType(desktop.image_data) ? desktop.image_data : undefined,
       "image/png",
@@ -109,7 +106,6 @@ async function rawCapture(cua: CuaComputerClientContract): Promise<RawCapture> {
       sourceHeight,
       screenWidth,
       screenHeight,
-      cursorPosition: parsePoint(cursor?.position),
       captureKind: "desktop_state",
     };
   }

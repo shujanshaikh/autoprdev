@@ -700,7 +700,7 @@ function DemoRecordingCard({
   const metaLine = recordingMetaLine(recording);
   const previewEndpoint = recordingPlaybackUrl(recording, recordingPlaybackBasePath);
 
-  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- Recording preparation is a browser-only playback side effect tied to this card.
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect, react-doctor/effect-needs-cleanup, react-doctor/no-set-state-after-await-in-effect -- The cleanup aborts the fetch and clears the active retry timer; every post-await state update also checks the cancellation flag.
   useEffect(() => {
     if (!previewEndpoint) {
       return;

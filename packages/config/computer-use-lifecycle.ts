@@ -20,6 +20,7 @@ export type ComputerUseLifecycle = {
 
 export type EnsureComputerUseReadyOptions = {
   cacheMs?: number;
+  coordinationKey?: WeakKey;
   pollIntervalMs?: number;
   timeoutMs?: number;
 };
@@ -50,7 +51,9 @@ const DIAGNOSTIC_TIMEOUT_MS = 1_000;
 const MAX_DIAGNOSTIC_LENGTH = 400;
 const VNC_SERVER_PORT = 5_901;
 const NOVNC_SERVER_PORT = 6_080;
-const readyUntil = new WeakMap<object, number>();
+const readyUntil = new WeakMap<WeakKey, number>();
+const readinessPromises = new WeakMap<WeakKey, Promise<void>>();
+const streamRecoveryPromises = new WeakMap<WeakKey, Promise<void>>();
 const aggregateStatusSchema = z.union([
   z.string(),
   z.object({ status: z.string().optional() }),
@@ -217,6 +220,22 @@ async function waitForPort(
   }
 }
 
+async function probePortOnce(
+  probePort: (port: number) => Promise<boolean>,
+  port: number,
+  deadline: number,
+): Promise<boolean> {
+  try {
+    return await beforeDeadline(
+      Promise.resolve().then(() => probePort(port)),
+      deadline,
+      `Timed out probing desktop port ${port}.`,
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function processDiagnostic(computerUse: ComputerUseLifecycle, process: ProcessSnapshot): Promise<string> {
   const parts = [
     process.processName,
@@ -299,12 +318,13 @@ async function restartFailedProcesses(
  * stack. Per-process health takes precedence over Daytona's aggregate state,
  * and recovery is limited to services explicitly reported as down.
  */
-export async function ensureComputerUseReady(
+async function ensureComputerUseReadyUncoalesced(
   computerUse: ComputerUseLifecycle,
+  coordinationKey: WeakKey,
   options: EnsureComputerUseReadyOptions = {},
 ): Promise<void> {
   const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
-  if ((readyUntil.get(computerUse) ?? 0) > Date.now()) return;
+  if ((readyUntil.get(coordinationKey) ?? 0) > Date.now()) return;
 
   const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
@@ -334,15 +354,35 @@ export async function ensureComputerUseReady(
   }
 
   if (!desktopReady(snapshot)) throw await readinessError(computerUse, snapshot, errors);
-  if (cacheMs > 0) readyUntil.set(computerUse, Date.now() + cacheMs);
+  if (cacheMs > 0) readyUntil.set(coordinationKey, Date.now() + cacheMs);
+}
+
+export async function ensureComputerUseReady(
+  computerUse: ComputerUseLifecycle,
+  options: EnsureComputerUseReadyOptions = {},
+): Promise<void> {
+  const coordinationKey = options.coordinationKey ?? computerUse;
+  if ((readyUntil.get(coordinationKey) ?? 0) > Date.now()) return;
+  const existing = readinessPromises.get(coordinationKey);
+  if (existing) return await existing;
+
+  const pending = ensureComputerUseReadyUncoalesced(computerUse, coordinationKey, options);
+  readinessPromises.set(coordinationKey, pending);
+  try {
+    await pending;
+  } finally {
+    if (readinessPromises.get(coordinationKey) === pending) {
+      readinessPromises.delete(coordinationKey);
+    }
+  }
 }
 
 /**
- * Replaces only the two VNC transport processes after a client proves that a
- * nominally running stream cannot reach its downstream server. The desktop
- * and its applications stay alive while x11vnc and noVNC are reattached.
+ * Reattaches the VNC transport after a client proves that a nominally running
+ * stream cannot reach its downstream server. A healthy x11vnc stays attached
+ * to the desktop while noVNC is replaced, preserving the active VNC session.
  */
-export async function recoverComputerUseStream(
+async function recoverComputerUseStreamUncoalesced(
   computerUse: ComputerUseLifecycle,
   options: RecoverComputerUseStreamOptions = {},
 ): Promise<void> {
@@ -356,11 +396,20 @@ export async function recoverComputerUseStream(
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   const deadline = Date.now() + timeoutMs;
 
-  await restartFailedProcesses(computerUse, ["x11vnc"], errors, deadline);
-  if (
-    options.probePort
-    && !await waitForPort(options.probePort, VNC_SERVER_PORT, deadline, pollIntervalMs)
-  ) {
+  const x11vncWasReady = options.probePort
+    ? await probePortOnce(options.probePort, VNC_SERVER_PORT, deadline)
+    : false;
+  if (!x11vncWasReady) {
+    await restartFailedProcesses(computerUse, ["x11vnc"], errors, deadline);
+  }
+
+  const x11vncReady = x11vncWasReady || !options.probePort || await waitForPort(
+    options.probePort,
+    VNC_SERVER_PORT,
+    deadline,
+    pollIntervalMs,
+  );
+  if (!x11vncReady) {
     errors.push(new Error(`x11vnc did not accept connections on port ${VNC_SERVER_PORT}.`));
   } else {
     // noVNC must start after x11vnc is accepting downstream connections. A
@@ -385,6 +434,24 @@ export async function recoverComputerUseStream(
   }
 }
 
-export function invalidateComputerUseReadiness(computerUse: ComputerUseLifecycle): void {
-  readyUntil.delete(computerUse);
+export async function recoverComputerUseStream(
+  computerUse: ComputerUseLifecycle,
+  options: RecoverComputerUseStreamOptions = {},
+): Promise<void> {
+  const existing = streamRecoveryPromises.get(computerUse);
+  if (existing) return await existing;
+
+  const pending = recoverComputerUseStreamUncoalesced(computerUse, options);
+  streamRecoveryPromises.set(computerUse, pending);
+  try {
+    await pending;
+  } finally {
+    if (streamRecoveryPromises.get(computerUse) === pending) {
+      streamRecoveryPromises.delete(computerUse);
+    }
+  }
+}
+
+export function invalidateComputerUseReadiness(coordinationKey: WeakKey): void {
+  readyUntil.delete(coordinationKey);
 }

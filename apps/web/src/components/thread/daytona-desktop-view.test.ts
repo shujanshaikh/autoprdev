@@ -4,7 +4,10 @@ import { act, cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DaytonaDesktopView } from "./daytona-desktop-view";
+import {
+  DaytonaDesktopView,
+  type DaytonaDesktopViewProps,
+} from "./daytona-desktop-view";
 
 type MockRfbInstance = EventTarget & {
   disconnect: ReturnType<typeof vi.fn>;
@@ -14,21 +17,25 @@ type MockRfbInstance = EventTarget & {
 const instances: MockRfbInstance[] = [];
 
 class MockRfb extends EventTarget {
-    scaleViewport = false;
-    resizeSession = false;
-    clipViewport = false;
-    viewOnly = false;
-    background = "";
-    disconnect = vi.fn();
-    focus = vi.fn();
+  scaleViewport = false;
+  resizeSession = false;
+  clipViewport = false;
+  viewOnly = false;
+  background = "";
+  disconnect = vi.fn();
+  focus = vi.fn();
 
-    constructor(_target: HTMLElement, readonly url: string) {
-      super();
-      instances.push(this);
-    }
+  constructor(_target: HTMLElement, readonly url: string) {
+    super();
+    instances.push(this);
+  }
 }
 
 const loadRfb = async () => ({ default: MockRfb });
+
+function desktopElement(props: DaytonaDesktopViewProps) {
+  return createElement(DaytonaDesktopView, { ...props, loadRfb });
+}
 
 async function flushDesktopImport() {
   await act(async () => {
@@ -67,10 +74,9 @@ afterEach(() => {
 describe("DaytonaDesktopView", () => {
   it("keeps a successful noVNC connection open without judging framebuffer brightness", async () => {
     const onReconnectRequired = vi.fn();
-    render(createElement(DaytonaDesktopView, {
+    render(desktopElement({
       websocketUrl: "wss://desktop.test/websockify",
       onReconnectRequired,
-      loadRfb,
     }));
     await flushDesktopImport();
 
@@ -83,60 +89,144 @@ describe("DaytonaDesktopView", () => {
     expect(onReconnectRequired).not.toHaveBeenCalled();
   });
 
-  it("renews the signed URL after repeated short-lived noVNC connections", async () => {
-    const onReconnectRequired = vi.fn();
-    render(createElement(DaytonaDesktopView, {
+  it("retries the first short-lived noVNC connection without restarting the route", async () => {
+    const onReconnectRequired = vi.fn(async () => true);
+    render(desktopElement({
       websocketUrl: "wss://desktop.test/websockify",
       onReconnectRequired,
-      loadRfb,
+    }));
+    await flushDesktopImport();
+
+    act(() => {
+      instances[0]?.dispatchEvent(new CustomEvent("connect"));
+      instances[0]?.dispatchEvent(new CustomEvent("disconnect", { detail: { clean: false } }));
+    });
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(299));
+    expect(instances).toHaveLength(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+
+    expect(instances).toHaveLength(2);
+    expect(instances[0]?.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("backs off failed server recovery after bounded local retries", async () => {
+    const onReconnectRequired = vi.fn(async () => false);
+    render(desktopElement({
+      websocketUrl: "wss://desktop.test/websockify",
+      onReconnectRequired,
     }));
     await flushDesktopImport();
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const rfb = instances[attempt];
-      expect(rfb).toBeDefined();
       act(() => {
-        rfb?.dispatchEvent(new CustomEvent("connect"));
-        rfb?.dispatchEvent(new CustomEvent("disconnect", { detail: { clean: false } }));
+        instances[attempt]?.dispatchEvent(new CustomEvent("connect"));
+        instances[attempt]?.dispatchEvent(new CustomEvent("disconnect", {
+          detail: { clean: false },
+        }));
       });
-      await act(() => vi.advanceTimersByTimeAsync(300));
+      await flushDesktopImport();
+      if (attempt < 2) await act(() => vi.advanceTimersByTimeAsync(300));
     }
 
-    expect(onReconnectRequired).toHaveBeenCalledTimes(1);
-    expect(instances.every((instance) => !instance.disconnect.mock.calls.length)).toBe(true);
-    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
+    await act(() => vi.advanceTimersByTimeAsync(499));
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledTimes(2);
     expect(instances).toHaveLength(3);
   });
 
   it("recovers when a noVNC handshake never completes", async () => {
-    render(createElement(DaytonaDesktopView, {
+    const onReconnectRequired = vi.fn(async () => true);
+    render(desktopElement({
       websocketUrl: "wss://desktop.test/websockify",
-      loadRfb,
+      onReconnectRequired,
     }));
     await flushDesktopImport();
 
     await act(() => vi.advanceTimersByTimeAsync(15_000));
-    await act(() => vi.advanceTimersByTimeAsync(300));
+    await flushDesktopImport();
 
-    expect(instances).toHaveLength(2);
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
+    expect(instances).toHaveLength(1);
   });
 
-  it("opens a fresh RFB client when recovery returns the same signed URL", async () => {
-    const { rerender } = render(createElement(DaytonaDesktopView, {
-      websocketUrl: "wss://desktop.test/websockify",
-      connectionRevision: 1,
-      loadRfb,
+  it("renews credentials immediately instead of opening an expiring signed URL", async () => {
+    const onReconnectRequired = vi.fn(async () => true);
+    render(desktopElement({
+      websocketUrl: "wss://desktop-expiring.test/websockify",
+      websocketUrlExpiresAt: Date.now() + 10_000,
+      onReconnectRequired,
     }));
     await flushDesktopImport();
 
-    rerender(createElement(DaytonaDesktopView, {
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials", 0);
+    expect(instances).toHaveLength(0);
+  });
+
+  it("keeps renewing expired credentials after a transient owner failure", async () => {
+    const onReconnectRequired = vi.fn(async () => false);
+    render(desktopElement({
+      websocketUrl: "wss://desktop-expired.test/websockify",
+      websocketUrlExpiresAt: Date.now(),
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials", 0);
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledTimes(2);
+    expect(instances).toHaveLength(0);
+  });
+
+  it("opens a fresh RFB client when recovery returns the same signed URL", async () => {
+    const { rerender } = render(desktopElement({
+      websocketUrl: "wss://desktop.test/websockify",
+      connectionRevision: 1,
+    }));
+    await flushDesktopImport();
+
+    rerender(desktopElement({
       websocketUrl: "wss://desktop.test/websockify",
       connectionRevision: 2,
-      loadRfb,
     }));
     await flushDesktopImport();
 
     expect(instances).toHaveLength(2);
     expect(instances[0]?.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("cancels recovery timers after both desktop viewports connect", async () => {
+    const onReconnectRequired = vi.fn();
+    render(desktopElement({
+      websocketUrl: "wss://desktop.test/websockify",
+      connectionRevision: 4,
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+    render(desktopElement({
+      websocketUrl: "wss://desktop.test/websockify",
+      connectionRevision: 4,
+      interactive: false,
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+
+    expect(instances).toHaveLength(2);
+    act(() => {
+      instances[0]?.dispatchEvent(new CustomEvent("connect"));
+      instances[1]?.dispatchEvent(new CustomEvent("connect"));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+
+    expect(onReconnectRequired).not.toHaveBeenCalled();
+    expect(instances).toHaveLength(2);
   });
 });

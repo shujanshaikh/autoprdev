@@ -105,7 +105,7 @@ is_gateway_ready() {
 
   version_response="$(run_command '{"command":"version"}')" || return 1
   printf '%s' "$version_response" \
-    | jq -e '.success == true and .package == "autopr-cua-gateway" and .version == "1.2.0" and .protocol == 1' >/dev/null \
+    | jq -e '.success == true and .package == "autopr-cua-gateway" and .version == "1.3.0" and .protocol == 1' >/dev/null \
     || return 1
   screen_response="$(run_command '{"command":"get_screen_size"}')" || return 1
   printf '%s' "$screen_response" \
@@ -148,7 +148,7 @@ set_cursor_theme() {
 }
 
 # Daytona's signed preview URL is the external authorization boundary. The
-# gateway remains private to the VM and CUA Driver remains private to its socket.
+# gateway remains private to the VM and owns CUA Driver in the same process.
 unset CONTAINER_NAME UNAVAILABLE_WITHOUT_CONTAINER_NAME NO_AT_BRIDGE
 export DISPLAY
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-cua-runtime}"

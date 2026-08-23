@@ -3,8 +3,17 @@ import { api } from "@autopr/backend/convex/_generated/api";
 import { createUIMessageStreamResponse } from "ai";
 
 import { convexQuery } from "#/lib/convex-server";
-import { isTriggerNotFoundError, lookupTriggerAgentRun, reconcileThreadWithTriggerRun } from "#/lib/trigger-agent-run-server";
-import { emptyUIMessageStream, finishedUIMessageStream, readAgentUIMessageStream } from "#/lib/trigger-agent-stream-server";
+import {
+  isTriggerNotFoundError,
+  lookupTriggerAgentRun,
+  reconcileThreadWithTriggerRun,
+} from "#/lib/trigger-agent-run-server";
+import {
+  emptyUIMessageStream,
+  finishedUIMessageStream,
+  isTriggerRunVisibilityPending,
+  readAgentUIMessageStream,
+} from "#/lib/trigger-agent-stream-server";
 import { agentProjectTag, agentThreadTag } from "#/lib/trigger-agent-contract";
 
 function parseStartIndex(request: Request) {
@@ -49,6 +58,11 @@ async function GET(
   }
 
   if (lookup.status === "not-found") {
+    if (isTriggerRunVisibilityPending(thread, runId)) {
+      // A newly created Trigger run can take a moment to become visible to a
+      // separate read request. Keep the indexed client attached during that gap.
+      return createUIMessageStreamResponse({ stream: emptyUIMessageStream() });
+    }
     await reconcileThreadWithTriggerRun(threadId, runId, null);
     return createUIMessageStreamResponse({
       stream: finishedUIMessageStream(),
@@ -79,6 +93,10 @@ async function GET(
       });
     }
 
+    if (latestLookup.status === "not-found" && isTriggerRunVisibilityPending(thread, runId)) {
+      return createUIMessageStreamResponse({ stream: emptyUIMessageStream() });
+    }
+
     await reconcileThreadWithTriggerRun(
       threadId,
       runId,
@@ -97,6 +115,6 @@ async function GET(
 
 export const Route = createFileRoute("/api/project/$projectId/thread/$threadId/agent/$runId/stream")({
   server: {
-    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, /* SAFETY: Adjacent runtime validation or typed construction establishes the asserted owner contract before this boundary. */ { params: Promise.resolve(params) } as any) },
+    handlers: { GET: async ({ request, params }: { request: Request; params: any }) => GET(request, /* SAFETY: TanStack supplies the route's generated params shape to this handler at runtime. */ { params: Promise.resolve(params) } as any) },
   },
 });

@@ -75,10 +75,12 @@ describe("CUA gateway response parsing", () => {
     expect(gateway).toContain("CaptureScope.DESKTOP");
     expect(gateway).toContain('result.get("error_code") == "session_ended"');
     expect(gateway).toContain("future.cancel()");
+    expect(gateway).toContain("SDK_CALL_TIMEOUT_SECONDS = 50");
     expect(gateway).toContain("self.connection.settimeout(REQUEST_BODY_TIMEOUT_SECONDS)");
     expect(gateway).toContain("segments = list(zip(points, points[1:]))");
     expect(gateway).not.toContain("start, end = path[0], path[-1]");
     expect(gateway).toContain("await self._driver.get_desktop_state(");
+    expect(gateway).not.toContain('"images": images');
     expect(gateway).toContain("await self._driver.clipboard_read(");
     expect(gateway).not.toContain("computer_server");
     expect(launcher).not.toContain('nohup "$CUA_DRIVER_BIN" serve');
@@ -110,6 +112,7 @@ describe("CUA gateway response parsing", () => {
     expect(launcher).toContain(".session == null");
     expect(launcher).toContain(".label_visible == false");
     expect(launcher).toContain('.runtime_mode == "embedded"');
+    expect(launcher).toContain('.version == "1.3.0"');
     expect(launcher).not.toContain("CUA_DRIVER_SESSION_ID");
     expect(dockerfile).toContain("ARG CUA_DRIVER_VERSION=0.21.0");
     expect(dockerfile).toContain('"cua-driver==${CUA_DRIVER_VERSION}"');

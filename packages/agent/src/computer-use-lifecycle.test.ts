@@ -57,6 +57,51 @@ describe("Daytona computer-use lifecycle", () => {
     expect(computerUse.start).not.toHaveBeenCalled();
   });
 
+  it("coalesces concurrent readiness checks for one Daytona desktop", async () => {
+    let releaseStatus: (() => void) | undefined;
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    const statuses = processStatuses();
+    const computerUse = {
+      getStatus: vi.fn(async () => {
+        await statusGate;
+        return { status: "active" };
+      }),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      start: vi.fn(async () => undefined),
+    };
+
+    const first = ensureComputerUseReady(computerUse, { cacheMs: 0 });
+    const second = ensureComputerUseReady(computerUse, { cacheMs: 0 });
+    releaseStatus?.();
+    await Promise.all([first, second]);
+
+    expect(computerUse.getStatus).toHaveBeenCalledOnce();
+    expect(computerUse.getProcessStatus).toHaveBeenCalledTimes(4);
+  });
+
+  it("reuses readiness across refreshed Daytona wrappers with one coordination key", async () => {
+    const coordinationKey = {};
+    const firstComputerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      start: vi.fn(async () => undefined),
+    };
+    const refreshedComputerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      start: vi.fn(async () => undefined),
+    };
+
+    await ensureComputerUseReady(firstComputerUse, { coordinationKey });
+    await ensureComputerUseReady(refreshedComputerUse, { coordinationKey });
+
+    expect(firstComputerUse.getStatus).toHaveBeenCalledOnce();
+    expect(refreshedComputerUse.getStatus).not.toHaveBeenCalled();
+  });
+
   it("restarts only the core process Daytona reports as stopped", async () => {
     const statuses = processStatuses({ x11vnc: false });
     const computerUse = {
@@ -185,6 +230,32 @@ describe("Daytona computer-use lifecycle", () => {
 
     expect(computerUse.restartProcess.mock.calls).toEqual([["x11vnc"], ["novnc"]]);
     expect(computerUse.start).not.toHaveBeenCalled();
+  });
+
+  it("coalesces concurrent VNC recovery requests", async () => {
+    let releaseRestart: (() => void) | undefined;
+    const restartGate = new Promise<void>((resolve) => {
+      releaseRestart = resolve;
+    });
+    const statuses = processStatuses();
+    const computerUse = {
+      getStatus: vi.fn(async () => ({ status: "active" })),
+      getProcessStatus: vi.fn(async (name: string) => ({
+        processName: name,
+        running: statuses.get(name as ComputerUseProcessName),
+      })),
+      restartProcess: vi.fn(async (name: string) => {
+        if (name === "x11vnc") await restartGate;
+      }),
+      start: vi.fn(async () => undefined),
+    };
+
+    const first = recoverComputerUseStream(computerUse, { pollIntervalMs: 0 });
+    const second = recoverComputerUseStream(computerUse, { pollIntervalMs: 0 });
+    releaseRestart?.();
+    await Promise.all([first, second]);
+
+    expect(computerUse.restartProcess.mock.calls).toEqual([["x11vnc"], ["novnc"]]);
   });
 
   it("waits for x11vnc before restarting noVNC and returning the stream", async () => {

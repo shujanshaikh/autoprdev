@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   inspect: vi.fn(),
   command: vi.fn(),
   supports: vi.fn(),
+  updateSandbox: vi.fn(),
   clientConstructions: 0,
 }));
 
@@ -21,6 +22,7 @@ vi.mock("./cua-client", () => ({
     inspect = mocks.inspect;
     command = mocks.command;
     supports = mocks.supports;
+    updateSandbox = mocks.updateSandbox;
   },
 }));
 
@@ -172,6 +174,31 @@ describe("CUA computer execution", () => {
     });
   });
 
+  it("preserves the latest observation across refreshed Daytona SDK wrappers", async () => {
+    const firstWrapper = sandbox;
+    const secondWrapper = { ...sandbox };
+    mocks.getSandboxContext
+      .mockResolvedValueOnce({ sandbox: firstWrapper, workDir: "/workspace/repo" })
+      .mockResolvedValueOnce({ sandbox: secondWrapper, workDir: "/workspace/repo" });
+    const computer = createCuaComputerTool({ cacheKey: "refreshed-wrapper" });
+    if (!computer.execute) throw new Error("computer tool is not executable");
+
+    const shot = await computer.execute(
+      { type: "screenshot" },
+      { toolCallId: "shot", messages: [] },
+    );
+    await computer.execute({
+      type: "click",
+      observationId: observationId(shot),
+      x: 10,
+      y: 20,
+    }, { toolCallId: "click", messages: [] });
+
+    expect(mocks.clientConstructions).toBe(1);
+    expect(mocks.updateSandbox).toHaveBeenCalledWith(secondWrapper);
+    expect(mocks.command).toHaveBeenCalledWith("left_click", { x: 10, y: 20 });
+  });
+
   it("rejects stale coordinates and translates cropped coordinates back to the screen", async () => {
     const computer = createCuaComputerTool({ cacheKey: "observation-coordinates" });
     if (!computer.execute) throw new Error("computer tool is not executable");
@@ -236,6 +263,7 @@ describe("CUA computer execution", () => {
       y: 10,
     }, { toolCallId: "click", messages: [] });
     expect(mocks.command.mock.calls.filter(([command]) => command === "get_desktop_state")).toHaveLength(1);
+    expect(mocks.command).not.toHaveBeenCalledWith("get_cursor_position");
     expect(metadata(result)).toMatchObject({ screenshot: { captureKind: "desktop_state" } });
   });
 

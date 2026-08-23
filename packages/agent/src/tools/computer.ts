@@ -1,6 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { ensureComputerUseReady } from "@autopr/config/computer-use-lifecycle";
+import {
+  ensureComputerUseReady,
+  invalidateComputerUseReadiness,
+} from "@autopr/config/computer-use-lifecycle";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import {
@@ -33,6 +36,7 @@ const MAX_RECORDINGS_RETURNED = 25;
 const MAX_TRAJECTORY_RETURNED = 10;
 const COMPUTER_ACTION_TIMEOUT_MS = 120_000;
 const COMPUTER_START_TIMEOUT_MS = 8 * 60_000;
+const COMPUTER_DESKTOP_READY_CACHE_MS = 60_000;
 const computerOperationTails = new WeakMap<object, Promise<void>>();
 
 type TrackComputerOperation = (operation: Promise<unknown>) => void;
@@ -443,7 +447,6 @@ async function runOneAction(
   const { computerUse } = context.sandbox;
   switch (action.type) {
     case "start":
-      await ensureComputerUseReady(computerUse);
       await cua.ensureReady();
       return {
         status: compactMetadataValue({
@@ -690,7 +693,7 @@ async function executeCuaComputer(
   }
   const context = await getSandboxContext(sandboxOptions);
   const session = getCuaToolSession(context.sandbox, sandboxOptions, computerOptions);
-  return serializeComputerOperations(context.sandbox.computerUse, (track) => executeCuaComputerAction(
+  return serializeComputerOperations(session, (track) => executeCuaComputerAction(
     action,
     context,
     session,
@@ -717,7 +720,10 @@ async function executeCuaComputerAction(
       await runBoundedComputerOperation(
         track,
         async () => {
-          await ensureComputerUseReady(context.sandbox.computerUse);
+          await ensureComputerUseReady(context.sandbox.computerUse, {
+            cacheMs: COMPUTER_DESKTOP_READY_CACHE_MS,
+            coordinationKey: session,
+          });
           if (requiresCua(action)) details.cursor = (await session.client.ensureReady()).cursor;
         },
         () => new Error("Timed out waiting for the Daytona desktop and CUA gateway to become ready."),
@@ -769,6 +775,7 @@ async function executeCuaComputerAction(
     });
     details.trajectory = trajectory;
   } catch (error) {
+    invalidateComputerUseReadiness(session);
     recordTrajectory(session, {
       action: summary,
       startedAt: startedAtIso,

@@ -14,8 +14,9 @@ import {
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import {
-  DESKTOP_PREVIEW_HEARTBEAT_MS,
-  requestDesktopPreviewWithRetry,
+  DESKTOP_PREVIEW_REFRESH_MARGIN_MS,
+  requestSharedDesktopPreview,
+  subscribeDesktopActivity,
 } from "./daytona-desktop-connection";
 
 type PreviewPosition = { x: number; y: number };
@@ -38,7 +39,6 @@ type ThreadComputerPreviewProps = {
 
 const PREVIEW_EDGE_GAP = 12;
 const KEYBOARD_MOVE_STEP = 16;
-const PREVIEW_REFRESH_MARGIN_MS = 30_000;
 const MAX_STREAM_RECOVERIES = 2;
 
 function clamp(value: number, min: number, max: number) {
@@ -105,7 +105,7 @@ export function ThreadComputerPreview({
     if (
       !force
       && currentConnection
-      && Date.now() < currentConnection.expiresAt - PREVIEW_REFRESH_MARGIN_MS
+      && Date.now() < currentConnection.expiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
     ) {
       return Promise.resolve();
     }
@@ -122,8 +122,8 @@ export function ThreadComputerPreview({
     setPreviewError(undefined);
     const connectionAtRequest = currentConnection;
     if (force) streamRecoveryCountRef.current += 1;
-    const pending = requestDesktopPreviewWithRetry(() =>
-      getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId })
+    const pending = requestSharedDesktopPreview(projectId, force, () =>
+      getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId }),
     )
       .then((preview) => {
         if (loadingRequestRef.current?.promise !== pending) {
@@ -174,11 +174,10 @@ export function ThreadComputerPreview({
     }
 
     void loadDesktop();
-    const heartbeat = window.setInterval(() => {
-      void refreshDesktopActivity({ projectId }).catch(() => undefined);
-    }, DESKTOP_PREVIEW_HEARTBEAT_MS);
-
-    return () => window.clearInterval(heartbeat);
+    return subscribeDesktopActivity(
+      projectId,
+      () => refreshDesktopActivity({ projectId }),
+    );
   }, [error, loadDesktop, open, projectId, refreshDesktopActivity]);
 
   useEffect(() => {
@@ -346,6 +345,7 @@ export function ThreadComputerPreview({
         ) : (
           <DaytonaDesktopView
             websocketUrl={websocketUrl}
+            websocketUrlExpiresAt={currentConnection?.expiresAt}
             connectionRevision={currentConnection?.revision}
             loading={loading && !websocketUrl}
             interactive={false}

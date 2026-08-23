@@ -48,11 +48,12 @@ from cua_driver._native_contract import (
 
 
 GATEWAY_PACKAGE = "autopr-cua-gateway"
-GATEWAY_VERSION = "1.2.0"
+GATEWAY_VERSION = "1.3.0"
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 1024 * 1024
 REQUEST_BODY_TIMEOUT_SECONDS = 10
-SDK_CALL_TIMEOUT_SECONDS = 125
+# End native work before the 55-second HTTP attempt so cancellation is observed.
+SDK_CALL_TIMEOUT_SECONDS = 50
 WINDOW_ID_PATTERN = re.compile(r"^(?:0x)?[0-9a-fA-F]+$")
 
 COMMANDS = {
@@ -202,13 +203,6 @@ def _structured_result(result: Any) -> dict[str, Any]:
     return {"success": True, **data}
 
 
-def _images(result: Any) -> list[dict[str, str]]:
-    return [
-        {"mime_type": image.mime_type, "data_base64": image.data_base64}
-        for image in result.images
-    ]
-
-
 class CuaGatewayRuntime:
     """Own one embedded CUA runtime and keep all SDK calls on its asyncio loop."""
 
@@ -329,21 +323,21 @@ class CuaGatewayRuntime:
             data = _structured_result(result)
             if not data.get("success"):
                 return data
-            images = _images(result)
-            if not images:
+            if not result.images:
                 return {"success": False, "error": "CUA Driver returned no desktop image"}
-            image = images[0]
+            image = result.images[0]
             if command == "screenshot":
                 return {
                     "success": True,
-                    "image_data": image["data_base64"],
-                    "format": image["mime_type"].split("/", 1)[-1],
+                    "image_data": image.data_base64,
+                    "format": image.mime_type.split("/", 1)[-1],
                 }
             return {
                 **data,
-                "images": images,
-                "image_data": image["data_base64"],
-                "format": image["mime_type"].split("/", 1)[-1],
+                # The SDK image and image_data contain the same PNG. Returning
+                # one copy avoids doubling every screenshot over the preview proxy.
+                "image_data": image.data_base64,
+                "format": image.mime_type.split("/", 1)[-1],
             }
         if command == "move_cursor":
             return _structured_result(await self._driver.move_cursor(MoveCursorInput(

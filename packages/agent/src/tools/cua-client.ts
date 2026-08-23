@@ -2,13 +2,14 @@ import type { DaytonaSandbox, SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand } from "../sandbox/execute";
 
 const DEFAULT_CUA_SERVER_PORT = 8_765;
-const DEFAULT_CUA_REQUEST_TIMEOUT_MS = 30_000;
+// Two idempotent attempts fit inside the computer tool's 120-second boundary.
+const DEFAULT_CUA_REQUEST_TIMEOUT_MS = 55_000;
 const CUA_SERVER_READY_TIMEOUT_MS = 45_000;
 const CUA_SERVER_READY_POLL_MS = 500;
 const CUA_PREVIEW_URL_TTL_SECONDS = 10 * 60;
 const CUA_PREVIEW_URL_REFRESH_MARGIN_MS = 30_000;
 const CUA_CURSOR_RECOVERY_COOLDOWN_MS = 60_000;
-const CUA_READY_CACHE_MS = 10_000;
+const CUA_READY_CACHE_MS = 60_000;
 const CUA_GATEWAY_PACKAGE = "autopr-cua-gateway";
 
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 502, 503, 504]);
@@ -310,6 +311,7 @@ async function ensureDesktopPointer(
 }
 
 export class CuaComputerClient {
+  private sandbox: DaytonaSandbox;
   private baseUrl?: string;
   private baseUrlExpiresAt = 0;
   private baseUrlPromise?: Promise<string>;
@@ -321,15 +323,24 @@ export class CuaComputerClient {
   private readonly requestTimeoutMs: number;
 
   constructor(
-    private readonly sandbox: DaytonaSandbox,
+    sandbox: DaytonaSandbox,
     private readonly sandboxOptions: SandboxSessionOptions,
     options: CuaComputerOptions = {},
   ) {
+    this.sandbox = sandbox;
     this.display = options.display ?? process.env.DAYTONA_DISPLAY ?? ":1";
     this.serverPort = validateServerPort(options.serverPort ?? DEFAULT_CUA_SERVER_PORT);
     this.requestTimeoutMs = validateRequestTimeout(
       options.requestTimeoutMs ?? DEFAULT_CUA_REQUEST_TIMEOUT_MS,
     );
+  }
+
+  /** Keeps a turn-scoped CUA session attached when Daytona refreshes its SDK wrapper. */
+  updateSandbox(sandbox: DaytonaSandbox): void {
+    if (sandbox.id !== this.sandbox.id) {
+      this.invalidateConnection();
+    }
+    this.sandbox = sandbox;
   }
 
   private async url(path: string): Promise<string> {
@@ -447,7 +458,14 @@ export class CuaComputerClient {
       }
       throw new Error(`CUA gateway command ${command} failed with HTTP ${response.status}.`);
     }
-    const result = parseCuaCommandResponse(body);
+    let result: CuaCommandResponse;
+    try {
+      result = parseCuaCommandResponse(body);
+    } catch (error) {
+      this.readyStatus = undefined;
+      this.readyStatusExpiresAt = 0;
+      throw error;
+    }
     if (result.effect === "refused") {
       const detail = typeof result.text === "string"
         ? result.text

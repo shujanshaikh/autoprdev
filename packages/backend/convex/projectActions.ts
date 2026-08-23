@@ -118,7 +118,13 @@ interface SandboxRuntimeStatusResult {
 }
 
 const sandboxStartPromises = new Map<string, Promise<DaytonaSandbox>>();
+const desktopPreviewPromises = new Map<string, Promise<DesktopPreviewResult>>();
 const recentlyStartedSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
+let daytonaClientCache: {
+  apiKey?: string;
+  apiUrl?: string;
+  client: InstanceType<typeof daytonaSdk.Daytona>;
+} | undefined;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
@@ -249,10 +255,19 @@ async function retryDaytonaRateLimit<T>(operation: () => Promise<T>): Promise<T>
 
 function createDaytonaClient() {
   const { Daytona } = daytonaSdk;
-  return new Daytona({
-    apiKey: process.env.DAYTONA_API_KEY,
-    apiUrl: process.env.DAYTONA_API_URL,
-  });
+  const apiKey = process.env.DAYTONA_API_KEY;
+  const apiUrl = process.env.DAYTONA_API_URL;
+  if (
+    daytonaClientCache
+    && daytonaClientCache.apiKey === apiKey
+    && daytonaClientCache.apiUrl === apiUrl
+  ) {
+    return daytonaClientCache.client;
+  }
+
+  const client = new Daytona({ apiKey, apiUrl });
+  daytonaClientCache = { apiKey, apiUrl, client };
+  return client;
 }
 
 async function secureSandboxNetwork(sandbox: DaytonaSandbox) {
@@ -293,7 +308,8 @@ async function deleteDaytonaSandbox(sandboxId: string) {
   while (Date.now() <= deadline) {
     try {
       const sandbox = await daytona.get(sandboxId);
-      await daytona.delete(sandbox);
+      const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1_000));
+      await daytona.delete(sandbox, timeoutSeconds, true);
       return;
     } catch (error) {
       if (isSandboxNotFoundError(error)) return;
@@ -480,7 +496,7 @@ async function stopDaytonaSandbox(sandboxId: string) {
   return "stopped" as const;
 }
 
-async function getDaytonaDesktopPreview(
+async function getDaytonaDesktopPreviewUncoalesced(
   sandboxId: string,
   recoverStream: boolean,
 ): Promise<DesktopPreviewResult> {
@@ -513,6 +529,25 @@ async function getDaytonaDesktopPreview(
       expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
     };
   });
+}
+
+async function getDaytonaDesktopPreview(
+  sandboxId: string,
+  recoverStream: boolean,
+): Promise<DesktopPreviewResult> {
+  const key = `${sandboxId}:${recoverStream ? "recover" : "open"}`;
+  const existing = desktopPreviewPromises.get(key);
+  if (existing) return await existing;
+
+  const pending = getDaytonaDesktopPreviewUncoalesced(sandboxId, recoverStream);
+  desktopPreviewPromises.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (desktopPreviewPromises.get(key) === pending) {
+      desktopPreviewPromises.delete(key);
+    }
+  }
 }
 
 async function refreshDaytonaDesktopActivity(sandboxId: string): Promise<void> {

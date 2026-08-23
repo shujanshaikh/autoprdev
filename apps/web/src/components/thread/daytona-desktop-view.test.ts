@@ -120,6 +120,19 @@ describe("DaytonaDesktopView", () => {
     expect(mocks.instances).toHaveLength(2);
   });
 
+  it("renews credentials immediately instead of opening an expiring signed URL", async () => {
+    const onReconnectRequired = vi.fn();
+    render(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop-expiring.test/websockify",
+      websocketUrlExpiresAt: Date.now() + 10_000,
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+
+    expect(onReconnectRequired).toHaveBeenCalledOnce();
+    expect(mocks.instances).toHaveLength(0);
+  });
+
   it("opens a fresh RFB client when recovery returns the same signed URL", async () => {
     const { rerender } = render(createElement(DaytonaDesktopView, {
       websocketUrl: "wss://desktop.test/websockify",

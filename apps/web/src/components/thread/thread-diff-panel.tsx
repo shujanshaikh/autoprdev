@@ -10,8 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
 import {
-  DESKTOP_PREVIEW_HEARTBEAT_MS,
-  requestDesktopPreviewWithRetry,
+  requestSharedDesktopPreview,
+  subscribeDesktopActivity,
 } from "./daytona-desktop-connection";
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import { DaytonaEnvironmentView } from "./daytona-environment-view";
@@ -156,6 +156,7 @@ export function ThreadDiffPanel({
   const [activeTabId, setActiveTabId] = useState(() => deepLink ? SINGLETON_TAB_IDS.diff : "");
   const [handledDeepLink, setHandledDeepLink] = useState(deepLink);
   const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
+  const [desktopWebsocketUrlExpiresAt, setDesktopWebsocketUrlExpiresAt] = useState<number | undefined>();
   const [desktopConnectionRevision, setDesktopConnectionRevision] = useState(0);
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [desktopStatusLoading, setDesktopStatusLoading] = useState(false);
@@ -401,6 +402,7 @@ export function ThreadDiffPanel({
     if (desktopPreviewRequestRef.current) return desktopPreviewRequestRef.current;
     if (force && desktopRecoveryCountRef.current >= 2) {
       setDesktopWebsocketUrl(undefined);
+      setDesktopWebsocketUrlExpiresAt(undefined);
       setDesktopError("The desktop stream could not be restored. Start it again to create a fresh connection.");
       return Promise.resolve();
     }
@@ -411,15 +413,19 @@ export function ThreadDiffPanel({
 
       try {
         if (force) desktopRecoveryCountRef.current += 1;
-        const data = await requestDesktopPreviewWithRetry(() =>
-          getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId })
+        const data = await requestSharedDesktopPreview(projectId, force, () =>
+          getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId }),
         );
         setDesktopWebsocketUrl(data.websocketUrl);
+        setDesktopWebsocketUrlExpiresAt(Date.now() + data.expiresInSeconds * 1_000);
         setDesktopConnectionRevision((current) => current + 1);
         setDesktopRuntimeStatus("started");
         setDesktopRawState("started");
       } catch (error) {
-        if (force) setDesktopWebsocketUrl(undefined);
+        if (force) {
+          setDesktopWebsocketUrl(undefined);
+          setDesktopWebsocketUrlExpiresAt(undefined);
+        }
         setDesktopError(error instanceof Error ? error.message : "Could not start the Daytona desktop.");
         void refreshDesktopStatus();
       } finally {
@@ -448,11 +454,10 @@ export function ThreadDiffPanel({
   useEffect(() => {
     if (!desktopWebsocketUrl || renderedActiveTab !== "desktop") return;
 
-    const heartbeat = window.setInterval(() => {
-      void refreshDesktopActivity({ projectId }).catch(() => undefined);
-    }, DESKTOP_PREVIEW_HEARTBEAT_MS);
-
-    return () => window.clearInterval(heartbeat);
+    return subscribeDesktopActivity(
+      projectId,
+      () => refreshDesktopActivity({ projectId }),
+    );
   }, [desktopWebsocketUrl, projectId, refreshDesktopActivity, renderedActiveTab]);
 
   return (
@@ -825,6 +830,7 @@ export function ThreadDiffPanel({
                 <div className="relative min-h-0 flex-1">
                   <DaytonaDesktopView
                     websocketUrl={desktopWebsocketUrl}
+                    websocketUrlExpiresAt={desktopWebsocketUrlExpiresAt}
                     connectionRevision={desktopConnectionRevision}
                     loading={desktopLoading && !desktopWebsocketUrl}
                     className="absolute inset-0"

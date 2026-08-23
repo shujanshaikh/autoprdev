@@ -2,6 +2,8 @@ import { cn } from "@autopr/ui/lib/utils";
 import { Monitor } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 
+import { DESKTOP_PREVIEW_REFRESH_MARGIN_MS } from "./daytona-desktop-connection";
+
 const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
@@ -22,6 +24,7 @@ type DaytonaDesktopViewProps = {
   className?: string;
   interactive?: boolean;
   connectionRevision?: number;
+  websocketUrlExpiresAt?: number;
   onConnectionStable?: () => void;
   onReconnectRequired?: () => void;
 };
@@ -58,6 +61,7 @@ export function DaytonaDesktopView({
   className,
   interactive = true,
   connectionRevision = 0,
+  websocketUrlExpiresAt,
   onConnectionStable,
   onReconnectRequired,
 }: DaytonaDesktopViewProps) {
@@ -133,6 +137,16 @@ export function DaytonaDesktopView({
       return;
     }
 
+    if (
+      websocketUrlExpiresAt !== undefined
+      && Date.now() >= websocketUrlExpiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
+      && reconnectRequiredRef.current
+    ) {
+      updateConnection({ state: "connecting", phase: "reconnecting" });
+      reconnectRequiredRef.current();
+      return;
+    }
+
     let disposed = false;
     let activeRfb: RfbInstance | null = null;
     let connectionAttempt = 0;
@@ -187,6 +201,16 @@ export function DaytonaDesktopView({
             activeRfb = null;
             rfbRef.current = null;
             if (disconnectClient) rfb.disconnect();
+
+            if (
+              websocketUrlExpiresAt !== undefined
+              && Date.now() >= websocketUrlExpiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
+              && reconnectRequiredRef.current
+            ) {
+              updateConnection({ state: "connecting", phase: "reconnecting" });
+              reconnectRequiredRef.current();
+              return;
+            }
 
             if (connectionAttempt >= MAX_CONNECTION_ATTEMPTS) {
               updateConnection({ state: "connecting", phase: "reconnecting" });
@@ -276,7 +300,7 @@ export function DaytonaDesktopView({
       rfb?.disconnect();
       container.replaceChildren();
     };
-  }, [connectionRevision, interactive, websocketUrl]);
+  }, [connectionRevision, interactive, websocketUrl, websocketUrlExpiresAt]);
 
   const showOverlay = loading || !websocketUrl || connection.state !== "connected";
   const loadingPresentation = connection.state === "error"

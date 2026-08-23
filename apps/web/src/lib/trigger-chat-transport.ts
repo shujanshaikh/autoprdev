@@ -255,9 +255,14 @@ export class TriggerChatTransport<UI_MESSAGE extends UIMessage>
           reader.releaseLock();
         }
 
-        consecutiveErrors = 0;
         if (!receivedChunk && !gotFinish) {
-          await waitForReconnect(this.reconnectDelayInMs, options.abortSignal);
+          consecutiveErrors += 1;
+          await waitForReconnect(
+            Math.min(this.reconnectDelayInMs * 2 ** (consecutiveErrors - 1), 2_000),
+            options.abortSignal,
+          );
+        } else {
+          consecutiveErrors = 0;
         }
       } catch (error) {
         if (options.abortSignal?.aborted) {

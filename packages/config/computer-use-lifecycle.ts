@@ -13,6 +13,7 @@ export type ComputerUseLifecycle = {
 
 export type EnsureComputerUseReadyOptions = {
   cacheMs?: number;
+  coordinationKey?: object;
   pollIntervalMs?: number;
   timeoutMs?: number;
 };
@@ -44,6 +45,8 @@ const MAX_DIAGNOSTIC_LENGTH = 400;
 const VNC_SERVER_PORT = 5_901;
 const NOVNC_SERVER_PORT = 6_080;
 const readyUntil = new WeakMap<object, number>();
+const readinessPromises = new WeakMap<object, Promise<void>>();
+const streamRecoveryPromises = new WeakMap<object, Promise<void>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -285,12 +288,13 @@ async function restartFailedProcesses(
  * stack. Per-process health takes precedence over Daytona's aggregate state,
  * and recovery is limited to services explicitly reported as down.
  */
-export async function ensureComputerUseReady(
+async function ensureComputerUseReadyUncoalesced(
   computerUse: ComputerUseLifecycle,
+  coordinationKey: object,
   options: EnsureComputerUseReadyOptions = {},
 ): Promise<void> {
   const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
-  if ((readyUntil.get(computerUse) ?? 0) > Date.now()) return;
+  if ((readyUntil.get(coordinationKey) ?? 0) > Date.now()) return;
 
   const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
@@ -320,7 +324,27 @@ export async function ensureComputerUseReady(
   }
 
   if (!desktopReady(snapshot)) throw await readinessError(computerUse, snapshot, errors);
-  if (cacheMs > 0) readyUntil.set(computerUse, Date.now() + cacheMs);
+  if (cacheMs > 0) readyUntil.set(coordinationKey, Date.now() + cacheMs);
+}
+
+export async function ensureComputerUseReady(
+  computerUse: ComputerUseLifecycle,
+  options: EnsureComputerUseReadyOptions = {},
+): Promise<void> {
+  const coordinationKey = options.coordinationKey ?? computerUse;
+  if ((readyUntil.get(coordinationKey) ?? 0) > Date.now()) return;
+  const existing = readinessPromises.get(coordinationKey);
+  if (existing) return await existing;
+
+  const pending = ensureComputerUseReadyUncoalesced(computerUse, coordinationKey, options);
+  readinessPromises.set(coordinationKey, pending);
+  try {
+    await pending;
+  } finally {
+    if (readinessPromises.get(coordinationKey) === pending) {
+      readinessPromises.delete(coordinationKey);
+    }
+  }
 }
 
 /**
@@ -328,7 +352,7 @@ export async function ensureComputerUseReady(
  * nominally running stream cannot reach its downstream server. The desktop
  * and its applications stay alive while x11vnc and noVNC are reattached.
  */
-export async function recoverComputerUseStream(
+async function recoverComputerUseStreamUncoalesced(
   computerUse: ComputerUseLifecycle,
   options: RecoverComputerUseStreamOptions = {},
 ): Promise<void> {
@@ -371,6 +395,24 @@ export async function recoverComputerUseStream(
   }
 }
 
-export function invalidateComputerUseReadiness(computerUse: ComputerUseLifecycle): void {
-  readyUntil.delete(computerUse);
+export async function recoverComputerUseStream(
+  computerUse: ComputerUseLifecycle,
+  options: RecoverComputerUseStreamOptions = {},
+): Promise<void> {
+  const existing = streamRecoveryPromises.get(computerUse);
+  if (existing) return await existing;
+
+  const pending = recoverComputerUseStreamUncoalesced(computerUse, options);
+  streamRecoveryPromises.set(computerUse, pending);
+  try {
+    await pending;
+  } finally {
+    if (streamRecoveryPromises.get(computerUse) === pending) {
+      streamRecoveryPromises.delete(computerUse);
+    }
+  }
+}
+
+export function invalidateComputerUseReadiness(coordinationKey: object): void {
+  readyUntil.delete(coordinationKey);
 }

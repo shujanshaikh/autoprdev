@@ -23,7 +23,7 @@
     "@autopr/grok": "workspace:*",
     "@autopr/ui": "workspace:*",
     "@convex-dev/r2": "^0.10.1",
-    "@daytona/sdk": "^0.196.0",
+    "@daytona/sdk": "0.205.0",
     "@novnc/novnc": "^1.7.0",
     "@pierre/diffs": "^1.2.12",
     "@radix-ui/react-use-controllable-state": "^1.2.2",

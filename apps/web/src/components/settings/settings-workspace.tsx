@@ -177,21 +177,17 @@ export function SettingsSidebar({
 
       <SidebarFooter className="border-t border-sidebar-border/70 p-2">
         <SidebarMenu>
-          <SidebarMenuItem>
+          <SidebarMenuItem className="flex h-9 items-center gap-1">
             <SidebarMenuButton
               type="button"
               onClick={backToWorkspace}
-              className="rounded-[6px] text-sidebar-foreground/65 hover:text-sidebar-foreground"
+              className="min-w-0 flex-1 rounded-[6px] text-sidebar-foreground/65 hover:text-sidebar-foreground"
             >
               <ArrowLeft aria-hidden="true" />
               <span>Back to workspace</span>
             </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <div className="flex h-9 items-center justify-end gap-1 px-1">
-              <ModeToggle className="size-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
-              <WorkOSUserButton className="size-8" />
-            </div>
+            <ModeToggle className="size-8 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+            <WorkOSUserButton className="size-8 shrink-0" />
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

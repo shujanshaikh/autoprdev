@@ -4,27 +4,16 @@ import { Monitor, RotateCw, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
-  useRef,
+  useMemo,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import { DaytonaDesktopView } from "./daytona-desktop-view";
 import {
-  DESKTOP_PREVIEW_REFRESH_MARGIN_MS,
-  requestSharedDesktopPreview,
+  getDaytonaDesktopSession,
   subscribeDesktopActivity,
 } from "./daytona-desktop-connection";
-
-type DesktopPreviewConnection = {
-  projectId: string;
-  websocketUrl: string;
-  expiresAt: number;
-  revision: number;
-};
-type DesktopPreviewRequest = {
-  projectId: string;
-  promise: Promise<boolean>;
-};
 
 type ThreadComputerPreviewProps = {
   projectId: string;
@@ -36,83 +25,28 @@ export function ThreadComputerPreview({
   activityKey,
 }: ThreadComputerPreviewProps) {
   const [dismissedActivityKey, setDismissedActivityKey] = useState<string>();
-  const [connection, setConnection] = useState<DesktopPreviewConnection>();
-  const [loadingProjectId, setLoadingProjectId] = useState<string>();
-  const [previewError, setPreviewError] = useState<{ projectId: string; message: string }>();
-  const loadingRequestRef = useRef<DesktopPreviewRequest | null>(null);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
+  const desktopSession = useMemo(() => getDaytonaDesktopSession(projectId), [projectId]);
+  const desktop = useSyncExternalStore(
+    desktopSession.subscribe,
+    desktopSession.getSnapshot,
+    desktopSession.getServerSnapshot,
+  );
 
   const open = Boolean(activityKey && dismissedActivityKey !== activityKey);
-  const currentConnection = connection?.projectId === projectId ? connection : undefined;
+  const currentConnection = desktop.connection;
   const websocketUrl = currentConnection?.websocketUrl;
-  const loading = loadingProjectId === projectId;
-  const error = previewError?.projectId === projectId ? previewError.message : undefined;
+  const { loading, error } = desktop;
 
-  const loadDesktop = useCallback((force = false, preserveConnection = false) => {
-    if (
-      !force
-      && currentConnection
-      && Date.now() < currentConnection.expiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
-    ) {
-      return Promise.resolve(true);
-    }
-
-    const existingRequest = loadingRequestRef.current;
-    if (existingRequest?.projectId === projectId) {
-      return existingRequest.promise;
-    }
-
-    if (!currentConnection) {
-      setConnection((current) => current?.projectId === projectId ? undefined : current);
-    }
-    setLoadingProjectId(projectId);
-    setPreviewError(undefined);
-    const connectionAtRequest = currentConnection;
-    const pending = requestSharedDesktopPreview(projectId, force, () =>
-      getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId }),
-    )
-      .then((preview) => {
-        if (loadingRequestRef.current?.promise !== pending) {
-          return false;
-        }
-        setConnection({
-          projectId,
-          websocketUrl: preview.websocketUrl,
-          expiresAt: Date.now() + preview.expiresInSeconds * 1_000,
-          revision: (connectionAtRequest?.revision ?? 0) + 1,
-        });
-        return true;
-      })
-      .catch((cause: unknown) => {
-        if (loadingRequestRef.current?.promise === pending) {
-          if (preserveConnection && connectionAtRequest) {
-            // DaytonaDesktopView owns the backoff and will ask again. Keeping
-            // even an expired route mounted keeps that recovery loop alive
-            // until fresh credentials become available.
-            return false;
-          }
-          if (connectionAtRequest && Date.now() < connectionAtRequest.expiresAt) {
-            return false;
-          }
-          setConnection((current) => current?.projectId === projectId ? undefined : current);
-          setPreviewError({
-            projectId,
-            message: cause instanceof Error ? cause.message : "Could not open the desktop preview.",
-          });
-        }
-        return false;
-      })
-      .finally(() => {
-        if (loadingRequestRef.current?.promise === pending) {
-          loadingRequestRef.current = null;
-          setLoadingProjectId(undefined);
-        }
-      });
-
-    loadingRequestRef.current = { projectId, promise: pending };
-    return pending;
-  }, [currentConnection, getDesktopPreview, projectId]);
+  const loadDesktop = useCallback((
+    recoverStream = false,
+    preserveConnection = false,
+    failedRevision?: number,
+  ) => desktopSession.request(
+    () => getDesktopPreview(recoverStream ? { projectId, recoverStream: true } : { projectId }),
+    { recoverStream, preserveConnection, failedRevision },
+  ), [desktopSession, getDesktopPreview, projectId]);
 
   const retryDesktop = useCallback(() => {
     void loadDesktop(true);
@@ -128,7 +62,7 @@ export function ThreadComputerPreview({
       projectId,
       () => refreshDesktopActivity({ projectId }),
     );
-  }, [error, loadDesktop, open, projectId, refreshDesktopActivity]);
+  }, [currentConnection?.revision, error, loadDesktop, open, projectId, refreshDesktopActivity]);
 
   const closePreview = useCallback(() => {
     if (activityKey) {
@@ -176,7 +110,9 @@ export function ThreadComputerPreview({
             loading={loading && !websocketUrl}
             interactive={false}
             className="absolute inset-0"
-            onReconnectRequired={(reason) => loadDesktop(reason === "stream", true)}
+            onReconnectRequired={(reason, failedRevision) => (
+              loadDesktop(reason === "stream", true, failedRevision)
+            )}
           />
         )}
       </div>

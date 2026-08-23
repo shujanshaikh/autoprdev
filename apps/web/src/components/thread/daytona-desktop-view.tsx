@@ -3,19 +3,15 @@ import { Monitor } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import { DESKTOP_PREVIEW_REFRESH_MARGIN_MS } from "./daytona-desktop-connection";
+import {
+  createDesktopRecoveryMachine,
+  type DesktopConnectionState,
+  type DesktopRecoveryReason,
+} from "./daytona-desktop-recovery";
 
 const DESKTOP_WIDTH = 1920;
 const DESKTOP_HEIGHT = 1080;
 const DESKTOP_ASPECT_RATIO = DESKTOP_WIDTH / DESKTOP_HEIGHT;
-const CONNECTION_OPEN_TIMEOUT_MS = 15_000;
-const RECOVERY_CONFIRMATION_TIMEOUT_MS = 5_000;
-const CONNECTION_RETRY_DELAYS_MS = [500, 1_000, 2_000, 5_000, 10_000] as const;
-
-type ConnectionState =
-  | { state: "idle" }
-  | { state: "connecting"; phase: "opening" | "reconnecting" }
-  | { state: "connected" }
-  | { state: "error"; error: string };
 
 type DaytonaDesktopViewProps = {
   websocketUrl?: string;
@@ -25,7 +21,8 @@ type DaytonaDesktopViewProps = {
   connectionRevision?: number;
   websocketUrlExpiresAt?: number;
   onReconnectRequired?: (
-    reason: "credentials" | "stream",
+    reason: DesktopRecoveryReason,
+    failedRevision: number,
   ) => boolean | void | Promise<boolean | void>;
 };
 
@@ -71,8 +68,8 @@ export function DaytonaDesktopView({
   // react-doctor-disable-next-line react-doctor/no-initialize-state -- Frame size depends on measured DOM layout after mount.
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>();
   const [connection, updateConnection] = useReducer(
-    (_state: ConnectionState, next: ConnectionState) => next,
-    { state: "idle" } satisfies ConnectionState,
+    (_state: DesktopConnectionState, next: DesktopConnectionState) => next,
+    { state: "idle" } satisfies DesktopConnectionState,
   );
 
   useEffect(() => {
@@ -125,7 +122,7 @@ export function DaytonaDesktopView({
     return () => window.cancelAnimationFrame(frame);
   }, [frameSize]);
 
-  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- The final cleanup owns both timers, the focus frame, the async import guard, the RFB client, and the container.
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- The final cleanup owns the recovery machine, focus frame, async import guard, RFB client, and container.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !websocketUrl) {
@@ -134,63 +131,22 @@ export function DaytonaDesktopView({
 
     let disposed = false;
     let activeRfb: RfbInstance | null = null;
-    let recoveryAttempt = 0;
-    let recoveryPending = false;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let openingTimer: ReturnType<typeof setTimeout> | undefined;
+    let removeActiveListeners: (() => void) | undefined;
+    let disconnectActiveRfb: (() => void) | undefined;
     let focusFrame: number | undefined;
-    updateConnection({ state: "connecting", phase: "opening" });
     container.replaceChildren();
 
-    const retryDelay = (attempt: number) => CONNECTION_RETRY_DELAYS_MS[
-      Math.min(attempt, CONNECTION_RETRY_DELAYS_MS.length - 1)
-    ]!;
-    const scheduleRecovery = (delayMs: number, reason: "credentials" | "stream") => {
-      if (disposed) return;
-      if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = setTimeout(() => requestRecovery(reason), delayMs);
-    };
-    const requestRecovery = (reason: "credentials" | "stream") => {
-      if (disposed || recoveryPending) return;
-      const recover = reconnectRequiredRef.current;
-      if (!recover) {
-        updateConnection({
-          state: "error",
-          error: "The desktop stream ended and no recovery handler is available.",
-        });
-        return;
-      }
-
-      recoveryPending = true;
-      updateConnection({ state: "connecting", phase: "reconnecting" });
-      void Promise.resolve()
-        .then(() => recover(reason))
-        .then((recovered) => {
-          if (disposed) return;
-          recoveryPending = false;
-          if (recovered === false) {
-            scheduleRecovery(retryDelay(recoveryAttempt), reason);
-            recoveryAttempt += 1;
-            return;
-          }
-
-          // A successful owner refresh changes the URL revision and disposes
-          // this effect. Retry recovery if that handoff never arrives.
-          scheduleRecovery(RECOVERY_CONFIRMATION_TIMEOUT_MS, reason);
-        })
-        .catch(() => {
-          if (disposed) return;
-          recoveryPending = false;
-          scheduleRecovery(retryDelay(recoveryAttempt), reason);
-          recoveryAttempt += 1;
-        });
-    };
+    const recovery = createDesktopRecoveryMachine({
+      recover: (reason) => reconnectRequiredRef.current?.(reason, connectionRevision),
+      onStateChange: updateConnection,
+      onOpeningTimeout: () => disconnectActiveRfb?.(),
+    });
 
     if (
       websocketUrlExpiresAt !== undefined
       && Date.now() >= websocketUrlExpiresAt - DESKTOP_PREVIEW_REFRESH_MARGIN_MS
     ) {
-      requestRecovery("credentials");
+      recovery.recover("credentials");
     } else {
       void import("@novnc/novnc")
         .then((module) => {
@@ -201,7 +157,7 @@ export function DaytonaDesktopView({
           const connect = () => {
             if (disposed || !containerRef.current) return;
 
-            updateConnection({ state: "connecting", phase: "opening" });
+            recovery.opening();
             containerRef.current.replaceChildren();
 
             const rfb = new RFB(containerRef.current, websocketUrl, { shared: true });
@@ -211,10 +167,6 @@ export function DaytonaDesktopView({
             rfb.background = "#000000";
 
             const isCurrent = () => !disposed && activeRfb === rfb;
-            const clearOpeningTimer = () => {
-              if (openingTimer) clearTimeout(openingTimer);
-              openingTimer = undefined;
-            };
             const clearFocusFrame = () => {
               if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame);
               focusFrame = undefined;
@@ -224,42 +176,37 @@ export function DaytonaDesktopView({
               rfb.removeEventListener("disconnect", handleDisconnect);
               rfb.removeEventListener("securityfailure", handleSecurityFailure);
               rfb.removeEventListener("credentialsrequired", handleCredentialsRequired);
+              if (removeActiveListeners === removeListeners) removeActiveListeners = undefined;
+            };
+            const release = (disconnectClient: boolean) => {
+              clearFocusFrame();
+              removeListeners();
+              activeRfb = null;
+              rfbRef.current = null;
+              disconnectActiveRfb = undefined;
+              if (disconnectClient) rfb.disconnect();
             };
             const reconnect = (disconnectClient = true) => {
               if (!isCurrent()) return;
-              clearOpeningTimer();
-              clearFocusFrame();
-              removeListeners();
-              activeRfb = null;
-              rfbRef.current = null;
-              if (disconnectClient) rfb.disconnect();
+              release(disconnectClient);
 
               // One failed handshake is enough to distrust this proxy route.
-              // The owner verifies a replacement route before this component
-              // creates another RFB client, preventing a noVNC retry storm.
-              requestRecovery("stream");
+              // The session owner verifies and publishes the replacement.
+              recovery.recover("stream");
             };
             const fail = (error: string) => {
               if (!isCurrent()) return;
-              clearOpeningTimer();
-              clearFocusFrame();
-              removeListeners();
-              activeRfb = null;
-              rfbRef.current = null;
-              rfb.disconnect();
-              updateConnection({ state: "error", error });
+              release(true);
+              recovery.fail(error);
             };
             const handleConnect: EventListener = () => {
               if (!isCurrent()) return;
-              clearOpeningTimer();
+              recovery.connected();
               applyFixedDesktopMode(rfb, interactive);
-              updateConnection({ state: "connected" });
               if (interactive) focusFrame = window.requestAnimationFrame(() => rfb.focus());
             };
             const handleDisconnect: EventListener = () => {
-              // noVNC already moved this RFB into its disconnected state. Calling
-              // disconnect again produces the repeated "Tried changing state"
-              // warning and does not help recovery.
+              // noVNC already moved this RFB into its disconnected state.
               reconnect(false);
             };
             const handleSecurityFailure: EventListener = () => {
@@ -273,25 +220,26 @@ export function DaytonaDesktopView({
             rfb.addEventListener("disconnect", handleDisconnect);
             rfb.addEventListener("securityfailure", handleSecurityFailure);
             rfb.addEventListener("credentialsrequired", handleCredentialsRequired);
-            openingTimer = setTimeout(() => reconnect(), CONNECTION_OPEN_TIMEOUT_MS);
+            removeActiveListeners = removeListeners;
+            disconnectActiveRfb = () => {
+              if (isCurrent()) release(true);
+            };
           };
 
           connect();
         })
         .catch((err) => {
           if (disposed) return;
-          updateConnection({
-            state: "error",
-            error: err instanceof Error ? err.message : "Could not load the VNC client.",
-          });
+          recovery.fail(err instanceof Error ? err.message : "Could not load the VNC client.");
         });
     }
 
     return () => {
       disposed = true;
-      if (retryTimer) clearTimeout(retryTimer);
-      if (openingTimer) clearTimeout(openingTimer);
+      recovery.dispose();
       if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame);
+      removeActiveListeners?.();
+      disconnectActiveRfb = undefined;
       const rfb = activeRfb;
       rfbRef.current = null;
       activeRfb = null;

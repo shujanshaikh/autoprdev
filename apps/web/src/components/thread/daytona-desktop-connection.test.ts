@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createDaytonaDesktopSession,
   DESKTOP_PREVIEW_HEARTBEAT_MS,
   isRetryableDesktopPreviewError,
   requestDesktopPreviewWithRetry,
-  requestSharedDesktopPreview,
   subscribeDesktopActivity,
 } from "./daytona-desktop-connection";
 
@@ -42,19 +42,59 @@ describe("Daytona desktop connection", () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-  it("shares one in-flight credential request between desktop viewers", async () => {
-    let resolvePreview: ((value: typeof preview) => void) | undefined;
-    const pendingPreview = new Promise<typeof preview>((resolve) => {
-      resolvePreview = resolve;
+  it("absorbs a second viewer's stale failure after one route recovery", async () => {
+    const session = createDaytonaDesktopSession("project-shared");
+    const compactRevisions: number[] = [];
+    const fullRevisions: number[] = [];
+    const closeCompact = session.subscribe(() => {
+      const revision = session.getSnapshot().connection?.revision;
+      if (revision !== undefined) compactRevisions.push(revision);
     });
-    const request = vi.fn(() => pendingPreview);
+    const closeFull = session.subscribe(() => {
+      const revision = session.getSnapshot().connection?.revision;
+      if (revision !== undefined) fullRevisions.push(revision);
+    });
 
-    const compact = requestSharedDesktopPreview("project-shared", false, request);
-    const full = requestSharedDesktopPreview("project-shared", false, request);
-    resolvePreview?.(preview);
+    await session.request(async () => preview);
+    const failedRevision = session.getSnapshot().connection?.revision;
+    if (failedRevision === undefined) throw new Error("initial desktop route is missing");
 
-    await expect(Promise.all([compact, full])).resolves.toEqual([preview, preview]);
-    expect(request).toHaveBeenCalledOnce();
+    let resolveRecovery: ((value: typeof preview) => void) | undefined;
+    const recoveryPreview = new Promise<typeof preview>((resolve) => {
+      resolveRecovery = resolve;
+    });
+    const recover = vi.fn(() => recoveryPreview);
+    const compactRecovery = session.request(recover, {
+      recoverStream: true,
+      preserveConnection: true,
+      failedRevision,
+    });
+    const fullRecovery = session.request(recover, {
+      recoverStream: true,
+      preserveConnection: true,
+      failedRevision,
+    });
+
+    resolveRecovery?.({ ...preview, websocketUrl: "wss://desktop-recovered.test" });
+    await expect(Promise.all([compactRecovery, fullRecovery])).resolves.toEqual([true, true]);
+
+    expect(recover).toHaveBeenCalledOnce();
+    expect(session.getSnapshot().connection).toMatchObject({
+      websocketUrl: "wss://desktop-recovered.test",
+      revision: failedRevision + 1,
+    });
+    expect(compactRevisions.at(-1)).toBe(failedRevision + 1);
+    expect(fullRevisions.at(-1)).toBe(failedRevision + 1);
+
+    await expect(session.request(recover, {
+      recoverStream: true,
+      preserveConnection: true,
+      failedRevision,
+    })).resolves.toBe(true);
+    expect(recover).toHaveBeenCalledOnce();
+
+    closeCompact();
+    closeFull();
   });
 
   it("shares one activity heartbeat between desktop viewers", async () => {

@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
 import {
-  requestSharedDesktopPreview,
+  getDaytonaDesktopSession,
   subscribeDesktopActivity,
 } from "./daytona-desktop-connection";
 import { DaytonaDesktopView } from "./daytona-desktop-view";
@@ -155,14 +155,10 @@ export function ThreadDiffPanel({
     : DEFAULT_VISIBLE_TABS);
   const [activeTabId, setActiveTabId] = useState(() => deepLink ? SINGLETON_TAB_IDS.diff : "");
   const [handledDeepLink, setHandledDeepLink] = useState(deepLink);
-  const [desktopWebsocketUrl, setDesktopWebsocketUrl] = useState<string | undefined>();
-  const [desktopWebsocketUrlExpiresAt, setDesktopWebsocketUrlExpiresAt] = useState<number | undefined>();
-  const [desktopConnectionRevision, setDesktopConnectionRevision] = useState(0);
-  const [desktopLoading, setDesktopLoading] = useState(false);
   const [desktopStatusLoading, setDesktopStatusLoading] = useState(false);
   const [desktopRuntimeStatus, setDesktopRuntimeStatus] = useState<"started" | "stopped" | "archived" | "unknown" | undefined>();
   const [, setDesktopRawState] = useState<string | undefined>();
-  const [desktopError, setDesktopError] = useState<string | undefined>();
+  const [desktopStatusError, setDesktopStatusError] = useState<string | undefined>();
   const [desktopFullscreen, setDesktopFullscreen] = useState(false);
   const [hasOpenedDesktop, setHasOpenedDesktop] = useState(false);
   const { diffStyle, similarChanges, wordWrap, setDiffStyle, setSimilarChanges, setWordWrap } = usePierreDiffPreferences();
@@ -175,10 +171,19 @@ export function ThreadDiffPanel({
   const panelWidthRef = useRef(panelWidth);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const panelResizeObserverRef = useRef<ResizeObserver | undefined>(undefined);
-  const desktopPreviewRequestRef = useRef<Promise<boolean> | undefined>(undefined);
   const getDesktopPreview = useAction(api.projectActions.getDesktopPreview);
   const refreshDesktopActivity = useAction(api.projectActions.refreshDesktopActivity);
   const getSandboxRuntimeStatus = useAction(api.projectActions.getSandboxRuntimeStatus);
+  const desktopSession = useMemo(() => getDaytonaDesktopSession(projectId), [projectId]);
+  const desktop = useSyncExternalStore(
+    desktopSession.subscribe,
+    desktopSession.getSnapshot,
+    desktopSession.getServerSnapshot,
+  );
+  const desktopWebsocketUrl = desktop.connection?.websocketUrl;
+  const desktopWebsocketUrlExpiresAt = desktop.connection?.expiresAt;
+  const desktopConnectionRevision = desktop.connection?.revision;
+  const desktopError = desktop.error ?? desktopStatusError;
 
   useEffect(() => {
     try {
@@ -332,7 +337,7 @@ export function ThreadDiffPanel({
 
   const refreshDesktopStatus = useCallback(async () => {
     setDesktopStatusLoading(true);
-    setDesktopError(undefined);
+    setDesktopStatusError(undefined);
 
     try {
       const status = await getSandboxRuntimeStatus({ projectId });
@@ -340,7 +345,7 @@ export function ThreadDiffPanel({
       setDesktopRawState(status.rawState);
     } catch (error) {
       setDesktopRuntimeStatus("unknown");
-      setDesktopError(error instanceof Error ? error.message : "Could not read the VM state.");
+      setDesktopStatusError(error instanceof Error ? error.message : "Could not read the VM state.");
     } finally {
       setDesktopStatusLoading(false);
     }
@@ -397,48 +402,26 @@ export function ThreadDiffPanel({
     [activeTabId],
   );
 
-  const loadDesktop = useCallback((force = false, preserveConnection = false) => {
-    if (desktopPreviewRequestRef.current) return desktopPreviewRequestRef.current;
+  const loadDesktop = useCallback(async (
+    recoverStream = false,
+    preserveConnection = false,
+    failedRevision?: number,
+  ) => {
+    setDesktopStatusError(undefined);
+    const recovered = await desktopSession.request(
+      () => getDesktopPreview(recoverStream ? { projectId, recoverStream: true } : { projectId }),
+      { recoverStream, preserveConnection, failedRevision },
+    );
 
-    const pending = (async () => {
-      setDesktopLoading(true);
-      setDesktopError(undefined);
+    if (recovered) {
+      setDesktopRuntimeStatus("started");
+      setDesktopRawState("started");
+    } else if (!preserveConnection) {
+      void refreshDesktopStatus();
+    }
 
-      try {
-        const data = await requestSharedDesktopPreview(projectId, force, () =>
-          getDesktopPreview(force ? { projectId, recoverStream: true } : { projectId }),
-        );
-        setDesktopWebsocketUrl(data.websocketUrl);
-        setDesktopWebsocketUrlExpiresAt(Date.now() + data.expiresInSeconds * 1_000);
-        setDesktopConnectionRevision((current) => current + 1);
-        setDesktopRuntimeStatus("started");
-        setDesktopRawState("started");
-        return true;
-      } catch (error) {
-        if (preserveConnection && desktopWebsocketUrl) {
-          // The viewer keeps this route mounted and retries recovery with
-          // backoff, including while signed credentials are being renewed.
-          return false;
-        }
-        if (force) {
-          setDesktopWebsocketUrl(undefined);
-          setDesktopWebsocketUrlExpiresAt(undefined);
-        }
-        setDesktopError(error instanceof Error ? error.message : "Could not start the Daytona desktop.");
-        void refreshDesktopStatus();
-        return false;
-      } finally {
-        setDesktopLoading(false);
-      }
-    })().finally(() => {
-      if (desktopPreviewRequestRef.current === pending) {
-        desktopPreviewRequestRef.current = undefined;
-      }
-    });
-
-    desktopPreviewRequestRef.current = pending;
-    return pending;
-  }, [desktopWebsocketUrl, getDesktopPreview, projectId, refreshDesktopStatus]);
+    return recovered;
+  }, [desktopSession, getDesktopPreview, projectId, refreshDesktopStatus]);
 
   const openDesktop = useCallback(() => {
     const recoverStream = desktopError !== undefined;
@@ -789,10 +772,10 @@ export function ThreadDiffPanel({
                 <button
                   type="button"
                   onClick={openDesktop}
-                  disabled={desktopLoading || desktopStatusLoading}
+                  disabled={desktop.loading || desktopStatusLoading}
                   className="group inline-flex h-8 items-center gap-1.5 border border-border bg-background px-3 text-[12.5px] font-medium text-foreground/85 transition-colors hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-panel-soft)] hover:text-foreground disabled:cursor-wait disabled:opacity-50"
                 >
-                  {desktopLoading ? (
+                  {desktop.loading ? (
                     <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
                   ) : null}
                   <span>{desktopRuntimeStatus === "started" ? "Open Desktop" : "Awake the VM"}</span>
@@ -826,9 +809,11 @@ export function ThreadDiffPanel({
                     websocketUrl={desktopWebsocketUrl}
                     websocketUrlExpiresAt={desktopWebsocketUrlExpiresAt}
                     connectionRevision={desktopConnectionRevision}
-                    loading={desktopLoading && !desktopWebsocketUrl}
+                    loading={desktop.loading && !desktopWebsocketUrl}
                     className="absolute inset-0"
-                    onReconnectRequired={(reason) => loadDesktop(reason === "stream", true)}
+                    onReconnectRequired={(reason, failedRevision) => (
+                      loadDesktop(reason === "stream", true, failedRevision)
+                    )}
                   />
                 </div>
               </div>

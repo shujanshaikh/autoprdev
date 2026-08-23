@@ -98,7 +98,7 @@ describe("DaytonaDesktopView", () => {
     });
     await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
     expect(mocks.instances).toHaveLength(1);
     expect(mocks.instances[0]?.disconnect).not.toHaveBeenCalled();
   });
@@ -116,9 +116,9 @@ describe("DaytonaDesktopView", () => {
     });
     await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
     await act(() => vi.advanceTimersByTimeAsync(499));
-    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
     await act(() => vi.advanceTimersByTimeAsync(1));
     await flushDesktopImport();
 
@@ -137,7 +137,7 @@ describe("DaytonaDesktopView", () => {
     await act(() => vi.advanceTimersByTimeAsync(15_000));
     await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream");
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("stream", 0);
     expect(mocks.instances).toHaveLength(1);
   });
 
@@ -150,7 +150,7 @@ describe("DaytonaDesktopView", () => {
     }));
     await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials");
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials", 0);
     expect(mocks.instances).toHaveLength(0);
   });
 
@@ -163,7 +163,7 @@ describe("DaytonaDesktopView", () => {
     }));
     await flushDesktopImport();
 
-    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials");
+    expect(onReconnectRequired).toHaveBeenCalledExactlyOnceWith("credentials", 0);
     await act(() => vi.advanceTimersByTimeAsync(500));
     await flushDesktopImport();
 
@@ -186,5 +186,32 @@ describe("DaytonaDesktopView", () => {
 
     expect(mocks.instances).toHaveLength(2);
     expect(mocks.instances[0]?.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("cancels recovery timers after both desktop viewports connect", async () => {
+    const onReconnectRequired = vi.fn();
+    render(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop.test/websockify",
+      connectionRevision: 4,
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+    render(createElement(DaytonaDesktopView, {
+      websocketUrl: "wss://desktop.test/websockify",
+      connectionRevision: 4,
+      interactive: false,
+      onReconnectRequired,
+    }));
+    await flushDesktopImport();
+
+    expect(mocks.instances).toHaveLength(2);
+    act(() => {
+      mocks.instances[0]?.dispatchEvent(new CustomEvent("connect"));
+      mocks.instances[1]?.dispatchEvent(new CustomEvent("connect"));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+
+    expect(onReconnectRequired).not.toHaveBeenCalled();
+    expect(mocks.instances).toHaveLength(2);
   });
 });

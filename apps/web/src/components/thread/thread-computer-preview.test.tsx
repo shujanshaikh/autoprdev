@@ -29,16 +29,17 @@ vi.mock("./daytona-desktop-view", () => ({
   }: {
     websocketUrl?: string;
     connectionRevision?: number;
-    onReconnectRequired?: (reason: "credentials" | "stream") => void;
+    onReconnectRequired?: (reason: "credentials" | "stream", failedRevision: number) => void;
   }) => (
     <div data-testid="desktop-view">
       {websocketUrl}:{connectionRevision}
-      <button type="button" onClick={() => onReconnectRequired?.("stream")}>Simulate VNC disconnect</button>
+      <button type="button" onClick={() => onReconnectRequired?.("stream", connectionRevision ?? 0)}>Simulate VNC disconnect</button>
     </div>
   ),
 }));
 
 import { ThreadComputerPreview } from "./thread-computer-preview";
+import { resetDaytonaDesktopSessionsForTests } from "./daytona-desktop-connection";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -62,6 +63,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetDaytonaDesktopSessionsForTests();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });

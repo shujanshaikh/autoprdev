@@ -8,6 +8,9 @@ mkdir -p "$STATE_DIR"
 
 pid_file() { printf '%s/%s.pid' "$STATE_DIR" "$1"; }
 log_file() { printf '%s/%s.log' "$STATE_DIR" "$1"; }
+cua_gateway_pid_file() {
+  printf '/tmp/autopr-cua/%s-%s/gateway.pid' "${CUA_PORT:-8765}" "${DISPLAY_NUMBER//:/_}"
+}
 
 is_owned_pid() {
   local pid="$1" executable="$2"
@@ -32,6 +35,14 @@ is_running() {
     rm -f "$file"
     return 1
   fi
+}
+
+is_cua_gateway_running() {
+  local file pid
+  file="$(cua_gateway_pid_file)"
+  [ -s "$file" ] || return 1
+  IFS= read -r pid <"$file" || return 1
+  is_owned_pid "$pid" /opt/autopr/cua-gateway/cua_gateway.py
 }
 
 stop_process() {
@@ -86,7 +97,7 @@ start_one() {
       ;;
     xfce4)
       wait_for_display
-      DISPLAY="$DISPLAY_NUMBER" start_process xfce4 dbus-launch --exit-with-session startxfce4
+      DISPLAY="$DISPLAY_NUMBER" start_process xfce4 /opt/autopr/bin/autopr-xfce-session
       ;;
     x11vnc)
       wait_for_display
@@ -114,8 +125,9 @@ start_desktop() {
 }
 
 stop_desktop() {
-  local gateway_pid="/tmp/autopr-cua/${CUA_PORT:-8765}-${DISPLAY_NUMBER//:/_}/gateway.pid"
+  local gateway_pid
   local pid
+  gateway_pid="$(cua_gateway_pid_file)"
   if [ -s "$gateway_pid" ]; then
     pid="$(cat "$gateway_pid")"
     if is_owned_pid "$pid" /opt/autopr/cua-gateway/cua_gateway.py; then
@@ -131,6 +143,7 @@ case "${1:-}" in
   stop) stop_desktop ;;
   status)
     for name in preview xvfb xfce4 x11vnc novnc; do is_running "$name" || exit 1; done
+    is_cua_gateway_running || exit 1
     ;;
   process-status) is_running "${2:?process name required}" ;;
   restart)

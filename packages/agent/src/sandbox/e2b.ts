@@ -20,12 +20,18 @@ const E2B_PREVIEW_GATEWAY_PORT = 6_090;
 const E2B_PREVIEW_SECRET_FILE = "/home/daytona/.autopr/preview-secret";
 const E2B_PREVIEW_DEFAULT_TTL_SECONDS = 5 * 60;
 const E2B_PREVIEW_MAX_TTL_SECONDS = 24 * 60 * 60;
+const E2B_SESSION_CACHE_TTL_MS = 2 * 60 * 60_000;
+const E2B_MAX_CACHED_SANDBOXES = 32;
+const E2B_MAX_SESSIONS_PER_SANDBOX = 32;
+const E2B_MAX_COMMANDS_PER_SESSION = 32;
+const E2B_MAX_COMPLETED_COMMANDS_PER_SESSION = 8;
+const E2B_MAX_COMMAND_OUTPUT_CHARS = 64 * 1_024;
 export const E2B_ENV_MANIFEST = "/home/daytona/.autopr/environment.json";
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 type E2BCommandState = {
   command: string;
-  handle: CommandHandle;
+  handle?: CommandHandle;
   exitCode?: number;
   stdout: string;
   stderr: string;
@@ -35,7 +41,14 @@ type E2BSessionState = {
   commands: Map<string, E2BCommandState>;
 };
 
-const sessionsBySandbox = new Map<string, Map<string, E2BSessionState>>();
+type E2BSandboxSessionCache = {
+  lastAccessedAt: number;
+  sessions: Map<string, E2BSessionState>;
+};
+
+// Adapter instances are short-lived, so this bounded cache keeps background
+// commands pollable across reconnects without retaining every sandbox forever.
+const sessionsBySandbox = new Map<string, E2BSandboxSessionCache>();
 
 type E2BRecording = {
   id: string;
@@ -72,6 +85,60 @@ function sessionCommandFailure(error: unknown) {
 
 function commandOutput(stdout: string, stderr: string): string {
   return [stdout, stderr].filter(Boolean).join(stderr && stdout ? "\n" : "");
+}
+
+function boundedSessionOutput(value: string): string {
+  if (value.length <= E2B_MAX_COMMAND_OUTPUT_CHARS) return value;
+  return `[Earlier output truncated.]\n${value.slice(-E2B_MAX_COMMAND_OUTPUT_CHARS)}`;
+}
+
+function pruneCompletedCommands(session: E2BSessionState, reserveSlot = false): void {
+  const completed = [...session.commands].filter(([, command]) => command.exitCode !== undefined);
+  const maxCompleted = Math.min(
+    E2B_MAX_COMPLETED_COMMANDS_PER_SESSION,
+    E2B_MAX_COMMANDS_PER_SESSION - (reserveSlot ? 1 : 0),
+  );
+  while (
+    completed.length > maxCompleted
+    || session.commands.size > E2B_MAX_COMMANDS_PER_SESSION - (reserveSlot ? 1 : 0)
+  ) {
+    const oldest = completed.shift();
+    if (!oldest) break;
+    session.commands.delete(oldest[0]);
+  }
+}
+
+function pruneSandboxSessionCaches(now = Date.now()): void {
+  for (const [sandboxId, cache] of sessionsBySandbox) {
+    if (cache.lastAccessedAt <= now - E2B_SESSION_CACHE_TTL_MS) sessionsBySandbox.delete(sandboxId);
+  }
+  while (sessionsBySandbox.size > E2B_MAX_CACHED_SANDBOXES) {
+    const oldest = [...sessionsBySandbox].sort(
+      (left, right) => left[1].lastAccessedAt - right[1].lastAccessedAt,
+    )[0];
+    if (!oldest) break;
+    sessionsBySandbox.delete(oldest[0]);
+  }
+}
+
+function sandboxSessionCache(sandboxId: string): E2BSandboxSessionCache {
+  const now = Date.now();
+  pruneSandboxSessionCaches(now);
+  const existing = sessionsBySandbox.get(sandboxId);
+  if (existing) {
+    existing.lastAccessedAt = now;
+    return existing;
+  }
+  while (sessionsBySandbox.size >= E2B_MAX_CACHED_SANDBOXES) {
+    const oldest = [...sessionsBySandbox].sort(
+      (left, right) => left[1].lastAccessedAt - right[1].lastAccessedAt,
+    )[0];
+    if (!oldest) break;
+    sessionsBySandbox.delete(oldest[0]);
+  }
+  const created = { lastAccessedAt: now, sessions: new Map<string, E2BSessionState>() };
+  sessionsBySandbox.set(sandboxId, created);
+  return created;
 }
 
 function metadataName(metadata: Record<string, string>): string | undefined {
@@ -157,6 +224,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
   state?: string;
 
   private sdk: E2BSdkSandbox;
+  private readonly sessionCache: E2BSandboxSessionCache;
   private readonly sessions: Map<string, E2BSessionState>;
 
   constructor(
@@ -173,8 +241,8 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     this.name = metadataName(info.metadata ?? {}) ?? info.name;
     this.snapshot = info.templateId;
     this.state = info.state === "running" ? "started" : info.state === "paused" ? "stopped" : info.state;
-    this.sessions = sessionsBySandbox.get(this.id) ?? new Map();
-    sessionsBySandbox.set(this.id, this.sessions);
+    this.sessionCache = sandboxSessionCache(this.id);
+    this.sessions = this.sessionCache.sessions;
   }
 
   async start(): Promise<void> {
@@ -470,6 +538,30 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     },
   };
 
+  private touchSessionCache(): void {
+    this.sessionCache.lastAccessedAt = Date.now();
+  }
+
+  private getOrCreateSession(sessionId: string): E2BSessionState {
+    this.touchSessionCache();
+    const existing = this.sessions.get(sessionId);
+    if (existing) return existing;
+
+    for (const [cachedSessionId, session] of this.sessions) {
+      if (this.sessions.size < E2B_MAX_SESSIONS_PER_SANDBOX) break;
+      if ([...session.commands.values()].every((command) => command.exitCode !== undefined)) {
+        this.sessions.delete(cachedSessionId);
+      }
+    }
+    if (this.sessions.size >= E2B_MAX_SESSIONS_PER_SANDBOX) {
+      throw new Error("The E2B sandbox has too many active command sessions.");
+    }
+
+    const created = { commands: new Map<string, E2BCommandState>() };
+    this.sessions.set(sessionId, created);
+    return created;
+  }
+
   readonly process = {
     executeCommand: async (
       command: string,
@@ -490,7 +582,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
       };
     },
     createSession: async (sessionId: string): Promise<unknown> => {
-      if (!this.sessions.has(sessionId)) this.sessions.set(sessionId, { commands: new Map() });
+      this.getOrCreateSession(sessionId);
       return { sessionId };
     },
     executeSessionCommand: async (
@@ -498,8 +590,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
       command: { command: string; runAsync?: boolean; suppressInputEcho?: boolean },
       timeout?: number,
     ) => {
-      const session = this.sessions.get(sessionId) ?? { commands: new Map<string, E2BCommandState>() };
-      this.sessions.set(sessionId, session);
+      const session = this.getOrCreateSession(sessionId);
       if (!command.runAsync) {
         const result = await runCommand(this.sdk, command.command, {
           envs: await this.commandEnvironment(),
@@ -512,6 +603,11 @@ export class E2BSandboxAdapter implements SandboxAdapter {
           stderr: result.stderr,
           output: commandOutput(result.stdout, result.stderr),
         };
+      }
+
+      pruneCompletedCommands(session, true);
+      if (session.commands.size >= E2B_MAX_COMMANDS_PER_SESSION) {
+        throw new Error(`E2B session ${sessionId} has too many active commands.`);
       }
 
       const handle = await this.sdk.commands.run(command.command, {
@@ -530,13 +626,17 @@ export class E2BSandboxAdapter implements SandboxAdapter {
       session.commands.set(cmdId, state);
       void handle.wait().then((result) => {
         state.exitCode = result.exitCode;
-        state.stdout = result.stdout;
-        state.stderr = result.stderr;
+        state.stdout = boundedSessionOutput(result.stdout);
+        state.stderr = boundedSessionOutput(result.stderr);
+        state.handle = undefined;
+        pruneCompletedCommands(session);
       }).catch((error) => {
         const result = sessionCommandFailure(error);
         state.exitCode = result.exitCode;
-        state.stdout = result.stdout;
-        state.stderr = result.stderr;
+        state.stdout = boundedSessionOutput(result.stdout);
+        state.stderr = boundedSessionOutput(result.stderr);
+        state.handle = undefined;
+        pruneCompletedCommands(session);
       });
       return { cmdId, stdout: "", stderr: "", output: "" };
     },
@@ -546,26 +646,34 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     },
     getSessionCommandLogs: async (sessionId: string, commandId: string) => {
       const command = this.requireCommand(sessionId, commandId);
-      const stdout = command.handle.stdout || command.stdout;
-      const stderr = command.handle.stderr || command.stderr;
+      const stdout = command.handle?.stdout || command.stdout;
+      const stderr = command.handle?.stderr || command.stderr;
       return { stdout, stderr, output: commandOutput(stdout, stderr) };
     },
     sendSessionCommandInput: async (sessionId: string, commandId: string, data: string): Promise<void> => {
-      await this.requireCommand(sessionId, commandId).handle.sendStdin(data);
+      const command = this.requireCommand(sessionId, commandId);
+      if (!command.handle || command.exitCode !== undefined) {
+        throw new Error(`E2B command ${commandId} has already completed.`);
+      }
+      await command.handle.sendStdin(data);
     },
-    listSessions: async () => [...this.sessions.entries()].map(([sessionId, session]) => ({
-      sessionId,
-      commands: [...session.commands.entries()].map(([id, command]) => ({
-        command: command.command,
-        exitCode: command.exitCode,
-        id,
-      })),
-    })),
+    listSessions: async () => {
+      this.touchSessionCache();
+      return [...this.sessions.entries()].map(([sessionId, session]) => ({
+        sessionId,
+        commands: [...session.commands.entries()].map(([id, command]) => ({
+          command: command.command,
+          exitCode: command.exitCode,
+          id,
+        })),
+      }));
+    },
     deleteSession: async (sessionId: string): Promise<unknown> => {
+      this.touchSessionCache();
       const session = this.sessions.get(sessionId);
       if (!session) return { sessionId };
       await Promise.all([...session.commands.values()].map(async (command) => {
-        if (command.exitCode === undefined) await command.handle.kill().catch(() => undefined);
+        if (command.exitCode === undefined) await command.handle?.kill().catch(() => undefined);
       }));
       this.sessions.delete(sessionId);
       return { sessionId };
@@ -573,6 +681,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
   };
 
   private requireCommand(sessionId: string, commandId: string): E2BCommandState {
+    this.touchSessionCache();
     const command = this.sessions.get(sessionId)?.commands.get(commandId);
     if (!command) throw new Error(`E2B command ${commandId} was not found in session ${sessionId}.`);
     return command;
@@ -634,7 +743,19 @@ export class E2BSandboxAdapter implements SandboxAdapter {
 const adapters = new Map<string, { adapter: E2BSandboxAdapter; expiresAt: number }>();
 const ADAPTER_CACHE_MS = 5_000;
 
+function pruneAdapters(now = Date.now()): void {
+  for (const [sandboxId, cached] of adapters) {
+    if (cached.expiresAt <= now) adapters.delete(sandboxId);
+  }
+  while (adapters.size > E2B_MAX_CACHED_SANDBOXES) {
+    const oldest = [...adapters].sort((left, right) => left[1].expiresAt - right[1].expiresAt)[0];
+    if (!oldest) break;
+    adapters.delete(oldest[0]);
+  }
+}
+
 export async function createE2BSandbox(options: SandboxSessionOptions = {}): Promise<E2BSandboxAdapter> {
+  pruneAdapters();
   if (options.sandboxId) {
     const cached = adapters.get(options.sandboxId);
     if (cached && cached.expiresAt > Date.now()) return cached.adapter;
@@ -647,6 +768,7 @@ export async function createE2BSandbox(options: SandboxSessionOptions = {}): Pro
     ]);
     const adapter = new E2BSandboxAdapter(sdk, info);
     adapters.set(options.sandboxId, { adapter, expiresAt: Date.now() + ADAPTER_CACHE_MS });
+    pruneAdapters();
     return adapter;
   }
 
@@ -668,6 +790,7 @@ export async function createE2BSandbox(options: SandboxSessionOptions = {}): Pro
     metadata: e2bMetadata(options),
   });
   adapters.set(adapter.id, { adapter, expiresAt: Date.now() + ADAPTER_CACHE_MS });
+  pruneAdapters();
   return adapter;
 }
 

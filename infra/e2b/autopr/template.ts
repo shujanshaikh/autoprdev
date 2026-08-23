@@ -117,6 +117,10 @@ export const autoprE2BTemplate = template
     mode: 0o755,
     user: "root",
   })
+  .copy("infra/e2b/autopr/autopr-xfce-session", "/opt/autopr/bin/autopr-xfce-session", {
+    mode: 0o755,
+    user: "root",
+  })
   .copy("infra/e2b/autopr/autopr-git-askpass", "/opt/autopr/bin/autopr-git-askpass", {
     mode: 0o755,
     user: "root",

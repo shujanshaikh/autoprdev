@@ -242,6 +242,39 @@ describe("E2B sandbox adapter", () => {
     });
   });
 
+  it("retains only recent terminal command state after releasing E2B handles", async () => {
+    const sdk = sdkSandbox("bounded-background-e2b");
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+    await sandbox.process.createSession("bounded-session");
+
+    for (let pid = 100; pid <= 108; pid += 1) {
+      sdk.commands.run.mockResolvedValueOnce({
+        pid,
+        stdout: "",
+        stderr: "",
+        kill: vi.fn(async () => true),
+        sendStdin: vi.fn(async () => undefined),
+        wait: vi.fn(async () => ({ exitCode: 0, stdout: `output-${pid}`, stderr: "" })),
+      } as never);
+      await sandbox.process.executeSessionCommand("bounded-session", {
+        command: `command-${pid}`,
+        runAsync: true,
+      });
+    }
+
+    await vi.waitFor(async () => {
+      await expect(sandbox.process.getSessionCommand("bounded-session", "108")).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    });
+    await expect(sandbox.process.getSessionCommand("bounded-session", "100")).rejects.toThrow(
+      "E2B command 100 was not found",
+    );
+    await expect(sandbox.process.getSessionCommandLogs("bounded-session", "108")).resolves.toMatchObject({
+      stdout: "output-108",
+    });
+  });
+
   it("checks paused state without auto-resuming read-only operations", async () => {
     mocks.getInfo.mockResolvedValueOnce({ state: "paused" });
 

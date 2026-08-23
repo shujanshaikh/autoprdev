@@ -85,7 +85,7 @@ import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import {
   activeComputerToolCallId,
-  latestComputerToolCallId,
+  latestThreadComputerToolCallId,
 } from "#/components/thread/thread-computer-activity";
 import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
@@ -1578,8 +1578,8 @@ function ThreadChatRuntime({
     [activeAssistantMessageId, lastMessage],
   );
   const latestComputerToolCall = useMemo(
-    () => latestComputerToolCallId(lastMessage),
-    [lastMessage],
+    () => latestThreadComputerToolCallId(messages),
+    [messages],
   );
   const awaitingAgentResponse = status === "submitted" && !activeAssistantMessageId;
   const keyedMessages = useMemo(() => {

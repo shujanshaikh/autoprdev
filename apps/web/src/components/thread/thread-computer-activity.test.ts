@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import {
   activeComputerToolCallId,
   latestComputerToolCallId,
+  latestThreadComputerToolCallId,
 } from "./thread-computer-activity";
 
 function assistantMessage(parts: UIMessage["parts"]): UIMessage {
@@ -61,5 +62,56 @@ describe("activeComputerToolCallId", () => {
 
     expect(activeComputerToolCallId(message)).toBeUndefined();
     expect(latestComputerToolCallId(message)).toBeUndefined();
+  });
+
+  it("keeps the latest computer call through user prompts and assistant setup", () => {
+    const computerMessage = assistantMessage([{
+      type: "dynamic-tool",
+      toolName: "computer",
+      toolCallId: "computer-existing",
+      state: "output-available",
+      input: { actions: [{ type: "screenshot" }] },
+      output: { content: "done", details: {} },
+    }]);
+    const userMessage = {
+      id: "user-follow-up",
+      role: "user",
+      parts: [{ type: "text", text: "Open another tab" }],
+    } satisfies UIMessage;
+    const nextAssistantMessage = {
+      id: "assistant-next",
+      role: "assistant",
+      parts: [{ type: "text", text: "I will open it." }],
+    } satisfies UIMessage;
+
+    expect(latestThreadComputerToolCallId([
+      computerMessage,
+      userMessage,
+      nextAssistantMessage,
+    ])).toBe("computer-existing");
+  });
+
+  it("moves to the next computer call without an empty preview key", () => {
+    const firstMessage = assistantMessage([{
+      type: "dynamic-tool",
+      toolName: "computer",
+      toolCallId: "computer-first",
+      state: "output-available",
+      input: {},
+      output: { content: "done", details: {} },
+    }]);
+    const secondMessage = {
+      ...assistantMessage([{
+        type: "dynamic-tool",
+        toolName: "computer",
+        toolCallId: "computer-second",
+        state: "input-available",
+        input: {},
+      }]),
+      id: "assistant-2",
+    };
+
+    expect(latestThreadComputerToolCallId([firstMessage])).toBe("computer-first");
+    expect(latestThreadComputerToolCallId([firstMessage, secondMessage])).toBe("computer-second");
   });
 });

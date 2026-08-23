@@ -34,6 +34,18 @@ export function latestComputerToolCallId(message: UIMessage | undefined): string
   return undefined;
 }
 
+/** Keeps the preview tied to the latest CUA call across chat turn boundaries. */
+export function latestThreadComputerToolCallId(
+  messages: readonly UIMessage[],
+): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const toolCallId = latestComputerToolCallId(messages[index]);
+    if (toolCallId) return toolCallId;
+  }
+
+  return undefined;
+}
+
 /** Returns the active CUA tool call in a streaming assistant message, if one exists. */
 export function activeComputerToolCallId(message: UIMessage | undefined): string | undefined {
   if (message?.role !== "assistant") {

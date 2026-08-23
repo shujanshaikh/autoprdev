@@ -222,12 +222,15 @@ export function SettingsPage({
   grokStatus,
   onGrokStatusChange,
 }: SettingsPageProps) {
+  const { state: sidebarState } = useSidebar();
   const tab = SETTINGS_TABS.find((item) => item.id === activeTab) ?? SETTINGS_TABS[0];
 
   return (
     <SidebarInset className="min-w-0 overflow-hidden">
       <header className="flex h-12 shrink-0 items-center border-b border-border px-4 pl-12 md:px-6">
-        <SidebarTrigger className="mr-3 hidden text-muted-foreground hover:text-foreground md:flex" />
+        {sidebarState === "collapsed" ? (
+          <SidebarTrigger className="mr-3 hidden text-muted-foreground hover:text-foreground md:flex" />
+        ) : null}
         <p className="truncate text-[13px] font-medium text-foreground">
           <span className="text-muted-foreground">Settings</span>
           <span className="px-2 text-border" aria-hidden="true">/</span>

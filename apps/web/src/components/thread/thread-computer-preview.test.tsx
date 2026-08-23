@@ -69,6 +69,22 @@ afterEach(() => {
 });
 
 describe("ThreadComputerPreview", () => {
+  it("does not request or mount a desktop without current CUA activity", async () => {
+    const { rerender } = render(
+      <ThreadComputerPreview projectId="project-1" />,
+    );
+
+    expect(screen.queryByRole("complementary", { name: "Live computer preview" })).toBeNull();
+    expect(mocks.getDesktopPreview).not.toHaveBeenCalled();
+
+    rerender(<ThreadComputerPreview projectId="project-1" activityKey="run-1" />);
+    expect(await screen.findByRole("complementary", { name: "Live computer preview" })).toBeTruthy();
+    await waitFor(() => expect(mocks.getDesktopPreview).toHaveBeenCalledOnce());
+
+    rerender(<ThreadComputerPreview projectId="project-1" />);
+    expect(screen.queryByRole("complementary", { name: "Live computer preview" })).toBeNull();
+  });
+
   it("opens on CUA activity, stays dismissed for that run, and reopens for the next run", async () => {
     const { rerender } = render(
       <ThreadComputerPreview projectId="project-1" activityKey="run-1" />,

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
 import {
+  activeThreadComputerToolCallId,
   latestComputerToolCallId,
-  latestThreadComputerToolCallId,
 } from "./thread-computer-activity";
 
 function assistantMessage(parts: UIMessage["parts"]): UIMessage {
@@ -49,7 +49,7 @@ describe("computer tool activity", () => {
     expect(latestComputerToolCallId(message)).toBeUndefined();
   });
 
-  it("keeps the latest computer call through user prompts and assistant setup", () => {
+  it("does not revive a completed computer call when a thread is reopened", () => {
     const computerMessage = assistantMessage([{
       type: "dynamic-tool",
       toolName: "computer",
@@ -69,14 +69,19 @@ describe("computer tool activity", () => {
       parts: [{ type: "text", text: "I will open it." }],
     } satisfies UIMessage;
 
-    expect(latestThreadComputerToolCallId([
+    expect(activeThreadComputerToolCallId([
       computerMessage,
       userMessage,
       nextAssistantMessage,
-    ])).toBe("computer-existing");
+    ], undefined)).toBeUndefined();
+    expect(activeThreadComputerToolCallId([
+      computerMessage,
+      userMessage,
+      nextAssistantMessage,
+    ], nextAssistantMessage.id)).toBeUndefined();
   });
 
-  it("moves to the next computer call without an empty preview key", () => {
+  it("tracks computer use only in the currently running assistant turn", () => {
     const firstMessage = assistantMessage([{
       type: "dynamic-tool",
       toolName: "computer",
@@ -96,7 +101,17 @@ describe("computer tool activity", () => {
       id: "assistant-2",
     };
 
-    expect(latestThreadComputerToolCallId([firstMessage])).toBe("computer-first");
-    expect(latestThreadComputerToolCallId([firstMessage, secondMessage])).toBe("computer-second");
+    expect(activeThreadComputerToolCallId(
+      [firstMessage],
+      firstMessage.id,
+    )).toBe("computer-first");
+    expect(activeThreadComputerToolCallId(
+      [firstMessage, secondMessage],
+      secondMessage.id,
+    )).toBe("computer-second");
+    expect(activeThreadComputerToolCallId(
+      [firstMessage, secondMessage],
+      undefined,
+    )).toBeUndefined();
   });
 });

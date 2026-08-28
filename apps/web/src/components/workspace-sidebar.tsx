@@ -13,6 +13,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@autopr/ui/components/dropdown-menu";
 import {
@@ -30,15 +33,22 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   CircleAlert,
+  Clock3,
   Folder,
   FolderPlus,
   GitBranch,
   Loader2,
+  MailOpen,
   MessageSquare,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
+  RefreshCw,
   RotateCcw,
   Search,
   Settings,
@@ -59,12 +69,16 @@ import {
 import { WorkOSUserButton } from "#/components/auth/workos-user-button";
 import { ModeToggle } from "#/components/mode-toggle";
 import { deleteThreadWithCleanup } from "#/lib/delete-thread";
+import { requestGeneratedThreadTitle } from "#/lib/thread-title-generation";
 import {
   partitionSidebarThreads,
+  isSidebarThreadSettled,
+  resolveSnoozePresets,
   resolveNewThreadProjectId,
   SETTLED_INITIAL_COUNT,
   SETTLED_PAGE_COUNT,
   type SidebarThreadRecord,
+  type SnoozePreset,
 } from "#/lib/workspace-sidebar";
 
 export interface WorkspaceThread extends SidebarThreadRecord {
@@ -126,19 +140,40 @@ function formatAge(timestamp?: number) {
   return `${Math.floor(days / 30)}mo`;
 }
 
+function formatSnoozeWake(timestamp?: number) {
+  if (!timestamp) return "";
+  const wake = new Date(timestamp);
+  const now = new Date();
+  const time = wake.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const wakeDay = new Date(wake.getFullYear(), wake.getMonth(), wake.getDate()).getTime();
+  const dayOffset = Math.round((wakeDay - today) / (24 * 60 * 60 * 1_000));
+  if (dayOffset === 0) return time;
+  if (dayOffset === 1) return `tomorrow ${time}`;
+  return `${wake.toLocaleDateString(undefined, { weekday: "short" })} ${time}`;
+}
+
 function ThreadRow({
   thread,
   project,
   active,
   settled,
+  snoozed,
   shortcut,
   isRenaming,
+  isRegeneratingTitle,
+  snoozePresets,
   renamingTitle,
   onRenamingTitleChange,
   onActivate,
   onRename,
   onCancelRename,
   onCommitRename,
+  onPin,
+  onRegenerateTitle,
+  onMarkUnread,
+  onSnooze,
+  onWake,
   onSettle,
   onDelete,
 }: {
@@ -146,14 +181,22 @@ function ThreadRow({
   project: WorkspaceProject | undefined;
   active: boolean;
   settled: boolean;
+  snoozed: boolean;
   shortcut: string | undefined;
   isRenaming: boolean;
+  isRegeneratingTitle: boolean;
+  snoozePresets: readonly SnoozePreset[];
   renamingTitle: string;
   onRenamingTitleChange: (title: string) => void;
   onActivate: () => void;
   onRename: () => void;
   onCancelRename: () => void;
   onCommitRename: () => void;
+  onPin: (pinned: boolean) => void;
+  onRegenerateTitle: () => void;
+  onMarkUnread: () => void;
+  onSnooze: (snoozedUntil: number) => void;
+  onWake: () => void;
   onSettle: (settled: boolean) => void;
   onDelete: () => void;
 }) {
@@ -164,6 +207,8 @@ function ThreadRow({
     ?? project?.repoBranch
     ?? project?.defaultBranch
     ?? "main";
+  const pinned = Boolean(thread.pinnedAt);
+  const unread = Boolean(thread.unreadAt);
 
   useEffect(() => {
     if (isRenaming) renameCommittedRef.current = false;
@@ -197,7 +242,10 @@ function ThreadRow({
       className="pointer-events-auto min-w-0 flex-1 rounded-[4px] border border-sidebar-border bg-sidebar px-1.5 py-0.5 text-[13px] text-sidebar-foreground outline-none focus:border-sidebar-foreground/40"
     />
   ) : (
-    <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-[1.35]">
+    <span className={cn(
+      "min-w-0 flex-1 truncate text-[13px] leading-[1.35]",
+      unread ? "font-semibold text-sidebar-foreground" : "font-medium",
+    )}>
       {thread.title ?? "Untitled thread"}
     </span>
   );
@@ -216,20 +264,59 @@ function ThreadRow({
             type="button"
             aria-label={`Actions for ${thread.title ?? "thread"}`}
             onClick={(event) => event.stopPropagation()}
-            className="pointer-events-auto inline-flex size-6 shrink-0 items-center justify-center rounded-[4px] text-sidebar-foreground/30 opacity-0 transition hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 group-hover/thread:opacity-100 group-focus-within/thread:opacity-100"
+            className="pointer-events-auto inline-flex size-6 shrink-0 items-center justify-center rounded-[4px] text-sidebar-foreground/35 opacity-70 transition hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 group-hover/thread:opacity-100 group-focus-within/thread:opacity-100"
           />
         }
       >
         <MoreHorizontal className="size-3.5" aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="right" className="w-40">
+      <DropdownMenuContent align="end" side="right" className="w-52">
+        <DropdownMenuItem onClick={() => onPin(!pinned)}>
+          {pinned ? <PinOff /> : <Pin />}
+          {pinned ? "Unpin thread" : "Pin thread"}
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => onSettle(!settled)}>
           {settled ? <RotateCcw /> : <Check />}
-          {settled ? "Un-settle" : "Settle"}
+          {settled ? "Un-settle thread" : "Settle thread"}
         </DropdownMenuItem>
+        {snoozed ? (
+          <DropdownMenuItem onClick={onWake}>
+            <Clock3 />
+            Wake thread
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={thread.isLive}>
+              <Clock3 />
+              Snooze
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-52">
+              {snoozePresets.map((preset) => (
+                <DropdownMenuItem
+                  key={preset.id}
+                  onClick={() => onSnooze(preset.snoozedUntil)}
+                >
+                  <span>{preset.label}</span>
+                  <span className="ml-auto text-[11px] text-muted-foreground">
+                    {preset.whenLabel}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onRename}>
           <Pencil />
-          Rename
+          Rename thread
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={isRegeneratingTitle} onClick={onRegenerateTitle}>
+          <RefreshCw />
+          {isRegeneratingTitle ? "Regenerating…" : "Regenerate title"}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onMarkUnread}>
+          <MailOpen />
+          Mark unread
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={onDelete}>
@@ -240,7 +327,7 @@ function ThreadRow({
     </DropdownMenu>
   );
 
-  if (settled) {
+  if (settled || snoozed) {
     return (
       <li className="group/thread relative list-none">
         <div
@@ -249,15 +336,23 @@ function ThreadRow({
             active && "bg-sidebar-accent text-sidebar-foreground",
           )}
         >
+          {unread ? (
+            <span className="absolute inset-y-2 left-0 w-0.5 bg-sidebar-foreground" aria-hidden="true" />
+          ) : null}
           <button
             type="button"
-            aria-label={`Open thread ${thread.title ?? thread.threadId}`}
+            aria-label={`Open ${unread ? "unread " : ""}thread ${thread.title ?? thread.threadId}`}
             onClick={onActivate}
             onDoubleClick={handleDoubleClick}
             className="absolute inset-0 z-0 cursor-pointer rounded-[6px] outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/50"
           />
           <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2">
-            <MessageSquare className="size-3.5 shrink-0 opacity-60" aria-hidden="true" />
+            {unread ? <span className="size-1.5 shrink-0 rounded-full bg-sidebar-foreground" aria-hidden="true" /> : null}
+            {snoozed ? (
+              <Clock3 className="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
+            ) : (
+              <MessageSquare className="size-3.5 shrink-0 opacity-60" aria-hidden="true" />
+            )}
             {title}
             {thread.pullRequestNumber ? (
               <span className="shrink-0 font-mono text-[9px] text-sidebar-foreground/35">
@@ -265,7 +360,9 @@ function ThreadRow({
               </span>
             ) : null}
             <span className="ml-auto shrink-0 font-mono text-[9px] tabular-nums text-sidebar-foreground/30 group-hover/thread:hidden">
-              {shortcut ?? formatAge(thread.updatedAt)}
+              {shortcut ?? (snoozed
+                ? formatSnoozeWake(thread.snoozedUntil)
+                : formatAge(thread.updatedAt))}
             </span>
             {actions}
           </div>
@@ -284,15 +381,22 @@ function ThreadRow({
             : "border-transparent hover:border-sidebar-border hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
         )}
       >
+        {unread ? (
+          <span className="absolute inset-y-2 left-0 w-0.5 bg-sidebar-foreground" aria-hidden="true" />
+        ) : null}
         <button
           type="button"
-          aria-label={`Open thread ${thread.title ?? thread.threadId}`}
+          aria-label={`Open ${unread ? "unread " : ""}thread ${thread.title ?? thread.threadId}`}
           onClick={onActivate}
           onDoubleClick={handleDoubleClick}
           className="absolute inset-0 z-0 cursor-pointer rounded-[6px] outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/50"
         />
         <div className="pointer-events-none relative z-10 flex min-w-0 items-center gap-2">
-          <Folder className="size-3.5 shrink-0 text-sidebar-foreground/40" aria-hidden="true" />
+          {pinned ? (
+            <Pin className="size-3.5 shrink-0 text-sidebar-foreground/55" aria-hidden="true" />
+          ) : (
+            <Folder className="size-3.5 shrink-0 text-sidebar-foreground/40" aria-hidden="true" />
+          )}
           <span className="min-w-0 flex-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-sidebar-foreground/40">
             {project ? projectName(project.repoFullName) : "Project"}
           </span>
@@ -351,18 +455,29 @@ export function WorkspaceSidebar({
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const updateTitle = useMutation(api.threads.updateTitle);
+  const setPinned = useMutation(api.threads.setPinned);
+  const setUnread = useMutation(api.threads.setUnread);
+  const setSnoozedUntil = useMutation(api.threads.setSnoozedUntil);
   const setSettlement = useMutation(api.threads.setSettlement);
   const [requestedProjectScopeId, setRequestedProjectScopeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_INITIAL_COUNT);
+  const [snoozedShelfExpanded, setSnoozedShelfExpanded] = useState(false);
   const [showJumpHints, setShowJumpHints] = useState(false);
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
+  const [regeneratingThreadIds, setRegeneratingThreadIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [pendingDeleteThread, setPendingDeleteThread] = useState<WorkspaceThread | null>(null);
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [nowMinute, setNowMinute] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
+  const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
+  const snoozePresets = useMemo(
+    () => resolveSnoozePresets(new Date(nowTimestamp)),
+    [nowTimestamp],
+  );
 
   const projectsById = useMemo(
     () => new Map((projects ?? []).map((project) => [project.projectId, project] as const)),
@@ -394,39 +509,58 @@ export function WorkspaceSidebar({
   const scopedProjectIndex = scopedProject
     ? Math.max(0, orderedProjects?.findIndex((project) => project.projectId === scopedProject.projectId) ?? 0)
     : 0;
-  const { active, settled } = useMemo(
+  const { pinned, active, snoozed, settled } = useMemo(
     () => partitionSidebarThreads(threads ?? [], {
       projectId: projectScopeId,
       search: searchQuery,
-      now: nowMinute,
+      now: nowTimestamp,
     }),
-    [nowMinute, projectScopeId, searchQuery, threads],
+    [nowTimestamp, projectScopeId, searchQuery, threads],
   );
   const visibleSettled = useMemo(
     () => settled.slice(0, settledVisibleCount),
     [settled, settledVisibleCount],
   );
+  const visibleSnoozed = useMemo(
+    () => snoozedShelfExpanded ? snoozed : [],
+    [snoozed, snoozedShelfExpanded],
+  );
   const hiddenSettledCount = Math.max(0, settled.length - visibleSettled.length);
   const visibleThreads = useMemo(
-    () => [...active, ...visibleSettled],
-    [active, visibleSettled],
+    () => [...pinned, ...active, ...visibleSnoozed, ...visibleSettled],
+    [active, pinned, visibleSettled, visibleSnoozed],
   );
 
   useEffect(() => {
     const interval = window.setInterval(
-      () => setNowMinute(Math.floor(Date.now() / 60_000) * 60_000),
+      () => setNowTimestamp(Date.now()),
       60_000,
     );
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const wakeAt = snoozed[0]?.snoozedUntil;
+    if (!wakeAt) return;
+    const timeout = window.setTimeout(
+      () => setNowTimestamp(Date.now()),
+      Math.min(Math.max(0, wakeAt - Date.now()) + 50, 2_147_483_647),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [snoozed]);
+
   const activateThread = useCallback((thread: WorkspaceThread) => {
+    if (thread.unreadAt) {
+      void setUnread({ threadId: thread.threadId, unread: false }).catch((error) => {
+        setActionError(error instanceof Error ? error.message : "Could not mark the thread read.");
+      });
+    }
     if (isMobile) setOpenMobile(false);
     navigate({
       to: "/project/$projectId/thread/$threadId",
       params: { projectId: thread.projectId, threadId: thread.threadId },
     });
-  }, [isMobile, navigate, setOpenMobile]);
+  }, [isMobile, navigate, setOpenMobile, setUnread]);
 
   const handleGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
     const modifier = event.metaKey || event.ctrlKey;
@@ -491,7 +625,9 @@ export function WorkspaceSidebar({
     try {
       await setSettlement({ threadId: thread.threadId, settled: settledValue });
       if (settledValue && thread.threadId === activeThreadId) {
-        const next = active.find((candidate) => candidate.threadId !== thread.threadId);
+        const next = [...pinned, ...active].find(
+          (candidate) => candidate.threadId !== thread.threadId,
+        );
         if (next) {
           activateThread(next);
         } else {
@@ -500,6 +636,73 @@ export function WorkspaceSidebar({
       }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Could not update the thread.");
+    }
+  };
+
+  const updatePinned = async (thread: WorkspaceThread, pinnedValue: boolean) => {
+    setActionError(null);
+    try {
+      await setPinned({ threadId: thread.threadId, pinned: pinnedValue });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not update the thread pin.");
+    }
+  };
+
+  const markUnread = async (thread: WorkspaceThread) => {
+    setActionError(null);
+    try {
+      await setUnread({ threadId: thread.threadId, unread: true });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not mark the thread unread.");
+    }
+  };
+
+  const snoozeThread = async (thread: WorkspaceThread, until: number) => {
+    setActionError(null);
+    try {
+      await setSnoozedUntil({ threadId: thread.threadId, snoozedUntil: until });
+      if (thread.threadId === activeThreadId) {
+        const next = [...pinned, ...active].find(
+          (candidate) => candidate.threadId !== thread.threadId,
+        );
+        if (next) {
+          activateThread(next);
+        } else {
+          navigate({ to: "/project/$projectId", params: { projectId: thread.projectId } });
+        }
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not snooze the thread.");
+    }
+  };
+
+  const wakeThread = async (thread: WorkspaceThread) => {
+    setActionError(null);
+    try {
+      await setSnoozedUntil({ threadId: thread.threadId, snoozedUntil: null });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not wake the thread.");
+    }
+  };
+
+  const regenerateTitle = async (thread: WorkspaceThread) => {
+    if (regeneratingThreadIds.has(thread.threadId)) return;
+    setRegeneratingThreadIds((current) => new Set(current).add(thread.threadId));
+    setActionError(null);
+    try {
+      await requestGeneratedThreadTitle({
+        projectId: thread.projectId,
+        threadId: thread.threadId,
+        regenerate: true,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not regenerate the title.");
+    } finally {
+      setRegeneratingThreadIds((current) => {
+        const next = new Set(current);
+        next.delete(thread.threadId);
+        return next;
+      });
     }
   };
 
@@ -537,6 +740,44 @@ export function WorkspaceSidebar({
         </span>
       ) : null}
     </button>
+  );
+
+  const renderThreadRow = (
+    thread: WorkspaceThread,
+    options: {
+      settled: boolean;
+      snoozed: boolean;
+      shortcut?: string;
+    },
+  ) => (
+    <ThreadRow
+      key={thread.threadId}
+      thread={thread}
+      project={projectsById.get(thread.projectId)}
+      active={thread.threadId === activeThreadId}
+      settled={options.settled}
+      snoozed={options.snoozed}
+      shortcut={options.shortcut}
+      isRenaming={renamingThreadId === thread.threadId}
+      isRegeneratingTitle={regeneratingThreadIds.has(thread.threadId)}
+      snoozePresets={snoozePresets}
+      renamingTitle={renamingThreadId === thread.threadId ? renamingTitle : ""}
+      onRenamingTitleChange={setRenamingTitle}
+      onActivate={() => activateThread(thread)}
+      onRename={() => {
+        setRenamingThreadId(thread.threadId);
+        setRenamingTitle(thread.title ?? "");
+      }}
+      onCancelRename={() => setRenamingThreadId(null)}
+      onCommitRename={() => void commitRename(thread)}
+      onPin={(pinnedValue) => void updatePinned(thread, pinnedValue)}
+      onRegenerateTitle={() => void regenerateTitle(thread)}
+      onMarkUnread={() => void markUnread(thread)}
+      onSnooze={(until) => void snoozeThread(thread, until)}
+      onWake={() => void wakeThread(thread)}
+      onSettle={(settledValue) => void updateSettlement(thread, settledValue)}
+      onDelete={() => setPendingDeleteThread(thread)}
+    />
   );
 
   return (
@@ -712,7 +953,7 @@ export function WorkspaceSidebar({
               </p>
               {threads !== undefined ? (
                 <span className="font-mono text-[9px] tabular-nums text-sidebar-foreground/30">
-                  {active.length + settled.length}
+                  {pinned.length + active.length + snoozed.length + settled.length}
                 </span>
               ) : null}
               {scopedProject ? (
@@ -741,7 +982,7 @@ export function WorkspaceSidebar({
                     Add project
                   </button>
                 </div>
-              ) : visibleThreads.length === 0 ? (
+              ) : pinned.length + active.length + snoozed.length + visibleSettled.length === 0 ? (
                 <div className="mx-1 border border-dashed border-sidebar-border px-3 py-6 text-center">
                   <p className="text-[12px] text-sidebar-foreground/45">
                     {searchQuery.trim() ? "No matching threads." : scopedProject ? `No threads in ${projectName(scopedProject.repoFullName)} yet.` : "No threads yet."}
@@ -754,28 +995,67 @@ export function WorkspaceSidebar({
                 </div>
               ) : (
                 <ul className="space-y-1">
-                  {active.map((thread, index) => (
-                    <ThreadRow
-                      key={thread.threadId}
-                      thread={thread}
-                      project={projectsById.get(thread.projectId)}
-                      active={thread.threadId === activeThreadId}
-                      settled={false}
-                      shortcut={showJumpHints && index < 9 ? `⌘${index + 1}` : undefined}
-                      isRenaming={renamingThreadId === thread.threadId}
-                      renamingTitle={renamingThreadId === thread.threadId ? renamingTitle : ""}
-                      onRenamingTitleChange={setRenamingTitle}
-                      onActivate={() => activateThread(thread)}
-                      onRename={() => {
-                        setRenamingThreadId(thread.threadId);
-                        setRenamingTitle(thread.title ?? "");
-                      }}
-                      onCancelRename={() => setRenamingThreadId(null)}
-                      onCommitRename={() => void commitRename(thread)}
-                      onSettle={(settledValue) => void updateSettlement(thread, settledValue)}
-                      onDelete={() => setPendingDeleteThread(thread)}
-                    />
-                  ))}
+                  {pinned.length > 0 ? (
+                    <li aria-hidden="true" className="list-none">
+                      <div className="mb-1 flex items-center gap-2 px-2.5">
+                        <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/40">Pinned</span>
+                        <span className="h-px flex-1 bg-sidebar-border/60" />
+                      </div>
+                    </li>
+                  ) : null}
+                  {pinned.map((thread, index) => renderThreadRow(thread, {
+                    settled: false,
+                    snoozed: false,
+                    shortcut: showJumpHints && index < 9 ? `⌘${index + 1}` : undefined,
+                  }))}
+                  {pinned.length > 0 && active.length > 0 ? (
+                    <li aria-hidden="true" className="list-none">
+                      <div className="mb-1 mt-3 flex items-center gap-2 px-2.5">
+                        <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/30">Threads</span>
+                        <span className="h-px flex-1 bg-sidebar-border/60" />
+                      </div>
+                    </li>
+                  ) : null}
+                  {active.map((thread, index) => {
+                    const shortcutIndex = pinned.length + index;
+                    return renderThreadRow(thread, {
+                      settled: false,
+                      snoozed: false,
+                      shortcut: showJumpHints && shortcutIndex < 9
+                        ? `⌘${shortcutIndex + 1}`
+                        : undefined,
+                    });
+                  })}
+                  {snoozed.length > 0 ? (
+                    <li className="list-none">
+                      <button
+                        type="button"
+                        onClick={() => setSnoozedShelfExpanded((expanded) => !expanded)}
+                        aria-expanded={snoozedShelfExpanded}
+                        className="mb-1 mt-3 flex w-full items-center gap-2 px-2.5 text-left"
+                      >
+                        <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/35">
+                          Snoozed ({snoozed.length})
+                        </span>
+                        <span className="h-px flex-1 bg-sidebar-border/60" />
+                        {snoozedShelfExpanded ? (
+                          <ChevronDown className="size-3 text-sidebar-foreground/35" aria-hidden="true" />
+                        ) : (
+                          <ChevronRight className="size-3 text-sidebar-foreground/35" aria-hidden="true" />
+                        )}
+                      </button>
+                    </li>
+                  ) : null}
+                  {visibleSnoozed.map((thread, index) => {
+                    const shortcutIndex = pinned.length + active.length + index;
+                    return renderThreadRow(thread, {
+                      settled: isSidebarThreadSettled(thread, nowTimestamp),
+                      snoozed: true,
+                      shortcut: showJumpHints && shortcutIndex < 9
+                        ? `⌘${shortcutIndex + 1}`
+                        : undefined,
+                    });
+                  })}
                   {visibleSettled.length > 0 ? (
                     <li aria-hidden="true" className="list-none">
                       <div className="mb-1 mt-3 flex items-center gap-2 px-2.5">
@@ -785,29 +1065,14 @@ export function WorkspaceSidebar({
                     </li>
                   ) : null}
                   {visibleSettled.map((thread, index) => {
-                    const shortcutIndex = active.length + index;
-                    return (
-                      <ThreadRow
-                        key={thread.threadId}
-                        thread={thread}
-                        project={projectsById.get(thread.projectId)}
-                        active={thread.threadId === activeThreadId}
-                        settled
-                        shortcut={showJumpHints && shortcutIndex < 9 ? `⌘${shortcutIndex + 1}` : undefined}
-                        isRenaming={renamingThreadId === thread.threadId}
-                        renamingTitle={renamingThreadId === thread.threadId ? renamingTitle : ""}
-                        onRenamingTitleChange={setRenamingTitle}
-                        onActivate={() => activateThread(thread)}
-                        onRename={() => {
-                          setRenamingThreadId(thread.threadId);
-                          setRenamingTitle(thread.title ?? "");
-                        }}
-                        onCancelRename={() => setRenamingThreadId(null)}
-                        onCommitRename={() => void commitRename(thread)}
-                        onSettle={(settledValue) => void updateSettlement(thread, settledValue)}
-                        onDelete={() => setPendingDeleteThread(thread)}
-                      />
-                    );
+                    const shortcutIndex = pinned.length + active.length + visibleSnoozed.length + index;
+                    return renderThreadRow(thread, {
+                      settled: true,
+                      snoozed: false,
+                      shortcut: showJumpHints && shortcutIndex < 9
+                        ? `⌘${shortcutIndex + 1}`
+                        : undefined,
+                    });
                   })}
                   {hiddenSettledCount > 0 ? (
                     <li className="list-none">

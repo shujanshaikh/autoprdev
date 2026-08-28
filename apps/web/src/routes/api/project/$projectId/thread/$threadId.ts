@@ -39,6 +39,9 @@ const postRequestSchema = z.discriminatedUnion("action", [
     message: z.string().trim().min(1).max(8_000),
   }),
   z.object({
+    action: z.literal("regenerate_title"),
+  }),
+  z.object({
     action: z.enum([
       "commit",
       "push",
@@ -364,8 +367,22 @@ async function POST(
     return Response.json({ error: "Thread not found." }, { status: 404 });
   }
 
-  if (parsed.data.action === "generate_title") {
+  if (parsed.data.action === "generate_title" || parsed.data.action === "regenerate_title") {
     try {
+      const regenerating = parsed.data.action === "regenerate_title";
+      let message: string | undefined;
+      if (parsed.data.action === "regenerate_title") {
+        message = await convexQuery(api.messages.getFirstUserMessageForTitle, { threadId })
+          ?? undefined;
+      } else {
+        message = parsed.data.message;
+      }
+      if (!message) {
+        return Response.json(
+          { error: "Add a message before regenerating the thread title." },
+          { status: 409 },
+        );
+      }
       const title = await generateThreadTitle({
         // Codex auth only needs cookies/headers. Recreate the request from
         // primitives so framework-owned Fetch objects never cross into the
@@ -373,12 +390,18 @@ async function POST(
         request: new Request(req.url, { headers: new Headers(req.headers) }),
         projectId,
         threadId,
-        message: parsed.data.message,
+        message: message.slice(0, 8_000),
       });
-      const updated = await convexMutation(api.threads.updateGeneratedTitle, {
-        threadId,
-        title,
-      });
+      let updated: boolean;
+      if (regenerating) {
+        updated = await convexMutation(api.threads.updateRegeneratedTitle, {
+          threadId,
+          title,
+          expectedTitle: thread.title,
+        });
+      } else {
+        updated = await convexMutation(api.threads.updateGeneratedTitle, { threadId, title });
+      }
       return Response.json({ title, updated });
     } catch (error) {
       const status = APICallError.isInstance(error)

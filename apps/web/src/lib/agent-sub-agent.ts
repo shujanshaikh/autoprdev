@@ -15,7 +15,7 @@ import type { AssistantUsageStep } from "#/lib/agent-usage";
 import type { AgentModelOptions } from "#/lib/trigger-agent-contract";
 
 const MAX_SUB_AGENT_STEPS = 50;
-const SUB_AGENT_TOOLS = ["sandboxInfo", "read", "ls", "find", "grep", "bash"];
+const SUB_AGENT_TOOLS = ["sandboxInfo", "read", "ls", "find", "grep", "bash", "process"];
 
 interface AgentSubAgentRunnerOptions {
   sandboxOptions: SandboxSessionOptions;

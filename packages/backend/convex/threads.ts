@@ -591,6 +591,60 @@ export const updateGeneratedTitle = mutation({
   },
 });
 
+export const updateGeneratedThreadMetadata = mutation({
+  args: {
+    threadId: v.string(),
+    expectedBranch: v.string(),
+    featureBranch: v.string(),
+    title: v.optional(v.string()),
+  },
+  returns: v.object({
+    branchUpdated: v.boolean(),
+    titleUpdated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    if (
+      resolveThreadWorkspaceMode(thread) !== "worktree"
+      || thread.worktreeStatus !== "ready"
+      || thread.featureBranch !== args.expectedBranch
+      || thread.commitStatus !== undefined
+      || thread.pullRequestNumber !== undefined
+    ) {
+      return { branchUpdated: false, titleUpdated: false };
+    }
+
+    const featureBranch = args.featureBranch.trim();
+    if (!featureBranch || featureBranch.length > 120) {
+      throw new ConvexError({ code: "INVALID_FEATURE_BRANCH" });
+    }
+    const generatedTitle = args.title?.trim();
+    if (generatedTitle !== undefined && (!generatedTitle || generatedTitle.length > 200)) {
+      throw new ConvexError({ code: "INVALID_THREAD_TITLE" });
+    }
+    const titleUpdated = thread.title === "New thread" && generatedTitle !== undefined;
+
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      featureBranch,
+      ...(titleUpdated ? { title: generatedTitle } : {}),
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: "manual",
+      updatedAt: now,
+    });
+    return { branchUpdated: true, titleUpdated };
+  },
+});
+
 export const setSettlement = mutation({
   args: {
     threadId: v.string(),
@@ -1092,6 +1146,7 @@ const gitMutationActionValidator = v.union(
   v.literal("push"),
   v.literal("pull"),
   v.literal("create_pr"),
+  v.literal("rename_branch"),
 );
 
 const gitOperationInputValidator = {

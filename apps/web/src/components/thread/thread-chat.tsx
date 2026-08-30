@@ -1,5 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { isTemporaryThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -1100,8 +1101,9 @@ function ThreadChatRuntime({
     : 0;
 
   useEffect(() => {
+    const hasTemporaryBranch = isTemporaryThreadFeatureBranch(thread?.featureBranch, threadId);
     if (
-      thread?.title !== DEFAULT_THREAD_TITLE
+      (thread?.title !== DEFAULT_THREAD_TITLE && !hasTemporaryBranch)
       || !firstUserTitleMessage
       || titleGenerationAttempt >= MAX_THREAD_TITLE_REQUEST_ATTEMPTS
     ) {
@@ -1139,6 +1141,7 @@ function ThreadChatRuntime({
     firstUserTitleMessage,
     projectId,
     thread?.title,
+    thread?.featureBranch,
     threadId,
     titleGenerationAttempt,
   ]);

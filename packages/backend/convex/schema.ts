@@ -188,6 +188,7 @@ export default defineSchema({
       v.literal("push"),
       v.literal("pull"),
       v.literal("create_pr"),
+      v.literal("rename_branch"),
     )),
     gitMutationStartedAt: v.optional(v.number()),
     gitStatus: v.optional(threadGitStatusValidator),

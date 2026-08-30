@@ -43,6 +43,11 @@ export function createThreadFeatureBranch(title: string, threadId: string) {
   return `autopr/${trimmedSlug}-${suffix}`;
 }
 
+/** Temporary worktree branches are replaced with a semantic name after the first message. */
+export function isTemporaryThreadFeatureBranch(branch: string | undefined, threadId: string) {
+  return branch === createThreadFeatureBranch("New thread", threadId);
+}
+
 /** Create a short, valid branch from model- or user-supplied semantic text. */
 export function createSemanticFeatureBranch(value: string) {
   const withoutRefPrefix = value

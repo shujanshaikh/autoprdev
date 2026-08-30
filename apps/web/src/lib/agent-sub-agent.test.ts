@@ -116,6 +116,7 @@ describe("agent sub-agent runtime", () => {
       sandboxId: "sandbox-1",
       workDir: "/workspace/repo",
       computer: false,
+      selectedTools: ["sandboxInfo", "read", "ls", "find", "grep", "bash"],
       modelId: "gpt-5.6-sol",
     });
     expect(mocks.harnessOptions[0]).not.toHaveProperty("subAgent");

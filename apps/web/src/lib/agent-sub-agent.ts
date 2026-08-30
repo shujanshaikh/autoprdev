@@ -15,6 +15,7 @@ import type { AssistantUsageStep } from "#/lib/agent-usage";
 import type { AgentModelOptions } from "#/lib/trigger-agent-contract";
 
 const MAX_SUB_AGENT_STEPS = 50;
+const SUB_AGENT_TOOLS = ["sandboxInfo", "read", "ls", "find", "grep", "bash"];
 
 interface AgentSubAgentRunnerOptions {
   sandboxOptions: SandboxSessionOptions;
@@ -48,6 +49,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
     const harness = new CodingHarness({
       ...options.sandboxOptions,
       computer: false,
+      selectedTools: SUB_AGENT_TOOLS,
       modelId: options.selectedModel.modelId,
       modelProviderName:
         options.selectedModel.provider === "xai"

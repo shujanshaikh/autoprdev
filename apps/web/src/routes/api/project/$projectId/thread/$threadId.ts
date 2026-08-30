@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { fetchGithubPullRequestForBranch } from "@autopr/backend/convex/lib/github_oauth";
 import type { GithubPullRequestSummary } from "@autopr/backend/convex/lib/gitStatus";
-import { isTemporaryThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 import { APICallError } from "ai";
 import { z } from "zod";
 
@@ -33,6 +32,7 @@ import {
   withThreadGitMutation,
 } from "#/lib/thread-git-mutation-server";
 import {
+  persistedTemporaryThreadWorkspace,
   persistedThreadWorkspace,
   resolveThreadWorkspaceCoordinates,
 } from "#/lib/thread-workspace-server";
@@ -371,95 +371,82 @@ async function POST(
   if (parsed.data.action === "generate_title") {
     try {
       const shouldGenerateTitle = thread.title === "New thread";
-      const temporaryBranch = isTemporaryThreadFeatureBranch(thread.featureBranch, threadId)
-        ? thread.featureBranch
-        : undefined;
       const metadataRequest = () => new Request(req.url, { headers: new Headers(req.headers) });
-      const [title, preferredBranch] = await Promise.all([
-        shouldGenerateTitle
-          ? generateThreadTitle({
-              // Codex auth only needs cookies/headers. Recreate the request from
-              // primitives so framework-owned Fetch objects never cross into the
-              // Node/Undici auth provider after their JSON body has been consumed.
-              request: metadataRequest(),
-              projectId,
-              threadId,
-              message: parsed.data.message,
-            })
-          : Promise.resolve(thread.title),
-        temporaryBranch
-          ? generateBranchName({
-              request: metadataRequest(),
-              projectId,
-              threadId,
-              message: parsed.data.message,
-            })
-          : Promise.resolve(undefined),
-      ]);
-      let updated = false;
-      let branch: string | undefined;
+      const title = shouldGenerateTitle
+        ? await generateThreadTitle({
+            // Codex auth only needs cookies/headers. Recreate the request from
+            // primitives so framework-owned Fetch objects never cross into the
+            // Node/Undici auth provider after their JSON body has been consumed.
+            request: metadataRequest(),
+            projectId,
+            threadId,
+            message: parsed.data.message,
+          })
+        : thread.title;
+      const updated = shouldGenerateTitle
+        ? await convexMutation(api.threads.updateGeneratedTitle, { threadId, title })
+        : false;
+
       const sandboxId = project.sandboxId;
-      if (temporaryBranch && preferredBranch && sandboxId) {
-        const generatedMetadata = await withThreadGitMutation({
-          threadId,
-          action: "rename_branch",
-          run: async () => {
-            const latestThread = await convexQuery(api.threads.get, { threadId });
-            if (
-              !latestThread
-              || !isTemporaryThreadFeatureBranch(latestThread.featureBranch, threadId)
-              || latestThread.commitStatus !== undefined
-              || latestThread.pullRequestNumber !== undefined
-            ) {
-              const titleUpdated = latestThread && shouldGenerateTitle
-                ? await convexMutation(api.threads.updateGeneratedTitle, { threadId, title })
-                : false;
-              return { branch: latestThread?.featureBranch, titleUpdated };
-            }
-
-            const workspace = await resolveThreadWorkspaceCoordinates(project, latestThread, () =>
-              convexAction(api.projectActions.resolveThreadWorkspace, { projectId, threadId })
-            );
-            if (workspace.featureBranch !== temporaryBranch) {
-              return { branch: workspace.featureBranch, titleUpdated: false };
-            }
-
-            const githubToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
-            const renamed = await renameProjectSandboxBranch({
-              sandboxId,
-              expectedBranch: temporaryBranch,
-              preferredBranch,
-              githubToken,
-              repoName: project.repoName,
-              sandboxWorkDir: workspace.worktreePath,
-            });
-            const persisted = await convexMutation(api.threads.updateGeneratedThreadMetadata, {
-              threadId,
-              expectedBranch: temporaryBranch,
-              featureBranch: renamed.branch,
-              ...(shouldGenerateTitle ? { title } : {}),
-            });
-            if (persisted.branchUpdated) {
-              return { branch: renamed.branch, titleUpdated: persisted.titleUpdated };
-            }
-
-            await renameProjectSandboxBranch({
-              sandboxId,
-              expectedBranch: renamed.branch,
-              preferredBranch: temporaryBranch,
-              githubToken,
-              resolveCollisions: false,
-              repoName: project.repoName,
-              sandboxWorkDir: workspace.worktreePath,
-            });
-            throw new Error("The thread changed while its generated branch name was being saved.");
-          },
-        });
-        branch = generatedMetadata.branch;
-        updated = generatedMetadata.titleUpdated;
-      } else if (shouldGenerateTitle) {
-        updated = await convexMutation(api.threads.updateGeneratedTitle, { threadId, title });
+      const latestThread = await convexQuery(api.threads.get, { threadId });
+      const readyWorkspace = latestThread
+        ? persistedTemporaryThreadWorkspace(project, latestThread, threadId)
+        : null;
+      if (!readyWorkspace || !sandboxId) {
+        return Response.json({ title, updated });
       }
+
+      const preferredBranch = await generateBranchName({
+        request: metadataRequest(),
+        projectId,
+        threadId,
+        message: parsed.data.message,
+      });
+      const branch = await withThreadGitMutation({
+        threadId,
+        action: "rename_branch",
+        run: async () => {
+          const currentThread = await convexQuery(api.threads.get, { threadId });
+          const workspace = currentThread
+            ? persistedTemporaryThreadWorkspace(project, currentThread, threadId)
+            : null;
+          if (
+            !currentThread
+            || !workspace
+            || currentThread.commitStatus !== undefined
+            || currentThread.pullRequestNumber !== undefined
+          ) {
+            return currentThread?.featureBranch;
+          }
+
+          const githubToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
+          const renamed = await renameProjectSandboxBranch({
+            sandboxId,
+            expectedBranch: workspace.featureBranch,
+            preferredBranch,
+            githubToken,
+            repoName: project.repoName,
+            sandboxWorkDir: workspace.worktreePath,
+          });
+          const persisted = await convexMutation(api.threads.updateGeneratedFeatureBranch, {
+            threadId,
+            expectedBranch: workspace.featureBranch,
+            featureBranch: renamed.branch,
+          });
+          if (persisted) return renamed.branch;
+
+          await renameProjectSandboxBranch({
+            sandboxId,
+            expectedBranch: renamed.branch,
+            preferredBranch: workspace.featureBranch,
+            githubToken,
+            resolveCollisions: false,
+            repoName: project.repoName,
+            sandboxWorkDir: workspace.worktreePath,
+          });
+          throw new Error("The thread changed while its generated branch name was being saved.");
+        },
+      });
 
       return Response.json({ title, updated, branch });
     } catch (error) {

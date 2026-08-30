@@ -1,6 +1,5 @@
 import { useChat } from "@ai-sdk/react";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { isTemporaryThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -126,12 +125,15 @@ import {
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
 import { fetchThreadGitFileDiff } from "#/lib/thread-git-diff";
-import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 import {
-  DEFAULT_THREAD_TITLE,
+  resolveThreadBranchLabel,
+  useThreadGitStatusQuery,
+} from "#/lib/thread-git-status-query";
+import {
   firstUserMessageForTitle,
   MAX_THREAD_TITLE_REQUEST_ATTEMPTS,
   requestGeneratedThreadTitle,
+  shouldRequestThreadMetadata,
   threadTitleRetryDelayMs,
   ThreadTitleRequestError,
 } from "#/lib/thread-title-generation";
@@ -844,6 +846,7 @@ function ThreadChatRuntime({
     projectId,
     threadId,
     persistedStatus: thread?.gitStatus,
+    invalidatedAt: thread?.gitStatusInvalidatedAt,
     enabled: gitStatusEnabled,
     refetchInterval: false,
   });
@@ -1101,9 +1104,13 @@ function ThreadChatRuntime({
     : 0;
 
   useEffect(() => {
-    const hasTemporaryBranch = isTemporaryThreadFeatureBranch(thread?.featureBranch, threadId);
     if (
-      (thread?.title !== DEFAULT_THREAD_TITLE && !hasTemporaryBranch)
+      !shouldRequestThreadMetadata({
+        title: thread?.title,
+        featureBranch: thread?.featureBranch,
+        threadId,
+        worktreeStatus: thread?.worktreeStatus,
+      })
       || !firstUserTitleMessage
       || titleGenerationAttempt >= MAX_THREAD_TITLE_REQUEST_ATTEMPTS
     ) {
@@ -1143,6 +1150,7 @@ function ThreadChatRuntime({
     thread?.title,
     thread?.featureBranch,
     threadId,
+    thread?.worktreeStatus,
     titleGenerationAttempt,
   ]);
 
@@ -1725,9 +1733,12 @@ function ThreadChatRuntime({
     thread?.workspaceMode === undefined && Boolean(thread?.featureBranch || thread?.worktreePath)
   );
   const composerGitStatus = composerGitStatusQuery.data ?? thread?.gitStatus;
-  const checkedOutBranch = composerGitStatus?.detachedHead
-    ? `detached@${composerGitStatus.localHeadSha?.slice(0, 7) ?? "HEAD"}`
-    : composerGitStatus?.currentBranch;
+  const checkedOutBranch = resolveThreadBranchLabel({
+    status: composerGitStatus,
+    expectedBranch: usesWorktree ? thread?.featureBranch : undefined,
+    invalidatedAt: thread?.gitStatusInvalidatedAt,
+    readFailed: composerGitStatusQuery.isError,
+  });
   const recordingPlaybackBasePath =
     `/api/project/${encodeURIComponent(projectId)}` +
     `/thread/${encodeURIComponent(threadId)}`;

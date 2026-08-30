@@ -1,4 +1,7 @@
-import { resolveThreadWorkspaceMode } from "@autopr/backend/convex/lib/threadWorktree";
+import {
+  isTemporaryThreadFeatureBranch,
+  resolveThreadWorkspaceMode,
+} from "@autopr/backend/convex/lib/threadWorktree";
 
 export type PersistedThreadWorkspace = {
   workspaceMode: "checkout" | "worktree";
@@ -65,6 +68,20 @@ export function persistedThreadWorkspace(
   // client, so cached Convex metadata is not authoritative. Returning null
   // sends callers through resolveThreadWorkspace's live Git inspection.
   return null;
+}
+
+/**
+ * Metadata jobs may rename a provisional branch only after startup has
+ * finished provisioning it. A null result means the caller should try later,
+ * never start or join worktree provisioning itself.
+ */
+export function persistedTemporaryThreadWorkspace(
+  project: WorkspaceProject,
+  thread: WorkspaceThread,
+  threadId: string,
+) {
+  if (!isTemporaryThreadFeatureBranch(thread.featureBranch, threadId)) return null;
+  return persistedThreadWorkspace(project, thread);
 }
 
 /**

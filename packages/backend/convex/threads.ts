@@ -591,17 +591,13 @@ export const updateGeneratedTitle = mutation({
   },
 });
 
-export const updateGeneratedThreadMetadata = mutation({
+export const updateGeneratedFeatureBranch = mutation({
   args: {
     threadId: v.string(),
     expectedBranch: v.string(),
     featureBranch: v.string(),
-    title: v.optional(v.string()),
   },
-  returns: v.object({
-    branchUpdated: v.boolean(),
-    titleUpdated: v.boolean(),
-  }),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
     const thread = await ctx.db
@@ -620,28 +616,21 @@ export const updateGeneratedThreadMetadata = mutation({
       || thread.commitStatus !== undefined
       || thread.pullRequestNumber !== undefined
     ) {
-      return { branchUpdated: false, titleUpdated: false };
+      return false;
     }
 
     const featureBranch = args.featureBranch.trim();
     if (!featureBranch || featureBranch.length > 120) {
       throw new ConvexError({ code: "INVALID_FEATURE_BRANCH" });
     }
-    const generatedTitle = args.title?.trim();
-    if (generatedTitle !== undefined && (!generatedTitle || generatedTitle.length > 200)) {
-      throw new ConvexError({ code: "INVALID_THREAD_TITLE" });
-    }
-    const titleUpdated = thread.title === "New thread" && generatedTitle !== undefined;
-
     const now = Date.now();
     await ctx.db.patch(thread._id, {
       featureBranch,
-      ...(titleUpdated ? { title: generatedTitle } : {}),
       gitStatusInvalidatedAt: now,
       gitStatusInvalidationReason: "manual",
       updatedAt: now,
     });
-    return { branchUpdated: true, titleUpdated };
+    return true;
   },
 });
 

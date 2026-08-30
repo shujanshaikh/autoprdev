@@ -82,6 +82,21 @@ describe("CodingHarness", () => {
     expect(Object.keys(context.tools)).toEqual(["read", "process"]);
   });
 
+  it("passes the configured sub-agent runner into the tool set", async () => {
+    const run = vi.fn();
+    const harness = new CodingHarness({
+      cacheKey: "harness-sub-agent",
+      subAgent: { run },
+    });
+
+    await harness.prepare();
+
+    expect(mocks.createDaytonaTools).toHaveBeenCalledWith(
+      expect.objectContaining({ cacheKey: "harness-sub-agent" }),
+      expect.objectContaining({ subAgent: { run } }),
+    );
+  });
+
   it("returns to idle after preparation failure and can retry", async () => {
     const failure = new Error("sandbox unavailable");
     mocks.prepareDaytonaSandbox.mockRejectedValueOnce(failure);

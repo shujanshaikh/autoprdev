@@ -397,6 +397,13 @@ const minimalHarnessControls = {
   mermaid: false,
   table: false,
 } as const;
+const streamingTextAnimation = {
+  animation: "fadeIn",
+  duration: 120,
+  easing: "ease-out",
+  sep: "word",
+  stagger: 0,
+} as const;
 
 function normalizeHarnessMarkdown(content: MessageResponseProps["children"]) {
   if (typeof content !== "string") {
@@ -426,6 +433,7 @@ export const MessageResponse = memo(
       )}
       components={markdownComponents}
       controls={minimalHarnessControls}
+      animated={streamingTextAnimation}
       lineNumbers={false}
       plugins={streamdownPlugins}
       {...props}

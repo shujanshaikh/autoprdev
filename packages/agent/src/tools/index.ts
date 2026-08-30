@@ -7,6 +7,7 @@ import { createDaytonaLsTool } from "./ls";
 import { createDaytonaProcessTool } from "./process";
 import { createDaytonaReadTool } from "./read";
 import { createDaytonaSandboxInfoTool } from "./sandbox-info";
+import { createSubAgentTool, type SubAgentToolOptions } from "./sub-agent";
 import { createDaytonaWriteTool } from "./write";
 import { createBackgroundProcessScope } from "./background-process-scope";
 import type { ToolSet } from "ai";
@@ -14,6 +15,7 @@ import type { SandboxSessionOptions } from "../sandbox";
 
 export interface DaytonaToolsOptions {
   computer?: false | CuaComputerToolOptions;
+  subAgent?: false | SubAgentToolOptions;
 }
 
 export function createDaytonaTools(
@@ -33,13 +35,23 @@ export function createDaytonaTools(
     process: createDaytonaProcessTool(sandboxOptions, backgroundProcesses),
   };
 
-  if (!options.computer) {
-    return tools;
+  if (options.subAgent) {
+    tools["sub-agent"] = createSubAgentTool(options.subAgent);
   }
 
-  tools.computer = createCuaComputerTool(sandboxOptions, options.computer);
+  if (options.computer) {
+    tools.computer = createCuaComputerTool(sandboxOptions, options.computer);
+  }
+
   return tools;
 }
 
 export type DaytonaTools = ToolSet;
 export type { CuaComputerToolOptions };
+export type {
+  RunSubAgent,
+  SubAgentInput,
+  SubAgentRunResult,
+  SubAgentTask,
+  SubAgentToolOptions,
+} from "./sub-agent";

@@ -74,6 +74,7 @@ type GitActionResponse = {
 
 type ThreadCommitState = {
   gitStatus?: ThreadGitStatus;
+  gitStatusInvalidatedAt?: number;
 };
 
 const actionIcons = {
@@ -128,6 +129,7 @@ export function ThreadCommitButton({
     projectId,
     threadId,
     persistedStatus: thread?.gitStatus,
+    invalidatedAt: thread?.gitStatusInvalidatedAt,
     enabled: gitStatusEnabled,
     refetchInterval: false,
   });
@@ -166,7 +168,7 @@ export function ThreadCommitButton({
       setCommitMessageDraft("");
     },
     onSettled: async () => {
-      await queryClient.refetchQueries({ queryKey: statusQueryKey, exact: true, type: "active" });
+      await queryClient.refetchQueries({ queryKey: statusQueryKey, type: "active" });
     },
   });
 

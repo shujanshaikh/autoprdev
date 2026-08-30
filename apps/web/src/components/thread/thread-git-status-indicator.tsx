@@ -1,7 +1,6 @@
 import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { cn } from "@autopr/ui/lib/utils";
 import { GitBranch, Loader2, RefreshCw } from "lucide-react";
-import { useEffect } from "react";
 
 import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 
@@ -81,16 +80,11 @@ export function ThreadGitStatusIndicator({
     projectId,
     threadId,
     persistedStatus,
+    invalidatedAt,
     enabled,
     refetchInterval: false,
   });
   const status = query.data ?? persistedStatus;
-
-  useEffect(() => {
-    if (enabled && invalidatedAt && invalidatedAt > (status?.checkedAt ?? 0)) {
-      void query.refetch();
-    }
-  }, [enabled, invalidatedAt, query.refetch, status?.checkedAt]);
 
   if (!status) {
     return (

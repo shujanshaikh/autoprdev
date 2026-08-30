@@ -13,15 +13,39 @@ export function threadGitStatusQueryKey(projectId: string, threadId: string) {
   return ["thread", projectId, threadId, "git-status"] as const;
 }
 
+export function resolveThreadBranchLabel(options: {
+  status?: ThreadGitStatus;
+  expectedBranch?: string;
+  invalidatedAt?: number;
+  readFailed?: boolean;
+}) {
+  const verifiedBranch = options.status?.detachedHead
+    ? `detached@${options.status.localHeadSha?.slice(0, 7) ?? "HEAD"}`
+    : options.status?.currentBranch;
+  const statusIsOutdated = options.invalidatedAt !== undefined
+    && options.invalidatedAt > (options.status?.checkedAt ?? 0);
+
+  return statusIsOutdated && options.expectedBranch && !options.readFailed
+    ? options.expectedBranch
+    : verifiedBranch;
+}
+
 export function useThreadGitStatusQuery(options: {
   projectId: string;
   threadId: string;
   persistedStatus?: ThreadGitStatus;
+  invalidatedAt?: number;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
+  const persistedStatusIsOutdated = options.invalidatedAt !== undefined
+    && options.invalidatedAt > (options.persistedStatus?.checkedAt ?? 0);
+
   return useQuery({
-    queryKey: threadGitStatusQueryKey(options.projectId, options.threadId),
+    queryKey: [
+      ...threadGitStatusQueryKey(options.projectId, options.threadId),
+      options.invalidatedAt ?? 0,
+    ],
     enabled: options.enabled ?? true,
     queryFn: async () => {
       const response = await fetch(
@@ -34,7 +58,7 @@ export function useThreadGitStatusQuery(options: {
       return body.status;
     },
     initialData: options.persistedStatus,
-    initialDataUpdatedAt: options.persistedStatus?.checkedAt,
+    initialDataUpdatedAt: persistedStatusIsOutdated ? 0 : options.persistedStatus?.checkedAt,
     staleTime: 10_000,
     retry: false,
     refetchInterval: options.refetchInterval,

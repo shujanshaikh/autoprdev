@@ -30,7 +30,16 @@ export {
   type SandboxSessionOptions,
 } from "./sandbox";
 export { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
-export { createDaytonaTools, type CuaComputerToolOptions, type DaytonaTools } from "./tools";
+export {
+  createDaytonaTools,
+  type CuaComputerToolOptions,
+  type DaytonaTools,
+  type RunSubAgent,
+  type SubAgentInput,
+  type SubAgentRunResult,
+  type SubAgentTask,
+  type SubAgentToolOptions,
+} from "./tools";
 export {
   COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
   DEMO_RECORDING_INSTRUCTIONS,

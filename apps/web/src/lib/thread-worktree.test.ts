@@ -6,6 +6,7 @@ import {
   createThreadFeatureBranch,
   createThreadWorktreePath,
   decideWorktreeProvision,
+  isTemporaryThreadFeatureBranch,
   parseGitRemoteHeadNames,
   parseGitWorktreeList,
   resolveAvailableThreadFeatureBranch,
@@ -45,6 +46,17 @@ describe("thread worktree metadata", () => {
       .toBe("autopr/fix-invalid-git-refs");
     expect(createSemanticFeatureBranch("***"))
       .toBe("autopr/project-changes");
+  });
+
+  it("recognizes only the provisional branch allocated for a new thread", () => {
+    const threadId = "8a581f31-e2bb-4c22-ae16-46915612d513";
+
+    expect(isTemporaryThreadFeatureBranch(
+      createThreadFeatureBranch("New thread", threadId),
+      threadId,
+    )).toBe(true);
+    expect(isTemporaryThreadFeatureBranch("autopr/fix-git-actions", threadId)).toBe(false);
+    expect(isTemporaryThreadFeatureBranch(undefined, threadId)).toBe(false);
   });
 
   it("keeps collision-resolved branch names within the Git workflow limit", () => {

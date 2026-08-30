@@ -66,4 +66,16 @@ describe("buildSandboxAgentSystemPrompt", () => {
     expect(prompt).toContain("rejects stale observation IDs");
     expect(prompt).toContain("suspected_noop, partial, or unverifiable");
   });
+
+  it("teaches parent agents to parallelize only independent sub-agent tasks", () => {
+    const prompt = buildSandboxAgentSystemPrompt({
+      cwd: "/home/repo",
+      sandboxId: "sandbox-1",
+      selectedTools: ["sub-agent"],
+    });
+
+    expect(prompt).toContain("sub-agent: Delegate one independent, bounded task");
+    expect(prompt).toContain("disjoint file scope");
+    expect(prompt).toContain("Do not duplicate delegated work locally");
+  });
 });

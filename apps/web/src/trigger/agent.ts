@@ -11,7 +11,7 @@ import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
-import { stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
 
 import {
   createAgentContextCompactor,
@@ -19,8 +19,14 @@ import {
 } from "#/lib/agent-context-compaction";
 import {
   createAssistantUsageMetadata,
+  type AssistantUsageSource,
   type AssistantUsageMetadata,
 } from "#/lib/agent-usage";
+import { finalizeAgentUIMessageStream } from "#/lib/agent-ui-stream";
+import {
+  createAgentSubAgentRunner,
+  createSubAgentBinding,
+} from "#/lib/agent-sub-agent";
 import {
   agentRunIssueFromError,
   type AgentRunIssue,
@@ -29,7 +35,7 @@ import { responseMessagesToAssistantParts } from "#/lib/chat-messages";
 import {
   agentProviderOptions,
   agentSystemPrompt,
-  createAgentResponsesModel,
+  createAgentResponseModels,
   revokeAgentModelGrant,
 } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit } from "#/lib/agent-models";
@@ -205,9 +211,11 @@ async function runAgentTask(
     repoName: options.repoName,
   };
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
+  const subAgentBinding = createSubAgentBinding();
   const harness = new CodingHarness({
     ...sandboxOptions,
     computer: { recordingEnabled: demoRecordingEnabled },
+    subAgent: { run: subAgentBinding.run },
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
@@ -231,6 +239,7 @@ async function runAgentTask(
   let persistenceFinished = false;
   let streamFinished = false;
   const runStartedAt = Date.now();
+  const subAgentUsageSteps: AssistantUsageSource[] = [];
 
   if (options.assistantMessageId) {
     await agentUIStream.append({
@@ -240,11 +249,32 @@ async function runAgentTask(
   }
 
   try {
-    await harness.run(async ({ instructions, repositoryContext, tools }) => {
+    await harness.run(async ({ instructions, repositoryContext, sandbox, tools }) => {
+      const responseModels = await createAgentResponseModels(selectedModel);
       const model = wrapLanguageModel({
-        model: await createAgentResponsesModel(selectedModel),
+        model: responseModels.parent,
         middleware: createContextOverflowRecoveryMiddleware(),
       });
+      const subAgentModel = wrapLanguageModel({
+        model: responseModels.subAgent,
+        middleware: createContextOverflowRecoveryMiddleware(),
+      });
+      subAgentBinding.bind(createAgentSubAgentRunner({
+        sandboxOptions: {
+          ...sandboxOptions,
+          sandboxId: sandbox.sandboxId,
+          workDir: sandbox.workDir,
+        },
+        model: subAgentModel,
+        selectedModel: responseModels.subAgentOptions,
+        parentAbortSignal: signal,
+        onUsageStep: (step) => {
+          subAgentUsageSteps.push({
+            modelId: responseModels.subAgentOptions.modelId,
+            step,
+          });
+        },
+      }));
       const result = streamText({
         model,
         system: agentSystemPrompt(selectedModel, instructions),
@@ -255,6 +285,10 @@ async function runAgentTask(
         toolChoice: "auto",
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
         maxRetries: 2,
+        experimental_transform: smoothStream({
+          chunking: "word",
+          delayInMs: null,
+        }),
         abortSignal: signal,
         prepareStep: createAgentStepController({
           prepareStep: createAgentContextCompactor({
@@ -265,31 +299,35 @@ async function runAgentTask(
         }),
         providerOptions: agentProviderOptions(selectedModel, instructions),
       });
-      const streamed = agentUIStream.pipe(
+      let usageMetadata: AssistantUsageMetadata | undefined;
+      const uiStream = finalizeAgentUIMessageStream(
         result.toUIMessageStream({
           sendStart: !options.assistantMessageId,
           sendFinish: false,
         }),
+        async () => {
+          usageMetadata = createAssistantUsageMetadata(
+            await result.steps,
+            selectedModel.modelId,
+            runStartedAt,
+            Date.now(),
+            subAgentUsageSteps,
+          );
+          return usageMetadata;
+        },
+      );
+      const streamed = agentUIStream.pipe(
+        uiStream,
         { signal },
       );
 
       await streamed.waitUntilComplete();
 
-      const [steps, response] = await Promise.all([result.steps, result.response]);
-      const runCompletedAt = Date.now();
-      const usageMetadata = createAssistantUsageMetadata(
-        steps,
-        selectedModel.modelId,
-        runStartedAt,
-        runCompletedAt,
-      );
-
-      await agentUIStream.append({
-        type: "message-metadata",
-        messageMetadata: usageMetadata,
-      });
-      await agentUIStream.append({ type: "finish" });
       streamFinished = true;
+      const response = await result.response;
+      if (!usageMetadata) {
+        throw new Error("Assistant usage metadata was not finalized with the stream.");
+      }
 
       if (!persistence) {
         return;

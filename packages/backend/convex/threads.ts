@@ -591,6 +591,49 @@ export const updateGeneratedTitle = mutation({
   },
 });
 
+export const updateGeneratedFeatureBranch = mutation({
+  args: {
+    threadId: v.string(),
+    expectedBranch: v.string(),
+    featureBranch: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const thread = await ctx.db
+      .query("threads")
+      .withIndex("by_thread_id", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!thread || thread.authorId !== authorId) {
+      throw new ConvexError({ code: "UNAUTHORIZED" });
+    }
+
+    if (
+      resolveThreadWorkspaceMode(thread) !== "worktree"
+      || thread.worktreeStatus !== "ready"
+      || thread.featureBranch !== args.expectedBranch
+      || thread.commitStatus !== undefined
+      || thread.pullRequestNumber !== undefined
+    ) {
+      return false;
+    }
+
+    const featureBranch = args.featureBranch.trim();
+    if (!featureBranch || featureBranch.length > 120) {
+      throw new ConvexError({ code: "INVALID_FEATURE_BRANCH" });
+    }
+    const now = Date.now();
+    await ctx.db.patch(thread._id, {
+      featureBranch,
+      gitStatusInvalidatedAt: now,
+      gitStatusInvalidationReason: "manual",
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
 export const updateRegeneratedTitle = mutation({
   args: {
     threadId: v.string(),
@@ -1217,6 +1260,7 @@ const gitMutationActionValidator = v.union(
   v.literal("push"),
   v.literal("pull"),
   v.literal("create_pr"),
+  v.literal("rename_branch"),
 );
 
 const gitOperationInputValidator = {

@@ -1,9 +1,11 @@
 import type { UIMessage } from "ai";
+import { createThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   firstUserMessageForTitle,
   requestGeneratedThreadTitle,
+  shouldRequestThreadMetadata,
   ThreadTitleRequestError,
   threadTitleRetryDelayMs,
 } from "./thread-title-generation";
@@ -43,6 +45,36 @@ describe("thread title generation", () => {
     expect(new ThreadTitleRequestError("Bad Request", 400).retryable).toBe(false);
     expect(new ThreadTitleRequestError("Too Many Requests", 429).retryable).toBe(true);
     expect(new ThreadTitleRequestError("Unavailable", 503).retryable).toBe(true);
+  });
+
+  it("generates the title immediately but waits for a ready worktree before renaming its branch", () => {
+    const threadId = "thread-1";
+    const featureBranch = createThreadFeatureBranch("New thread", threadId);
+
+    expect(shouldRequestThreadMetadata({
+      title: "New thread",
+      featureBranch,
+      threadId,
+      worktreeStatus: "pending",
+    })).toBe(true);
+    expect(shouldRequestThreadMetadata({
+      title: "Fix worktree startup",
+      featureBranch,
+      threadId,
+      worktreeStatus: "provisioning",
+    })).toBe(false);
+    expect(shouldRequestThreadMetadata({
+      title: "Fix worktree startup",
+      featureBranch,
+      threadId,
+      worktreeStatus: "ready",
+    })).toBe(true);
+    expect(shouldRequestThreadMetadata({
+      title: "Fix worktree startup",
+      featureBranch: "autopr/fix-worktree-startup",
+      threadId,
+      worktreeStatus: "ready",
+    })).toBe(false);
   });
 
   it("requests a forced regeneration without trusting the current title", async () => {

@@ -87,6 +87,10 @@ import { activeThreadComputerActivityKey } from "#/components/thread/thread-comp
 import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
 import {
+  latestSubAgentActivity,
+  ThreadSubAgentActivityPanel,
+} from "#/components/thread/thread-sub-agent-activity";
+import {
   getCodexReasoningEffortLabel,
   type CodexModelId,
   type CodexReasoningEffort,
@@ -121,12 +125,15 @@ import {
 } from "#/lib/assistant-message-metadata";
 import { mergePersistedAssistantParts } from "#/lib/chat-messages";
 import { fetchThreadGitFileDiff } from "#/lib/thread-git-diff";
-import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 import {
-  DEFAULT_THREAD_TITLE,
+  resolveThreadBranchLabel,
+  useThreadGitStatusQuery,
+} from "#/lib/thread-git-status-query";
+import {
   firstUserMessageForTitle,
   MAX_THREAD_TITLE_REQUEST_ATTEMPTS,
   requestGeneratedThreadTitle,
+  shouldRequestThreadMetadata,
   threadTitleRetryDelayMs,
   ThreadTitleRequestError,
 } from "#/lib/thread-title-generation";
@@ -336,7 +343,7 @@ function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
         ref={textareaRef}
         disabled={disabled}
         placeholder="Add a follow up..."
-        className="max-h-40 min-h-11 resize-none px-3.5 py-2 text-[14px] leading-relaxed"
+        className="max-h-50 min-h-[4.375rem] resize-none px-4 py-3 text-[14px] leading-relaxed"
       />
     </div>
   );
@@ -372,8 +379,8 @@ function ComposerBranchIndicator({
       aria-label={`${description} Refresh branch.`}
       title={description}
       className={cn(
-        "inline-flex h-7 min-w-0 max-w-[15rem] shrink items-center gap-1.5 rounded-[var(--radius-md)] px-1.5 font-mono text-[11px] font-medium transition-colors",
-        "text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 disabled:cursor-wait",
+        "inline-flex h-7 min-w-0 max-w-[18rem] shrink items-center gap-1.5 rounded-[var(--radius-md)] px-2 font-mono text-[11px] font-medium transition-colors",
+        "text-muted-foreground/75 hover:bg-muted/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 disabled:cursor-wait",
         (mismatch || readFailed) && "text-amber-600 dark:text-amber-400",
       )}
     >
@@ -839,6 +846,7 @@ function ThreadChatRuntime({
     projectId,
     threadId,
     persistedStatus: thread?.gitStatus,
+    invalidatedAt: thread?.gitStatusInvalidatedAt,
     enabled: gitStatusEnabled,
     refetchInterval: false,
   });
@@ -1097,7 +1105,12 @@ function ThreadChatRuntime({
 
   useEffect(() => {
     if (
-      thread?.title !== DEFAULT_THREAD_TITLE
+      !shouldRequestThreadMetadata({
+        title: thread?.title,
+        featureBranch: thread?.featureBranch,
+        threadId,
+        worktreeStatus: thread?.worktreeStatus,
+      })
       || !firstUserTitleMessage
       || titleGenerationAttempt >= MAX_THREAD_TITLE_REQUEST_ATTEMPTS
     ) {
@@ -1135,7 +1148,9 @@ function ThreadChatRuntime({
     firstUserTitleMessage,
     projectId,
     thread?.title,
+    thread?.featureBranch,
     threadId,
+    thread?.worktreeStatus,
     titleGenerationAttempt,
   ]);
 
@@ -1588,6 +1603,10 @@ function ThreadChatRuntime({
       };
     });
   }, [messages]);
+  const subAgentActivity = useMemo(
+    () => latestSubAgentActivity(messages),
+    [messages],
+  );
   const currentContextUsage = useMemo(() => {
     const latestAssistantWithUsage = findLastBy(messages, (message) =>
       message.role === "assistant" && getAssistantContextUsage(message.metadata) !== null
@@ -1714,9 +1733,12 @@ function ThreadChatRuntime({
     thread?.workspaceMode === undefined && Boolean(thread?.featureBranch || thread?.worktreePath)
   );
   const composerGitStatus = composerGitStatusQuery.data ?? thread?.gitStatus;
-  const checkedOutBranch = composerGitStatus?.detachedHead
-    ? `detached@${composerGitStatus.localHeadSha?.slice(0, 7) ?? "HEAD"}`
-    : composerGitStatus?.currentBranch;
+  const checkedOutBranch = resolveThreadBranchLabel({
+    status: composerGitStatus,
+    expectedBranch: usesWorktree ? thread?.featureBranch : undefined,
+    invalidatedAt: thread?.gitStatusInvalidatedAt,
+    readFailed: composerGitStatusQuery.isError,
+  });
   const recordingPlaybackBasePath =
     `/api/project/${encodeURIComponent(projectId)}` +
     `/thread/${encodeURIComponent(threadId)}`;
@@ -1762,11 +1784,17 @@ function ThreadChatRuntime({
         </div>
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 min-w-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-10 sm:px-8">
-          <div className="pointer-events-auto mx-auto w-full min-w-0 max-w-[680px]">
+          <div className="pointer-events-auto mx-auto w-full min-w-0 max-w-3xl">
             <AgentRunIssuePanel issue={thread?.agentRunIssue ?? thread?.workflowIssue} />
             <PromptInputProvider>
+              {subAgentActivity ? (
+                <ThreadSubAgentActivityPanel
+                  key={subAgentActivity.messageId}
+                  activity={subAgentActivity}
+                />
+              ) : null}
               <PromptInput
-                className="autopr-chat-composer min-w-0 max-w-full"
+                className="autopr-chat-composer relative z-10 min-w-0 max-w-full"
                 accept="image/*"
                 clearOnSubmit="submit"
                 multiple
@@ -1870,7 +1898,7 @@ function ThreadChatRuntime({
                   />
                 </PromptInputFooter>
               </PromptInput>
-              <div className="mx-auto flex w-[calc(100%-2rem)] min-w-0 items-center justify-end px-1 pt-1">
+              <div className="autopr-composer-context-strip relative z-0 -mt-4 mx-auto flex w-[calc(100%-2.75rem)] min-w-0 max-w-[calc(48rem-2.75rem)] items-center justify-end overflow-hidden px-2 pb-1 pt-5">
                 <ComposerBranchIndicator
                   branch={checkedOutBranch}
                   expectedBranch={usesWorktree ? thread?.featureBranch : undefined}

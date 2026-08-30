@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { createThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
 import {
+  persistedTemporaryThreadWorkspace,
   persistedThreadWorkspace,
   resolveThreadWorkspaceCoordinates,
   type PersistedThreadWorkspace,
@@ -42,6 +44,41 @@ describe("persistedThreadWorkspace", () => {
       featureBranch: "autopr/new-thread",
       worktreePath: "/home/.autopr/worktrees/widget/new-thread",
     })).toBeNull();
+  });
+});
+
+describe("persistedTemporaryThreadWorkspace", () => {
+  const threadId = "thread-1";
+  const featureBranch = createThreadFeatureBranch("New thread", threadId);
+  const worktree = {
+    workspaceMode: "worktree" as const,
+    baseBranch: "main",
+    featureBranch,
+    worktreePath: "/home/.autopr/worktrees/widget/thread-1",
+    headSha: "abc123",
+  };
+
+  it("never lets metadata generation provision or join a pending worktree", () => {
+    expect(persistedTemporaryThreadWorkspace(project, {
+      ...worktree,
+      worktreeStatus: "pending",
+    }, threadId)).toBeNull();
+    expect(persistedTemporaryThreadWorkspace(project, {
+      ...worktree,
+      worktreeStatus: "provisioning",
+    }, threadId)).toBeNull();
+  });
+
+  it("returns only a ready provisional worktree", () => {
+    expect(persistedTemporaryThreadWorkspace(project, {
+      ...worktree,
+      worktreeStatus: "ready",
+    }, threadId)).toMatchObject({ featureBranch });
+    expect(persistedTemporaryThreadWorkspace(project, {
+      ...worktree,
+      featureBranch: "autopr/fix-worktree-startup",
+      worktreeStatus: "ready",
+    }, threadId)).toBeNull();
   });
 });
 

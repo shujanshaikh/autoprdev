@@ -6,6 +6,7 @@ import { convexMutation } from "#/lib/convex-server";
 import type { ThreadGitAction } from "#/lib/thread-git-actions";
 
 type MutableThreadGitAction = Exclude<ThreadGitAction, "view_pr">;
+type InternalThreadGitAction = MutableThreadGitAction | "rename_branch";
 
 export class ThreadGitMutationConflictError extends Error {
   constructor(activeAction?: string) {
@@ -20,7 +21,7 @@ export class ThreadGitMutationConflictError extends Error {
 
 export async function withThreadGitMutation<T>(options: {
   threadId: string;
-  action: MutableThreadGitAction;
+  action: InternalThreadGitAction;
   run: () => Promise<T>;
 }): Promise<T> {
   const mutationId = crypto.randomUUID();

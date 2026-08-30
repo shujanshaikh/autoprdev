@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { isTemporaryThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
 export const DEFAULT_THREAD_TITLE = "New thread";
 export const MAX_THREAD_TITLE_REQUEST_ATTEMPTS = 3;
@@ -38,6 +39,17 @@ export function firstUserMessageForTitle(messages: UIMessage[]) {
 
 export function threadTitleRetryDelayMs(attempt: number) {
   return attempt === 0 ? 750 : Math.min(8_000, 1_500 * 2 ** (attempt - 1));
+}
+
+export function shouldRequestThreadMetadata(options: {
+  title?: string;
+  featureBranch?: string;
+  threadId: string;
+  worktreeStatus?: "pending" | "provisioning" | "ready" | "failed" | "cleaned";
+}) {
+  if (options.title === DEFAULT_THREAD_TITLE) return true;
+  return options.worktreeStatus === "ready"
+    && isTemporaryThreadFeatureBranch(options.featureBranch, options.threadId);
 }
 
 export async function requestGeneratedThreadTitle(options: {

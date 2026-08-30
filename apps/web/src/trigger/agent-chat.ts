@@ -11,7 +11,13 @@ import {
 import { api } from "@autopr/backend/convex/_generated/api";
 import { chat } from "@trigger.dev/sdk/ai";
 import { fetchAction } from "convex/nextjs";
-import { stepCountIs, streamText, type UIMessage, wrapLanguageModel } from "ai";
+import {
+  smoothStream,
+  stepCountIs,
+  streamText,
+  type UIMessage,
+  wrapLanguageModel,
+} from "ai";
 import { z } from "zod";
 
 import {
@@ -25,8 +31,13 @@ import {
 } from "#/lib/agent-run-issue";
 import {
   createAssistantUsageMetadata,
+  type AssistantUsageSource,
   type AssistantUsageMetadata,
 } from "#/lib/agent-usage";
+import {
+  createAgentSubAgentRunner,
+  createSubAgentBinding,
+} from "#/lib/agent-sub-agent";
 import {
   sanitizeAssistantPartsForPersistence,
   sanitizeStoppedAssistantParts,
@@ -36,7 +47,7 @@ import {
 import {
   agentProviderOptions,
   agentSystemPrompt,
-  createAgentResponsesModel,
+  createAgentResponseModels,
   revokeAgentModelGrant,
 } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit, isAgentReasoningEffortSupported } from "#/lib/agent-models";
@@ -46,6 +57,10 @@ import {
 } from "#/lib/trigger-agent-contract";
 
 const MAX_AGENT_STEPS = 100;
+const subAgentBindings = new WeakMap<
+  object,
+  ReturnType<typeof createSubAgentBinding>
+>();
 
 const agentChatClientDataSchema = z.object({
   projectId: z.string().min(1),
@@ -170,9 +185,13 @@ export const agentChatTask = chat.agent({
   },
   tools: ({ chatId, clientData }) => {
     const trusted = requireClientData(clientData, chatId);
-    return createDaytonaTools(sandboxOptions(trusted), {
+    const binding = createSubAgentBinding();
+    const tools = createDaytonaTools(sandboxOptions(trusted), {
       computer: { recordingEnabled: Boolean(trusted.demoEnabled) },
+      subAgent: { run: binding.run },
     });
+    subAgentBindings.set(tools, binding);
+    return tools;
   },
   hydrateMessages: async ({ chatId, clientData, incomingMessages }) => {
     const trusted = requireClientData(clientData, chatId);
@@ -263,9 +282,14 @@ export const agentChatTask = chat.agent({
   },
   run: async ({ chatId, clientData, messages, signal, tools }) => {
     const trusted = requireClientData(clientData, chatId);
+    const subAgentBinding = subAgentBindings.get(tools);
+    if (!subAgentBinding) {
+      throw new Error("The sub-agent runtime is unavailable for this chat turn.");
+    }
     const harness = new CodingHarness({
       ...sandboxOptions(trusted),
       computer: { recordingEnabled: Boolean(trusted.demoEnabled) },
+      subAgent: { run: subAgentBinding.run },
       modelId: trusted.model.modelId,
       modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
       appendSystemPrompt: modelInstructions(trusted),
@@ -276,11 +300,35 @@ export const agentChatTask = chat.agent({
         trusted.model.promptCacheKey ?? modelPromptCacheKey(trusted),
     };
     const startedAt = Date.now();
-    const { instructions, repositoryContext } = await harness.prepare();
+    const subAgentUsageSteps: AssistantUsageSource[] = [];
+    const [{ instructions, repositoryContext, sandbox }, responseModels] = await Promise.all([
+      harness.prepare(),
+      createAgentResponseModels(selectedModel),
+    ]);
     const model = wrapLanguageModel({
-      model: await createAgentResponsesModel(selectedModel),
+      model: responseModels.parent,
       middleware: createContextOverflowRecoveryMiddleware(),
     });
+    const subAgentModel = wrapLanguageModel({
+      model: responseModels.subAgent,
+      middleware: createContextOverflowRecoveryMiddleware(),
+    });
+    subAgentBinding.bind(createAgentSubAgentRunner({
+      sandboxOptions: {
+        ...sandboxOptions(trusted),
+        sandboxId: sandbox.sandboxId,
+        workDir: sandbox.workDir,
+      },
+      model: subAgentModel,
+      selectedModel: responseModels.subAgentOptions,
+      parentAbortSignal: signal,
+      onUsageStep: (step) => {
+        subAgentUsageSteps.push({
+          modelId: responseModels.subAgentOptions.modelId,
+          step,
+        });
+      },
+    }));
 
     return streamText({
       ...chat.toStreamTextOptions({ tools }),
@@ -293,6 +341,10 @@ export const agentChatTask = chat.agent({
       toolChoice: "auto",
       stopWhen: stepCountIs(MAX_AGENT_STEPS),
       maxRetries: 2,
+      experimental_transform: smoothStream({
+        chunking: "word",
+        delayInMs: null,
+      }),
       abortSignal: signal,
       prepareStep: createAgentStepController({
         prepareStep: createAgentContextCompactor({
@@ -306,6 +358,8 @@ export const agentChatTask = chat.agent({
           steps,
           selectedModel.modelId,
           startedAt,
+          Date.now(),
+          subAgentUsageSteps,
         );
       },
       providerOptions: agentProviderOptions(selectedModel, instructions),

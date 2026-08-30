@@ -51,7 +51,7 @@ export function createSubAgentTool(options: SubAgentToolOptions) {
     title: "sub-agent",
     description:
       `Delegate one concrete, bounded subtask to an isolated coding agent and wait for its result. ` +
-      `The sub-agent shares the Daytona workspace, uses the configured child model, receives only the supplied prompt, and cannot delegate again. ` +
+      `The sub-agent shares the Daytona workspace and authenticated model with its parent, receives only the supplied prompt, and cannot delegate again. ` +
       `Issue separate sub-agent calls in parallel for independent tasks with disjoint write scopes; at most ${maxConcurrent} can run concurrently. ` +
       "Do not delegate the immediate blocking task, duplicate work, or send overlapping edits.",
     inputSchema: subAgentInputSchema,

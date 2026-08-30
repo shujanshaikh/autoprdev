@@ -1,19 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  const createCodexModel = vi.fn((options: { modelId: string }) => ({
+  const createCodexResponsesModel = vi.fn((options: { modelId: string }) => ({
     modelId: options.modelId,
   }));
   return {
-    createCodexModel,
-    createCodexResponsesModelFactory: vi.fn(() => createCodexModel),
+    createCodexResponsesModel,
   };
 });
 
 vi.mock("@tanstack/react-start/server-only", () => ({}));
 vi.mock("#/lib/codex-auth-runtime-server", () => ({
-  createCodexResponsesModel: vi.fn(),
-  createCodexResponsesModelFactory: mocks.createCodexResponsesModelFactory,
+  createCodexResponsesModel: mocks.createCodexResponsesModel,
   revokeCodexAgentGrant: vi.fn(),
 }));
 vi.mock("#/lib/grok-auth-runtime-server", () => ({
@@ -37,7 +35,11 @@ const grantContext = {
 };
 
 describe("agent provider prompt routing", () => {
-  it("uses Luna at max reasoning for ChatGPT-backed sub-agents", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reuses the parent's authenticated ChatGPT model for sub-agents", async () => {
     const model: AgentModelOptions = {
       provider: "openai-codex",
       modelId: "gpt-5.6-sol",
@@ -49,25 +51,10 @@ describe("agent provider prompt routing", () => {
 
     const models = await createAgentResponseModels(model);
 
-    expect(mocks.createCodexResponsesModelFactory).toHaveBeenCalledWith({
-      credentialsGrantId: "grant-1",
-      credentialsGrantContext: grantContext,
-    });
-    expect(mocks.createCodexModel).toHaveBeenNthCalledWith(1, model);
-    expect(mocks.createCodexModel).toHaveBeenNthCalledWith(2, {
-      ...model,
-      modelId: "gpt-5.6-luna",
-      reasoningEffort: "max",
-      promptCacheKey: "thread-1:sub-agent",
-    });
-    expect(models).toMatchObject({
-      parent: { modelId: "gpt-5.6-sol" },
-      subAgent: { modelId: "gpt-5.6-luna" },
-      subAgentOptions: {
-        modelId: "gpt-5.6-luna",
-        reasoningEffort: "max",
-      },
-    });
+    expect(mocks.createCodexResponsesModel).toHaveBeenCalledOnce();
+    expect(mocks.createCodexResponsesModel).toHaveBeenCalledWith(model);
+    expect(models.parent).toBe(models.subAgent);
+    expect(models.subAgentOptions).toBe(model);
   });
 
   it("sends OpenAI instructions exactly once through the Responses request", () => {

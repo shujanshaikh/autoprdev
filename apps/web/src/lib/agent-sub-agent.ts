@@ -6,7 +6,7 @@ import {
   type SandboxSessionOptions,
   withSandboxAgentProjectContext,
 } from "@autopr/agent";
-import { generateText, stepCountIs, type LanguageModel } from "ai";
+import { stepCountIs, streamText, type LanguageModel } from "ai";
 
 import { createAgentContextCompactor } from "#/lib/agent-context-compaction";
 import { agentProviderOptions, agentSystemPrompt } from "#/lib/agent-auth-runtime-server";
@@ -64,7 +64,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
 
     return harness.run(async ({ instructions, repositoryContext, tools }) => {
       let stepCount = 0;
-      const result = await generateText({
+      const result = streamText({
         model: options.model,
         system: agentSystemPrompt(options.selectedModel, instructions),
         messages: applyAgenticCache(
@@ -92,8 +92,9 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
         providerOptions: agentProviderOptions(options.selectedModel, instructions),
       });
 
+      const output = (await result.text).trim();
       return {
-        output: result.text.trim() || "The sub-agent completed without a text response.",
+        output: output || "The sub-agent completed without a text response.",
         stepCount,
       };
     });

@@ -476,10 +476,12 @@ export function createChatGPTHandler(options: CreateChatGPTHandlerOptions = {}):
           }
           errorBody = await upstream.text();
         }
+        const errorDetail = errorBody.slice(0, 2000);
         console.error(
-          `[login-with-chatgpt] responses_request_failed (upstream status ${upstream.status}).`,
+          `[login-with-chatgpt] responses_request_failed (upstream status ${upstream.status}).` +
+            (process.env.NODE_ENV === "production" ? "" : ` ${errorDetail}`),
         );
-        return json({ error: "responses_request_failed", status: upstream.status, detail: errorBody.slice(0, 2000) }, { status: upstream.status });
+        return json({ error: "responses_request_failed", status: upstream.status, detail: errorDetail }, { status: upstream.status });
       }
       const headers = new Headers();
       headers.set("content-type", upstream.headers.get("content-type") ?? "text/event-stream");

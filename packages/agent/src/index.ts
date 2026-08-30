@@ -39,6 +39,11 @@ export {
   type CuaComputerToolOptions,
   type DaytonaTools,
   type SandboxTools,
+  type RunSubAgent,
+  type SubAgentInput,
+  type SubAgentRunResult,
+  type SubAgentTask,
+  type SubAgentToolOptions,
 } from "./tools";
 export {
   COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,

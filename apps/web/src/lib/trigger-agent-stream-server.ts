@@ -50,15 +50,14 @@ export function ensureTerminalRunFinishes(
       try {
         for await (const chunk of stream) {
           if (chunk.type === "finish" && !gotFinish) {
-            // The app-level finish chunk is authoritative even though the
-            // Trigger task may still be completing its final persistence
-            // step. Settle Convex before exposing finish to clients so every
-            // connected surface leaves its live state at the same boundary.
-            await onTerminal?.(null);
             gotFinish = true;
           }
           controller.enqueue(chunk);
           if (gotFinish) {
+            // Expose the app-level finish immediately. Convex reconciliation
+            // can take seconds during a transient outage, but it must not keep
+            // the client in its streaming state after generation has ended.
+            await onTerminal?.(null);
             // Trigger realtime reads can remain open until their request
             // timeout even after the app stream has emitted finish. Breaking
             // here cancels that upstream read and closes the HTTP response now.

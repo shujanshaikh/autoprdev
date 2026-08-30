@@ -21,10 +21,18 @@ describe("sandbox tool provider selection", () => {
   });
 
   it("uses E2B tools only when the project selected E2B", () => {
-    const tools = createSandboxTools({ provider: "e2b", sandboxId: "sandbox-1" });
+    const run = vi.fn();
+    const options = { subAgent: { run } };
+    const tools = createSandboxTools(
+      { provider: "e2b", sandboxId: "sandbox-1" },
+      options,
+    );
 
     expect(tools).toEqual({ bash: { title: "e2b-bash" } });
-    expect(mocks.e2b).toHaveBeenCalledOnce();
+    expect(mocks.e2b).toHaveBeenCalledWith(
+      { provider: "e2b", sandboxId: "sandbox-1" },
+      options,
+    );
     expect(mocks.daytona).not.toHaveBeenCalled();
   });
 

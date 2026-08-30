@@ -7,8 +7,11 @@ import { z } from "zod";
 
 import { convexAction, convexMutation, convexQuery } from "#/lib/convex-server";
 import { findDemoRecordingMetadataInParts } from "#/lib/chat-messages";
-import { pullProjectSandboxBranch } from "#/lib/daytona-project-sandbox";
-import { generateThreadTitle } from "#/lib/generated-git-metadata";
+import {
+  pullProjectSandboxBranch,
+  renameProjectSandboxBranch,
+} from "#/lib/daytona-project-sandbox";
+import { generateBranchName, generateThreadTitle } from "#/lib/generated-git-metadata";
 import {
   getGithubOAuthToken,
   getGithubRepositoryToken,
@@ -29,6 +32,7 @@ import {
   withThreadGitMutation,
 } from "#/lib/thread-git-mutation-server";
 import {
+  persistedTemporaryThreadWorkspace,
   persistedThreadWorkspace,
   resolveThreadWorkspaceCoordinates,
 } from "#/lib/thread-workspace-server";
@@ -37,6 +41,9 @@ const postRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("generate_title"),
     message: z.string().trim().min(1).max(8_000),
+  }),
+  z.object({
+    action: z.literal("regenerate_title"),
   }),
   z.object({
     action: z.enum([
@@ -366,23 +373,116 @@ async function POST(
     return Response.json({ error: "Thread not found." }, { status: 404 });
   }
 
-  if (parsed.data.action === "generate_title") {
+  if (parsed.data.action === "generate_title" || parsed.data.action === "regenerate_title") {
     try {
-      const title = await generateThreadTitle({
-        // Codex auth only needs cookies/headers. Recreate the request from
-        // primitives so framework-owned Fetch objects never cross into the
-        // Node/Undici auth provider after their JSON body has been consumed.
-        request: new Request(req.url, { headers: new Headers(req.headers) }),
+      const regenerating = parsed.data.action === "regenerate_title";
+      const message = regenerating
+        ? await convexQuery(api.messages.getFirstUserMessageForTitle, { threadId }) ?? undefined
+        : parsed.data.message;
+      if (!message) {
+        return Response.json(
+          { error: "Add a message before regenerating the thread title." },
+          { status: 409 },
+        );
+      }
+
+      const shouldGenerateTitle = regenerating || thread.title === "New thread";
+      const metadataRequest = () => new Request(req.url, { headers: new Headers(req.headers) });
+      const title = shouldGenerateTitle
+        ? await generateThreadTitle({
+            // Codex auth only needs cookies/headers. Recreate the request from
+            // primitives so framework-owned Fetch objects never cross into the
+            // Node/Undici auth provider after their JSON body has been consumed.
+            request: metadataRequest(),
+            projectId,
+            threadId,
+            message: message.slice(0, 8_000),
+          })
+        : thread.title;
+      const updated = regenerating
+        ? await convexMutation(api.threads.updateRegeneratedTitle, {
+            threadId,
+            title,
+            expectedTitle: thread.title,
+          })
+        : shouldGenerateTitle
+          ? await convexMutation(api.threads.updateGeneratedTitle, { threadId, title })
+          : false;
+
+      if (regenerating) {
+        return Response.json({ title, updated });
+      }
+
+      const sandboxId = project.sandboxId;
+      const latestThread = await convexQuery(api.threads.get, { threadId });
+      const readyWorkspace = latestThread
+        ? persistedTemporaryThreadWorkspace(project, latestThread, threadId)
+        : null;
+      if (!readyWorkspace || !sandboxId) {
+        return Response.json({ title, updated });
+      }
+
+      const preferredBranch = await generateBranchName({
+        request: metadataRequest(),
         projectId,
         threadId,
-        message: parsed.data.message,
+        message,
       });
-      const updated = await convexMutation(api.threads.updateGeneratedTitle, {
+      const branch = await withThreadGitMutation({
         threadId,
-        title,
+        action: "rename_branch",
+        run: async () => {
+          const currentThread = await convexQuery(api.threads.get, { threadId });
+          const workspace = currentThread
+            ? persistedTemporaryThreadWorkspace(project, currentThread, threadId)
+            : null;
+          if (
+            !currentThread
+            || !workspace
+            || currentThread.commitStatus !== undefined
+            || currentThread.pullRequestNumber !== undefined
+          ) {
+            return currentThread?.featureBranch;
+          }
+
+          const githubToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
+          const renamed = await renameProjectSandboxBranch({
+            sandboxId,
+            sandboxProvider: project.sandboxProvider ?? "daytona",
+            expectedBranch: workspace.featureBranch,
+            preferredBranch,
+            githubToken,
+            repoName: project.repoName,
+            sandboxWorkDir: workspace.worktreePath,
+          });
+          const persisted = await convexMutation(api.threads.updateGeneratedFeatureBranch, {
+            threadId,
+            expectedBranch: workspace.featureBranch,
+            featureBranch: renamed.branch,
+          });
+          if (persisted) return renamed.branch;
+
+          await renameProjectSandboxBranch({
+            sandboxId,
+            sandboxProvider: project.sandboxProvider ?? "daytona",
+            expectedBranch: renamed.branch,
+            preferredBranch: workspace.featureBranch,
+            githubToken,
+            resolveCollisions: false,
+            repoName: project.repoName,
+            sandboxWorkDir: workspace.worktreePath,
+          });
+          throw new Error("The thread changed while its generated branch name was being saved.");
+        },
       });
-      return Response.json({ title, updated });
+
+      return Response.json({ title, updated, branch });
     } catch (error) {
+      if (error instanceof ThreadGitMutationConflictError) {
+        return Response.json({
+          error: error.message,
+        }, { status: 425 });
+      }
       const status = APICallError.isInstance(error)
         && error.statusCode
         && error.statusCode >= 400

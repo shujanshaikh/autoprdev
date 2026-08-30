@@ -1,6 +1,9 @@
 import "@tanstack/react-start/server-only";
 
-import { createCodexResponsesModel, revokeCodexAgentGrant } from "#/lib/codex-auth-runtime-server";
+import {
+  createCodexResponsesModel,
+  revokeCodexAgentGrant,
+} from "#/lib/codex-auth-runtime-server";
 import { createGrokResponsesModel, revokeGrokAgentGrant } from "#/lib/grok-auth-runtime-server";
 import { isAgentReasoningEffortSupported } from "#/lib/agent-models";
 import type { AgentModelOptions } from "#/lib/trigger-agent-contract";
@@ -17,6 +20,17 @@ export function createAgentResponsesModel(options: AgentModelOptions) {
     ? options.reasoningEffort
     : undefined;
   return createGrokResponsesModel({ ...options, reasoningEffort });
+}
+
+/** Reuses one authenticated model instance for the parent and its sub-agents. */
+export async function createAgentResponseModels(options: AgentModelOptions) {
+  const model = await createAgentResponsesModel(options);
+
+  return {
+    parent: model,
+    subAgent: model,
+    subAgentOptions: options,
+  };
 }
 
 export function revokeAgentModelGrant(options: AgentModelOptions) {
@@ -48,7 +62,11 @@ export function agentProviderOptions(
       instructions,
       parallelToolCalls: true,
       promptCacheKey: options.promptCacheKey,
-      reasoningEffort: options.reasoningEffort,
+      // The installed AI SDK schema stops at xhigh. The authenticated proxy
+      // injects max from the per-model transport header instead.
+      reasoningEffort: options.reasoningEffort === "max"
+        ? undefined
+        : options.reasoningEffort,
       reasoningSummary: "auto",
       include: ["reasoning.encrypted_content"],
     },

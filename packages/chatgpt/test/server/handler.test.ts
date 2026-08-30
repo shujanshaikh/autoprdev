@@ -531,15 +531,15 @@ describe("createChatGPTHandler", () => {
           cookie,
           "content-type": "application/json",
           "x-login-with-chatgpt-service-tier": "fast",
-          "x-login-with-chatgpt-reasoning-effort": "high",
+          "x-login-with-chatgpt-reasoning-effort": "max",
         },
-        body: JSON.stringify({ model: "gpt-5.5", input: "hi" }),
+        body: JSON.stringify({ model: "gpt-5.6-luna", input: "hi" }),
       }),
     );
 
     expect(responses.status).toBe(200);
     expect(responseBody?.service_tier).toBe("fast");
-    expect(responseBody?.reasoning).toMatchObject({ effort: "high" });
+    expect(responseBody?.reasoning).toMatchObject({ effort: "max" });
 
     const invalid = await handler.handler(
       new Request(`${BASE}/responses`, {

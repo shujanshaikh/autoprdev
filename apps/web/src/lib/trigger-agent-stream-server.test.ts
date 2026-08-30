@@ -62,17 +62,29 @@ describe("Trigger agent stream settlement", () => {
     const events: string[] = [];
     const cancelled = vi.fn();
     const source = hangingFinishStream(cancelled);
+    let releaseSettlement: () => void = () => undefined;
+    const settlement = new Promise<void>((resolve) => {
+      releaseSettlement = resolve;
+    });
     const settled = vi.fn(async () => {
+      await settlement;
       events.push("settled");
     });
     const output = ensureTerminalRunFinishes(source, "run-1", settled);
+    const reader = output.getReader();
 
-    const chunks = await collect(output);
-    events.push(chunks.at(-1)?.type ?? "closed");
+    const finish = await reader.read();
+    events.push(finish.value?.type ?? "closed");
 
-    expect(chunks).toEqual([{ type: "finish" }]);
-    expect(events).toEqual(["settled", "finish"]);
+    expect(finish).toEqual({ done: false, value: { type: "finish" } });
+    expect(events).toEqual(["finish"]);
     expect(settled).toHaveBeenCalledExactlyOnceWith(null);
+
+    releaseSettlement();
+    await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
+    reader.releaseLock();
+
+    expect(events).toEqual(["finish", "settled"]);
     expect(cancelled).toHaveBeenCalledOnce();
   });
 

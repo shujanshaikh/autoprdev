@@ -24,3 +24,10 @@ export type DaytonaTools = SandboxTools;
 export { createDaytonaTools, createE2BTools };
 export type { DaytonaToolsOptions, E2BToolsOptions };
 export type { CuaComputerToolOptions } from "./computer";
+export type {
+  RunSubAgent,
+  SubAgentInput,
+  SubAgentRunResult,
+  SubAgentTask,
+  SubAgentToolOptions,
+} from "./sub-agent";

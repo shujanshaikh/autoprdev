@@ -3,7 +3,12 @@ import {
   buildSandboxAgentSystemPrompt,
 } from "./system-prompt";
 import { loadSandboxProjectInstructions } from "./project-instructions";
-import { createSandboxTools, type CuaComputerToolOptions, type SandboxTools } from "./tools";
+import {
+  createSandboxTools,
+  type CuaComputerToolOptions,
+  type SandboxTools,
+  type SubAgentToolOptions,
+} from "./tools";
 import { prepareSandbox, type PreparedSandbox } from "./steps";
 import type { SandboxSessionOptions } from "./sandbox";
 
@@ -44,6 +49,7 @@ export interface CodingHarnessOptions extends SandboxSessionOptions {
   projectInstructionFilenames?: string[];
   projectInstructionMaxBytes?: number;
   computer?: false | CuaComputerToolOptions;
+  subAgent?: false | SubAgentToolOptions;
   onListenerError?: CodingHarnessListenerErrorHandler;
 }
 
@@ -99,6 +105,7 @@ export class CodingHarness {
       } satisfies SandboxSessionOptions;
       const tools = createSandboxTools(resolvedSandboxOptions, {
         computer: this.options.computer,
+        subAgent: this.options.subAgent,
       });
       const toolSelection = selectTools(tools, this.options.selectedTools);
       const instructionFiles = this.options.includeProjectInstructions === false

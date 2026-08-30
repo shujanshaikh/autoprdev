@@ -97,10 +97,7 @@ async function resolveProjectRepoLocation(
   const explicitRepoPath = options.sandboxWorkDir?.trim();
 
   if (explicitRepoPath) {
-    return {
-      repoPath: explicitRepoPath,
-      repoGitPath: explicitRepoPath,
-    };
+    return { repoPath: explicitRepoPath };
   }
 
   const repoDir = sandboxRepositoryDirectoryName({
@@ -109,10 +106,7 @@ async function resolveProjectRepoLocation(
   });
   const repoPath = sandboxRepositoryPath(sandboxDefaultWorkDir(options.sandboxProvider ?? "daytona"), repoDir);
 
-  return {
-    repoPath,
-    repoGitPath: repoPath,
-  };
+  return { repoPath };
 }
 
 export async function createProjectSandbox(options: {
@@ -336,6 +330,17 @@ export interface PreparedProjectSandboxCommit {
   diff: string;
 }
 
+async function stageProjectSandboxChanges(sandbox: DaytonaSandbox, repoPath: string) {
+  // Keep linked-worktree index and object writes inside the same Git CLI
+  // process used for validation and commit. Daytona's high-level Git API can
+  // stage a linked worktree into an index whose blob objects are not visible
+  // to the later CLI commit, which surfaces as `invalid object 100644`.
+  await runSandboxCommand(
+    sandbox,
+    `cd ${shellEscape(repoPath)} && git add --all -- .`,
+  );
+}
+
 export async function prepareProjectSandboxCommit(options: {
   sandboxId: string;
   repoName?: string;
@@ -343,7 +348,7 @@ export async function prepareProjectSandboxCommit(options: {
   sandboxProvider?: SandboxProvider;
 }): Promise<PreparedProjectSandboxCommit> {
   const sandbox = await createSandbox({ provider: options.sandboxProvider, sandboxId: options.sandboxId });
-  const { repoPath, repoGitPath } = await resolveProjectRepoLocation(sandbox, options);
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
   const quotedRepoPath = shellEscape(repoPath);
 
   const status = sandboxCommandOutput(
@@ -354,7 +359,7 @@ export async function prepareProjectSandboxCommit(options: {
     throw new SandboxNoChangesError("There are no sandbox changes to commit.");
   }
 
-  await sandbox.git.add(repoGitPath, ["."]);
+  await stageProjectSandboxChanges(sandbox, repoPath);
 
   const branch = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
@@ -378,6 +383,64 @@ export async function prepareProjectSandboxCommit(options: {
   return { branch, status, diff };
 }
 
+export async function renameProjectSandboxBranch(options: {
+  sandboxId: string;
+  expectedBranch: string;
+  preferredBranch: string;
+  githubToken: string;
+  resolveCollisions?: boolean;
+  repoName?: string;
+  sandboxWorkDir?: string;
+  sandboxProvider?: SandboxProvider;
+}) {
+  const sandbox = await createSandbox({
+    provider: options.sandboxProvider,
+    sandboxId: options.sandboxId,
+  });
+  const { repoPath } = await resolveProjectRepoLocation(sandbox, options);
+  const quotedRepoPath = shellEscape(repoPath);
+  const currentBranch = sandboxCommandOutput(
+    await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git branch --show-current`),
+  ).trim();
+
+  if (currentBranch !== options.expectedBranch) {
+    throw new SandboxGitConflictError(
+      `Expected thread branch ${options.expectedBranch}, found ${currentBranch || "detached HEAD"}.`,
+    );
+  }
+
+  let branch = options.preferredBranch;
+  if (options.resolveCollisions !== false) {
+    const existingBranches = sandboxCommandOutput(
+      await runSandboxCommand(
+        sandbox,
+        `cd ${quotedRepoPath} && git for-each-ref --format='%(refname:short)' refs/heads`,
+      ),
+    ).split(/\r?\n/).map((existingBranch) => existingBranch.trim()).filter(Boolean);
+    const remoteBranchesResult = await runAuthenticatedSandboxCommand(
+      sandbox,
+      options.githubToken,
+      `git ls-remote --heads origin ${shellEscape(`refs/heads/${options.preferredBranch}*`)}`,
+      repoPath,
+    );
+    if (typeof remoteBranchesResult.exitCode === "number" && remoteBranchesResult.exitCode !== 0) {
+      throw new SandboxGitCommandError(
+        "Could not inspect remote branches before naming the thread branch.",
+        redactGitDiagnostic(sandboxCommandOutput(remoteBranchesResult), [options.githubToken]),
+      );
+    }
+    existingBranches.push(...parseGitRemoteHeadNames(sandboxCommandStdout(remoteBranchesResult) ?? ""));
+    branch = resolveAvailableThreadFeatureBranch(options.preferredBranch, existingBranches);
+  }
+
+  await runSandboxCommand(
+    sandbox,
+    `cd ${quotedRepoPath} && git check-ref-format --branch ${shellEscape(branch)} && git branch -m -- ${shellEscape(options.expectedBranch)} ${shellEscape(branch)}`,
+  );
+
+  return { branch };
+}
+
 export async function commitPreparedProjectSandboxChanges(options: {
   sandboxId: string;
   commitMessage: string;
@@ -397,6 +460,10 @@ export async function commitPreparedProjectSandboxChanges(options: {
   if (!branch) {
     throw new Error("The sandbox repository is not on a named branch.");
   }
+
+  // A resumed operation can enter directly at the commit phase with an index
+  // written by an older deployment. Restaging repairs those missing objects.
+  await stageProjectSandboxChanges(sandbox, repoPath);
 
   const stagedDiff = sandboxCommandOutput(
     await runSandboxCommand(sandbox, `cd ${quotedRepoPath} && git diff --cached --name-only`),

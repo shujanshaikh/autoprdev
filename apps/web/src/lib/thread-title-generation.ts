@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { isTemporaryThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
 export const DEFAULT_THREAD_TITLE = "New thread";
 export const MAX_THREAD_TITLE_REQUEST_ATTEMPTS = 3;
@@ -40,21 +41,33 @@ export function threadTitleRetryDelayMs(attempt: number) {
   return attempt === 0 ? 750 : Math.min(8_000, 1_500 * 2 ** (attempt - 1));
 }
 
+export function shouldRequestThreadMetadata(options: {
+  title?: string;
+  featureBranch?: string;
+  threadId: string;
+  worktreeStatus?: "pending" | "provisioning" | "ready" | "failed" | "cleaned";
+}) {
+  if (options.title === DEFAULT_THREAD_TITLE) return true;
+  return options.worktreeStatus === "ready"
+    && isTemporaryThreadFeatureBranch(options.featureBranch, options.threadId);
+}
+
 export async function requestGeneratedThreadTitle(options: {
   projectId: string;
   threadId: string;
-  message: string;
   signal?: AbortSignal;
-}) {
+} & (
+  | { message: string; regenerate?: false }
+  | { regenerate: true }
+)) {
   const response = await fetch(
     `/api/project/${encodeURIComponent(options.projectId)}/thread/${encodeURIComponent(options.threadId)}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        action: "generate_title",
-        message: options.message,
-      }),
+      body: JSON.stringify(options.regenerate
+        ? { action: "regenerate_title" }
+        : { action: "generate_title", message: options.message }),
       signal: options.signal,
     },
   );

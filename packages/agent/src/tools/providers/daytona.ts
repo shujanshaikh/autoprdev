@@ -11,10 +11,12 @@ import { createDaytonaLsTool } from "../ls";
 import { createDaytonaProcessTool } from "../process";
 import { createDaytonaReadTool } from "../read";
 import { createDaytonaSandboxInfoTool } from "../sandbox-info";
+import { createSubAgentTool, type SubAgentToolOptions } from "../sub-agent";
 import { createDaytonaWriteTool } from "../write";
 
 export interface DaytonaToolsOptions {
   computer?: false | CuaComputerToolOptions;
+  subAgent?: false | SubAgentToolOptions;
 }
 
 /** Builds the existing Daytona tool set without changing its behavior. */
@@ -36,6 +38,7 @@ export function createDaytonaTools(
     process: createDaytonaProcessTool(resolvedOptions, backgroundProcesses),
   };
 
+  if (options.subAgent) tools["sub-agent"] = createSubAgentTool(options.subAgent);
   if (options.computer) tools.computer = createCuaComputerTool(resolvedOptions, options.computer);
   return tools;
 }

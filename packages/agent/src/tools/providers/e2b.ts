@@ -11,10 +11,12 @@ import { createSandboxLsTool } from "../ls";
 import { createSandboxProcessTool } from "../process";
 import { createSandboxReadTool } from "../read";
 import { createSandboxInfoTool } from "../sandbox-info";
+import { createSubAgentTool, type SubAgentToolOptions } from "../sub-agent";
 import { createSandboxWriteTool } from "../write";
 
 export interface E2BToolsOptions {
   computer?: false | CuaComputerToolOptions;
+  subAgent?: false | SubAgentToolOptions;
 }
 
 /** Builds tools backed by E2B's SDK adapter and the shared CUA driver. */
@@ -36,6 +38,7 @@ export function createE2BTools(
     process: createSandboxProcessTool(resolvedOptions, backgroundProcesses),
   };
 
+  if (options.subAgent) tools["sub-agent"] = createSubAgentTool(options.subAgent);
   if (options.computer) tools.computer = createCuaComputerTool(resolvedOptions, options.computer);
   return tools;
 }

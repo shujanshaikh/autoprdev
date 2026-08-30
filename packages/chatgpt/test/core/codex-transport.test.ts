@@ -32,6 +32,12 @@ describe("codex transport", () => {
     expect(out.store).toBe(false);
   });
 
+  test("normalizeResponsesBody supports max reasoning effort", () => {
+    const out = normalizeResponsesBody({ input: "hi" }, { reasoningEffort: "max" });
+
+    expect(out.reasoning).toMatchObject({ effort: "max" });
+  });
+
   test("normalizeResponsesBody accepts Codex service tier defaults", () => {
     const out = normalizeResponsesBody({ input: "hi" }, { serviceTier: "fast" });
     expect(out.service_tier).toBe("fast");

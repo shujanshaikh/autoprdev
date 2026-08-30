@@ -11,7 +11,13 @@ import {
 import { api } from "@autopr/backend/convex/_generated/api";
 import { chat } from "@trigger.dev/sdk/ai";
 import { fetchAction } from "convex/nextjs";
-import { stepCountIs, streamText, type UIMessage, wrapLanguageModel } from "ai";
+import {
+  smoothStream,
+  stepCountIs,
+  streamText,
+  type UIMessage,
+  wrapLanguageModel,
+} from "ai";
 import { z } from "zod";
 
 import {
@@ -335,6 +341,10 @@ export const agentChatTask = chat.agent({
       toolChoice: "auto",
       stopWhen: stepCountIs(MAX_AGENT_STEPS),
       maxRetries: 2,
+      experimental_transform: smoothStream({
+        chunking: "word",
+        delayInMs: null,
+      }),
       abortSignal: signal,
       prepareStep: createAgentStepController({
         prepareStep: createAgentContextCompactor({

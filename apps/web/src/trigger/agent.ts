@@ -11,7 +11,7 @@ import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
-import { stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
 
 import {
   createAgentContextCompactor,
@@ -22,6 +22,7 @@ import {
   type AssistantUsageSource,
   type AssistantUsageMetadata,
 } from "#/lib/agent-usage";
+import { finalizeAgentUIMessageStream } from "#/lib/agent-ui-stream";
 import {
   createAgentSubAgentRunner,
   createSubAgentBinding,
@@ -284,6 +285,10 @@ async function runAgentTask(
         toolChoice: "auto",
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
         maxRetries: 2,
+        experimental_transform: smoothStream({
+          chunking: "word",
+          delayInMs: null,
+        }),
         abortSignal: signal,
         prepareStep: createAgentStepController({
           prepareStep: createAgentContextCompactor({
@@ -294,32 +299,35 @@ async function runAgentTask(
         }),
         providerOptions: agentProviderOptions(selectedModel, instructions),
       });
-      const streamed = agentUIStream.pipe(
+      let usageMetadata: AssistantUsageMetadata | undefined;
+      const uiStream = finalizeAgentUIMessageStream(
         result.toUIMessageStream({
           sendStart: !options.assistantMessageId,
           sendFinish: false,
         }),
+        async () => {
+          usageMetadata = createAssistantUsageMetadata(
+            await result.steps,
+            selectedModel.modelId,
+            runStartedAt,
+            Date.now(),
+            subAgentUsageSteps,
+          );
+          return usageMetadata;
+        },
+      );
+      const streamed = agentUIStream.pipe(
+        uiStream,
         { signal },
       );
 
       await streamed.waitUntilComplete();
 
-      const [steps, response] = await Promise.all([result.steps, result.response]);
-      const runCompletedAt = Date.now();
-      const usageMetadata = createAssistantUsageMetadata(
-        steps,
-        selectedModel.modelId,
-        runStartedAt,
-        runCompletedAt,
-        subAgentUsageSteps,
-      );
-
-      await agentUIStream.append({
-        type: "message-metadata",
-        messageMetadata: usageMetadata,
-      });
-      await agentUIStream.append({ type: "finish" });
       streamFinished = true;
+      const response = await result.response;
+      if (!usageMetadata) {
+        throw new Error("Assistant usage metadata was not finalized with the stream.");
+      }
 
       if (!persistence) {
         return;

@@ -29,9 +29,14 @@ is_owned_pid() {
 
 is_running() {
   local file pid executable
+  local -a pid_record=()
   file="$(pid_file "$1")"
-  if ! { IFS= read -r pid && IFS= read -r executable; } <"$file" 2>/dev/null \
-    || ! is_owned_pid "$pid" "$executable"; then
+  if [ -r "$file" ]; then
+    mapfile -t pid_record <"$file"
+  fi
+  pid="${pid_record[0]:-}"
+  executable="${pid_record[1]:-}"
+  if [ -z "$pid" ] || [ -z "$executable" ] || ! is_owned_pid "$pid" "$executable"; then
     rm -f "$file"
     return 1
   fi

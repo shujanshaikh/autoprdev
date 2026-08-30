@@ -43,6 +43,9 @@ const postRequestSchema = z.discriminatedUnion("action", [
     message: z.string().trim().min(1).max(8_000),
   }),
   z.object({
+    action: z.literal("regenerate_title"),
+  }),
+  z.object({
     action: z.enum([
       "commit",
       "push",
@@ -368,9 +371,20 @@ async function POST(
     return Response.json({ error: "Thread not found." }, { status: 404 });
   }
 
-  if (parsed.data.action === "generate_title") {
+  if (parsed.data.action === "generate_title" || parsed.data.action === "regenerate_title") {
     try {
-      const shouldGenerateTitle = thread.title === "New thread";
+      const regenerating = parsed.data.action === "regenerate_title";
+      const message = regenerating
+        ? await convexQuery(api.messages.getFirstUserMessageForTitle, { threadId }) ?? undefined
+        : parsed.data.message;
+      if (!message) {
+        return Response.json(
+          { error: "Add a message before regenerating the thread title." },
+          { status: 409 },
+        );
+      }
+
+      const shouldGenerateTitle = regenerating || thread.title === "New thread";
       const metadataRequest = () => new Request(req.url, { headers: new Headers(req.headers) });
       const title = shouldGenerateTitle
         ? await generateThreadTitle({
@@ -380,12 +394,22 @@ async function POST(
             request: metadataRequest(),
             projectId,
             threadId,
-            message: parsed.data.message,
+            message: message.slice(0, 8_000),
           })
         : thread.title;
-      const updated = shouldGenerateTitle
-        ? await convexMutation(api.threads.updateGeneratedTitle, { threadId, title })
-        : false;
+      const updated = regenerating
+        ? await convexMutation(api.threads.updateRegeneratedTitle, {
+            threadId,
+            title,
+            expectedTitle: thread.title,
+          })
+        : shouldGenerateTitle
+          ? await convexMutation(api.threads.updateGeneratedTitle, { threadId, title })
+          : false;
+
+      if (regenerating) {
+        return Response.json({ title, updated });
+      }
 
       const sandboxId = project.sandboxId;
       const latestThread = await convexQuery(api.threads.get, { threadId });
@@ -400,7 +424,7 @@ async function POST(
         request: metadataRequest(),
         projectId,
         threadId,
-        message: parsed.data.message,
+        message,
       });
       const branch = await withThreadGitMutation({
         threadId,

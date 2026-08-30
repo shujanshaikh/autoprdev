@@ -70,6 +70,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function messageTextForTitle(parts: readonly unknown[]) {
+  const textParts: string[] = [];
+  let hasFile = false;
+
+  for (const part of parts) {
+    if (!isRecord(part) || typeof part.type !== "string") continue;
+
+    if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
+      textParts.push(part.text.trim());
+    } else if (part.type === "file") {
+      hasFile = true;
+    }
+  }
+
+  if (textParts.length > 0) return textParts.join("\n");
+  return hasFile ? "Review the attached image" : null;
+}
+
 function safeObjectKeySegment(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160) || "unknown";
 }
@@ -271,6 +289,31 @@ export const listByThread = query({
       ...message,
       parts: await refreshR2FilePartUrls(ctx, identity.subject, message.parts),
     })));
+  },
+});
+
+export const getFirstUserMessageForTitle = query({
+  args: {
+    threadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    await requireOwnedThread(ctx, args.threadId, identity.subject);
+
+    const messages = ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .order("asc")
+      .filter((q) => q.eq(q.field("role"), "user"));
+
+    for await (const message of messages) {
+      const text = messageTextForTitle(message.parts);
+      if (text) return text;
+    }
+
+    return null;
   },
 });
 

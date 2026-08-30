@@ -1,9 +1,10 @@
 import type { UIMessage } from "ai";
 import { createThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   firstUserMessageForTitle,
+  requestGeneratedThreadTitle,
   shouldRequestThreadMetadata,
   ThreadTitleRequestError,
   threadTitleRetryDelayMs,
@@ -74,5 +75,25 @@ describe("thread title generation", () => {
       threadId,
       worktreeStatus: "ready",
     })).toBe(false);
+  });
+
+  it("requests a forced regeneration without trusting the current title", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ title: "A better title", updated: true }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ));
+
+    await expect(requestGeneratedThreadTitle({
+      projectId: "project/1",
+      threadId: "thread/1",
+      regenerate: true,
+    })).resolves.toEqual({ title: "A better title", updated: true });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse(String(init?.body))).toEqual({ action: "regenerate_title" });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/project/project%2F1/thread/thread%2F1",
+    );
+    fetchMock.mockRestore();
   });
 });

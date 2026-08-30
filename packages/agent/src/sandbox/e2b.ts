@@ -10,7 +10,7 @@ import type { SandboxAdapter, SandboxSessionOptions } from "./index";
 import { SandboxRuntimeNotStartedError } from "./errors";
 import { E2B_SANDBOX_WORKDIR } from "./repo-path";
 
-const DEFAULT_E2B_TEMPLATE = "autopr-cua-e2b";
+const DEFAULT_E2B_TEMPLATE = "autopr";
 const E2B_TIMEOUT_MS = 15 * 60_000;
 const E2B_REQUEST_TIMEOUT_MS = 120_000;
 const E2B_BACKGROUND_COMMAND_TIMEOUT_MS = 24 * 60 * 60_000;

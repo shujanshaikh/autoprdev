@@ -88,7 +88,7 @@ describe("CodingHarness", () => {
       provider: "e2b",
       sandboxId: "e2b-sandbox-1",
       sandboxName: "autopr-e2b-test",
-      snapshot: "autopr-cua-e2b",
+      snapshot: "autopr",
       workDir: "/home/daytona/repo",
     });
     const harness = new CodingHarness({ cacheKey: "environment-provider" });

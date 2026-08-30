@@ -132,6 +132,6 @@ export const autoprE2BTemplate = template
   .setUser("daytona")
   .setWorkdir("/home/daytona")
   .setStartCmd(
-    "/opt/autopr/bin/autopr-desktop start && sleep infinity",
+    "/opt/autopr/bin/autopr-desktop start-core && exec sleep infinity",
     waitForPort(6080),
   );

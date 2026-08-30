@@ -68,7 +68,7 @@ describe("E2B sandbox adapter", () => {
     });
 
     expect(sandbox.id).toBe("created-e2b");
-    expect(mocks.create).toHaveBeenCalledWith("autopr-cua-e2b", expect.objectContaining({
+    expect(mocks.create).toHaveBeenCalledWith("autopr", expect.objectContaining({
       lifecycle: {
         onTimeout: { action: "pause", keepMemory: true },
         autoResume: true,

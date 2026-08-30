@@ -51,7 +51,7 @@ type SandboxStatus = "creating" | "ready" | "failed";
 
 const DEFAULT_DAYTONA_SNAPSHOT = "autopr-cua";
 const DEFAULT_SANDBOX_WORKDIR = "/home";
-const DEFAULT_E2B_TEMPLATE = "autopr-cua-e2b";
+const DEFAULT_E2B_TEMPLATE = "autopr";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;

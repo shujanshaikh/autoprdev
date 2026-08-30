@@ -113,7 +113,7 @@ start_one() {
   esac
 }
 
-start_desktop() {
+start_desktop_services() {
   export DISPLAY="$DISPLAY_NUMBER"
   export HOME=/home/daytona
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-e2b-runtime}"
@@ -121,6 +121,10 @@ start_desktop() {
   install -d -m 0700 "$XDG_RUNTIME_DIR"
   start_one preview
   for name in xvfb xfce4 x11vnc novnc; do start_one "$name"; done
+}
+
+start_desktop() {
+  start_desktop_services
   /opt/autopr/bin/autopr-cua-gateway >>"$(log_file cua)" 2>&1
 }
 
@@ -139,6 +143,7 @@ stop_desktop() {
 }
 
 case "${1:-}" in
+  start-core) start_desktop_services ;;
   start) start_desktop ;;
   stop) stop_desktop ;;
   status)
@@ -156,7 +161,7 @@ case "${1:-}" in
     [ -f "$file" ] && tail -n 200 "$file"
     ;;
   *)
-    echo "usage: autopr-desktop {start|stop|status|process-status|restart|logs}" >&2
+    echo "usage: autopr-desktop {start-core|start|stop|status|process-status|restart|logs}" >&2
     exit 2
     ;;
 esac

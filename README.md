@@ -82,7 +82,7 @@ Set `TRIGGER_PROJECT_REF` while running the Trigger.dev CLI. Configure the follo
 - `E2B_API_KEY`, plus `E2B_TEMPLATE` when customized
 - Optionally, `E2B_DOMAIN_ALLOW_LIST`: a comma-separated E2B egress domain allow-list. If omitted, E2B sandboxes have normal outbound access.
 
-Desktop interaction uses the same CUA gateway inside both providers and never uses E2B's computer-use tool. Build or update the Daytona `autopr-cua` snapshot with [`infra/daytona/autopr/README.md`](infra/daytona/autopr/README.md), and build the E2B `autopr-cua-e2b` template with [`infra/e2b/autopr/README.md`](infra/e2b/autopr/README.md). Both images include the pinned browser, desktop, CUA, FFF, and terminal runtimes.
+Desktop interaction uses the same CUA gateway inside both providers and never uses E2B's computer-use tool. Build or update the Daytona `autopr-cua` snapshot with [`infra/daytona/autopr/README.md`](infra/daytona/autopr/README.md), and build the E2B `autopr` template with [`infra/e2b/autopr/README.md`](infra/e2b/autopr/README.md). Both images include the pinned browser, desktop, CUA, FFF, and terminal runtimes.
 
 The root development command starts the web app, Convex, and the Trigger.dev task worker together:
 

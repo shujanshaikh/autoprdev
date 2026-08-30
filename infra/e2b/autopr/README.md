@@ -16,6 +16,6 @@ Set `E2B_API_KEY`, then build the template from the repository root:
 pnpm build:e2b-template
 ```
 
-The runtime defaults to the `autopr-cua-e2b` template alias. Override it with
+The runtime defaults to the `autopr` template alias. Override it with
 `E2B_TEMPLATE`. The default template allocates 8 vCPUs and 8,192 MB of memory
 to each E2B sandbox.

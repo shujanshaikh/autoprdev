@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
-import { estimatedE2BPrice } from "./lib/e2bPricing";
+import { e2bMeteringAt, estimatedE2BPrice } from "./lib/e2bPricing";
 import {
   resolvedSandboxProvider,
   sandboxProviderValidator,
@@ -243,19 +243,63 @@ export const stopE2BMeteringInternal = internalMutation({
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
     if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return null;
-    const runningMs = (row.e2bRunningMs ?? 0) + (
-      row.e2bMeteringStartedAt === undefined ? 0 : Math.max(0, args.stoppedAt - row.e2bMeteringStartedAt)
-    );
-    const cpuCount = row.e2bCpuCount ?? 2;
-    const memoryMB = row.e2bMemoryMB ?? 2_048;
+    const metering = e2bMeteringAt({
+      runningMs: row.e2bRunningMs,
+      startedAt: row.e2bMeteringStartedAt,
+      cpuCount: row.e2bCpuCount,
+      memoryMB: row.e2bMemoryMB,
+    }, args.stoppedAt);
     await ctx.db.patch(row._id, {
-      e2bRunningMs: runningMs,
+      e2bCpuCount: metering.cpuCount,
+      e2bMemoryMB: metering.memoryMB,
+      e2bRunningMs: metering.runningMs,
       e2bMeteringStartedAt: undefined,
-      latestTotalPrice: estimatedE2BPrice(runningMs, cpuCount, memoryMB),
+      latestTotalPrice: metering.totalPrice,
       lastSyncedAt: args.stoppedAt,
       updatedAt: args.stoppedAt,
     });
     return null;
+  },
+});
+
+/** Finalizes E2B's estimated cost after the provider sandbox is gone. */
+export const finalizeE2BFromLocalMeteringInternal = internalMutation({
+  args: { sandboxId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return false;
+    if (row.status === "finalized") return true;
+    if (row.status !== "pending_finalization") return false;
+
+    const now = Date.now();
+    const meteredUntil = row.deletedAt ?? now;
+    const metering = e2bMeteringAt({
+      runningMs: row.e2bRunningMs,
+      startedAt: row.e2bMeteringStartedAt,
+      cpuCount: row.e2bCpuCount,
+      memoryMB: row.e2bMemoryMB,
+    }, meteredUntil);
+    await ctx.db.patch(row._id, {
+      costSource: "estimated",
+      e2bCpuCount: metering.cpuCount,
+      e2bMemoryMB: metering.memoryMB,
+      e2bRunningMs: metering.runningMs,
+      e2bMeteringStartedAt: undefined,
+      latestTotalPrice: metering.totalPrice,
+      finalTotalPrice: metering.totalPrice,
+      status: "finalized",
+      deletedAt: meteredUntil,
+      lastSyncedAt: meteredUntil,
+      finalizedAt: now,
+      syncError: undefined,
+      nextSyncAt: undefined,
+      updatedAt: now,
+    });
+    return true;
   },
 });
 
@@ -327,6 +371,7 @@ export const markPendingFinalizationInternal = internalMutation({
       });
       return null;
     }
+    if (row.status === "finalized") return null;
     await ctx.db.patch(row._id, {
       status: "pending_finalization",
       deletedAt: row.deletedAt ?? now,

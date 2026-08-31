@@ -1928,21 +1928,26 @@ export const removeWithSandbox = action({
         sandboxCreatedAt: project.createdAt,
       });
       try {
-        if (project.sandboxProvider === "e2b") {
-          const finalized = await ctx.runAction(internal.sandboxCostActions.syncOneSandboxCost, {
-            sandboxId: project.sandboxId,
-            finalize: true,
-          });
-          if (!finalized) {
-            throw new Error("Could not persist the final E2B cost before sandbox deletion.");
-          }
-        }
         await deleteProviderSandbox(project.sandboxId, project.sandboxProvider);
       } catch (error) {
         if (!isSandboxNotFoundError(error)) {
           throw new ConvexError({
-            code: "DAYTONA_SANDBOX_DELETE_FAILED",
+            code: project.sandboxProvider === "e2b"
+              ? "E2B_SANDBOX_DELETE_FAILED"
+              : "DAYTONA_SANDBOX_DELETE_FAILED",
             message: errorMessage(error),
+          });
+        }
+      }
+      if (project.sandboxProvider === "e2b") {
+        const finalized = await ctx.runMutation(
+          internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
+          { sandboxId: project.sandboxId },
+        );
+        if (!finalized) {
+          throw new ConvexError({
+            code: "E2B_COST_FINALIZATION_FAILED",
+            message: "Could not persist the final E2B cost after sandbox deletion.",
           });
         }
       }
@@ -1959,7 +1964,9 @@ export const removeWithSandbox = action({
         } catch (error) {
           if (!isSandboxNotFoundError(error)) {
             throw new ConvexError({
-              code: "DAYTONA_SECRET_DELETE_FAILED",
+              code: project.sandboxProvider === "e2b"
+                ? "E2B_SECRET_DELETE_FAILED"
+                : "DAYTONA_SECRET_DELETE_FAILED",
               message: errorMessage(error),
             });
           }

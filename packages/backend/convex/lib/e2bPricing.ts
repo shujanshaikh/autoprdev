@@ -10,3 +10,26 @@ export function estimatedE2BPrice(runningMs: number, cpuCount: number, memoryMB:
     + (Math.max(0, memoryMB) / 1_024) * E2B_MEMORY_GIB_PRICE_PER_SECOND
   );
 }
+
+export function e2bMeteringAt(
+  state: {
+    runningMs?: number;
+    startedAt?: number;
+    cpuCount?: number;
+    memoryMB?: number;
+  },
+  meteredUntil: number,
+) {
+  const runningMs = (state.runningMs ?? 0) + (
+    state.startedAt === undefined ? 0 : Math.max(0, meteredUntil - state.startedAt)
+  );
+  const cpuCount = state.cpuCount ?? 2;
+  const memoryMB = state.memoryMB ?? 2_048;
+
+  return {
+    runningMs,
+    cpuCount,
+    memoryMB,
+    totalPrice: estimatedE2BPrice(runningMs, cpuCount, memoryMB),
+  };
+}

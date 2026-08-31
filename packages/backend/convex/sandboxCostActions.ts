@@ -79,8 +79,9 @@ export const syncOneSandboxCost = internalAction({
     if (!row) return false;
     if (args.finalize ? row.status === "finalized" : false) return true;
     if (args.finalize ? row.status !== "pending_finalization" : row.status !== "active") return false;
+    const provider = resolvedSandboxProvider(row.sandboxProvider);
     try {
-      if (resolvedSandboxProvider(row.sandboxProvider) === "e2b") {
+      if (provider === "e2b") {
         const snapshot = await fetchE2BMeteringSnapshot(row.sandboxId);
         const recorded = await ctx.runMutation(internal.sandboxCosts.recordE2BSyncSuccessInternal, {
           sandboxId: row.sandboxId,
@@ -102,6 +103,13 @@ export const syncOneSandboxCost = internalAction({
       });
       return true;
     } catch (error) {
+      if (args.finalize && provider === "e2b") {
+        const locallyFinalized = await ctx.runMutation(
+          internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
+          { sandboxId: row.sandboxId },
+        ).catch(() => false);
+        if (locallyFinalized) return true;
+      }
       await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
         sandboxId: row.sandboxId,
         error: error instanceof Error ? error.message : "Sandbox cost sync failed.",

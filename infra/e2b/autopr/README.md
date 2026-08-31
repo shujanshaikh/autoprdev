@@ -5,6 +5,10 @@ lifecycle scripts over the existing `infra/daytona/autopr` image definition.
 That keeps Chrome, XFCE, noVNC, FFF, ttyd, and the CUA Driver gateway identical
 across providers. It does not use E2B Desktop or E2B computer-use APIs.
 
+The template renames the inherited login user to `e2b`, so desktop terminal
+prompts no longer mix Daytona and E2B names. Daytona images keep the `daytona`
+login, while E2B uses `/home/autopr` as its home and workspace root.
+
 E2B does not issue Daytona-style signed service URLs. The template exposes an
 E2B-only preview gateway on port 6090 instead. AutoPR signs the target port and
 expiry with a sandbox-local secret; noVNC, ttyd, and CUA bind to loopback behind

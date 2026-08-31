@@ -120,7 +120,8 @@ start_one() {
 
 start_desktop_services() {
   export DISPLAY="$DISPLAY_NUMBER"
-  export HOME=/home/daytona
+  export HOME=/home/autopr
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-/home/autopr/.local/share}"
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-e2b-runtime}"
   export CUA_GATEWAY_HOST=127.0.0.1
   install -d -m 0700 "$XDG_RUNTIME_DIR"

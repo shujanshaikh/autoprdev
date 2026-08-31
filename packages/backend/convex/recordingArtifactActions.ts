@@ -1,6 +1,7 @@
 "use node";
 
 import { Daytona } from "@daytona/sdk";
+import { E2B_SANDBOX_WORKDIR } from "@autopr/agent/sandbox";
 import { ConvexError, v } from "convex/values";
 import { Sandbox as E2BSandbox } from "e2b";
 
@@ -21,7 +22,7 @@ const RECORDING_PREVIEW_EXPIRES_SECONDS = 5 * 60;
 const RECORDING_READY_ATTEMPTS = 10;
 const RECORDING_READY_RETRY_MS = 1_000;
 const MAX_RECORDING_BYTES = 250 * 1024 * 1024;
-const E2B_RECORDINGS_DIR = "/home/daytona/.autopr/recordings";
+const E2B_RECORDINGS_DIR = `${E2B_SANDBOX_WORKDIR}/.autopr/recordings`;
 
 type DaytonaRecording = {
   fileName?: string;

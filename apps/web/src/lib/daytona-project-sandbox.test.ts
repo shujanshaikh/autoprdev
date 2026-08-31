@@ -12,7 +12,7 @@ vi.mock("@autopr/agent/sandbox", () => ({
   deleteSandbox: vi.fn(),
   DEFAULT_SANDBOX_WORKDIR: "/home/daytona",
   sandboxDefaultWorkDir: (provider: string) =>
-    provider === "e2b" ? "/home/e2b" : "/home/daytona",
+    provider === "e2b" ? "/home/autopr" : "/home/daytona",
   sandboxRepositoryDirectoryName: () => "autopr",
   sandboxRepositoryPath: (root: string, repo: string) => `${root}/${repo}`,
 }));

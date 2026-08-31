@@ -24,7 +24,10 @@ import {
   waitForPreviewRoute,
 } from "./lib/daytonaPreview";
 import { normalizeGithubUrl } from "./lib/github";
-import { sandboxCommandText } from "./lib/sandboxCommandOutput";
+import {
+  readyTerminalPort,
+  sandboxCommandText,
+} from "./lib/sandboxCommandOutput";
 import {
   autoprSandboxLabels,
   autoprSandboxName,
@@ -729,9 +732,9 @@ exit 1`,
       20,
     );
 
-    if (result.exitCode === 0) {
-      return port;
-    }
+    const readyPort = readyTerminalPort(result, port);
+    if (readyPort !== undefined) return readyPort;
+
     if (result.exitCode !== 42) {
       lastError = new Error(sandboxCommandText(result) || "Could not start the isolated terminal.");
     }
@@ -1583,7 +1586,9 @@ export const getTerminalPreview = action({
       return preview;
     } catch (error) {
       throw new ConvexError({
-        code: "DAYTONA_TERMINAL_FAILED",
+        code: project.sandboxProvider === "e2b"
+          ? "E2B_TERMINAL_FAILED"
+          : "DAYTONA_TERMINAL_FAILED",
         message: errorMessage(error),
       });
     }

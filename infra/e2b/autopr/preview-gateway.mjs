@@ -7,7 +7,7 @@ import { connect as connectSocket } from "node:net";
 import { dirname } from "node:path";
 
 const gatewayPort = Number.parseInt(process.env.AUTOPR_PREVIEW_GATEWAY_PORT ?? "6090", 10);
-const secretFile = process.env.AUTOPR_PREVIEW_SECRET_FILE ?? "/home/daytona/.autopr/preview-secret";
+const secretFile = process.env.AUTOPR_PREVIEW_SECRET_FILE ?? "/home/autopr/.autopr/preview-secret";
 const routePattern = /^\/v1\/(\d+)\/(\d+)\/([A-Za-z0-9_-]{43})(\/.*)?$/;
 
 function previewSecret() {

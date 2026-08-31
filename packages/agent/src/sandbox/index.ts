@@ -17,8 +17,10 @@ export { SandboxRuntimeNotStartedError } from "./errors";
 
 export {
   DEFAULT_SANDBOX_WORKDIR,
+  DAYTONA_SANDBOX_HOME,
   E2B_SANDBOX_WORKDIR,
   sandboxDefaultWorkDir,
+  sandboxUserHome,
   sandboxRelativeRepositoryPath,
   sandboxRepositoryDirectoryName,
   sandboxRepositoryPath,

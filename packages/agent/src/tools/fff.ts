@@ -1,26 +1,8 @@
 import type { SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand, shellQuote } from "../sandbox/execute";
+import { sandboxUserHome } from "../sandbox/repo-path";
 
 const FFF_COMMAND_TIMEOUT_SECONDS = 90;
-const AUTOPR_FFF_HELPER_PATHS = [
-  "/opt/autopr/bin/autopr-fff",
-  "/usr/local/bin/autopr-fff",
-  "/usr/bin/autopr-fff",
-  "/home/daytona/.local/bin/autopr-fff",
-  "/home/daytona/bin/autopr-fff",
-];
-const AUTOPR_FFF_CLI_PATHS = [
-  "/opt/autopr/fff/cli.mjs",
-  "/home/daytona/.local/share/autopr/fff/cli.mjs",
-];
-const AUTOPR_FFF_PATH_PREFIX = [
-  "/opt/autopr/bin",
-  "/usr/local/bin",
-  "/usr/local/share/nvm/current/bin",
-  "/home/daytona/.local/bin",
-  "/home/daytona/bin",
-].join(":");
-
 type FffFlagValue = string | number | boolean | undefined;
 
 export interface AutoprFffSuccess<T> {
@@ -44,7 +26,12 @@ export async function executeAutoprFff<T>(
   flags: Record<string, FffFlagValue>,
   sandboxOptions: SandboxSessionOptions,
 ): Promise<AutoprFffResult<T>> {
-  const result = await executeSandboxCommand(buildAutoprFffCommand(subcommand, flags), {
+  const command = buildAutoprFffCommand(
+    subcommand,
+    flags,
+    sandboxUserHome(sandboxOptions.provider ?? "daytona"),
+  );
+  const result = await executeSandboxCommand(command, {
     cwd: "/",
     timeout: FFF_COMMAND_TIMEOUT_SECONDS,
     sandboxOptions,
@@ -114,7 +101,11 @@ export async function executeAutoprFff<T>(
   };
 }
 
-function buildAutoprFffCommand(subcommand: string, flags: Record<string, FffFlagValue>): string {
+function buildAutoprFffCommand(
+  subcommand: string,
+  flags: Record<string, FffFlagValue>,
+  sandboxHome: string,
+): string {
   const args = [subcommand];
 
   for (const [name, value] of Object.entries(flags)) {
@@ -128,10 +119,28 @@ function buildAutoprFffCommand(subcommand: string, flags: Record<string, FffFlag
     }
   }
 
+  const helperPaths = [
+    "/opt/autopr/bin/autopr-fff",
+    "/usr/local/bin/autopr-fff",
+    "/usr/bin/autopr-fff",
+    `${sandboxHome}/.local/bin/autopr-fff`,
+    `${sandboxHome}/bin/autopr-fff`,
+  ];
+  const cliPaths = [
+    "/opt/autopr/fff/cli.mjs",
+    `${sandboxHome}/.local/share/autopr/fff/cli.mjs`,
+  ];
+  const pathPrefix = [
+    "/opt/autopr/bin",
+    "/usr/local/bin",
+    "/usr/local/share/nvm/current/bin",
+    `${sandboxHome}/.local/bin`,
+    `${sandboxHome}/bin`,
+  ].join(":");
   const quotedArgs = args.map(shellQuote).join(" ");
-  const helperCandidates = AUTOPR_FFF_HELPER_PATHS.map(shellQuote).join(" ");
-  const cliCandidates = AUTOPR_FFF_CLI_PATHS.map(shellQuote).join(" ");
-  const checkedLocations = [...AUTOPR_FFF_HELPER_PATHS, ...AUTOPR_FFF_CLI_PATHS, "PATH"].join(", ");
+  const helperCandidates = helperPaths.map(shellQuote).join(" ");
+  const cliCandidates = cliPaths.map(shellQuote).join(" ");
+  const checkedLocations = [...helperPaths, ...cliPaths, "PATH"].join(", ");
   const notFoundJson = JSON.stringify({
     ok: false,
     error:
@@ -143,7 +152,7 @@ function buildAutoprFffCommand(subcommand: string, flags: Record<string, FffFlag
   });
 
   return [
-    `export PATH=${shellQuote(AUTOPR_FFF_PATH_PREFIX)}:$PATH`,
+    `export PATH=${shellQuote(pathPrefix)}:$PATH`,
     `if ! command -v node >/dev/null 2>&1 && [ -f /usr/local/share/nvm/nvm.sh ]; then . /usr/local/share/nvm/nvm.sh >/dev/null 2>&1; nvm use default >/dev/null 2>&1 || true; fi`,
     `AUTOPR_FFF_BIN=""`,
     `AUTOPR_FFF_RUNNER="helper"`,

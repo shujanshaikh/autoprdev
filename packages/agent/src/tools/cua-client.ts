@@ -1,5 +1,6 @@
 import type { DaytonaSandbox, SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand } from "../sandbox/execute";
+import { sandboxUserHome } from "../sandbox/repo-path";
 
 const DEFAULT_CUA_SERVER_PORT = 8_765;
 // Two idempotent attempts fit inside the computer tool's 120-second boundary.
@@ -231,8 +232,9 @@ async function startCuaServer(
   if (existing) return await existing;
 
   const pending = (async () => {
+    const sandboxHome = sandboxUserHome(sandboxOptions.provider ?? "daytona");
     const result = await executeSandboxCommand(cuaBootstrapCommand(), {
-      cwd: "/home/daytona",
+      cwd: sandboxHome,
       timeout: 7 * 60,
       env: {
         CUA_PORT: String(options.serverPort),
@@ -275,6 +277,7 @@ async function ensureDesktopPointer(
   if (existing) return await existing;
 
   const theme = mode === "overlay" ? "AutoPRHidden" : "Adwaita";
+  const sandboxHome = sandboxUserHome(sandboxOptions.provider ?? "daytona");
   const pending = executeSandboxCommand([
     "set -eu",
     `export XCURSOR_THEME="${theme}"`,
@@ -286,7 +289,7 @@ async function ensureDesktopPointer(
       ? 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr 32; fi'
       : 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -cursor_name left_ptr; fi',
   ].join("\n"), {
-    cwd: "/home/daytona",
+    cwd: sandboxHome,
     timeout: 15,
     env: { DISPLAY: display },
     sandboxOptions: {

@@ -108,7 +108,7 @@ describe("E2B sandbox adapter", () => {
       .update(`${expiresAt}:6080`)
       .digest("base64url");
 
-    expect(sdk.files.read).toHaveBeenCalledWith("/home/daytona/.autopr/preview-secret");
+    expect(sdk.files.read).toHaveBeenCalledWith("/home/autopr/.autopr/preview-secret");
     expect(sdk.commands.run).toHaveBeenCalledWith(
       "/opt/autopr/bin/autopr-desktop process-status preview",
       expect.objectContaining({ timeoutMs: 30_000 }),
@@ -160,12 +160,12 @@ describe("E2B sandbox adapter", () => {
     sdk.files.read.mockResolvedValueOnce(JSON.stringify({ API_TOKEN: "autopr-token" }));
     const sandbox = new E2BSandboxAdapter(sdk as never);
 
-    await sandbox.process.executeCommand("printenv", "/home/daytona/repo", { LOCAL_FLAG: "yes" });
+    await sandbox.process.executeCommand("printenv", "/home/autopr/repo", { LOCAL_FLAG: "yes" });
 
     expect(sdk.files.read).toHaveBeenCalledWith(E2B_ENV_MANIFEST);
     expect(mocks.fill).toHaveBeenCalledWith("autopr-token");
     expect(sdk.commands.run).toHaveBeenCalledWith("printenv", expect.objectContaining({
-      cwd: "/home/daytona/repo",
+      cwd: "/home/autopr/repo",
       envs: {
         API_TOKEN: "secret:autopr-token",
         LOCAL_FLAG: "yes",

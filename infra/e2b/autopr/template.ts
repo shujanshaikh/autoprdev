@@ -126,11 +126,32 @@ export const autoprE2BTemplate = template
     user: "root",
   })
   .runCmd(
-    "install -d -m 0755 -o daytona -g daytona /home/daytona/.autopr /home/daytona/.autopr/recordings",
+    [
+      "groupmod --new-name e2b daytona",
+      "usermod --login e2b --home /home/autopr --move-home --gid e2b daytona",
+      "rm -f /etc/sudoers.d/daytona",
+      "printf 'e2b ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/e2b",
+      "chmod 0440 /etc/sudoers.d/e2b",
+      "test \"$(getent passwd e2b | cut -d: -f6)\" = /home/autopr",
+    ].join(" && "),
     { user: "root" },
   )
-  .setUser("daytona")
-  .setWorkdir("/home/daytona")
+  .runCmd(
+    "install -d -m 0755 -o e2b -g e2b /home/autopr/.autopr /home/autopr/.autopr/recordings",
+    { user: "root" },
+  )
+  .setEnvs({
+    AUTOPR_SANDBOX_PROVIDER: "e2b",
+    FFF_FRECENCY_DB: "/home/autopr/.cache/autopr/fff/frecency.mdb",
+    FFF_HISTORY_DB: "/home/autopr/.cache/autopr/fff/history.mdb",
+    HOME: "/home/autopr",
+    LOGNAME: "e2b",
+    USER: "e2b",
+    VNC_USER: "e2b",
+    XDG_DATA_HOME: "/home/autopr/.local/share",
+  })
+  .setUser("e2b")
+  .setWorkdir("/home/autopr")
   .setStartCmd(
     "/opt/autopr/bin/autopr-desktop start-core && exec sleep infinity",
     waitForPort(6080),

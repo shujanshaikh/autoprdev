@@ -42,11 +42,13 @@ export interface SandboxAdapter {
   name?: string;
   snapshot?: string;
   state?: string;
+  autoStopInterval?: number;
   autoArchiveInterval?: number;
   toolboxProxyUrl?: string;
   domainAllowList?: string;
   start(timeout?: number): Promise<void>;
-  setAutoArchiveInterval(interval: number): Promise<void>;
+  refreshActivity(): Promise<void>;
+  setAutoArchiveInterval?(interval: number): Promise<void>;
   updateNetworkSettings(settings: { domainAllowList: string }): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
   getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
@@ -295,6 +297,9 @@ async function ensureSandboxStarted(sandbox: DaytonaSandbox): Promise<DaytonaSan
 
 async function ensureSandboxAutoArchiveInterval(sandbox: DaytonaSandbox): Promise<DaytonaSandbox> {
   if (sandbox.autoArchiveInterval !== SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES) {
+    if (!sandbox.setAutoArchiveInterval) {
+      throw new Error("This sandbox provider does not support automatic archiving.");
+    }
     await sandbox.setAutoArchiveInterval(SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES);
   }
 

@@ -217,7 +217,7 @@ async function e2bPreviewSignature(secret: string, value: string): Promise<strin
 export class E2BSandboxAdapter implements SandboxAdapter {
   readonly id: string;
   readonly snapshot?: string;
-  readonly autoArchiveInterval = 2 * 60;
+  readonly autoStopInterval = E2B_TIMEOUT_MS / 60_000;
   readonly toolboxProxyUrl?: string;
   readonly domainAllowList?: string;
   name?: string;
@@ -253,8 +253,8 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     this.state = "started";
   }
 
-  async setAutoArchiveInterval(interval: number): Promise<void> {
-    await this.sdk.setTimeout(interval * 60_000);
+  async refreshActivity(): Promise<void> {
+    await this.sdk.setTimeout(E2B_TIMEOUT_MS);
   }
 
   async updateNetworkSettings(): Promise<void> {

@@ -69,6 +69,7 @@ describe("E2B sandbox adapter", () => {
 
     expect(sandbox.id).toBe("created-e2b");
     expect(mocks.create).toHaveBeenCalledWith("autopr", expect.objectContaining({
+      timeoutMs: 900_000,
       lifecycle: {
         onTimeout: { action: "pause", keepMemory: true },
         autoResume: true,
@@ -120,13 +121,15 @@ describe("E2B sandbox adapter", () => {
     vi.useRealTimers();
   });
 
-  it("converts the requested archive interval to E2B timeout milliseconds", async () => {
+  it("refreshes activity with Daytona's 15-minute inactivity window", async () => {
     const sdk = sdkSandbox();
     const sandbox = new E2BSandboxAdapter(sdk as never);
 
-    await sandbox.setAutoArchiveInterval(120);
+    await sandbox.refreshActivity();
 
-    expect(sdk.setTimeout).toHaveBeenCalledWith(7_200_000);
+    expect(sandbox.autoStopInterval).toBe(15);
+    expect(sandbox).not.toHaveProperty("autoArchiveInterval");
+    expect(sdk.setTimeout).toHaveBeenCalledWith(900_000);
   });
 
   it("applies the caller deadline when resuming an E2B sandbox", async () => {

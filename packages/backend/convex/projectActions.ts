@@ -616,7 +616,7 @@ async function getE2BDesktopPreview(
   recoverStream: boolean,
 ): Promise<DesktopPreviewResult> {
   const sandbox = await ensureProviderSandboxStarted("e2b", sandboxId);
-  await sandbox.setAutoArchiveInterval(SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES);
+  await sandbox.refreshActivity();
   if (recoverStream) {
     await recoverComputerUseStream(sandbox.computerUse, {
       timeoutMs: 20_000,
@@ -657,7 +657,7 @@ async function getProviderDesktopPreview(
 async function refreshProviderDesktopActivity(provider: SandboxProvider, sandboxId: string) {
   if (provider === "daytona") return await refreshDaytonaDesktopActivity(sandboxId);
   const sandbox = await ensureProviderSandboxStarted(provider, sandboxId);
-  await sandbox.setAutoArchiveInterval(SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES);
+  await sandbox.refreshActivity();
 }
 
 async function startIsolatedTerminalPreview(

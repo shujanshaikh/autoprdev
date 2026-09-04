@@ -204,6 +204,40 @@ describe("E2B sandbox adapter", () => {
     });
   });
 
+  it("keeps active background sessions after the inactive cache TTL", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
+    const sdk = sdkSandbox("long-running-e2b");
+    const handle = {
+      pid: 45,
+      stdout: "still running",
+      stderr: "",
+      kill: vi.fn(async () => true),
+      sendStdin: vi.fn(async () => undefined),
+      wait: vi.fn(() => new Promise<never>(() => undefined)),
+    };
+    sdk.commands.run.mockResolvedValueOnce(handle as never);
+    const first = new E2BSandboxAdapter(sdk as never);
+
+    try {
+      await first.process.createSession("long-session");
+      await first.process.executeSessionCommand("long-session", {
+        command: "pnpm dev",
+        runAsync: true,
+      });
+      vi.advanceTimersByTime(2 * 60 * 60_000 + 1);
+
+      const refreshed = new E2BSandboxAdapter(sdkSandbox("long-running-e2b") as never);
+
+      await expect(refreshed.process.getSessionCommandLogs("long-session", "45")).resolves.toMatchObject({
+        stdout: "still running",
+      });
+      await refreshed.process.deleteSession("long-session");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("applies requested timeouts to background session commands", async () => {
     const sdk = sdkSandbox();
     const handle = {

@@ -264,7 +264,7 @@ export const stopE2BMeteringInternal = internalMutation({
 
 /** Finalizes E2B's estimated cost after the provider sandbox is gone. */
 export const finalizeE2BFromLocalMeteringInternal = internalMutation({
-  args: { sandboxId: v.string() },
+  args: { sandboxId: v.string(), deletedAt: v.number() },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const row = await ctx.db
@@ -276,7 +276,7 @@ export const finalizeE2BFromLocalMeteringInternal = internalMutation({
     if (row.status !== "pending_finalization") return false;
 
     const now = Date.now();
-    const meteredUntil = row.deletedAt ?? now;
+    const meteredUntil = args.deletedAt;
     const metering = e2bMeteringAt({
       runningMs: row.e2bRunningMs,
       startedAt: row.e2bMeteringStartedAt,

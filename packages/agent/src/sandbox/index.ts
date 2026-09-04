@@ -442,6 +442,7 @@ export async function deleteSandbox(
   recentSandboxes.delete(sandboxId);
   const deadline = Date.now() + SANDBOX_DELETE_TIMEOUT_SECONDS * 1_000;
   let lastError: unknown;
+  let rateLimitAttempt = 0;
 
   while (Date.now() <= deadline) {
     try {
@@ -452,10 +453,23 @@ export async function deleteSandbox(
     } catch (error) {
       if (isSandboxNotFoundError(error)) return;
       lastError = error;
-      if (!isSandboxStateChangeInProgressError(error) || Date.now() >= deadline) {
-        throw error;
+      if (isSandboxStateChangeInProgressError(error) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, SANDBOX_DELETE_POLL_MS));
+        continue;
       }
-      await new Promise((resolve) => setTimeout(resolve, SANDBOX_DELETE_POLL_MS));
+      const rateLimitDelay = DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS[
+        Math.min(rateLimitAttempt, DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS.length - 1)
+      ];
+      if (
+        isDaytonaRateLimitError(error)
+        && rateLimitDelay !== undefined
+        && Date.now() + rateLimitDelay <= deadline
+      ) {
+        rateLimitAttempt += 1;
+        await new Promise((resolve) => setTimeout(resolve, rateLimitDelay));
+        continue;
+      }
+      throw error;
     }
   }
 

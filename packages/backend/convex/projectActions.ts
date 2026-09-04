@@ -1942,7 +1942,7 @@ export const removeWithSandbox = action({
       if (project.sandboxProvider === "e2b") {
         const finalized = await ctx.runMutation(
           internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
-          { sandboxId: project.sandboxId },
+          { sandboxId: project.sandboxId, deletedAt: Date.now() },
         );
         if (!finalized) {
           throw new ConvexError({

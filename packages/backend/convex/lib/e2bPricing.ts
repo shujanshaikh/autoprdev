@@ -2,6 +2,8 @@
 // the sandbox SDK, so billing uses these rates for a clearly labeled estimate.
 export const E2B_CPU_PRICE_PER_SECOND = 0.000014;
 export const E2B_MEMORY_GIB_PRICE_PER_SECOND = 0.0000045;
+export const E2B_DEFAULT_CPU_COUNT = 8;
+export const E2B_DEFAULT_MEMORY_MB = 8_192;
 
 export function estimatedE2BPrice(runningMs: number, cpuCount: number, memoryMB: number) {
   const seconds = Math.max(0, runningMs) / 1_000;
@@ -23,8 +25,8 @@ export function e2bMeteringAt(
   const runningMs = (state.runningMs ?? 0) + (
     state.startedAt === undefined ? 0 : Math.max(0, meteredUntil - state.startedAt)
   );
-  const cpuCount = state.cpuCount ?? 2;
-  const memoryMB = state.memoryMB ?? 2_048;
+  const cpuCount = state.cpuCount ?? E2B_DEFAULT_CPU_COUNT;
+  const memoryMB = state.memoryMB ?? E2B_DEFAULT_MEMORY_MB;
 
   return {
     runningMs,

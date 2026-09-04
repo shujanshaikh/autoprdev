@@ -46,8 +46,8 @@ type E2BSandboxSessionCache = {
   sessions: Map<string, E2BSessionState>;
 };
 
-// Adapter instances are short-lived, so this bounded cache keeps background
-// commands pollable across reconnects without retaining every sandbox forever.
+// Adapter instances are short-lived, so completed session state is TTL/LRU
+// bounded while active command handles stay pollable across reconnects.
 const sessionsBySandbox = new Map<string, E2BSandboxSessionCache>();
 
 type E2BRecording = {
@@ -108,14 +108,29 @@ function pruneCompletedCommands(session: E2BSessionState, reserveSlot = false): 
   }
 }
 
+function hasActiveCommands(cache: E2BSandboxSessionCache): boolean {
+  return [...cache.sessions.values()].some((session) =>
+    [...session.commands.values()].some((command) => command.exitCode === undefined)
+  );
+}
+
+function oldestEvictableSandboxCache() {
+  return [...sessionsBySandbox]
+    .filter(([, cache]) => !hasActiveCommands(cache))
+    .sort((left, right) => left[1].lastAccessedAt - right[1].lastAccessedAt)[0];
+}
+
 function pruneSandboxSessionCaches(now = Date.now()): void {
   for (const [sandboxId, cache] of sessionsBySandbox) {
-    if (cache.lastAccessedAt <= now - E2B_SESSION_CACHE_TTL_MS) sessionsBySandbox.delete(sandboxId);
+    if (
+      cache.lastAccessedAt <= now - E2B_SESSION_CACHE_TTL_MS
+      && !hasActiveCommands(cache)
+    ) {
+      sessionsBySandbox.delete(sandboxId);
+    }
   }
   while (sessionsBySandbox.size > E2B_MAX_CACHED_SANDBOXES) {
-    const oldest = [...sessionsBySandbox].sort(
-      (left, right) => left[1].lastAccessedAt - right[1].lastAccessedAt,
-    )[0];
+    const oldest = oldestEvictableSandboxCache();
     if (!oldest) break;
     sessionsBySandbox.delete(oldest[0]);
   }
@@ -130,9 +145,7 @@ function sandboxSessionCache(sandboxId: string): E2BSandboxSessionCache {
     return existing;
   }
   while (sessionsBySandbox.size >= E2B_MAX_CACHED_SANDBOXES) {
-    const oldest = [...sessionsBySandbox].sort(
-      (left, right) => left[1].lastAccessedAt - right[1].lastAccessedAt,
-    )[0];
+    const oldest = oldestEvictableSandboxCache();
     if (!oldest) break;
     sessionsBySandbox.delete(oldest[0]);
   }

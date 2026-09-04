@@ -54,8 +54,12 @@ async function fetchAuthoritativeTotal(sandboxId: string, from: number, to: numb
 }
 
 async function fetchE2BMeteringSnapshot(sandboxId: string) {
-  const { Sandbox } = await import("e2b");
-  const info = await Sandbox.getInfo(sandboxId, { requestTimeoutMs: 120_000 });
+  const { Sandbox, SandboxNotFoundError } = await import("e2b");
+  const info = await Sandbox.getInfo(sandboxId, { requestTimeoutMs: 120_000 }).catch((error) => {
+    if (error instanceof SandboxNotFoundError) return null;
+    throw error;
+  });
+  if (!info) return null;
   const now = Date.now();
   return {
     cpuCount: info.cpuCount,
@@ -83,17 +87,27 @@ export const syncOneSandboxCost = internalAction({
     try {
       if (provider === "e2b") {
         const snapshot = await fetchE2BMeteringSnapshot(row.sandboxId);
+        if (args.finalize) {
+          if (snapshot) {
+            await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
+              sandboxId: row.sandboxId,
+              error: "E2B sandbox still exists; waiting for confirmed deletion before finalizing cost.",
+              finalize: true,
+            });
+            return false;
+          }
+          return await ctx.runMutation(
+            internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
+            { sandboxId: row.sandboxId, deletedAt: Date.now() },
+          );
+        }
+        if (!snapshot) throw new Error("E2B sandbox was not found during active cost sync.");
         const recorded = await ctx.runMutation(internal.sandboxCosts.recordE2BSyncSuccessInternal, {
           sandboxId: row.sandboxId,
           ...snapshot,
-          finalize: args.finalize,
+          finalize: false,
         });
-        if (recorded || !args.finalize) return recorded;
-        const current: Doc<"sandboxCosts"> | null = await ctx.runQuery(
-          internal.sandboxCosts.getBySandboxIdInternal,
-          { sandboxId: row.sandboxId },
-        );
-        return current?.status === "finalized";
+        return recorded;
       }
       const totalPrice = await fetchAuthoritativeTotal(row.sandboxId, row.sandboxCreatedAt, Date.now());
       await ctx.runMutation(internal.sandboxCosts.recordSyncSuccessInternal, {
@@ -103,13 +117,6 @@ export const syncOneSandboxCost = internalAction({
       });
       return true;
     } catch (error) {
-      if (args.finalize && provider === "e2b") {
-        const locallyFinalized = await ctx.runMutation(
-          internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
-          { sandboxId: row.sandboxId },
-        ).catch(() => false);
-        if (locallyFinalized) return true;
-      }
       await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
         sandboxId: row.sandboxId,
         error: error instanceof Error ? error.message : "Sandbox cost sync failed.",

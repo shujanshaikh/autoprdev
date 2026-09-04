@@ -93,7 +93,7 @@ wait_for_port() {
 start_one() {
   case "$1" in
     preview)
-      start_process preview node /opt/autopr/preview-gateway.mjs
+      start_process preview /opt/autopr/preview-gateway.mjs
       wait_for_port 6090
       ;;
     xvfb)

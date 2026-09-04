@@ -32,4 +32,13 @@ describe("E2B sandbox cost estimates", () => {
     expect(e2bMeteringAt({ runningMs: 30_000, startedAt: 50_000 }, 40_000).runningMs)
       .toBe(30_000);
   });
+
+  it("uses the autopr template resources when a legacy row has no dimensions", () => {
+    expect(e2bMeteringAt({ runningMs: 60_000 }, 60_000)).toEqual({
+      runningMs: 60_000,
+      cpuCount: 8,
+      memoryMB: 8_192,
+      totalPrice: estimatedE2BPrice(60_000, 8, 8_192),
+    });
+  });
 });

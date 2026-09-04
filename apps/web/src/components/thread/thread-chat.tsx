@@ -86,6 +86,7 @@ import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { activeThreadComputerActivityKey } from "#/components/thread/thread-computer-activity";
 import { ThreadComputerPreview } from "#/components/thread/thread-computer-preview";
 import { ThreadMessages } from "#/components/thread/thread-messages";
+import { useActiveRunTimer } from "#/components/thread/use-active-run-timer";
 import {
   latestSubAgentActivity,
   ThreadSubAgentActivityPanel,
@@ -814,7 +815,13 @@ function ThreadChatRuntime({
   resumeSession?: boolean;
 }) {
   const activeRunIdRef = useRef(currentRunId);
-  const activeRunStartedAtRef = useRef<number | undefined>(undefined);
+  const {
+    startedAt: activeRunStartedAt,
+    startedAtRef: activeRunStartedAtRef,
+    startNewRun,
+    ensureRunStarted,
+    clearRun,
+  } = useActiveRunTimer();
   const resumedRunIdsRef = useRef<Set<string>>(null!);
   resumedRunIdsRef.current ??= new Set<string>();
   const sessionResumeRequestedRef = useRef(false);
@@ -949,7 +956,7 @@ function ThreadChatRuntime({
         sessionStopRequestedRef.current = false;
         sessionTurnCompletedRef.current = false;
         sessionReconnectAttemptRef.current = 0;
-        activeRunStartedAtRef.current ??= event.timestamp;
+        startNewRun(event.timestamp);
       } else if (event.type === "stream-connected" || event.type === "first-chunk") {
         sessionReconnectAttemptRef.current = 0;
       } else if (event.type === "turn-completed") {
@@ -959,10 +966,11 @@ function ThreadChatRuntime({
           clearTimeout(sessionReconnectTimerRef.current);
           sessionReconnectTimerRef.current = undefined;
         }
-        activeRunStartedAtRef.current = undefined;
+        activeRunIdRef.current = undefined;
+        clearRun();
       }
     },
-    [threadId],
+    [clearRun, startNewRun, threadId],
   );
 
   const sessionClientData = useMemo<AgentChatClientInput>(
@@ -1002,17 +1010,14 @@ function ThreadChatRuntime({
     if (triggerRunId) {
       activeRunIdRef.current = triggerRunId;
       resumedRunIdsRef.current.add(triggerRunId);
-      if (!activeRunStartedAtRef.current) {
-        const startedAt = Date.now();
-        activeRunStartedAtRef.current = startedAt;
-      }
+      ensureRunStarted(Date.now());
     }
-  }, []);
+  }, [ensureRunStarted]);
 
   const handleChatEnd = useCallback(() => {
     activeRunIdRef.current = undefined;
-    activeRunStartedAtRef.current = undefined;
-  }, []);
+    clearRun();
+  }, [clearRun]);
 
   const prepareReconnectToStreamRequest = useCallback<PrepareReconnectToStreamRequest>(
     (options) => {
@@ -1435,18 +1440,16 @@ function ThreadChatRuntime({
 
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled && !serverStreaming;
-  if ((serverStreaming || busy) && !activeRunStartedAtRef.current) {
-    activeRunStartedAtRef.current = Date.now();
-  }
-  if (
-    !busy &&
-    !serverStreaming &&
-    !activeRunIdRef.current &&
-    activeRunStartedAtRef.current
-  ) {
-    activeRunStartedAtRef.current = undefined;
-  }
-  const activeRunStartedAt = activeRunStartedAtRef.current;
+  useEffect(() => {
+    if (serverStreaming || busy) {
+      ensureRunStarted(Date.now());
+      return;
+    }
+
+    if (usingSessionTransport || !activeRunIdRef.current) {
+      clearRun();
+    }
+  }, [busy, clearRun, ensureRunStarted, serverStreaming, usingSessionTransport]);
 
   const stopGeneration = useCallback(() => {
     const runId = activeRunIdRef.current;
@@ -1478,7 +1481,7 @@ function ThreadChatRuntime({
     }
 
     clearError();
-    activeRunStartedAtRef.current = undefined;
+    clearRun();
 
     if (assistantMessage && assistantMetadata !== assistantMessage.metadata) {
       setMessages((currentMessages) =>
@@ -1547,6 +1550,7 @@ function ThreadChatRuntime({
     getRunApi,
     messages,
     sessionTransport,
+    clearRun,
     setMessages,
     stop,
     threadId,
@@ -1670,6 +1674,7 @@ function ThreadChatRuntime({
     const uploadedFiles = hasFiles ? await imageUploads.resolveMessageImages(files) : [];
 
     if (uploadedFiles.length > 0) {
+      startNewRun(Date.now());
       if (nextMessage) {
         await sendMessage({ text: nextMessage, files: uploadedFiles });
       } else {
@@ -1683,9 +1688,10 @@ function ThreadChatRuntime({
       return;
     }
 
+    startNewRun(Date.now());
     await sendMessage({ text: nextMessage });
     setDiffPromptContexts([]);
-  }, [clearError, diffPromptContexts, disabled, imageUploads, projectId, sendMessage, serverStreaming, status, threadId]);
+  }, [clearError, diffPromptContexts, disabled, imageUploads, projectId, sendMessage, serverStreaming, startNewRun, status, threadId]);
 
   useEffect(() => {
     if (hasAutoSubmittedInitialPromptRef.current || !ready) {

@@ -98,6 +98,7 @@ describe("agent sub-agent runtime", () => {
     };
     const runner = createAgentSubAgentRunner({
       sandboxOptions: {
+        provider: "e2b",
         cacheKey: "sandbox-key",
         sandboxId: "sandbox-1",
         workDir: "/workspace/repo",
@@ -113,6 +114,7 @@ describe("agent sub-agent runtime", () => {
     })).resolves.toEqual({ output: "Child result", stepCount: 1 });
 
     expect(mocks.harnessOptions[0]).toMatchObject({
+      provider: "e2b",
       sandboxId: "sandbox-1",
       workDir: "/workspace/repo",
       computer: false,

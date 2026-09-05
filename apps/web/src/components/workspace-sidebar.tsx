@@ -1,4 +1,5 @@
 import { api } from "@autopr/backend/convex/_generated/api";
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 import { Button } from "@autopr/ui/components/button";
 import {
   Dialog,
@@ -93,6 +94,7 @@ export interface WorkspaceProject {
   projectId: string;
   repoFullName: string;
   sandboxStatus: "creating" | "ready" | "failed";
+  sandboxProvider?: SandboxProvider;
   sandboxRuntimeStatus?: "started" | "stopped" | "archived" | "unknown" | null;
   currentBranch?: string | null;
   repoBranch?: string | null;
@@ -869,7 +871,7 @@ export function WorkspaceSidebar({
                         <Folder />
                         <span className="min-w-0 truncate">{projectName(project.repoFullName)}</span>
                         <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
-                          {project.repoFullName.split("/")[0]}
+                          {project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
                         </span>
                       </DropdownMenuItem>
                     ))}
@@ -926,7 +928,7 @@ export function WorkspaceSidebar({
                         <ProjectMarker index={index} repoFullName={project.repoFullName} />
                         <span className="min-w-0 flex-1 truncate">{projectName(project.repoFullName)}</span>
                         <span className="truncate font-mono text-[9px] text-muted-foreground">
-                          {project.repoFullName.split("/")[0]}
+                          {project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
                         </span>
                         {selected ? (
                           <Check className="ml-auto size-3.5 text-muted-foreground" aria-hidden="true" />

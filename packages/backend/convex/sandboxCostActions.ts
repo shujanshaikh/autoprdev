@@ -3,7 +3,9 @@
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
+import { resolvedSandboxProvider } from "./lib/sandboxProvider";
 
 function analyticsConfig() {
   const apiUrl = process.env.DAYTONA_ANALYTICS_API_URL;
@@ -51,27 +53,79 @@ async function fetchAuthoritativeTotal(sandboxId: string, from: number, to: numb
   return totalPrice;
 }
 
+async function fetchE2BMeteringSnapshot(sandboxId: string) {
+  const { Sandbox, SandboxNotFoundError } = await import("e2b");
+  const checkedAt = Date.now();
+  const info = await Sandbox.getInfo(sandboxId, { requestTimeoutMs: 120_000 }).catch((error) => {
+    if (error instanceof SandboxNotFoundError) return null;
+    throw error;
+  });
+  if (!info) return null;
+  const now = Date.now();
+  return {
+    cpuCount: info.cpuCount,
+    memoryMB: info.memoryMB,
+    startedAt: info.startedAt.getTime(),
+    checkedAt,
+    running: info.state === "running",
+    meteredUntil: info.state === "running"
+      ? now
+      : Math.min(now, info.endAt.getTime()),
+  };
+}
+
 export const syncOneSandboxCost = internalAction({
   args: { sandboxId: v.string(), finalize: v.boolean() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.runQuery(internal.sandboxCosts.getBySandboxIdInternal, { sandboxId: args.sandboxId });
-    if (!row || (args.finalize ? row.status !== "pending_finalization" : row.status !== "active")) return null;
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const row: Doc<"sandboxCosts"> | null = await ctx.runQuery(
+      internal.sandboxCosts.getBySandboxIdInternal,
+      { sandboxId: args.sandboxId },
+    );
+    if (!row) return false;
+    if (args.finalize ? row.status === "finalized" : false) return true;
+    if (args.finalize ? row.status !== "pending_finalization" : row.status !== "active") return false;
+    const provider = resolvedSandboxProvider(row.sandboxProvider);
     try {
+      if (provider === "e2b") {
+        const snapshot = await fetchE2BMeteringSnapshot(row.sandboxId);
+        if (args.finalize) {
+          if (snapshot) {
+            await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
+              sandboxId: row.sandboxId,
+              error: "E2B sandbox still exists; waiting for confirmed deletion before finalizing cost.",
+              finalize: true,
+            });
+            return false;
+          }
+          return await ctx.runMutation(
+            internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
+            { sandboxId: row.sandboxId, deletedAt: Date.now() },
+          );
+        }
+        if (!snapshot) throw new Error("E2B sandbox was not found during active cost sync.");
+        const recorded = await ctx.runMutation(internal.sandboxCosts.recordE2BSyncSuccessInternal, {
+          sandboxId: row.sandboxId,
+          ...snapshot,
+          finalize: false,
+        });
+        return recorded;
+      }
       const totalPrice = await fetchAuthoritativeTotal(row.sandboxId, row.sandboxCreatedAt, Date.now());
       await ctx.runMutation(internal.sandboxCosts.recordSyncSuccessInternal, {
         sandboxId: row.sandboxId,
         totalPrice,
         finalize: args.finalize,
       });
+      return true;
     } catch (error) {
       await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
         sandboxId: row.sandboxId,
-        error: error instanceof Error ? error.message : "Daytona analytics sync failed.",
+        error: error instanceof Error ? error.message : "Sandbox cost sync failed.",
         finalize: args.finalize,
       });
+      return false;
     }
-    return null;
   },
 });
 
@@ -79,7 +133,10 @@ export const batchSyncActiveSandboxCosts = internalAction({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
-    const rows = await ctx.runQuery(internal.sandboxCosts.listDueInternal, { now: Date.now(), status: "active" });
+    const rows: Doc<"sandboxCosts">[] = await ctx.runQuery(
+      internal.sandboxCosts.listDueInternal,
+      { now: Date.now(), status: "active" },
+    );
     await Promise.all(rows.map((row) => ctx.runAction(internal.sandboxCostActions.syncOneSandboxCost, {
       sandboxId: row.sandboxId,
       finalize: false,
@@ -92,7 +149,7 @@ export const finalizePendingDeletedSandboxCosts = internalAction({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
-    const rows = await ctx.runQuery(internal.sandboxCosts.listDueInternal, {
+    const rows: Doc<"sandboxCosts">[] = await ctx.runQuery(internal.sandboxCosts.listDueInternal, {
       now: Date.now(),
       status: "pending_finalization",
     });

@@ -181,11 +181,11 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
     waitTimeoutMs: FILE_MUTATION_WAIT_TIMEOUT_MS,
     runTimeoutMs: FILE_MUTATION_RUN_TIMEOUT_MS,
     createWaitTimeoutError: () => new Error(`Timed out waiting to edit ${remotePath}; another mutation is still running.`),
-    createRunTimeoutError: () => new Error(`Timed out editing ${remotePath} in Daytona.`),
+    createRunTimeoutError: () => new Error(`Timed out editing ${remotePath} in the sandbox.`),
   });
 }
 
-export function createDaytonaEditTool(sandboxOptions: SandboxSessionOptions) {
+export function createSandboxEditTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "edit",
     description:
@@ -195,3 +195,5 @@ export function createDaytonaEditTool(sandboxOptions: SandboxSessionOptions) {
     execute: (input) => executeDaytonaEdit(input, sandboxOptions),
   });
 }
+
+export const createDaytonaEditTool = createSandboxEditTool;

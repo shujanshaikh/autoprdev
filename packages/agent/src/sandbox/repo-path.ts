@@ -1,4 +1,16 @@
 export const DEFAULT_SANDBOX_WORKDIR = "/home";
+export const DAYTONA_SANDBOX_HOME = "/home/daytona";
+export const E2B_SANDBOX_WORKDIR = "/home/autopr";
+
+export type SandboxProvider = "daytona" | "e2b";
+
+export function sandboxDefaultWorkDir(provider: SandboxProvider): string {
+  return provider === "e2b" ? E2B_SANDBOX_WORKDIR : DEFAULT_SANDBOX_WORKDIR;
+}
+
+export function sandboxUserHome(provider: SandboxProvider): string {
+  return provider === "e2b" ? E2B_SANDBOX_WORKDIR : DAYTONA_SANDBOX_HOME;
+}
 
 function repoNameFromUrl(repoUrl?: string): string | undefined {
   if (!repoUrl) {

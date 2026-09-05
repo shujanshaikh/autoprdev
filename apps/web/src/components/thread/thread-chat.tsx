@@ -366,10 +366,10 @@ function ComposerBranchIndicator({
   const showLoading = isFetching && !branch;
   const label = branch ?? (showLoading ? "Reading branch…" : "Unknown branch");
   const description = mismatch
-    ? `Daytona has ${branch} checked out; this thread expects ${expectedBranch}.`
+    ? `The sandbox has ${branch} checked out; this thread expects ${expectedBranch}.`
     : readFailed
-      ? `Could not verify the Daytona checkout. Last known branch: ${label}.`
-      : `Daytona checkout: ${label}.`;
+      ? `Could not verify the sandbox checkout. Last known branch: ${label}.`
+      : `Sandbox checkout: ${label}.`;
 
   return (
     <button

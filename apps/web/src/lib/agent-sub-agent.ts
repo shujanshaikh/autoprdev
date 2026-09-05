@@ -56,7 +56,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
           ? "SuperGrok subscription"
           : "ChatGPT / Codex subscription",
       appendSystemPrompt: [
-        "You are a focused sub-agent working inside the parent agent's Daytona sandbox.",
+        "You are a focused sub-agent working inside the parent agent's sandbox.",
         `Assigned task: ${description}`,
         "Complete only the supplied task. Other agents may be working in the same repository, so preserve unrelated changes and stay within any stated file scope.",
         "Do not leave background processes running. Terminate any process you start before responding.",

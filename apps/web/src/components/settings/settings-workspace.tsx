@@ -1,3 +1,4 @@
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 import {
   Sidebar,
   SidebarContent,
@@ -39,6 +40,7 @@ import { SettingsStats } from "./settings-stats";
 export interface WorkspaceProject {
   projectId: string;
   repoFullName: string;
+  sandboxProvider?: SandboxProvider;
   sandboxStatus: SandboxStatus;
   sandboxRuntimeStatus?: SandboxRuntimeStatus | null;
   currentBranch?: string | null;
@@ -55,6 +57,8 @@ export interface WorkspaceSandboxCost {
   sandboxName?: string;
   repoFullName?: string;
   status: "active" | "pending_finalization" | "finalized";
+  sandboxProvider?: SandboxProvider;
+  costSource?: "authoritative" | "estimated";
   latestTotalPrice?: number;
   finalTotalPrice?: number;
   sandboxCreatedAt: number;

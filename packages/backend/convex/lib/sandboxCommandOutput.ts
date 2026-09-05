@@ -30,3 +30,21 @@ export function sandboxCommandOutput(value: unknown) {
 export function sandboxCommandText(value: unknown) {
   return sandboxCommandOutput(value).trim();
 }
+
+const TERMINAL_PORT_MARKER = /^AUTOPR_TERMINAL_PORT=(\d+)\r?$/gm;
+
+/**
+ * The launcher prints this marker only after ttyd answers its loopback health
+ * check. E2B can omit the parent shell's exit code for this detached process,
+ * so the marker is the provider-independent readiness result.
+ */
+export function readyTerminalPort(value: unknown, requestedPort: number) {
+  const stdout = sandboxCommandStdout(value);
+  if (!stdout) return undefined;
+
+  for (const match of stdout.matchAll(TERMINAL_PORT_MARKER)) {
+    if (Number(match[1]) === requestedPort) return requestedPort;
+  }
+
+  return undefined;
+}

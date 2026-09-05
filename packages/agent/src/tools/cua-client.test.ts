@@ -43,7 +43,7 @@ describe("CUA gateway response parsing", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(bootstrap).toContain("/opt/autopr/bin/autopr-cua-gateway");
-    expect(bootstrap).toContain("rebuild and roll out the Daytona snapshot");
+    expect(bootstrap).toContain("rebuild and roll out the provider template");
     expect(bootstrap).not.toContain("pip install");
   });
 
@@ -654,7 +654,7 @@ describe("CUA client configuration", () => {
         available: false,
         enabled: false,
         recoveryAttempted: true,
-        reason: expect.stringContaining("native computer use and Daytona recording remain active"),
+        reason: expect.stringContaining("native computer use and sandbox recording remain active"),
       },
     });
     expect(executeMocks.executeSandboxCommand).toHaveBeenCalledTimes(2);

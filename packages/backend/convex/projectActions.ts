@@ -3,11 +3,19 @@
 import * as daytonaSdk from "@daytona/sdk";
 import type { Sandbox as DaytonaSandbox } from "@daytona/sdk";
 import {
+  createSandbox as createProviderSandbox,
+  deleteSandbox as deleteProviderSandbox,
+  E2B_ENV_MANIFEST,
+  E2B_SANDBOX_WORKDIR,
+  type DaytonaSandbox as ProviderSandbox,
+} from "@autopr/agent/sandbox";
+import {
   ensureComputerUseReady,
   recoverComputerUseStream,
 } from "@autopr/config/computer-use-lifecycle";
 import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 import { ConvexError, v } from "convex/values";
+import { Sandbox as E2BSdkSandbox, Secret as E2BSecret } from "e2b";
 
 import { internal } from "./_generated/api";
 import { action, type ActionCtx } from "./_generated/server";
@@ -16,12 +24,19 @@ import {
   waitForPreviewRoute,
 } from "./lib/daytonaPreview";
 import { normalizeGithubUrl } from "./lib/github";
-import { sandboxCommandText } from "./lib/sandboxCommandOutput";
+import {
+  readyTerminalPort,
+  sandboxCommandText,
+} from "./lib/sandboxCommandOutput";
 import {
   autoprSandboxLabels,
   autoprSandboxName,
   isExpectedAutoprSandbox,
 } from "./lib/sandboxIdentity";
+import {
+  resolvedSandboxProvider,
+  type SandboxProvider,
+} from "./lib/sandboxProvider";
 import {
   assessWorktreeCleanup,
   createThreadFeatureBranch,
@@ -39,6 +54,7 @@ type SandboxStatus = "creating" | "ready" | "failed";
 
 const DEFAULT_DAYTONA_SNAPSHOT = "autopr-cua";
 const DEFAULT_SANDBOX_WORKDIR = "/home";
+const DEFAULT_E2B_TEMPLATE = "autopr";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;
@@ -57,7 +73,6 @@ const SANDBOX_START_TIMEOUT_SECONDS = 120;
 const SANDBOX_START_POLL_MS = 1_000;
 const DAYTONA_OPERATION_READY_TIMEOUT_MS = 30_000;
 const DAYTONA_OPERATION_READY_POLL_MS = 2_000;
-const DAYTONA_DELETE_TIMEOUT_MS = 2 * 60_000;
 const DAYTONA_RATE_LIMIT_RETRY_BASE_MS = 1_000;
 const DAYTONA_RATE_LIMIT_RETRY_MAX_MS = 10_000;
 const SANDBOX_STARTED_CACHE_MS = 5_000;
@@ -92,6 +107,23 @@ interface TerminalPreviewResult {
   websocketUrl: string;
   port: number;
   expiresInSeconds: number;
+}
+
+interface SandboxEnvironmentContext {
+  sandboxId: string;
+  sandboxProvider: SandboxProvider;
+  repoFullName: string;
+  sandboxSecrets: Array<{
+    envName: string;
+    secretId: string;
+    secretName: string;
+    hosts: string[];
+    updatedAt: number;
+  }>;
+  sandboxEnvironmentVariables: Array<{
+    envName: string;
+    updatedAt: number;
+  }>;
 }
 
 interface ThreadWorktreeResult {
@@ -141,7 +173,7 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-async function runSandboxShell(sandbox: DaytonaSandbox, command: string, allowFailure = false) {
+async function runSandboxShell(sandbox: ProviderSandbox, command: string, allowFailure = false) {
   const sessionId = `thread-worktree-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   await sandbox.process.createSession(sessionId);
 
@@ -209,6 +241,10 @@ function sandboxRepositoryPath(sandboxWorkDir: string, repoDirectoryName: string
   return `${sandboxWorkDir.replace(/\/+$/, "")}/${repoDirectoryName}`;
 }
 
+function providerWorkDir(provider?: SandboxProvider): string {
+  return resolvedSandboxProvider(provider) === "e2b" ? E2B_SANDBOX_WORKDIR : DEFAULT_SANDBOX_WORKDIR;
+}
+
 function isSandboxNotFoundError(error: unknown) {
   const message = errorMessage(error).toLowerCase();
 
@@ -247,17 +283,6 @@ function daytonaRateLimitRetryDelay(attempt: number) {
     DAYTONA_RATE_LIMIT_RETRY_BASE_MS * 2 ** Math.max(0, attempt),
     DAYTONA_RATE_LIMIT_RETRY_MAX_MS,
   );
-}
-
-async function retryDaytonaRateLimit<T>(operation: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (!isDaytonaRateLimitError(error) || attempt >= 4) throw error;
-      await sleep(daytonaRateLimitRetryDelay(attempt));
-    }
-  }
 }
 
 function createDaytonaClient() {
@@ -302,46 +327,36 @@ function validateSandboxEnvironmentInput(envName: string, value: string) {
   return { envName: normalizedEnvName };
 }
 
-async function deleteDaytonaSandbox(sandboxId: string) {
-  const pendingStart = sandboxStartPromises.get(sandboxId);
-  if (pendingStart) await pendingStart.catch(() => undefined);
-  recentlyStartedSandboxes.delete(sandboxId);
-
-  const daytona = createDaytonaClient();
-  const deadline = Date.now() + DAYTONA_DELETE_TIMEOUT_MS;
-  let lastError: unknown;
-  let rateLimitAttempt = 0;
-
-  while (Date.now() <= deadline) {
-    try {
-      const sandbox = await daytona.get(sandboxId);
-      const timeoutSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1_000));
-      await daytona.delete(sandbox, timeoutSeconds, true);
-      return;
-    } catch (error) {
-      if (isSandboxNotFoundError(error)) return;
-      lastError = error;
-
-      if (isSandboxStateChangeInProgressError(error)) {
-        await sleep(DAYTONA_OPERATION_READY_POLL_MS);
-        continue;
-      }
-      if (isDaytonaRateLimitError(error) && Date.now() < deadline) {
-        await sleep(daytonaRateLimitRetryDelay(rateLimitAttempt));
-        rateLimitAttempt += 1;
-        continue;
-      }
-      throw error;
-    }
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Sandbox deletion did not become available before the timeout.");
+function e2bEnvironmentSecretName(projectId: string, envName: string, operationId: string) {
+  return `autopr-${projectId}-${envName}-${operationId}`;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function renewSandboxEnvironmentUpdate(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  operationId: string,
+): Promise<boolean> {
+  return await ctx.runMutation(internal.projects.renewSandboxEnvironmentUpdateInternal, {
+    authorId,
+    projectId,
+    operationId,
+  });
+}
+
+async function requireSandboxEnvironmentUpdate(
+  ctx: ActionCtx,
+  authorId: string,
+  projectId: string,
+  operationId: string,
+): Promise<void> {
+  if (!await renewSandboxEnvironmentUpdate(ctx, authorId, projectId, operationId)) {
+    throw new ConvexError({ code: "SANDBOX_ENVIRONMENT_UPDATE_LOCK_LOST" });
+  }
 }
 
 function desktopWebsocketUrl(value: string): string {
@@ -495,6 +510,40 @@ async function stopDaytonaSandbox(sandboxId: string) {
   return "stopped" as const;
 }
 
+async function ensureProviderSandboxStarted(
+  provider: SandboxProvider,
+  sandboxId: string,
+): Promise<ProviderSandbox> {
+  return provider === "e2b"
+    ? await createProviderSandbox({ provider, sandboxId })
+    : await ensureSandboxStarted(sandboxId);
+}
+
+async function getProviderSandboxRuntimeStatus(
+  provider: SandboxProvider,
+  sandboxId: string,
+): Promise<SandboxRuntimeStatusResult> {
+  if (provider === "daytona") return await getDaytonaSandboxRuntimeStatus(sandboxId);
+  const info = await E2BSdkSandbox.getInfo(sandboxId, { requestTimeoutMs: 120_000 });
+  return {
+    status: info.state === "running" ? "started" : info.state === "paused" ? "stopped" : "unknown",
+    rawState: info.state,
+    checkedAt: Date.now(),
+  };
+}
+
+async function startProviderSandbox(provider: SandboxProvider, sandboxId: string) {
+  if (provider === "daytona") return await startDaytonaSandbox(sandboxId);
+  await E2BSdkSandbox.connect(sandboxId, { timeoutMs: 15 * 60_000, requestTimeoutMs: 120_000 });
+  return "started" as const;
+}
+
+async function stopProviderSandbox(provider: SandboxProvider, sandboxId: string) {
+  if (provider === "daytona") return await stopDaytonaSandbox(sandboxId);
+  await E2BSdkSandbox.pause(sandboxId, { keepMemory: true, requestTimeoutMs: 120_000 });
+  return "stopped" as const;
+}
+
 async function getDaytonaDesktopPreviewUncoalesced(
   sandboxId: string,
   recoverStream: boolean,
@@ -562,7 +611,60 @@ async function refreshDaytonaDesktopActivity(sandboxId: string): Promise<void> {
   });
 }
 
-async function startIsolatedTerminalPreview(sandbox: DaytonaSandbox, workDir: string) {
+async function getE2BDesktopPreview(
+  sandboxId: string,
+  recoverStream: boolean,
+): Promise<DesktopPreviewResult> {
+  const sandbox = await ensureProviderSandboxStarted("e2b", sandboxId);
+  await sandbox.refreshActivity();
+  if (recoverStream) {
+    await recoverComputerUseStream(sandbox.computerUse, {
+      timeoutMs: 20_000,
+      probePort: async (port) => {
+        const result = await sandbox.process.executeCommand(
+          `nc -z -w 1 127.0.0.1 ${port}`,
+          undefined,
+          undefined,
+          5,
+        );
+        return result.exitCode === 0;
+      },
+    });
+  } else {
+    await ensureComputerUseReady(sandbox.computerUse, { cacheMs: 0, timeoutMs: 20_000 });
+  }
+  const preview = await sandbox.getSignedPreviewUrl(DAYTONA_NOVNC_PORT, DESKTOP_PREVIEW_EXPIRES_SECONDS);
+  const url = normalizePreviewUrl(preview.url);
+  await waitForPreviewRoute(url);
+  return {
+    url,
+    websocketUrl: desktopWebsocketUrl(url),
+    port: DAYTONA_NOVNC_PORT,
+    expiresInSeconds: DESKTOP_PREVIEW_EXPIRES_SECONDS,
+  };
+}
+
+async function getProviderDesktopPreview(
+  provider: SandboxProvider,
+  sandboxId: string,
+  recoverStream: boolean,
+) {
+  return provider === "e2b"
+    ? await getE2BDesktopPreview(sandboxId, recoverStream)
+    : await getDaytonaDesktopPreview(sandboxId, recoverStream);
+}
+
+async function refreshProviderDesktopActivity(provider: SandboxProvider, sandboxId: string) {
+  if (provider === "daytona") return await refreshDaytonaDesktopActivity(sandboxId);
+  const sandbox = await ensureProviderSandboxStarted(provider, sandboxId);
+  await sandbox.refreshActivity();
+}
+
+async function startIsolatedTerminalPreview(
+  sandbox: ProviderSandbox,
+  workDir: string,
+  loopbackOnly = false,
+) {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < TERMINAL_PORT_ATTEMPTS; attempt += 1) {
@@ -606,7 +708,7 @@ fi
 terminal_log="/tmp/autopr-terminal-${port}.log"
 nohup timeout ${TERMINAL_PROCESS_TIMEOUT_MINUTES}m "$ttyd_path" \
   --port ${port} \
-  --writable \
+${loopbackOnly ? "  --interface lo \\\n" : ""}  --writable \
   --once \
   --cwd ${shellQuote(workDir)} \
   "$shell_path" -l \
@@ -630,9 +732,9 @@ exit 1`,
       20,
     );
 
-    if (result.exitCode === 0) {
-      return port;
-    }
+    const readyPort = readyTerminalPort(result, port);
+    if (readyPort !== undefined) return readyPort;
+
     if (result.exitCode !== 42) {
       lastError = new Error(sandboxCommandText(result) || "Could not start the isolated terminal.");
     }
@@ -657,7 +759,7 @@ async function resolveThreadTerminalWorkingDirectory(
 
   if (resolveThreadWorkspaceMode(thread) === "checkout") {
     return project.sandboxWorkDir ?? sandboxRepositoryPath(
-      DEFAULT_SANDBOX_WORKDIR,
+      providerWorkDir(project.sandboxProvider),
       sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
     );
   }
@@ -693,13 +795,74 @@ async function getDaytonaTerminalPreview(
   });
 }
 
+async function getProviderTerminalPreview(
+  provider: SandboxProvider,
+  sandboxId: string,
+  workDir: string,
+  onE2BStarted?: () => Promise<void>,
+): Promise<TerminalPreviewResult> {
+  if (provider === "daytona") return await getDaytonaTerminalPreview(sandboxId, workDir);
+  const sandbox = await ensureProviderSandboxStarted(provider, sandboxId);
+  await onE2BStarted?.();
+  const port = await startIsolatedTerminalPreview(sandbox, workDir, true);
+  const preview = await sandbox.getSignedPreviewUrl(port, TERMINAL_PREVIEW_EXPIRES_SECONDS);
+  const url = normalizePreviewUrl(preview.url);
+  return {
+    url,
+    websocketUrl: terminalWebsocketUrl(url),
+    port,
+    expiresInSeconds: TERMINAL_PREVIEW_EXPIRES_SECONDS,
+  };
+}
+
 async function bootstrapRepositorySandbox(options: {
+  provider?: SandboxProvider;
   cacheKey: string;
   repoUrl: string;
   repoBranch?: string;
   repoName?: string;
   snapshot?: string;
 }) {
+  const provider = options.provider ?? "daytona";
+  if (provider === "e2b") {
+    const sandbox = await createProviderSandbox({
+      provider,
+      cacheKey: options.cacheKey,
+      name: autoprSandboxName(options.cacheKey),
+      labels: autoprSandboxLabels(options.cacheKey),
+      snapshot: options.snapshot ?? process.env.E2B_TEMPLATE ?? DEFAULT_E2B_TEMPLATE,
+    });
+    try {
+      const repoDir = sandboxRepositoryDirectoryName({ repoName: options.repoName, repoUrl: options.repoUrl });
+      const repoPath = sandboxRepositoryPath(E2B_SANDBOX_WORKDIR, repoDir);
+      try {
+        await sandbox.git.status(repoPath);
+      } catch {
+        await sandbox.git.clone(options.repoUrl, repoPath, options.repoBranch);
+      }
+      const info = await E2BSdkSandbox.getInfo(sandbox.id, { requestTimeoutMs: 120_000 });
+      return {
+        sandboxId: sandbox.id,
+        sandboxName: sandbox.name,
+        sandboxSnapshot: sandbox.snapshot,
+        sandboxWorkDir: repoPath,
+        sandboxProvider: provider,
+        e2bCpuCount: info.cpuCount,
+        e2bMemoryMB: info.memoryMB,
+      };
+    } catch (error) {
+      try {
+        await deleteProviderSandbox(sandbox.id, provider);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `E2B sandbox ${sandbox.id} initialization failed and cleanup did not complete.`,
+        );
+      }
+      throw error;
+    }
+  }
+
   const daytona = createDaytonaClient();
   const sandbox = await daytona.create({
     name: autoprSandboxName(options.cacheKey),
@@ -726,11 +889,14 @@ async function bootstrapRepositorySandbox(options: {
     sandboxName: sandbox.name,
     sandboxSnapshot: sandbox.snapshot,
     sandboxWorkDir: repoPath,
+    sandboxProvider: provider,
+    e2bCpuCount: undefined,
+    e2bMemoryMB: undefined,
   };
 }
 
 async function readThreadWorktreeState(
-  sandbox: DaytonaSandbox,
+  sandbox: ProviderSandbox,
   repositoryPath: string,
   featureBranch: string,
 ) {
@@ -787,8 +953,9 @@ async function provisionThreadWorktree(
     };
   }
 
+  const provider = resolvedSandboxProvider(project.sandboxProvider);
   const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
-    DEFAULT_SANDBOX_WORKDIR,
+    providerWorkDir(provider),
     sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
   );
   const baseBranch = resolveThreadBaseBranch(thread, project);
@@ -821,7 +988,7 @@ async function provisionThreadWorktree(
   }
 
   try {
-    const sandbox = await ensureSandboxStarted(project.sandboxId);
+    const sandbox = await ensureProviderSandboxStarted(provider, project.sandboxId);
     let state = await readThreadWorktreeState(sandbox, repositoryPath, featureBranch);
     let decision = decideWorktreeProvision({
       entries: state.entries,
@@ -968,11 +1135,12 @@ async function resolveThreadWorkspaceForAuthor(
     throw new ConvexError({ code: "PROJECT_NOT_READY" });
   }
 
+  const provider = resolvedSandboxProvider(project.sandboxProvider);
   const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
-    DEFAULT_SANDBOX_WORKDIR,
+    providerWorkDir(provider),
     sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
   );
-  const sandbox = await ensureSandboxStarted(project.sandboxId);
+  const sandbox = await ensureProviderSandboxStarted(provider, project.sandboxId);
   const quotedRepositoryPath = shellQuote(repositoryPath);
   const featureBranch = sandboxCommandText(
     await runSandboxShell(sandbox, `git -C ${quotedRepositoryPath} branch --show-current`),
@@ -1051,9 +1219,10 @@ async function cleanupThreadWorktreeForAuthor(
     return { removed: false, branchPreserved: true };
   }
 
-  const sandbox = await ensureSandboxStarted(project.sandboxId);
+  const provider = resolvedSandboxProvider(project.sandboxProvider);
+  const sandbox = await ensureProviderSandboxStarted(provider, project.sandboxId);
   const repositoryPath = project.sandboxWorkDir ?? sandboxRepositoryPath(
-    DEFAULT_SANDBOX_WORKDIR,
+    providerWorkDir(provider),
     sandboxRepositoryDirectoryName({ repoName: project.repoName, repoUrl: project.cloneUrl }),
   );
   const expectedWorktreePath = createThreadWorktreePath(
@@ -1146,7 +1315,12 @@ export const getSandboxRuntimeStatus = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string; sandboxRuntimeStatus?: SandboxRuntimeStatus; sandboxRuntimeCheckedAt?: number } =
+    const project: {
+      sandboxId: string;
+      sandboxProvider: SandboxProvider;
+      sandboxRuntimeStatus?: SandboxRuntimeStatus;
+      sandboxRuntimeCheckedAt?: number;
+    } =
       await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
@@ -1166,7 +1340,7 @@ export const getSandboxRuntimeStatus = action({
     }
 
     try {
-      const status = await getDaytonaSandboxRuntimeStatus(project.sandboxId);
+      const status = await getProviderSandboxRuntimeStatus(project.sandboxProvider, project.sandboxId);
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
@@ -1196,13 +1370,18 @@ export const startSandbox = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+    const project: { sandboxId: string; sandboxProvider: SandboxProvider } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
 
     try {
-      const status = await startDaytonaSandbox(project.sandboxId);
+      const status = await startProviderSandbox(project.sandboxProvider, project.sandboxId);
+      if (project.sandboxProvider === "e2b") {
+        await ctx.runMutation(internal.sandboxCosts.startE2BMeteringInternal, {
+          sandboxId: project.sandboxId,
+        });
+      }
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
@@ -1237,13 +1416,19 @@ export const stopSandbox = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+    const project: { sandboxId: string; sandboxProvider: SandboxProvider } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
 
     try {
-      const status = await stopDaytonaSandbox(project.sandboxId);
+      const status = await stopProviderSandbox(project.sandboxProvider, project.sandboxId);
+      if (project.sandboxProvider === "e2b") {
+        await ctx.runMutation(internal.sandboxCosts.stopE2BMeteringInternal, {
+          sandboxId: project.sandboxId,
+          stoppedAt: Date.now(),
+        });
+      }
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
@@ -1277,16 +1462,22 @@ export const getDesktopPreview = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+    const project: { sandboxId: string; sandboxProvider: SandboxProvider } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
 
     try {
-      const preview = await getDaytonaDesktopPreview(
+      const preview = await getProviderDesktopPreview(
+        project.sandboxProvider,
         project.sandboxId,
         args.recoverStream === true,
       );
+      if (project.sandboxProvider === "e2b") {
+        await ctx.runMutation(internal.sandboxCosts.startE2BMeteringInternal, {
+          sandboxId: project.sandboxId,
+        });
+      }
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
         projectId: args.projectId,
@@ -1314,13 +1505,18 @@ export const refreshDesktopActivity = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
+    const project: { sandboxId: string; sandboxProvider: SandboxProvider } = await ctx.runQuery(internal.projects.getDesktopSandboxInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
 
     try {
-      await refreshDaytonaDesktopActivity(project.sandboxId);
+      await refreshProviderDesktopActivity(project.sandboxProvider, project.sandboxId);
+      if (project.sandboxProvider === "e2b") {
+        await ctx.runMutation(internal.sandboxCosts.startE2BMeteringInternal, {
+          sandboxId: project.sandboxId,
+        });
+      }
       return null;
     } catch (error) {
       throw new ConvexError({
@@ -1349,7 +1545,11 @@ export const getTerminalPreview = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { sandboxId: string; sandboxWorkDir?: string } = await ctx.runQuery(
+    const project: {
+      sandboxId: string;
+      sandboxProvider: SandboxProvider;
+      sandboxWorkDir?: string;
+    } = await ctx.runQuery(
       internal.projects.getDesktopSandboxInternal,
       {
         authorId: identity.subject,
@@ -1366,9 +1566,17 @@ export const getTerminalPreview = action({
             args.threadId,
           )
         : project.sandboxWorkDir;
-      const preview = await getDaytonaTerminalPreview(
+      const preview = await getProviderTerminalPreview(
+        project.sandboxProvider,
         project.sandboxId,
-        workDir ?? DEFAULT_SANDBOX_WORKDIR,
+        workDir ?? providerWorkDir(project.sandboxProvider),
+        project.sandboxProvider === "e2b"
+          ? async () => {
+              await ctx.runMutation(internal.sandboxCosts.startE2BMeteringInternal, {
+                sandboxId: project.sandboxId,
+              });
+            }
+          : undefined,
       );
       await ctx.runMutation(internal.projects.updateSandboxRuntimeStatusInternal, {
         authorId: identity.subject,
@@ -1378,7 +1586,9 @@ export const getTerminalPreview = action({
       return preview;
     } catch (error) {
       throw new ConvexError({
-        code: "DAYTONA_TERMINAL_FAILED",
+        code: project.sandboxProvider === "e2b"
+          ? "E2B_TERMINAL_FAILED"
+          : "DAYTONA_TERMINAL_FAILED",
         message: errorMessage(error),
       });
     }
@@ -1423,13 +1633,114 @@ export const importSandboxEnvironmentVariables = action({
       throw new ConvexError({ code: "DUPLICATE_ENV_NAMES", message: "Each imported variable name must be unique." });
     }
 
-    const project = await ctx.runQuery(internal.projects.getSandboxEnvironmentInternal, {
+    const project: SandboxEnvironmentContext = await ctx.runQuery(internal.projects.getSandboxEnvironmentInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
     const importedNames = new Set(normalizedEntries.map((entry) => entry.envName));
     const legacySecretsToReplace = project.sandboxSecrets.filter((secret) => importedNames.has(secret.envName));
     let environmentUpdated = false;
+
+    if (project.sandboxProvider === "e2b") {
+      const operationId = crypto.randomUUID();
+      const lockedProject: SandboxEnvironmentContext = await ctx.runMutation(
+        internal.projects.acquireSandboxEnvironmentUpdateInternal,
+        {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          operationId,
+        },
+      );
+      const previousManifest = new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+        lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
+      )));
+      type CreatedSecret = Awaited<ReturnType<typeof E2BSecret.create>>;
+      const createdSecrets: CreatedSecret[] = [];
+      let manifestUpdated = false;
+      let committed = false;
+      try {
+        const now = Date.now();
+        const created = await Promise.allSettled(normalizedEntries.map(async (entry) => {
+          const secret = await E2BSecret.create(
+            e2bEnvironmentSecretName(args.projectId, entry.envName, operationId),
+            entry.value,
+            { metadata: { autoprProjectId: args.projectId, envName: entry.envName } },
+          );
+          createdSecrets.push(secret);
+          return {
+            envName: entry.envName,
+            secretId: secret.secretId,
+            secretName: secret.name,
+            hosts: [] as string[],
+            updatedAt: now,
+          };
+        }));
+        // Wait for every create before rolling back, including successes that arrive after a failure.
+        const failedCreation = created.find((result) => result.status === "rejected");
+        if (failedCreation) throw failedCreation.reason;
+        const updatedSecrets = created.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+        const allSecrets = [
+          ...lockedProject.sandboxSecrets.filter((secret) => !importedNames.has(secret.envName)),
+          ...updatedSecrets,
+        ];
+        const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
+        await sandbox.fs.uploadFile(
+          new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+            allSecrets.map((secret) => [secret.envName, secret.secretName]),
+          ))),
+          E2B_ENV_MANIFEST,
+        );
+        manifestUpdated = true;
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
+        await ctx.runMutation(internal.projects.upsertSandboxSecretsInternal, {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          operationId,
+          secrets: updatedSecrets,
+        });
+        committed = true;
+        await Promise.allSettled(
+          lockedProject.sandboxSecrets
+            .filter((secret) => importedNames.has(secret.envName))
+            .map((secret) => E2BSecret.destroy(secret.secretId)),
+        );
+        return { importedCount: normalizedEntries.length, restarted: false };
+      } catch (error) {
+        const rollbackErrors: unknown[] = [];
+        if (!committed) {
+          if (manifestUpdated) {
+            try {
+              const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+              if (await renewSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId)) {
+                await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
+              }
+            } catch (rollbackError) {
+              rollbackErrors.push(rollbackError);
+            }
+          }
+          const secretCleanup = await Promise.allSettled(
+            createdSecrets.map((secret) => E2BSecret.destroy(secret.secretId)),
+          );
+          rollbackErrors.push(...secretCleanup
+            .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+            .map((result) => result.reason));
+        }
+        const failure = rollbackErrors.length > 0
+          ? new AggregateError([error, ...rollbackErrors], "E2B environment import and rollback failed.")
+          : error;
+        throw new ConvexError({
+          code: "E2B_ENV_UPDATE_FAILED",
+          message: errorMessage(failure),
+        });
+      } finally {
+        await ctx.runMutation(internal.projects.releaseSandboxEnvironmentUpdateInternal, {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          operationId,
+        }).catch(() => undefined);
+      }
+    }
 
     try {
       const sandbox = await ensureSandboxStarted(project.sandboxId);
@@ -1487,13 +1798,89 @@ export const removeSandboxEnvironmentVariable = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project = await ctx.runQuery(internal.projects.getSandboxEnvironmentInternal, {
+    const project: SandboxEnvironmentContext = await ctx.runQuery(internal.projects.getSandboxEnvironmentInternal, {
       authorId: identity.subject,
       projectId: args.projectId,
     });
     const existingSecret = project.sandboxSecrets.find((secret) => secret.envName === args.envName);
     const existingVariable = project.sandboxEnvironmentVariables.find((variable) => variable.envName === args.envName);
     if (!existingSecret && !existingVariable) return null;
+
+    if (project.sandboxProvider === "e2b") {
+      const operationId = crypto.randomUUID();
+      const lockedProject: SandboxEnvironmentContext = await ctx.runMutation(
+        internal.projects.acquireSandboxEnvironmentUpdateInternal,
+        {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          operationId,
+        },
+      );
+      const lockedSecret = lockedProject.sandboxSecrets.find((secret) => secret.envName === args.envName);
+      const lockedVariable = lockedProject.sandboxEnvironmentVariables.find((variable) => variable.envName === args.envName);
+      const remaining = lockedProject.sandboxSecrets.filter((secret) => secret.envName !== args.envName);
+      const previousManifest = new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+        lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
+      )));
+      let manifestUpdated = false;
+      let committed = false;
+      try {
+        if (!lockedSecret && !lockedVariable) return null;
+        const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
+        await sandbox.fs.uploadFile(
+          new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+            remaining.map((secret) => [secret.envName, secret.secretName]),
+          ))),
+          E2B_ENV_MANIFEST,
+        );
+        manifestUpdated = true;
+        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
+        await ctx.runMutation(internal.projects.removeSandboxEnvironmentVariableInternal, {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          envName: args.envName,
+          operationId,
+        });
+        committed = true;
+        if (lockedSecret) await E2BSecret.destroy(lockedSecret.secretId);
+        return null;
+      } catch (error) {
+        const rollbackErrors: unknown[] = [];
+        if (manifestUpdated) {
+          try {
+            const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+            if (await renewSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId)) {
+              // Retain the secret reference for retry if provider deletion failed after the commit.
+              if (committed && lockedSecret) {
+                await ctx.runMutation(internal.projects.upsertSandboxSecretsInternal, {
+                  authorId: identity.subject,
+                  projectId: args.projectId,
+                  operationId,
+                  secrets: [lockedSecret],
+                });
+              }
+              await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
+            }
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError);
+          }
+        }
+        const failure = rollbackErrors.length > 0
+          ? new AggregateError([error, ...rollbackErrors], "E2B environment deletion and rollback failed.")
+          : error;
+        throw new ConvexError({
+          code: "E2B_ENV_DELETE_FAILED",
+          message: errorMessage(failure),
+        });
+      } finally {
+        await ctx.runMutation(internal.projects.releaseSandboxEnvironmentUpdateInternal, {
+          authorId: identity.subject,
+          projectId: args.projectId,
+          operationId,
+        }).catch(() => undefined);
+      }
+    }
 
     const daytona = createDaytonaClient();
     const sandbox = await ensureSandboxStarted(project.sandboxId);
@@ -1547,29 +1934,49 @@ export const removeWithSandbox = action({
         sandboxId: project.sandboxId,
         sandboxName: project.sandboxName,
         repoFullName: project.repoFullName,
+        sandboxProvider: project.sandboxProvider,
         sandboxCreatedAt: project.createdAt,
       });
       try {
-        await deleteDaytonaSandbox(project.sandboxId);
+        await deleteProviderSandbox(project.sandboxId, project.sandboxProvider);
       } catch (error) {
         if (!isSandboxNotFoundError(error)) {
           throw new ConvexError({
-            code: "DAYTONA_SANDBOX_DELETE_FAILED",
+            code: project.sandboxProvider === "e2b"
+              ? "E2B_SANDBOX_DELETE_FAILED"
+              : "DAYTONA_SANDBOX_DELETE_FAILED",
             message: errorMessage(error),
+          });
+        }
+      }
+      if (project.sandboxProvider === "e2b") {
+        const finalized = await ctx.runMutation(
+          internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
+          { sandboxId: project.sandboxId, deletedAt: Date.now() },
+        );
+        if (!finalized) {
+          throw new ConvexError({
+            code: "E2B_COST_FINALIZATION_FAILED",
+            message: "Could not persist the final E2B cost after sandbox deletion.",
           });
         }
       }
     }
 
     if (project.sandboxSecrets.length > 0) {
-      const daytona = createDaytonaClient();
       for (const secret of project.sandboxSecrets) {
         try {
-          await daytona.secret.delete(secret.secretId);
+          if (project.sandboxProvider === "e2b") {
+            await E2BSecret.destroy(secret.secretId);
+          } else {
+            await createDaytonaClient().secret.delete(secret.secretId);
+          }
         } catch (error) {
           if (!isSandboxNotFoundError(error)) {
             throw new ConvexError({
-              code: "DAYTONA_SECRET_DELETE_FAILED",
+              code: project.sandboxProvider === "e2b"
+                ? "E2B_SECRET_DELETE_FAILED"
+                : "DAYTONA_SECRET_DELETE_FAILED",
               message: errorMessage(error),
             });
           }
@@ -1599,7 +2006,12 @@ export const bindProvisionedSandbox = action({
       throw new ConvexError({ code: "UNAUTHORIZED" });
     }
 
-    const project: { projectId: string; repoName: string; cloneUrl: string } = await ctx.runQuery(
+    const project: {
+      projectId: string;
+      repoName: string;
+      cloneUrl: string;
+      sandboxProvider: SandboxProvider;
+    } = await ctx.runQuery(
       internal.projects.getSandboxBindingTargetInternal,
       {
         authorId: identity.subject,
@@ -1607,9 +2019,19 @@ export const bindProvisionedSandbox = action({
       },
     );
 
-    const daytona = createDaytonaClient();
-    const sandbox = await retryDaytonaRateLimit(() => daytona.get(args.sandboxId));
-    if (!isExpectedAutoprSandbox(sandbox, project.projectId)) {
+    const sandbox = await createProviderSandbox({
+      provider: project.sandboxProvider,
+      sandboxId: args.sandboxId,
+      cacheKey: `bind:${project.projectId}`,
+    });
+    const e2bInfo = project.sandboxProvider === "e2b"
+      ? await E2BSdkSandbox.getInfo(args.sandboxId, { requestTimeoutMs: 120_000 })
+      : undefined;
+    const identityMatches = project.sandboxProvider === "e2b"
+      ? sandbox.name === autoprSandboxName(project.projectId)
+        && e2bInfo?.metadata?.["autopr-project-id"] === project.projectId
+      : isExpectedAutoprSandbox(sandbox, project.projectId);
+    if (!identityMatches) {
       throw new ConvexError({
         code: "INVALID_SANDBOX_BINDING",
         message: "The provisioned sandbox belongs to a different project.",
@@ -1620,16 +2042,19 @@ export const bindProvisionedSandbox = action({
       repoName: project.repoName,
       repoUrl: project.cloneUrl,
     });
-    const sandboxWorkDir = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDirectory);
+    const sandboxWorkDir = sandboxRepositoryPath(providerWorkDir(project.sandboxProvider), repoDirectory);
     await sandbox.git.status(sandboxWorkDir);
 
     await ctx.runMutation(internal.projects.markSandboxReadyInternal, {
       authorId: identity.subject,
       projectId: project.projectId,
       sandboxId: sandbox.id,
+      sandboxProvider: project.sandboxProvider,
       sandboxName: sandbox.name,
       sandboxSnapshot: sandbox.snapshot,
       sandboxWorkDir,
+      e2bCpuCount: e2bInfo?.cpuCount,
+      e2bMemoryMB: e2bInfo?.memoryMB,
     });
     return null;
   },
@@ -1687,6 +2112,7 @@ export const ensureForGithubRepo = action({
         authorId: identity.subject,
         projectId: project.projectId,
         sandboxId: sandbox.sandboxId,
+        sandboxProvider: "daytona",
         sandboxName: sandbox.sandboxName,
         sandboxSnapshot: sandbox.sandboxSnapshot,
         sandboxWorkDir: sandbox.sandboxWorkDir,

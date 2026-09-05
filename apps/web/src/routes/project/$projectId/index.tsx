@@ -127,6 +127,7 @@ function ThreadWorkspaceSelect({
   branchReadFailed,
   branchUnavailable,
   disabled,
+  sandboxProviderName,
   onChange,
 }: {
   value: ThreadWorkspaceMode;
@@ -135,6 +136,7 @@ function ThreadWorkspaceSelect({
   branchReadFailed: boolean;
   branchUnavailable: boolean;
   disabled: boolean;
+  sandboxProviderName: string;
   onChange: (value: ThreadWorkspaceMode) => void;
 }) {
   const isWorktree = value === "worktree";
@@ -147,10 +149,10 @@ function ThreadWorkspaceSelect({
         disabled={disabled}
         aria-label="Thread workspace"
         title={branchUnavailable
-          ? `Start the Daytona sandbox to verify its checkout. Last known branch: ${currentBranch}.`
+          ? `Start the ${sandboxProviderName} sandbox to verify its checkout. Last known branch: ${currentBranch}.`
           : branchReadFailed
-          ? `Showing cached branch ${currentBranch}; Daytona could not be reached.`
-          : `Daytona checkout: ${currentBranch}`}
+          ? `Showing cached branch ${currentBranch}; ${sandboxProviderName} could not be reached.`
+          : `${sandboxProviderName} checkout: ${currentBranch}`}
       >
         {isWorktree ? (
           <GitFork className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
@@ -808,6 +810,9 @@ function ProjectOverviewPage() {
                             <GitBranch className="size-3 shrink-0" aria-hidden="true" />
                             <span className="truncate">{project.repoFullName ?? "project"}</span>
                           </span>
+                          <span className="border-l border-border pl-2 text-[9px] uppercase tracking-[0.16em]">
+                            {project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
+                          </span>
                           <Select value={selectedBranch} onValueChange={(branch) => {
                             if (branch === OPEN_PULL_REQUEST_VALUE) {
                               setIsOpeningPullRequest(true);
@@ -869,8 +874,8 @@ function ProjectOverviewPage() {
                             <CircleAlert
                               className="size-3 text-amber-500"
                               aria-label={sandboxBranchUnavailable
-                                ? "Daytona sandbox is not running"
-                                : "Could not verify the Daytona branch"}
+                                ? "Sandbox is not running"
+                                : "Could not verify the sandbox branch"}
                             />
                           ) : null}
                         </div>
@@ -1027,8 +1032,8 @@ function ProjectOverviewPage() {
                                 />
                                 <TooltipContent side="top" align="start" className="max-w-64 rounded-[var(--radius-md)]">
                                   {effectiveDemoEnabled
-                                    ? "Experimental: new threads will record a Daytona browser demo and may fail."
-                                    : "Allow the agent to record an experimental Daytona browser demo for new threads."}
+                                    ? "Experimental: new threads will record a sandbox browser demo and may fail."
+                                    : "Allow the agent to record an experimental sandbox browser demo for new threads."}
                                 </TooltipContent>
                               </Tooltip>
                             ) : null}
@@ -1050,6 +1055,7 @@ function ProjectOverviewPage() {
                             branchReadFailed={sandboxBranchReadFailed}
                             branchUnavailable={sandboxBranchUnavailable}
                             disabled={promptControlsDisabled}
+                            sandboxProviderName={project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
                             onChange={setWorkspaceMode}
                           />
                         </div>

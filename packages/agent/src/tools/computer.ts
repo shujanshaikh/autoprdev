@@ -172,11 +172,11 @@ const computerActionSchema = z.discriminatedUnion("type", [
 type ComputerAction = z.infer<typeof computerActionSchema>;
 
 export interface CuaComputerToolOptions extends CuaComputerOptions {
-  /** Allows starting new Daytona recordings. Keep disabled outside demo-enabled turns. */
+  /** Allows starting new sandbox recordings. Keep disabled outside demo-enabled turns. */
   recordingEnabled?: boolean;
 }
 
-type DaytonaRecording = {
+type SandboxRecording = {
   id?: unknown;
   title?: unknown;
   label?: unknown;
@@ -269,7 +269,7 @@ function recordingTitleFromFileName(fileName: string | undefined): string | unde
   return words.replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
 }
 
-function recordingTitle(recording: DaytonaRecording, fileName: string | undefined, titleHint?: string) {
+function recordingTitle(recording: SandboxRecording, fileName: string | undefined, titleHint?: string) {
   return cleanRecordingTitle(recording.title)
     ?? cleanRecordingTitle(recording.label)
     ?? cleanRecordingTitle(recording.name)
@@ -278,7 +278,7 @@ function recordingTitle(recording: DaytonaRecording, fileName: string | undefine
     ?? "Demo Walkthrough";
 }
 
-function compactRecording(recording: DaytonaRecording, titleHint?: string) {
+function compactRecording(recording: SandboxRecording, titleHint?: string) {
   const id = typeof recording.id === "string" ? recording.id : "";
   const fileName = typeof recording.fileName === "string" ? recording.fileName : undefined;
   return {
@@ -340,7 +340,7 @@ function mapPoint(observation: CuaObservation, point: { x: number; y: number }) 
   return observationPointToScreen(observation, point);
 }
 
-function requiresDaytonaDesktop(action: ComputerAction) {
+function requiresSandboxDesktop(action: ComputerAction) {
   return !["status", "stop_recording", "get_recording", "list_recordings"].includes(action.type);
 }
 
@@ -589,21 +589,21 @@ async function runOneAction(
       return commandDetails(await cua.command("set_clipboard", { text: action.text }));
     case "start_recording": {
       const recording = compactRecording(
-        await computerUse.recording.start(action.title) as DaytonaRecording,
+        await computerUse.recording.start(action.title) as SandboxRecording,
         action.title,
       );
       return { recording, recordings: [recording] };
     }
     case "stop_recording": {
       const recording = compactRecording(
-        await computerUse.recording.stop(action.recordingId) as DaytonaRecording,
+        await computerUse.recording.stop(action.recordingId) as SandboxRecording,
         action.title,
       );
       return { recording, recordings: [recording] };
     }
     case "get_recording": {
       const recording = compactRecording(
-        await computerUse.recording.get(action.recordingId) as DaytonaRecording,
+        await computerUse.recording.get(action.recordingId) as SandboxRecording,
       );
       return { recording, recordings: [recording] };
     }
@@ -612,7 +612,7 @@ async function runOneAction(
       const all = isRecord(result) && Array.isArray(result.recordings) ? result.recordings : [];
       return {
         recordings: all.slice(0, MAX_RECORDINGS_RETURNED)
-          .map((recording) => compactRecording(recording as DaytonaRecording)),
+          .map((recording) => compactRecording(recording as SandboxRecording)),
         recordingsTruncated: all.length > MAX_RECORDINGS_RETURNED,
       };
     }
@@ -716,7 +716,7 @@ async function executeCuaComputerAction(
   let outputObservation: CuaObservation | undefined;
 
   try {
-    if (requiresDaytonaDesktop(action)) {
+    if (requiresSandboxDesktop(action)) {
       await runBoundedComputerOperation(
         track,
         async () => {
@@ -726,7 +726,7 @@ async function executeCuaComputerAction(
           });
           if (requiresCua(action)) details.cursor = (await session.client.ensureReady()).cursor;
         },
-        () => new Error("Timed out waiting for the Daytona desktop and CUA gateway to become ready."),
+        () => new Error("Timed out waiting for the sandbox desktop and CUA gateway to become ready."),
         COMPUTER_START_TIMEOUT_MS,
       );
     }
@@ -817,11 +817,11 @@ export function createCuaComputerTool(
   computerOptions: CuaComputerToolOptions = {},
 ) {
   const recordingDescription = computerOptions.recordingEnabled === true
-    ? "Daytona recording actions are enabled."
+    ? "Sandbox recording actions are enabled."
     : "Starting a screen recording is disabled for this thread.";
   return tool<ComputerAction, Awaited<ReturnType<typeof executeCuaComputer>>>({
     title: "computer",
-    description: `Operate the Daytona Linux desktop through CUA only. ${recordingDescription} `
+    description: `Operate the selected sandbox's Linux desktop through CUA only. ${recordingDescription} `
       + "Use one action per call and use open_url directly for browser navigation. Capture a screenshot before "
       + "coordinate actions, then pass its exact observationId with every "
       + "coordinate action. Screenshot crops and window zooms persist, and all coordinates stay relative to the "

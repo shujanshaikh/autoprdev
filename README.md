@@ -63,11 +63,11 @@ For production deploys, configure Vercel with:
 - `CONVEX_DEPLOY_KEY`: a production deploy key from the Convex dashboard.
 - `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_REDIRECT_URI`: the WorkOS values for the same WorkOS environment used by the Convex deployment.
 - `TRIGGER_SECRET_KEY`: the Trigger.dev environment secret used by the Vercel routes to start, inspect, stream, and cancel agent runs.
-- Any app runtime secrets such as `AI_GATEWAY_API_KEY`, `DAYTONA_API_KEY`, and `DAYTONA_API_URL`.
+- Any app runtime secrets such as `AI_GATEWAY_API_KEY`, `DAYTONA_API_KEY`, `DAYTONA_API_URL`, and `E2B_API_KEY`.
 - `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`: the **Autopr** GitHub App with repository Contents read/write access. Configure it for installation on any account, disable webhooks, and leave all other optional permissions off. The private key may be GitHub's downloaded PKCS#1 PEM, PKCS#8 PEM, escaped-newline PEM, or base64-encoded PEM. Users install or configure Autopr from the GitHub connection and sandbox screens, selecting only the repositories they want Autopr to open. Sandbox Git commands use one-repository installation tokens instead of the user's broad OAuth token.
 - Optionally, `DAYTONA_DOMAIN_ALLOW_LIST`: a comma-separated Daytona egress domain allow-list. If omitted, sandboxes have normal outbound internet access so the desktop browser works like a regular browser.
 
-Also make sure the Convex deployment itself has `WORKOS_CLIENT_ID`, `DAYTONA_API_KEY`, and (when customized) `DAYTONA_API_URL` set. `WORKOS_CLIENT_ID` must match the WorkOS AuthKit client ID used by the web app. If the web bundle uses one WorkOS app but the Convex deployment was never deployed or has a different `WORKOS_CLIENT_ID`, the browser will reconnect but Convex will log `No auth provider found matching the given token`.
+Also make sure the Convex deployment itself has `WORKOS_CLIENT_ID`, `DAYTONA_API_KEY`, and `E2B_API_KEY` set, plus the provider URL or template overrides when customized. `WORKOS_CLIENT_ID` must match the WorkOS AuthKit client ID used by the web app. If the web bundle uses one WorkOS app but the Convex deployment was never deployed or has a different `WORKOS_CLIENT_ID`, the browser will reconnect but Convex will log `No auth provider found matching the given token`.
 
 ### Trigger.dev agent runtime
 
@@ -79,8 +79,10 @@ Set `TRIGGER_PROJECT_REF` while running the Trigger.dev CLI. Configure the follo
 - `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_REDIRECT_URI`
 - `LWC_SECRET` (or `LOGIN_WITH_CHATGPT_SECRET`) and any other Login with ChatGPT settings used by the web app
 - `DAYTONA_API_KEY`, plus `DAYTONA_API_URL` and `DAYTONA_SNAPSHOT` when customized
+- `E2B_API_KEY`, plus `E2B_TEMPLATE` when customized
+- Optionally, `E2B_DOMAIN_ALLOW_LIST`: a comma-separated E2B egress domain allow-list. Set it in Trigger.dev, Convex, and every other process that creates E2B sandboxes. If omitted, E2B sandboxes have normal outbound access.
 
-The agent's desktop interaction runs through CUA computer-server inside the Daytona VM; Daytona still owns the VM desktop lifecycle and screen recordings. Build or update the `autopr-cua` snapshot using [`infra/daytona/autopr/README.md`](infra/daytona/autopr/README.md) so new sandboxes have the pinned CUA runtime preinstalled. Older sandboxes use a slower one-time native CUA bootstrap on first computer action.
+Desktop interaction uses the same CUA gateway inside both providers and never uses E2B's computer-use tool. Build or update the Daytona `autopr-cua` snapshot with [`infra/daytona/autopr/README.md`](infra/daytona/autopr/README.md), and build the E2B `autopr` template with [`infra/e2b/autopr/README.md`](infra/e2b/autopr/README.md). Both images include the pinned browser, desktop, CUA, FFF, and terminal runtimes.
 
 The root development command starts the web app, Convex, and the Trigger.dev task worker together:
 

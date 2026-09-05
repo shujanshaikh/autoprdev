@@ -11,7 +11,7 @@ function delay(ms: number): Promise<void> {
 async function probePreviewRoute(url: string): Promise<number> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PREVIEW_PROBE_TIMEOUT_MS);
-  timer.unref?.();
+  (timer as { unref?: () => void }).unref?.();
 
   try {
     const response = await fetch(url, {
@@ -38,7 +38,7 @@ export function previewWebsocketUrl(value: string, route: string): string {
 }
 
 /**
- * Waits until Daytona's public preview proxy can reach the sandbox port. A
+ * Waits until the provider's public preview proxy can reach the sandbox port. A
  * local listening socket is not enough because the proxy route converges
  * separately after a sandbox or desktop process starts.
  */
@@ -73,5 +73,5 @@ export async function waitForPreviewRoute(
   const detail = lastStatus === undefined
     ? "connection failed"
     : `HTTP ${lastStatus}`;
-  throw new Error(`Daytona desktop preview route did not become reachable: ${detail}.`);
+  throw new Error(`Sandbox desktop preview route did not become reachable: ${detail}.`);
 }

@@ -1,5 +1,6 @@
 import type { DaytonaSandbox, SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand } from "../sandbox/execute";
+import { sandboxUserHome } from "../sandbox/repo-path";
 
 const DEFAULT_CUA_SERVER_PORT = 8_765;
 // Two idempotent attempts fit inside the computer tool's 120-second boundary.
@@ -216,7 +217,7 @@ export function cuaBootstrapCommand(): string {
     "set -eu",
     'IMAGE_LAUNCHER="/opt/autopr/bin/autopr-cua-gateway"',
     'if [ -x "$IMAGE_LAUNCHER" ]; then exec "$IMAGE_LAUNCHER"; fi',
-    'echo "AutoPR CUA gateway is missing from this sandbox image; rebuild and roll out the Daytona snapshot." >&2',
+    'echo "AutoPR CUA gateway is missing from this sandbox image; rebuild and roll out the provider template." >&2',
     "exit 127",
   ].join("\n");
 }
@@ -231,8 +232,9 @@ async function startCuaServer(
   if (existing) return await existing;
 
   const pending = (async () => {
+    const sandboxHome = sandboxUserHome(sandboxOptions.provider ?? "daytona");
     const result = await executeSandboxCommand(cuaBootstrapCommand(), {
-      cwd: "/home/daytona",
+      cwd: sandboxHome,
       timeout: 7 * 60,
       env: {
         CUA_PORT: String(options.serverPort),
@@ -248,7 +250,7 @@ async function startCuaServer(
 
     if (result.timedOut || result.exitCode !== 0) {
       const diagnostic = result.stderr || result.stdout || result.output || "unknown startup failure";
-      throw new Error(`Could not start the CUA gateway in Daytona: ${diagnostic}`);
+      throw new Error(`Could not start the CUA gateway in the sandbox: ${diagnostic}`);
     }
   })();
 
@@ -275,6 +277,7 @@ async function ensureDesktopPointer(
   if (existing) return await existing;
 
   const theme = mode === "overlay" ? "AutoPRHidden" : "Adwaita";
+  const sandboxHome = sandboxUserHome(sandboxOptions.provider ?? "daytona");
   const pending = executeSandboxCommand([
     "set -eu",
     `export XCURSOR_THEME="${theme}"`,
@@ -286,7 +289,7 @@ async function ensureDesktopPointer(
       ? 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -xcf /usr/share/icons/AutoPRHidden/cursors/left_ptr 32; fi'
       : 'if command -v xsetroot >/dev/null 2>&1; then xsetroot -cursor_name left_ptr; fi',
   ].join("\n"), {
-    cwd: "/home/daytona",
+    cwd: sandboxHome,
     timeout: 15,
     env: { DISPLAY: display },
     sandboxOptions: {
@@ -297,7 +300,7 @@ async function ensureDesktopPointer(
   }).then((result) => {
     if (result.timedOut || result.exitCode !== 0) {
       const diagnostic = result.stderr || result.stdout || result.output || "unknown pointer setup failure";
-      throw new Error(`Could not configure the ${mode} Daytona pointer mode: ${diagnostic}`);
+      throw new Error(`Could not configure the ${mode} sandbox pointer mode: ${diagnostic}`);
     }
   });
 
@@ -335,7 +338,7 @@ export class CuaComputerClient {
     );
   }
 
-  /** Keeps a turn-scoped CUA session attached when Daytona refreshes its SDK wrapper. */
+  /** Keeps a turn-scoped CUA session attached when the provider refreshes its SDK wrapper. */
   updateSandbox(sandbox: DaytonaSandbox): void {
     if (sandbox.id !== this.sandbox.id) {
       this.invalidateConnection();
@@ -492,7 +495,7 @@ export class CuaComputerClient {
         available: false,
         enabled: false,
         capabilities,
-        reason: "CUA Driver is unavailable; native computer use and Daytona recording remain active.",
+        reason: "CUA Driver is unavailable; native computer use and sandbox recording remain active.",
       };
     }
     if (!REQUIRED_CUA_AGENT_CURSOR_COMMANDS.every((command) => capabilities.includes(command))) {
@@ -564,7 +567,7 @@ export class CuaComputerClient {
     }
     const size = isRecord(screen.size) ? screen.size : undefined;
     if (typeof size?.width !== "number" || typeof size.height !== "number") {
-      throw new Error("CUA gateway could not read the Daytona desktop size.");
+      throw new Error("CUA gateway could not read the sandbox desktop size.");
     }
     const backend = "get_desktop_state" in commandManifest ? "cua-driver" : "native";
     let cursor = this.cursorStatus(backend, commandManifest);
@@ -627,7 +630,7 @@ export class CuaComputerClient {
           cursor: {
             ...cursor,
             enabled: false,
-            reason: "The labeled legacy cursor was disabled; the native Daytona pointer is active.",
+            reason: "The labeled legacy cursor was disabled; the native sandbox pointer is active.",
           },
         };
       } catch (error) {
@@ -698,7 +701,7 @@ export class CuaComputerClient {
       try {
         // A healthy native or labeled legacy server is still degraded on a
         // implicit-session-capable image. Let the image launcher replace it before the next
-        // action, especially before Daytona starts recording.
+        // action, especially before the sandbox starts recording.
         await recovery;
       } catch (error) {
         if (initialStatus) {

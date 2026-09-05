@@ -9,6 +9,7 @@ import {
   gitWorkflowPhaseValidator,
   gitWorkflowPushResultValidator,
 } from "./lib/gitWorkflow";
+import { sandboxProviderValidator } from "./lib/sandboxProvider";
 
 export default defineSchema({
   projects: defineTable({
@@ -28,6 +29,7 @@ export default defineSchema({
     branchSwitchError: v.optional(v.string()),
     branchSwitchedAt: v.optional(v.number()),
     sandboxCacheKey: v.string(),
+    sandboxProvider: v.optional(sandboxProviderValidator),
     sandboxId: v.optional(v.string()),
     sandboxName: v.optional(v.string()),
     sandboxSnapshot: v.optional(v.string()),
@@ -47,6 +49,10 @@ export default defineSchema({
       envName: v.string(),
       updatedAt: v.number(),
     }))),
+    sandboxEnvironmentUpdateLock: v.optional(v.object({
+      operationId: v.string(),
+      expiresAt: v.number(),
+    })),
     createdAt: v.number(),
     updatedAt: v.number(),
     lastOpenedAt: v.optional(v.number()),
@@ -61,7 +67,13 @@ export default defineSchema({
     sandboxId: v.string(),
     sandboxName: v.optional(v.string()),
     repoFullName: v.optional(v.string()),
-    daytonaOrganizationId: v.string(),
+    sandboxProvider: v.optional(sandboxProviderValidator),
+    daytonaOrganizationId: v.optional(v.string()),
+    costSource: v.optional(v.union(v.literal("authoritative"), v.literal("estimated"))),
+    e2bCpuCount: v.optional(v.number()),
+    e2bMemoryMB: v.optional(v.number()),
+    e2bRunningMs: v.optional(v.number()),
+    e2bMeteringStartedAt: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("pending_finalization"), v.literal("finalized")),
     latestTotalPrice: v.optional(v.number()),
     finalTotalPrice: v.optional(v.number()),

@@ -3,6 +3,11 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
+import { e2bMeteringAt, estimatedE2BPrice } from "./lib/e2bPricing";
+import {
+  resolvedSandboxProvider,
+  sandboxProviderValidator,
+} from "./lib/sandboxProvider";
 
 const ACTIVE_SYNC_INTERVAL_MS = 5 * 60_000;
 const FINALIZATION_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
@@ -31,24 +36,42 @@ export const upsertWhenSandboxReadyInternal = internalMutation({
     sandboxId: v.string(),
     sandboxName: v.optional(v.string()),
     repoFullName: v.optional(v.string()),
+    sandboxProvider: sandboxProviderValidator,
+    e2bCpuCount: v.optional(v.number()),
+    e2bMemoryMB: v.optional(v.number()),
     sandboxCreatedAt: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const daytonaOrganizationId = requireDaytonaOrganizationId();
+    const daytonaOrganizationId = args.sandboxProvider === "daytona"
+      ? requireDaytonaOrganizationId()
+      : undefined;
     const existing = await ctx.db
       .query("sandboxCosts")
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
 
     if (existing) {
+      const e2bRunningMs = args.sandboxProvider === "e2b"
+        ? (existing.e2bRunningMs ?? 0) + (
+            existing.e2bMeteringStartedAt === undefined
+              ? 0
+              : Math.max(0, now - existing.e2bMeteringStartedAt)
+          )
+        : undefined;
       await ctx.db.patch(existing._id, {
         authorId: args.authorId,
         projectId: args.projectId,
         sandboxName: args.sandboxName,
         repoFullName: args.repoFullName,
+        sandboxProvider: args.sandboxProvider,
         daytonaOrganizationId,
+        costSource: args.sandboxProvider === "e2b" ? "estimated" : "authoritative",
+        e2bCpuCount: args.e2bCpuCount,
+        e2bMemoryMB: args.e2bMemoryMB,
+        e2bRunningMs,
+        e2bMeteringStartedAt: args.sandboxProvider === "e2b" ? now : undefined,
         status: "active",
         deletedAt: undefined,
         finalizedAt: undefined,
@@ -63,7 +86,13 @@ export const upsertWhenSandboxReadyInternal = internalMutation({
         sandboxId: args.sandboxId,
         sandboxName: args.sandboxName,
         repoFullName: args.repoFullName,
+        sandboxProvider: args.sandboxProvider,
         daytonaOrganizationId,
+        costSource: args.sandboxProvider === "e2b" ? "estimated" : "authoritative",
+        e2bCpuCount: args.e2bCpuCount,
+        e2bMemoryMB: args.e2bMemoryMB,
+        e2bRunningMs: args.sandboxProvider === "e2b" ? 0 : undefined,
+        e2bMeteringStartedAt: args.sandboxProvider === "e2b" ? now : undefined,
         status: "active",
         sandboxCreatedAt: args.sandboxCreatedAt,
         finalizationAttempts: 0,
@@ -114,6 +143,7 @@ export const recordSyncSuccessInternal = internalMutation({
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
     if (!row) return null;
+    if (row.status === "finalized" || (args.finalize && row.status !== "pending_finalization")) return null;
     const now = Date.now();
     await ctx.db.patch(row._id, args.finalize
       ? {
@@ -137,6 +167,147 @@ export const recordSyncSuccessInternal = internalMutation({
   },
 });
 
+export const recordE2BSyncSuccessInternal = internalMutation({
+  args: {
+    sandboxId: v.string(),
+    meteredUntil: v.number(),
+    checkedAt: v.number(),
+    startedAt: v.number(),
+    running: v.boolean(),
+    cpuCount: v.number(),
+    memoryMB: v.number(),
+    finalize: v.boolean(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row) return false;
+    const expectedStatus = args.finalize ? "pending_finalization" : "active";
+    if (row.status !== expectedStatus) return false;
+    if (row.lastSyncedAt !== undefined && args.checkedAt < row.lastSyncedAt) return false;
+    const now = Date.now();
+    const startedAt = row.e2bMeteringStartedAt !== undefined
+      ? Math.max(row.e2bMeteringStartedAt, args.startedAt)
+      : args.running
+        ? Math.max(args.startedAt, row.lastSyncedAt ?? args.startedAt)
+        : undefined;
+    const additionalMs = startedAt === undefined
+      ? 0
+      : Math.max(0, args.meteredUntil - startedAt);
+    const runningMs = (row.e2bRunningMs ?? 0) + additionalMs;
+    const totalPrice = estimatedE2BPrice(runningMs, args.cpuCount, args.memoryMB);
+    await ctx.db.patch(row._id, {
+      sandboxProvider: "e2b",
+      costSource: "estimated",
+      e2bCpuCount: args.cpuCount,
+      e2bMemoryMB: args.memoryMB,
+      e2bRunningMs: runningMs,
+      e2bMeteringStartedAt: !args.finalize && args.running ? args.meteredUntil : undefined,
+      latestTotalPrice: totalPrice,
+      finalTotalPrice: args.finalize ? totalPrice : undefined,
+      status: args.finalize ? "finalized" : row.status,
+      lastSyncedAt: args.checkedAt,
+      finalizedAt: args.finalize ? now : undefined,
+      syncError: undefined,
+      nextSyncAt: args.finalize ? undefined : now + ACTIVE_SYNC_INTERVAL_MS,
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
+export const startE2BMeteringInternal = internalMutation({
+  args: { sandboxId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return null;
+    if (row.status !== "active") return null;
+    if (row.e2bMeteringStartedAt === undefined) {
+      const now = Date.now();
+      await ctx.db.patch(row._id, { e2bMeteringStartedAt: now, lastSyncedAt: now, updatedAt: now });
+    }
+    return null;
+  },
+});
+
+export const stopE2BMeteringInternal = internalMutation({
+  args: { sandboxId: v.string(), stoppedAt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return null;
+    if (row.status !== "active") return null;
+    if (row.lastSyncedAt !== undefined && args.stoppedAt < row.lastSyncedAt) return null;
+    const metering = e2bMeteringAt({
+      runningMs: row.e2bRunningMs,
+      startedAt: row.e2bMeteringStartedAt,
+      cpuCount: row.e2bCpuCount,
+      memoryMB: row.e2bMemoryMB,
+    }, args.stoppedAt);
+    await ctx.db.patch(row._id, {
+      e2bCpuCount: metering.cpuCount,
+      e2bMemoryMB: metering.memoryMB,
+      e2bRunningMs: metering.runningMs,
+      e2bMeteringStartedAt: undefined,
+      latestTotalPrice: metering.totalPrice,
+      lastSyncedAt: args.stoppedAt,
+      updatedAt: args.stoppedAt,
+    });
+    return null;
+  },
+});
+
+/** Finalizes E2B's estimated cost after the provider sandbox is gone. */
+export const finalizeE2BFromLocalMeteringInternal = internalMutation({
+  args: { sandboxId: v.string(), deletedAt: v.number() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("sandboxCosts")
+      .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
+      .unique();
+    if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return false;
+    if (row.status === "finalized") return true;
+    if (row.status !== "pending_finalization") return false;
+
+    const now = Date.now();
+    const meteredUntil = args.deletedAt;
+    const metering = e2bMeteringAt({
+      runningMs: row.e2bRunningMs,
+      startedAt: row.e2bMeteringStartedAt,
+      cpuCount: row.e2bCpuCount,
+      memoryMB: row.e2bMemoryMB,
+    }, meteredUntil);
+    await ctx.db.patch(row._id, {
+      costSource: "estimated",
+      e2bCpuCount: metering.cpuCount,
+      e2bMemoryMB: metering.memoryMB,
+      e2bRunningMs: metering.runningMs,
+      e2bMeteringStartedAt: undefined,
+      latestTotalPrice: metering.totalPrice,
+      finalTotalPrice: metering.totalPrice,
+      status: "finalized",
+      deletedAt: meteredUntil,
+      lastSyncedAt: meteredUntil,
+      finalizedAt: now,
+      syncError: undefined,
+      nextSyncAt: undefined,
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
 export const recordSyncFailureInternal = internalMutation({
   args: {
     sandboxId: v.string(),
@@ -150,6 +321,7 @@ export const recordSyncFailureInternal = internalMutation({
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
     if (!row) return null;
+    if (row.status === "finalized" || (args.finalize && row.status !== "pending_finalization")) return null;
     const now = Date.now();
     const attempts = args.finalize ? row.finalizationAttempts + 1 : row.finalizationAttempts;
     const nextSyncAt = args.finalize
@@ -174,6 +346,7 @@ export const markPendingFinalizationInternal = internalMutation({
     sandboxId: v.string(),
     sandboxName: v.optional(v.string()),
     repoFullName: v.optional(v.string()),
+    sandboxProvider: sandboxProviderValidator,
     sandboxCreatedAt: v.number(),
   },
   returns: v.null(),
@@ -190,7 +363,9 @@ export const markPendingFinalizationInternal = internalMutation({
         sandboxId: args.sandboxId,
         sandboxName: args.sandboxName,
         repoFullName: args.repoFullName,
-        daytonaOrganizationId: requireDaytonaOrganizationId(),
+        sandboxProvider: args.sandboxProvider,
+        daytonaOrganizationId: args.sandboxProvider === "daytona" ? requireDaytonaOrganizationId() : undefined,
+        costSource: args.sandboxProvider === "e2b" ? "estimated" : "authoritative",
         status: "pending_finalization",
         sandboxCreatedAt: args.sandboxCreatedAt,
         deletedAt: now,
@@ -201,6 +376,7 @@ export const markPendingFinalizationInternal = internalMutation({
       });
       return null;
     }
+    if (row.status === "finalized") return null;
     await ctx.db.patch(row._id, {
       status: "pending_finalization",
       deletedAt: row.deletedAt ?? now,

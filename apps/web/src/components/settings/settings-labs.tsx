@@ -65,7 +65,7 @@ export function SettingsLabs({
           <div className="mt-3 flex gap-2 rounded-sm border border-[color:color-mix(in_srgb,var(--cohere-coral)_25%,transparent)] bg-[color:color-mix(in_srgb,var(--cohere-coral)_5%,transparent)] px-3 py-2 text-xs leading-5 text-[color:var(--cohere-coral)]">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <p>
-              Demo recording is experimental and can fail when the browser preview or Daytona desktop recording is unavailable.
+              Demo recording is experimental and can fail when the browser preview or sandbox recording is unavailable.
             </p>
           </div>
 

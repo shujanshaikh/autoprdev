@@ -301,21 +301,31 @@ async function runAgentTask(
         }),
         providerOptions: agentProviderOptions(selectedModel, instructions),
       });
-      let usageMetadata: AssistantUsageMetadata | undefined;
       const uiStream = finalizeAgentUIMessageStream(
         result.toUIMessageStream({
           sendStart: !options.assistantMessageId,
           sendFinish: false,
         }),
         async () => {
-          usageMetadata = createAssistantUsageMetadata(
+          return createAssistantUsageMetadata(
             await result.steps,
             selectedModel.modelId,
             runStartedAt,
             Date.now(),
             subAgentUsageSteps,
           );
-          return usageMetadata;
+        },
+        async (metadata) => {
+          if (!persistence) {
+            return;
+          }
+
+          const response = await result.response;
+          await patchAssistantMessage({
+            ...persistence,
+            parts: responseMessagesToAssistantParts(response.messages),
+            metadata,
+          });
         },
       );
       const streamed = agentUIStream.pipe(
@@ -326,24 +336,11 @@ async function runAgentTask(
       await streamed.waitUntilComplete();
 
       streamFinished = true;
-      const response = await result.response;
-      if (!usageMetadata) {
-        throw new Error("Assistant usage metadata was not finalized with the stream.");
-      }
-
       if (!persistence) {
         return;
       }
 
       try {
-        await patchAssistantMessage({
-          ...persistence,
-          parts: responseMessagesToAssistantParts(
-            [...inputMessages, ...response.messages],
-            inputMessages.length,
-          ),
-          metadata: usageMetadata,
-        });
         await markAgentRunFinished({
           ...persistence,
           runId,

@@ -14,6 +14,11 @@ E2B-only preview gateway on port 6090 instead. AutoPR signs the target port and
 expiry with a sandbox-local secret; noVNC, ttyd, and CUA bind to loopback behind
 that gateway so their bare E2B hosts are not public entry points.
 
+The template start command starts only desktop services. The preview gateway
+starts on first use, after sandbox creation, so its signing secret is never
+copied into other sandboxes through the template snapshot. Rebuild the template
+after changing these lifecycle scripts.
+
 Set `E2B_API_KEY`, then build the template from the repository root:
 
 ```sh

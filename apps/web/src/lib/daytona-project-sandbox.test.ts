@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createSandbox: vi.fn(),
+  deleteSandbox: vi.fn(),
   runAuthenticatedSandboxCommand: vi.fn(),
   sdkGitAdd: vi.fn(),
 }));
@@ -9,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tanstack/react-start/server-only", () => ({}));
 vi.mock("@autopr/agent/sandbox", () => ({
   createSandbox: mocks.createSandbox,
-  deleteSandbox: vi.fn(),
+  deleteSandbox: mocks.deleteSandbox,
   DEFAULT_SANDBOX_WORKDIR: "/home/daytona",
   sandboxDefaultWorkDir: (provider: string) =>
     provider === "e2b" ? "/home/autopr" : "/home/daytona",
@@ -23,6 +24,7 @@ vi.mock("#/lib/sandbox-git-auth", () => ({
 
 import {
   commitPreparedProjectSandboxChanges,
+  createProjectSandbox,
   prepareProjectSandboxCommit,
   renameProjectSandboxBranch,
 } from "./daytona-project-sandbox";
@@ -161,5 +163,21 @@ describe("project sandbox commits", () => {
       provider: "e2b",
       sandboxId: "sandbox-1",
     });
+  });
+});
+
+describe("project sandbox creation", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it.each(["daytona", "e2b"] as const)("deletes the unbound %s sandbox when cloning fails", async (sandboxProvider) => {
+    mocks.createSandbox.mockResolvedValue({ id: "unbound-sandbox" });
+    mocks.runAuthenticatedSandboxCommand.mockResolvedValue({ exitCode: 128, stderr: "Repository not found" });
+
+    await expect(createProjectSandbox({
+      projectId: "project-1", cloneUrl: "https://github.com/owner/repo.git",
+      githubToken: "test-token", branch: "main", repoName: "repo", sandboxProvider,
+    })).rejects.toThrow("Could not clone the selected repository");
+
+    expect(mocks.deleteSandbox).toHaveBeenCalledWith("unbound-sandbox", sandboxProvider);
   });
 });

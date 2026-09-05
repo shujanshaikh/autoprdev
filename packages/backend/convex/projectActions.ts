@@ -534,7 +534,7 @@ async function getProviderSandboxRuntimeStatus(
 
 async function startProviderSandbox(provider: SandboxProvider, sandboxId: string) {
   if (provider === "daytona") return await startDaytonaSandbox(sandboxId);
-  await createProviderSandbox({ provider, sandboxId });
+  await E2BSdkSandbox.connect(sandboxId, { timeoutMs: 15 * 60_000, requestTimeoutMs: 120_000 });
   return "started" as const;
 }
 
@@ -1660,7 +1660,7 @@ export const importSandboxEnvironmentVariables = action({
       let committed = false;
       try {
         const now = Date.now();
-        const updatedSecrets = await Promise.all(normalizedEntries.map(async (entry) => {
+        const created = await Promise.allSettled(normalizedEntries.map(async (entry) => {
           const secret = await E2BSecret.create(
             e2bEnvironmentSecretName(args.projectId, entry.envName, operationId),
             entry.value,
@@ -1675,6 +1675,10 @@ export const importSandboxEnvironmentVariables = action({
             updatedAt: now,
           };
         }));
+        // Wait for every create before rolling back, including successes that arrive after a failure.
+        const failedCreation = created.find((result) => result.status === "rejected");
+        if (failedCreation) throw failedCreation.reason;
+        const updatedSecrets = created.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
         const allSecrets = [
           ...lockedProject.sandboxSecrets.filter((secret) => !importedNames.has(secret.envName)),
           ...updatedSecrets,
@@ -1819,7 +1823,7 @@ export const removeSandboxEnvironmentVariable = action({
         lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
       )));
       let manifestUpdated = false;
-      let secretDestroyed = false;
+      let committed = false;
       try {
         if (!lockedSecret && !lockedVariable) return null;
         const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
@@ -1832,24 +1836,30 @@ export const removeSandboxEnvironmentVariable = action({
         );
         manifestUpdated = true;
         await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
-        if (lockedSecret) {
-          await E2BSecret.destroy(lockedSecret.secretId);
-          secretDestroyed = true;
-        }
-        await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
         await ctx.runMutation(internal.projects.removeSandboxEnvironmentVariableInternal, {
           authorId: identity.subject,
           projectId: args.projectId,
           envName: args.envName,
           operationId,
         });
+        committed = true;
+        if (lockedSecret) await E2BSecret.destroy(lockedSecret.secretId);
         return null;
       } catch (error) {
         const rollbackErrors: unknown[] = [];
-        if (manifestUpdated && !secretDestroyed) {
+        if (manifestUpdated) {
           try {
             const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
             if (await renewSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId)) {
+              // Retain the secret reference for retry if provider deletion failed after the commit.
+              if (committed && lockedSecret) {
+                await ctx.runMutation(internal.projects.upsertSandboxSecretsInternal, {
+                  authorId: identity.subject,
+                  projectId: args.projectId,
+                  operationId,
+                  secrets: [lockedSecret],
+                });
+              }
               await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
             }
           } catch (rollbackError) {

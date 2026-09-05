@@ -171,6 +171,7 @@ export const recordE2BSyncSuccessInternal = internalMutation({
   args: {
     sandboxId: v.string(),
     meteredUntil: v.number(),
+    checkedAt: v.number(),
     startedAt: v.number(),
     running: v.boolean(),
     cpuCount: v.number(),
@@ -186,13 +187,13 @@ export const recordE2BSyncSuccessInternal = internalMutation({
     if (!row) return false;
     const expectedStatus = args.finalize ? "pending_finalization" : "active";
     if (row.status !== expectedStatus) return false;
-    if (row.lastSyncedAt !== undefined && args.meteredUntil < row.lastSyncedAt) return false;
+    if (row.lastSyncedAt !== undefined && args.checkedAt < row.lastSyncedAt) return false;
     const now = Date.now();
-    const startedAt = row.e2bMeteringStartedAt ?? (
-      args.running
+    const startedAt = row.e2bMeteringStartedAt !== undefined
+      ? Math.max(row.e2bMeteringStartedAt, args.startedAt)
+      : args.running
         ? Math.max(args.startedAt, row.lastSyncedAt ?? args.startedAt)
-        : undefined
-    );
+        : undefined;
     const additionalMs = startedAt === undefined
       ? 0
       : Math.max(0, args.meteredUntil - startedAt);
@@ -208,7 +209,7 @@ export const recordE2BSyncSuccessInternal = internalMutation({
       latestTotalPrice: totalPrice,
       finalTotalPrice: args.finalize ? totalPrice : undefined,
       status: args.finalize ? "finalized" : row.status,
-      lastSyncedAt: now,
+      lastSyncedAt: args.checkedAt,
       finalizedAt: args.finalize ? now : undefined,
       syncError: undefined,
       nextSyncAt: args.finalize ? undefined : now + ACTIVE_SYNC_INTERVAL_MS,
@@ -227,8 +228,10 @@ export const startE2BMeteringInternal = internalMutation({
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
     if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return null;
+    if (row.status !== "active") return null;
     if (row.e2bMeteringStartedAt === undefined) {
-      await ctx.db.patch(row._id, { e2bMeteringStartedAt: Date.now(), updatedAt: Date.now() });
+      const now = Date.now();
+      await ctx.db.patch(row._id, { e2bMeteringStartedAt: now, lastSyncedAt: now, updatedAt: now });
     }
     return null;
   },
@@ -243,6 +246,8 @@ export const stopE2BMeteringInternal = internalMutation({
       .withIndex("by_sandbox_id", (q) => q.eq("sandboxId", args.sandboxId))
       .unique();
     if (!row || resolvedSandboxProvider(row.sandboxProvider) !== "e2b") return null;
+    if (row.status !== "active") return null;
+    if (row.lastSyncedAt !== undefined && args.stoppedAt < row.lastSyncedAt) return null;
     const metering = e2bMeteringAt({
       runningMs: row.e2bRunningMs,
       startedAt: row.e2bMeteringStartedAt,

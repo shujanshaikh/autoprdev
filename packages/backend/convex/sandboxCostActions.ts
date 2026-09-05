@@ -55,6 +55,7 @@ async function fetchAuthoritativeTotal(sandboxId: string, from: number, to: numb
 
 async function fetchE2BMeteringSnapshot(sandboxId: string) {
   const { Sandbox, SandboxNotFoundError } = await import("e2b");
+  const checkedAt = Date.now();
   const info = await Sandbox.getInfo(sandboxId, { requestTimeoutMs: 120_000 }).catch((error) => {
     if (error instanceof SandboxNotFoundError) return null;
     throw error;
@@ -65,6 +66,7 @@ async function fetchE2BMeteringSnapshot(sandboxId: string) {
     cpuCount: info.cpuCount,
     memoryMB: info.memoryMB,
     startedAt: info.startedAt.getTime(),
+    checkedAt,
     running: info.state === "running",
     meteredUntil: info.state === "running"
       ? now

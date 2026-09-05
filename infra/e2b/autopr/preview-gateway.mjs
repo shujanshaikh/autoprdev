@@ -42,7 +42,12 @@ const secret = previewSecret();
 if (!/^[a-f0-9]{64}$/.test(secret)) throw new Error("Invalid E2B preview gateway secret.");
 
 function authorize(requestUrl) {
-  const url = new URL(requestUrl ?? "/", "http://preview.local");
+  let url;
+  try {
+    url = new URL(requestUrl ?? "/", "http://preview.local");
+  } catch {
+    return undefined;
+  }
   const match = routePattern.exec(url.pathname);
   if (!match) return undefined;
 
@@ -101,6 +106,8 @@ const server = createServer((incoming, outgoing) => {
     if (!outgoing.headersSent) outgoing.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
     outgoing.end("Preview service is unavailable.\n");
   });
+  incoming.on("aborted", () => upstream.destroy());
+  outgoing.on("close", () => upstream.destroy());
   incoming.pipe(upstream);
 });
 
@@ -112,6 +119,9 @@ server.on("upgrade", (request, client, head) => {
   }
 
   const upstream = connectSocket(target.port, "127.0.0.1");
+  client.on("error", () => upstream.destroy());
+  client.on("close", () => upstream.destroy());
+  upstream.on("close", () => client.destroy());
   upstream.once("connect", () => {
     const headers = [];
     for (let index = 0; index < request.rawHeaders.length; index += 2) {

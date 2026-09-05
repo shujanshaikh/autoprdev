@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("e2b", () => ({
   CommandExitError: class CommandExitError extends Error {},
+  FileNotFoundError: class FileNotFoundError extends Error {},
   Sandbox: class Sandbox {
     static connect = mocks.connect;
     static create = mocks.create;
@@ -38,6 +39,8 @@ function sdkSandbox(id = "e2b-test") {
   return {
     sandboxId: id,
     commands: {
+      connect: vi.fn(),
+      kill: vi.fn(async () => true),
       run: vi.fn(async (_command: string, _options?: unknown) => ({ exitCode: 0, stdout: "ok", stderr: "" })),
     },
     files: {
@@ -238,7 +241,7 @@ describe("E2B sandbox adapter", () => {
     }
   });
 
-  it("applies requested timeouts to background session commands", async () => {
+  it("bounds background startup without disconnecting a long-running command after 15 seconds", async () => {
     const sdk = sdkSandbox();
     const handle = {
       pid: 44,
@@ -260,11 +263,12 @@ describe("E2B sandbox adapter", () => {
 
     expect(sdk.commands.run).toHaveBeenCalledWith("sleep 30", expect.objectContaining({
       background: true,
-      timeoutMs: 15_000,
+      requestTimeoutMs: 15_000,
+      timeoutMs: 86_400_000,
     }));
   });
 
-  it("records transport failures as terminal background command state", async () => {
+  it("reattaches after a transport failure without reporting a false process exit", async () => {
     const sdk = sdkSandbox("failed-background-e2b");
     const handle = {
       pid: 43,
@@ -277,6 +281,12 @@ describe("E2B sandbox adapter", () => {
       }),
     };
     sdk.commands.run.mockResolvedValueOnce(handle as never);
+    const reconnected = {
+      ...handle,
+      stdout: "server still running",
+      wait: vi.fn(() => new Promise<never>(() => undefined)),
+    };
+    sdk.commands.connect.mockResolvedValueOnce(reconnected);
     const sandbox = new E2BSandboxAdapter(sdk as never);
     await sandbox.process.createSession("failed-session");
     await sandbox.process.executeSessionCommand("failed-session", {
@@ -285,13 +295,14 @@ describe("E2B sandbox adapter", () => {
     });
 
     await vi.waitFor(async () => {
-      await expect(sandbox.process.getSessionCommand("failed-session", "43")).resolves.toMatchObject({
-        exitCode: 1,
+      await expect(sandbox.process.getSessionCommandLogs("failed-session", "43")).resolves.toMatchObject({
+        stdout: "server still running",
       });
     });
-    await expect(sandbox.process.getSessionCommandLogs("failed-session", "43")).resolves.toMatchObject({
-      stderr: "connection dropped",
+    await expect(sandbox.process.getSessionCommand("failed-session", "43")).resolves.toMatchObject({
+      exitCode: undefined,
     });
+    expect(sdk.commands.connect).toHaveBeenCalledWith(43, expect.objectContaining({ timeoutMs: 86_400_000 }));
   });
 
   it("retains only recent terminal command state after releasing E2B handles", async () => {
@@ -335,5 +346,45 @@ describe("E2B sandbox adapter", () => {
       state: "paused",
     } satisfies Partial<SandboxRuntimeNotStartedError>);
     expect(mocks.connect).not.toHaveBeenCalled();
+  });
+
+  it("does not renew the inactivity deadline during Git status polling", async () => {
+    mocks.getInfo.mockResolvedValueOnce({ state: "running" });
+    mocks.connect.mockResolvedValueOnce(sdkSandbox("read-only-e2b"));
+
+    await getE2BSandboxWithoutStarting("read-only-e2b");
+
+    expect(mocks.connect).toHaveBeenCalledWith("read-only-e2b", {
+      timeoutMs: 0,
+      requestTimeoutMs: 120_000,
+    });
+  });
+
+  it("keeps a session available for retry when terminating its process fails", async () => {
+    const sdk = sdkSandbox("kill-retry-e2b");
+    sdk.commands.run.mockResolvedValueOnce({
+      pid: 88,
+      stdout: "",
+      stderr: "",
+      wait: () => new Promise<never>(() => undefined),
+    } as never);
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+    await sandbox.process.executeSessionCommand("kill-retry", { command: "pnpm dev", runAsync: true });
+    sdk.commands.kill.mockRejectedValueOnce(new Error("temporarily unavailable"));
+
+    await expect(sandbox.process.deleteSession("kill-retry")).rejects.toThrow("temporarily unavailable");
+    expect(await sandbox.process.listSessions()).toHaveLength(1);
+    await sandbox.process.deleteSession("kill-retry");
+    expect(sdk.commands.kill).toHaveBeenLastCalledWith(88);
+    expect(await sandbox.process.listSessions()).toHaveLength(0);
+  });
+
+  it("does not silently drop environment variables when the manifest cannot be read", async () => {
+    const sdk = sdkSandbox("manifest-failure-e2b");
+    sdk.files.read.mockRejectedValueOnce(new Error("connection lost"));
+    const sandbox = new E2BSandboxAdapter(sdk as never);
+
+    await expect(sandbox.process.executeCommand("pnpm build")).rejects.toThrow("connection lost");
+    expect(sdk.commands.run).not.toHaveBeenCalled();
   });
 });

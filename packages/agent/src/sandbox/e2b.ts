@@ -1,5 +1,6 @@
 import {
   CommandExitError,
+  FileNotFoundError,
   Sandbox as E2BSdkSandbox,
   SandboxNotFoundError,
   Secret,
@@ -35,6 +36,7 @@ type E2BCommandState = {
   exitCode?: number;
   stdout: string;
   stderr: string;
+  reconnecting?: Promise<void>;
 };
 
 type E2BSessionState = {
@@ -72,15 +74,6 @@ function commandFailure(error: unknown) {
     };
   }
   throw error;
-}
-
-function sessionCommandFailure(error: unknown) {
-  if (error instanceof CommandExitError) return commandFailure(error);
-  return {
-    exitCode: 1,
-    stdout: "",
-    stderr: error instanceof Error ? error.message : "E2B background command failed.",
-  };
 }
 
 function commandOutput(stdout: string, stderr: string): string {
@@ -627,7 +620,9 @@ export class E2BSandboxAdapter implements SandboxAdapter {
         background: true,
         stdin: true,
         envs: await this.commandEnvironment(),
-        timeoutMs: timeout ? timeout * 1_000 : E2B_BACKGROUND_COMMAND_TIMEOUT_MS,
+        // The session timeout bounds startup, not the lifetime of the process stream.
+        requestTimeoutMs: timeout === undefined ? E2B_REQUEST_TIMEOUT_MS : timeout * 1_000,
+        timeoutMs: E2B_BACKGROUND_COMMAND_TIMEOUT_MS,
       });
       const cmdId = String(handle.pid);
       const state: E2BCommandState = {
@@ -637,34 +632,21 @@ export class E2BSandboxAdapter implements SandboxAdapter {
         stderr: "",
       };
       session.commands.set(cmdId, state);
-      void handle.wait().then((result) => {
-        state.exitCode = result.exitCode;
-        state.stdout = boundedSessionOutput(result.stdout);
-        state.stderr = boundedSessionOutput(result.stderr);
-        state.handle = undefined;
-        pruneCompletedCommands(session);
-      }).catch((error) => {
-        const result = sessionCommandFailure(error);
-        state.exitCode = result.exitCode;
-        state.stdout = boundedSessionOutput(result.stdout);
-        state.stderr = boundedSessionOutput(result.stderr);
-        state.handle = undefined;
-        pruneCompletedCommands(session);
-      });
+      this.trackCommand(session, state, handle);
       return { cmdId, stdout: "", stderr: "", output: "" };
     },
     getSessionCommand: async (sessionId: string, commandId: string) => {
-      const command = this.requireCommand(sessionId, commandId);
+      const command = await this.requireCommand(sessionId, commandId);
       return { command: command.command, exitCode: command.exitCode, id: commandId };
     },
     getSessionCommandLogs: async (sessionId: string, commandId: string) => {
-      const command = this.requireCommand(sessionId, commandId);
+      const command = await this.requireCommand(sessionId, commandId);
       const stdout = command.handle?.stdout || command.stdout;
       const stderr = command.handle?.stderr || command.stderr;
       return { stdout, stderr, output: commandOutput(stdout, stderr) };
     },
     sendSessionCommandInput: async (sessionId: string, commandId: string, data: string): Promise<void> => {
-      const command = this.requireCommand(sessionId, commandId);
+      const command = await this.requireCommand(sessionId, commandId);
       if (!command.handle || command.exitCode !== undefined) {
         throw new Error(`E2B command ${commandId} has already completed.`);
       }
@@ -685,18 +667,53 @@ export class E2BSandboxAdapter implements SandboxAdapter {
       this.touchSessionCache();
       const session = this.sessions.get(sessionId);
       if (!session) return { sessionId };
-      await Promise.all([...session.commands.values()].map(async (command) => {
-        if (command.exitCode === undefined) await command.handle?.kill().catch(() => undefined);
+      const results = await Promise.allSettled([...session.commands].map(async ([id, command]) => {
+        if (command.exitCode === undefined) await this.sdk.commands.kill(Number(id));
       }));
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
       this.sessions.delete(sessionId);
       return { sessionId };
     },
   };
 
-  private requireCommand(sessionId: string, commandId: string): E2BCommandState {
+  private trackCommand(session: E2BSessionState, state: E2BCommandState, handle: CommandHandle): void {
+    state.handle = handle;
+    void handle.wait().then((result) => {
+      state.exitCode = result.exitCode;
+      state.stdout = boundedSessionOutput(result.stdout);
+      state.stderr = boundedSessionOutput(result.stderr);
+    }).catch((error: unknown) => {
+      state.stdout = boundedSessionOutput(handle.stdout);
+      state.stderr = boundedSessionOutput(handle.stderr);
+      if (error instanceof CommandExitError) {
+        state.exitCode = error.exitCode;
+        state.stdout = boundedSessionOutput(error.stdout);
+        state.stderr = boundedSessionOutput(error.stderr);
+      }
+      // Losing the stream does not kill the remote process. Reattach on the next poll.
+    }).finally(() => {
+      state.handle = undefined;
+      pruneCompletedCommands(session);
+    });
+  }
+
+  private async requireCommand(sessionId: string, commandId: string): Promise<E2BCommandState> {
     this.touchSessionCache();
-    const command = this.sessions.get(sessionId)?.commands.get(commandId);
-    if (!command) throw new Error(`E2B command ${commandId} was not found in session ${sessionId}.`);
+    const session = this.sessions.get(sessionId);
+    const command = session?.commands.get(commandId);
+    if (!session || !command) throw new Error(`E2B command ${commandId} was not found in session ${sessionId}.`);
+    if (!command.handle && command.exitCode === undefined) {
+      command.reconnecting ??= this.sdk.commands.connect(Number(commandId), {
+        requestTimeoutMs: E2B_REQUEST_TIMEOUT_MS,
+        timeoutMs: E2B_BACKGROUND_COMMAND_TIMEOUT_MS,
+      }).then((handle) => this.trackCommand(session, command, handle));
+      try {
+        await command.reconnecting;
+      } finally {
+        command.reconnecting = undefined;
+      }
+    }
     return command;
   }
 
@@ -709,7 +726,10 @@ export class E2BSandboxAdapter implements SandboxAdapter {
           (entry): entry is [string, string] => ENV_NAME_PATTERN.test(entry[0]) && typeof entry[1] === "string",
         ).map(([envName, secretName]) => [envName, Secret.fill(secretName)]),
       );
-    }).catch(() => ({}));
+    }).catch((error: unknown) => {
+      if (error instanceof FileNotFoundError) return {};
+      throw error;
+    });
     const merged = { ...inherited, ...overrides };
     return Object.keys(merged).length > 0 ? merged : undefined;
   }
@@ -813,19 +833,19 @@ export async function getE2BSandboxWithoutStarting(sandboxId: string): Promise<E
     throw new SandboxRuntimeNotStartedError(info.state);
   }
   const sdk = await E2BSdkSandbox.connect(sandboxId, {
-    timeoutMs: E2B_TIMEOUT_MS,
+    // Connecting normally renews the timeout. Status polling must not keep an idle VM alive.
+    timeoutMs: 0,
     requestTimeoutMs: E2B_REQUEST_TIMEOUT_MS,
   });
   return new E2BSandboxAdapter(sdk, info);
 }
 
 export async function deleteE2BSandbox(sandboxId: string): Promise<void> {
-  adapters.delete(sandboxId);
-  sessionsBySandbox.delete(sandboxId);
   try {
     await E2BSdkSandbox.kill(sandboxId, { requestTimeoutMs: E2B_REQUEST_TIMEOUT_MS });
   } catch (error) {
-    if (error instanceof SandboxNotFoundError) return;
-    throw error;
+    if (!(error instanceof SandboxNotFoundError)) throw error;
   }
+  adapters.delete(sandboxId);
+  sessionsBySandbox.delete(sandboxId);
 }

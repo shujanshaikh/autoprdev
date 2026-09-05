@@ -136,17 +136,29 @@ export async function createProjectSandbox(options: {
   const workDir = sandboxDefaultWorkDir(options.sandboxProvider);
   const repoPath = sandboxRepositoryPath(workDir, repoDir);
 
-  const clone = await runAuthenticatedSandboxCommand(
-    sandbox,
-    options.githubToken,
-    `git clone --branch ${shellEscape(options.branch)} --single-branch -- ${shellEscape(options.cloneUrl)} ${shellEscape(repoPath)}`,
-    workDir,
-  );
-  if (typeof clone.exitCode === "number" && clone.exitCode !== 0) {
-    throw new SandboxGitCommandError(
-      "Could not clone the selected repository.",
-      redactGitDiagnostic(sandboxCommandOutput(clone), [options.githubToken]),
+  try {
+    const clone = await runAuthenticatedSandboxCommand(
+      sandbox,
+      options.githubToken,
+      `git clone --branch ${shellEscape(options.branch)} --single-branch -- ${shellEscape(options.cloneUrl)} ${shellEscape(repoPath)}`,
+      workDir,
     );
+    if (typeof clone.exitCode === "number" && clone.exitCode !== 0) {
+      throw new SandboxGitCommandError(
+        "Could not clone the selected repository.",
+        redactGitDiagnostic(sandboxCommandOutput(clone), [options.githubToken]),
+      );
+    }
+  } catch (error) {
+    try {
+      await deleteSandbox(sandbox.id, options.sandboxProvider);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Sandbox ${sandbox.id} initialization failed and cleanup did not complete.`,
+      );
+    }
+    throw error;
   }
 
   return {

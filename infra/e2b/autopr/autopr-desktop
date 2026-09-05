@@ -125,12 +125,13 @@ start_desktop_services() {
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/autopr-e2b-runtime}"
   export CUA_GATEWAY_HOST=127.0.0.1
   install -d -m 0700 "$XDG_RUNTIME_DIR"
-  start_one preview
   for name in xvfb xfce4 x11vnc novnc; do start_one "$name"; done
 }
 
 start_desktop() {
   start_desktop_services
+  # Start only after cloning the template so each sandbox generates its own key.
+  start_one preview
   /opt/autopr/bin/autopr-cua-gateway >>"$(log_file cua)" 2>&1
 }
 

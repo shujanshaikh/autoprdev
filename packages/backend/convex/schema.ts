@@ -11,8 +11,11 @@ import {
 } from "./lib/gitWorkflow";
 import { sandboxProviderValidator } from "./lib/sandboxProvider";
 
+import { projectSettingsValidator, reasoningEffortValidator } from "./lib/projectSettings";
+
 export default defineSchema({
   projects: defineTable({
+    agentSettings: v.optional(projectSettingsValidator),
     projectId: v.string(),
     authorId: v.string(),
     githubUrl: v.string(),
@@ -142,6 +145,8 @@ export default defineSchema({
     currentRunTransport: v.optional(v.union(v.literal("task"), v.literal("session"))),
     agentProvider: v.optional(v.union(v.literal("openai-codex"), v.literal("xai"))),
     agentModel: v.optional(v.string()),
+    agentReasoningEffort: v.optional(reasoningEffortValidator),
+    agentSettings: v.optional(projectSettingsValidator),
     isLive: v.optional(v.boolean()),
     triggerSessionCreatedAt: v.optional(v.number()),
     triggerSessionLastEventId: v.optional(v.string()),

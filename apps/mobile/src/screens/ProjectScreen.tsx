@@ -1,3 +1,4 @@
+import { resolveAgentDefaults } from "../lib/agentDefaults";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useUploadFile } from "@convex-dev/r2/react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -44,10 +45,6 @@ import {
   DEFAULT_CODEX_REASONING_EFFORT,
   formatCodexModelLabel,
   formatReasoningEffort,
-  getCodexModelOptions,
-  getCodexReasoningEfforts,
-  isCodexReasoningEffortForModel,
-  selectCodexModel,
   type CodexReasoningEffort,
 } from "../lib/codexModels";
 import type { PromptFilePart, RootStackParamList } from "../types";
@@ -133,9 +130,11 @@ export function ProjectScreen({ navigation, route }: Props) {
   const [prompt, setPrompt] = useState("");
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [selectedModelChoice, setSelectedModelChoice] = useState<string>();
-  const [reasoningEffort, setReasoningEffort] = useState<CodexReasoningEffort>(DEFAULT_CODEX_REASONING_EFFORT);
-  const [workspaceMode, setWorkspaceMode] = useState<"checkout" | "worktree">("checkout");
-  const [demoEnabled, setDemoEnabled] = useState(false);
+  const [reasoningChoice, setReasoningEffort] = useState<CodexReasoningEffort>();
+  const [workspaceChoice, setWorkspaceMode] = useState<"checkout" | "worktree">();
+  const workspaceMode = workspaceChoice ?? project?.agentSettings?.workspaceMode ?? "checkout";
+  const [demoChoice, setDemoEnabled] = useState<boolean>();
+  const demoEnabled = project?.agentSettings?.computerUseEnabled !== false && (demoChoice ?? project?.agentSettings?.demoEnabled ?? false);
   const [modelMenuAnchor, setModelMenuAnchor] = useState<MenuAnchor | null>(null);
   const [reasoningMenuAnchor, setReasoningMenuAnchor] = useState<MenuAnchor | null>(null);
   const [threadMenuTarget, setThreadMenuTarget] = useState<{
@@ -144,15 +143,16 @@ export function ProjectScreen({ navigation, route }: Props) {
     archived: boolean;
   } | null>(null);
 
-  const selectedModel = useMemo(
-    () => selectCodexModel(codex.data?.models, selectedModelChoice),
-    [codex.data?.models, selectedModelChoice],
-  );
-  const modelOptions = useMemo(
-    () => getCodexModelOptions(codex.data?.models, selectedModel),
-    [codex.data?.models, selectedModel],
-  );
-  const reasoningOptions = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
+  const { provider: selectedProvider, model: selectedModel, modelOptions, reasoningOptions, reasoningEffort } = resolveAgentDefaults({
+    savedModel: project?.agentSettings?.model,
+    modelChoice: selectedModelChoice,
+    reasoningChoice: reasoningChoice,
+    codexModels: codex.data?.models,
+  });
+  const grok = useWebQuery<CodexStatus>(["grok", "status"], "/api/grok/status", {
+    enabled: selectedProvider === "xai", staleTime: 60_000, retry: false,
+  });
+  const modelConnected = selectedProvider === "xai" ? grok.data?.connected : codex.data?.connected;
   const removePromptImage = useCallback((imageId: string) => {
     setPendingImages((current) => current.filter((image) => image.id !== imageId));
   }, []);
@@ -164,12 +164,6 @@ export function ProjectScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (project?.projectId) void markOpened({ projectId: project.projectId });
   }, [markOpened, project?.projectId]);
-
-  useEffect(() => {
-    if (!isCodexReasoningEffortForModel(selectedModel, reasoningEffort)) {
-      setReasoningEffort(getCodexReasoningEfforts(selectedModel)[0] ?? DEFAULT_CODEX_REASONING_EFFORT);
-    }
-  }, [reasoningEffort, selectedModel]);
 
   const filteredThreads = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -236,6 +230,9 @@ export function ProjectScreen({ navigation, route }: Props) {
         projectId,
         title: "New thread",
         workspaceMode,
+        agentProvider: selectedProvider,
+        agentModel: selectedModel,
+        agentReasoningEffort: reasoningEffort,
         demoEnabled: Boolean(userSettings?.demoRecordingExperimentEnabled && demoEnabled),
       });
       navigation.navigate("Thread", {
@@ -292,11 +289,11 @@ export function ProjectScreen({ navigation, route }: Props) {
   const branch = project.currentBranch ?? project.repoBranch ?? project.defaultBranch ?? "Unknown branch";
   const ready = project.sandboxStatus === "ready";
   const running = ready && project.sandboxRuntimeStatus === "started";
-  const promptReady = ready && codex.data?.connected === true;
+  const promptReady = ready && modelConnected === true;
   const promptPlaceholder = !ready
     ? "Workspace is still being prepared…"
-    : codex.data?.connected === false
-      ? "Connect Codex in Settings"
+    : modelConnected === false
+      ? "Connect the model provider in Settings"
       : `Ask ${project.repoName || "the agent"} anything…`;
   const runtime = !ready
     ? {
@@ -353,10 +350,10 @@ export function ProjectScreen({ navigation, route }: Props) {
               onAddImage={() => void chooseImages()}
               onChangeText={setPrompt}
               onPressModel={setModelMenuAnchor}
-              onPressReasoning={setReasoningMenuAnchor}
+              onPressReasoning={reasoningOptions.length > 0 ? setReasoningMenuAnchor : undefined}
               onSend={() => void newThread()}
               placeholder={promptPlaceholder}
-              reasoningLabel={formatReasoningEffort(reasoningEffort)}
+              reasoningLabel={reasoningEffort ? formatReasoningEffort(reasoningEffort) : "Default"}
               sending={creating}
               value={prompt}
             />
@@ -381,7 +378,7 @@ export function ProjectScreen({ navigation, route }: Props) {
             <Pressable
               accessibilityRole="switch"
               accessibilityState={{ checked: workspaceMode === "worktree" }}
-              onPress={() => setWorkspaceMode((value) => value === "checkout" ? "worktree" : "checkout")}
+              onPress={() => setWorkspaceMode(workspaceMode === "checkout" ? "worktree" : "checkout")}
               style={({ pressed }) => [styles.taskOption, { opacity: pressed ? 0.55 : 1 }]}
             >
               <Layers
@@ -398,11 +395,11 @@ export function ProjectScreen({ navigation, route }: Props) {
                 {workspaceMode === "checkout" ? "Current checkout" : "New worktree"}
               </Text>
             </Pressable>
-            {userSettings?.demoRecordingExperimentEnabled ? (
+            {userSettings?.demoRecordingExperimentEnabled && project.agentSettings?.computerUseEnabled !== false ? (
               <Pressable
                 accessibilityRole="switch"
                 accessibilityState={{ checked: demoEnabled }}
-                onPress={() => setDemoEnabled((value) => !value)}
+                onPress={() => setDemoEnabled(!demoEnabled)}
                 style={({ pressed }) => [styles.taskOption, { opacity: pressed ? 0.55 : 1 }]}
               >
                 <Video color={demoEnabled ? theme.accentOn : theme.faint} size={13} />
@@ -700,7 +697,7 @@ export function ProjectScreen({ navigation, route }: Props) {
         efforts={reasoningOptions}
         onClose={() => setReasoningMenuAnchor(null)}
         onSelectEffort={setReasoningEffort}
-        selectedEffort={reasoningEffort}
+        selectedEffort={reasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT}
         visible={reasoningMenuAnchor !== null}
       />
     </SafeAreaView>

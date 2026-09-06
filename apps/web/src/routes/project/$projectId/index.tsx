@@ -78,7 +78,10 @@ import { useProjectSandboxBranchQuery } from "#/lib/project-sandbox-branch-query
 import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
 import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
 import { AgentReasoningPicker } from "#/components/agent-reasoning-picker";
+import { ProjectAgentSettings } from "#/components/project-agent-settings";
 import { AgentModelPicker } from "#/components/agent-model-picker";
+
+const quickActions = ["Summarize latest changes", "Review my latest PR", "Suggest a new feature", "Create a task for…"];
 
 const OPEN_PULL_REQUEST_VALUE = "__open_github_pull_request__";
 
@@ -296,7 +299,8 @@ function ProjectOverviewPage() {
   const [error, setError] = useState<string | undefined>();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<{ projectId: string; branch: string } | undefined>();
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>();
-  const [workspaceMode, setWorkspaceMode] = useState<ThreadWorkspaceMode>("checkout");
+  const [workspaceModeChoice, setWorkspaceMode] = useState<ThreadWorkspaceMode>();
+  const workspaceMode = workspaceModeChoice ?? project?.agentSettings?.workspaceMode ?? "checkout";
   const modelOptions = useMemo(
     () => getAgentModelOptions({
       codexModels: codexStatusQuery.data?.models,
@@ -306,14 +310,17 @@ function ProjectOverviewPage() {
   );
   const selectedModel = useMemo(() => {
     const requested = modelOptions.find((option) => option.key === selectedModelChoice);
-    return selectAgentModel(modelOptions, requested);
-  }, [modelOptions, selectedModelChoice]);
+    return selectAgentModel(modelOptions, requested ?? project?.agentSettings?.model);
+  }, [modelOptions, selectedModelChoice, project?.agentSettings?.model]);
   const [selectedReasoningEffortChoice, setSelectedReasoningEffortChoice] = useState<CodexReasoningEffort>();
-  const [demoEnabled, setDemoEnabled] = useState(false);
-  const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
+  const [demoEnabled, setDemoEnabled] = useState<boolean>();
+  const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled && project?.agentSettings?.computerUseEnabled !== false);
   const selectedReasoningEfforts = useMemo(() => getAgentReasoningEfforts(selectedModel), [selectedModel]);
-  const selectedReasoningEffort = selectAgentReasoningEffort(selectedModel, selectedReasoningEffortChoice);
-  const effectiveDemoEnabled = demoRecordingExperimentEnabled && demoEnabled;
+  const projectModel = project?.agentSettings?.model;
+  const inheritedReasoning = projectModel && selectedModel && agentModelKey(projectModel) === agentModelKey(selectedModel)
+    ? projectModel.reasoningEffort : undefined;
+  const selectedReasoningEffort = selectAgentReasoningEffort(selectedModel, selectedReasoningEffortChoice ?? inheritedReasoning);
+  const effectiveDemoEnabled = demoRecordingExperimentEnabled && (demoEnabled ?? project?.agentSettings?.demoEnabled ?? false);
   const [promptValue, setPromptValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -643,6 +650,7 @@ function ProjectOverviewPage() {
         workspaceMode,
         agentProvider: selectedModel?.provider,
         agentModel: selectedModel?.modelId,
+        agentReasoningEffort: selectedReasoningEffort,
       });
       if (uploadedImages.length > 0) {
         window.sessionStorage.setItem(
@@ -772,13 +780,6 @@ function ProjectOverviewPage() {
     mutateSwitchBranch(branch);
   }, [checkoutOpenThreads.length, currentBranch, project, projectId, mutateSwitchBranch]);
 
-  const quickActions = [
-    "Summarize latest changes",
-    "Review my latest PR",
-    "Suggest a new feature",
-    "Create a task for…",
-  ];
-
   return (
     <>
     <Dialog open={isConfirmingDelete} onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}>
@@ -807,6 +808,9 @@ function ProjectOverviewPage() {
                           What do you want to work on?
                         </h1>
                         <div className="mt-2 flex flex-wrap items-center justify-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+                          <ProjectAgentSettings projectId={projectId} repoFullName={project.repoFullName}
+                            settings={project.agentSettings} models={modelOptions}
+                            demoAvailable={Boolean(userSettings?.demoRecordingExperimentEnabled)} />
                           <span className="inline-flex min-w-0 items-center gap-1.5">
                             <GitBranch className="size-3 shrink-0" aria-hidden="true" />
                             <span className="truncate">{project.repoFullName ?? "project"}</span>
@@ -1000,7 +1004,7 @@ function ProjectOverviewPage() {
                                       type="button"
                                       role="switch"
                                       aria-checked={effectiveDemoEnabled}
-                                      onClick={() => setDemoEnabled((enabled) => !enabled)}
+                                      onClick={() => setDemoEnabled(!effectiveDemoEnabled)}
                                       disabled={promptControlsDisabled}
                                       className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-pill)] px-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                                         effectiveDemoEnabled
@@ -1237,4 +1241,9 @@ function ProjectOverviewPage() {
   );
 }
 
-export const Route = createFileRoute("/project/$projectId/")({ component: ProjectOverviewPage });
+function ProjectOverviewRoute() {
+  const { projectId } = Route.useParams();
+  return <ProjectOverviewPage key={projectId} />;
+}
+
+export const Route = createFileRoute("/project/$projectId/")({ component: ProjectOverviewRoute });

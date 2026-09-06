@@ -14,7 +14,8 @@ import {
   requireAgentSessionPersistenceGrant,
 } from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
-import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
+import { resolveProjectSettings, reasoningEffortValidator } from "./lib/projectSettings";
+import { getUserSettingsForAuthor, requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
 import { threadGitStatusValidator } from "./lib/gitStatus";
 import {
@@ -48,6 +49,7 @@ export const create = mutation({
     workspaceMode: v.optional(v.union(v.literal("checkout"), v.literal("worktree"))),
     agentProvider: v.optional(v.union(v.literal("openai-codex"), v.literal("xai"))),
     agentModel: v.optional(v.string()),
+    agentReasoningEffort: v.optional(reasoningEffortValidator),
   },
   handler: async (ctx, args) => {
     const authorId = await requireUserId(ctx);
@@ -64,22 +66,30 @@ export const create = mutation({
       throw new ConvexError({ code: "PROJECT_NOT_READY" });
     }
 
-    if (args.demoEnabled) {
+    const agentSettings = resolveProjectSettings(project.agentSettings);
+    const userSettings = await getUserSettingsForAuthor(ctx, authorId);
+    const demoEnabled = args.demoEnabled ?? (agentSettings.demoEnabled && userSettings.demoRecordingExperimentEnabled);
+    if (demoEnabled) {
+      if (!agentSettings.computerUseEnabled) throw new ConvexError({ code: "COMPUTER_USE_DISABLED" });
       await requireDemoRecordingExperimentEnabled(ctx, authorId);
     }
 
     const now = Date.now();
     const threadId = randomUuid();
     const title = args.title?.trim() || "New thread";
-    const agentModel = args.agentModel?.trim();
+    const hasModelOverride = args.agentProvider !== undefined || args.agentModel !== undefined;
+    const agentProvider = hasModelOverride ? args.agentProvider : agentSettings.model?.provider;
+    const agentModel = hasModelOverride ? args.agentModel?.trim() : agentSettings.model?.modelId;
+    const usesProjectModel = agentProvider === agentSettings.model?.provider && agentModel === agentSettings.model?.modelId;
+    const agentReasoningEffort = args.agentReasoningEffort ?? (usesProjectModel ? agentSettings.model?.reasoningEffort : undefined);
     if (
-      (args.agentProvider && !agentModel) ||
-      (!args.agentProvider && agentModel) ||
+      (agentProvider && !agentModel) ||
+      (!agentProvider && agentModel) ||
       (agentModel?.length ?? 0) > 200
     ) {
       throw new ConvexError({ code: "INVALID_AGENT_MODEL_SELECTION" });
     }
-    const workspaceMode = args.workspaceMode ?? "checkout";
+    const workspaceMode = args.workspaceMode ?? agentSettings.workspaceMode;
     const baseBranch = resolveThreadBaseBranch({}, project);
     const featureBranch = workspaceMode === "worktree"
       ? createThreadFeatureBranch(title, threadId)
@@ -93,12 +103,14 @@ export const create = mutation({
       projectId: args.projectId,
       authorId,
       title,
-      agentProvider: args.agentProvider,
+      agentProvider,
       agentModel,
+      agentReasoningEffort,
+      agentSettings,
       createdAt: now,
       updatedAt: now,
       isLive: false,
-      demoEnabled: args.demoEnabled ?? false,
+      demoEnabled,
       workspaceMode,
       baseBranch,
       featureBranch,
@@ -205,6 +217,9 @@ export const createFromGithubPullRequest = mutation({
       .find((thread) => thread.pullRequestNumber === args.pullRequest.number);
     if (existing) return { threadId: existing.threadId, reused: true };
 
+    const agentSettings = resolveProjectSettings(project.agentSettings);
+    const userSettings = await getUserSettingsForAuthor(ctx, authorId);
+
     const now = Date.now();
     const threadId = randomUuid();
     await ctx.db.insert("threads", {
@@ -215,7 +230,11 @@ export const createFromGithubPullRequest = mutation({
       createdAt: now,
       updatedAt: now,
       isLive: false,
-      demoEnabled: false,
+      agentSettings,
+      agentProvider: agentSettings.model?.provider,
+      agentModel: agentSettings.model?.modelId,
+      agentReasoningEffort: agentSettings.model?.reasoningEffort,
+      demoEnabled: agentSettings.computerUseEnabled && agentSettings.demoEnabled && userSettings.demoRecordingExperimentEnabled,
       workspaceMode: "worktree",
       baseBranch: args.pullRequest.base.branch,
       featureBranch: githubPullRequestLocalBranch(args.pullRequest.number, args.pullRequest.head.sha),
@@ -1229,6 +1248,7 @@ export const setDemoEnabled = mutation({
     const thread = await requireThreadForAuthor(ctx, args.threadId);
 
     if (args.demoEnabled) {
+      if (thread.agentSettings?.computerUseEnabled === false) throw new ConvexError({ code: "COMPUTER_USE_DISABLED" });
       await requireDemoRecordingExperimentEnabled(ctx, thread.authorId);
     }
 

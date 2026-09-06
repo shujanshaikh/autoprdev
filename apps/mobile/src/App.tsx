@@ -136,11 +136,13 @@ function Navigator() {
         />
         <Stack.Screen
           name="Project"
+          getId={({ params }) => params.projectId}
           component={ProjectScreen}
           options={({ route }) => ({ title: route.params.title ?? "Project" })}
         />
         <Stack.Screen
           name="Thread"
+          getId={({ params }) => params.threadId}
           component={ThreadScreen}
           options={({ route }) => ({ title: route.params.title ?? "Conversation" })}
         />

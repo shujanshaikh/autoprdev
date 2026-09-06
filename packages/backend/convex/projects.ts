@@ -12,6 +12,8 @@ import {
   resolvedSandboxProvider,
   sandboxProviderValidator,
 } from "./lib/sandboxProvider";
+import { getProjectReasoningEfforts, projectSettingsValidator } from "./lib/projectSettings";
+import { requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
 
 const shortError = (message: string) => message.slice(0, 700);
@@ -932,6 +934,30 @@ export const remove = mutation({
       ctx.db.delete(project._id),
     ]);
 
+    return null;
+  },
+});
+
+/** Saves the defaults used by new threads in this project. */
+export const updateAgentSettings = mutation({
+  args: { projectId: v.string(), settings: v.union(projectSettingsValidator, v.null()) },
+  handler: async (ctx, args) => {
+    const authorId = await requireUserId(ctx);
+    const project = await ctx.db.query("projects")
+      .withIndex("by_project_id", (q) => q.eq("projectId", args.projectId)).unique();
+    if (!project || project.authorId !== authorId) throw new ConvexError({ code: "UNAUTHORIZED" });
+    const settings = args.settings;
+    if (settings?.model && (!settings.model.modelId.trim() || settings.model.modelId.length > 200)) {
+      throw new ConvexError({ code: "INVALID_AGENT_MODEL_SELECTION" });
+    }
+    if (settings?.model?.reasoningEffort && !getProjectReasoningEfforts(settings.model).includes(settings.model.reasoningEffort)) {
+      throw new ConvexError({ code: "INVALID_REASONING_EFFORT" });
+    }
+    if (settings?.demoEnabled) {
+      if (!settings.computerUseEnabled) throw new ConvexError({ code: "COMPUTER_USE_DISABLED" });
+      await requireDemoRecordingExperimentEnabled(ctx, authorId);
+    }
+    await ctx.db.patch(project._id, { agentSettings: settings ?? undefined, updatedAt: Date.now() });
     return null;
   },
 });

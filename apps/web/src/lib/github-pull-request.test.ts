@@ -9,6 +9,8 @@ import {
 } from "@autopr/backend/convex/lib/githubPullRequest";
 import {
   fetchGithubPullRequestDetail,
+  fetchGithubPullRequestChecks,
+  fetchGithubPullRequests,
   fetchGithubPullRequestFiles,
   fetchGithubPullRequestForBranch,
   fetchGithubPullRequestTimeline,
@@ -296,11 +298,71 @@ describe("pull request review data", () => {
           submitted_at: null,
           user: { login: "reviewer" },
         },
-      ])));
+      ]))
+      .mockResolvedValueOnce(response([{
+        id: 4,
+        html_url: "https://github.com/acme/widget/pull/42#discussion_r4",
+        body: "Handle cancellation here.",
+        created_at: "2026-01-04T00:00:00Z",
+        user: { login: "reviewer" },
+        path: "src/retry.ts",
+        line: null,
+      }])));
 
     const timeline = await fetchGithubPullRequestTimeline("token", "acme", "widget", 42);
-    expect(timeline.map((item) => item.kind)).toEqual(["comment", "commit", "review"]);
+    expect(timeline.map((item) => item.kind)).toEqual(["comment", "commit", "review", "review-comment"]);
+    expect(timeline[3]).toMatchObject({ kind: "review-comment", path: "src/retry.ts", body: "Handle cancellation here." });
+    expect(timeline[3]).not.toHaveProperty("line");
     expect(timeline[2]).toMatchObject({ state: "approved", body: "" });
     expect(timeline).not.toContainEqual(expect.objectContaining({ id: "review:3" }));
+  });
+});
+
+describe("pull request checks", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("combines check runs and the latest legacy status per context", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ ...basePull, head: { ref: "fix", sha: "abc123" } }))
+      .mockResolvedValueOnce(response({ check_runs: [
+        { id: 1, name: "test", status: "completed", conclusion: "success", html_url: "https://github.com/check/1" },
+        { id: 2, name: "lint", status: "in_progress", conclusion: null, html_url: null },
+        { id: 3, name: "build", status: "completed", conclusion: "timed_out", html_url: null },
+        { id: 4, name: "optional", status: "completed", conclusion: "skipped", html_url: null },
+      ] }))
+      .mockResolvedValueOnce(response([
+        { id: 6, context: "deploy", state: "success", description: "Ready", target_url: "https://example.com/deploy" },
+        { id: 5, context: "deploy", state: "failure", description: "Old attempt", target_url: null },
+      ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await fetchGithubPullRequestChecks("token", "acme", "widget", 42);
+    expect(result.checks.map((check) => check.status)).toEqual(["success", "pending", "failure", "neutral", "success"]);
+    expect(result).toMatchObject({ headSha: "abc123", truncated: false });
+    expect(fetchMock.mock.calls[1]?.[0]).toContain("/commits/abc123/check-runs");
+  });
+
+  it("reports partial results when GitHub has more pages", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response(basePull))
+      .mockResolvedValueOnce(response({ check_runs: [] }, 200, { Link: '<https://api.github.com/next>; rel="next"' }))
+      .mockResolvedValueOnce(response([])));
+    await expect(fetchGithubPullRequestChecks("token", "acme", "widget", 42)).resolves.toMatchObject({ truncated: true });
+  });
+
+  it("does not present a permissions failure as an empty checks list", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response(basePull))
+      .mockResolvedValueOnce(response({ message: "Forbidden" }, 403))
+      .mockResolvedValueOnce(response([])));
+    await expect(fetchGithubPullRequestChecks("token", "acme", "widget", 42)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("preserves merged state in the repository list", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response([
+      { ...basePull, state: "closed", merged_at: "2026-01-02T00:00:00Z" },
+    ])));
+    await expect(fetchGithubPullRequests("token", "acme", "widget")).resolves.toMatchObject([
+      { state: "closed", mergedAt: "2026-01-02T00:00:00Z" },
+    ]);
   });
 });

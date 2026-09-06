@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import {
   fetchGithubPullRequestDetail,
+  fetchGithubPullRequestChecks,
   fetchGithubPullRequestFiles,
   fetchGithubPullRequestTimeline,
   fetchGithubPullRequests,
@@ -44,6 +45,9 @@ async function GET(_req: Request, { params }: { params: Promise<{ projectId: str
       }
 
       const view = url.searchParams.get("view") ?? "detail";
+      if (view === "checks") {
+        return Response.json(await fetchGithubPullRequestChecks(token, project.repoOwner, project.repoName, number));
+      }
       if (view === "files") {
         const files = await fetchGithubPullRequestFiles(token, project.repoOwner, project.repoName, number);
         return Response.json({ files });

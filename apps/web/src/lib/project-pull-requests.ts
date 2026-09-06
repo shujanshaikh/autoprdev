@@ -1,74 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 
-export type ProjectPullRequestState = "open" | "closed";
+import type {
+  GithubOAuthPullRequest,
+  GithubPullRequestActor,
+  GithubPullRequestDetail,
+  GithubPullRequestFile,
+  GithubPullRequestTimelineItem,
+  fetchGithubPullRequestChecks,
+} from "@autopr/backend/convex/lib/github_oauth";
 
-export type ProjectPullRequest = {
-  id: number;
-  number: number;
-  title: string;
-  state: ProjectPullRequestState;
-  htmlUrl: string;
-  user: string;
-  updatedAt: string;
-  draft: boolean;
-  headRef: string;
-  baseRef: string;
-};
-
-export type ProjectPullRequestActor = {
-  login: string;
-  avatarUrl?: string;
-};
-
-export type ProjectPullRequestDetail = ProjectPullRequest & {
-  body: string;
-  author: ProjectPullRequestActor;
-  createdAt: string;
-  mergedAt?: string;
-  closedAt?: string;
-  additions: number;
-  deletions: number;
-  changedFiles: number;
-  commits: number;
-  comments: number;
-  reviewComments: number;
-  mergeable: boolean | null;
-  mergeableState: string;
-  requestedReviewers: ProjectPullRequestActor[];
-  labels: Array<{ name: string; color: string }>;
-};
-
-export type ProjectPullRequestFile = {
-  filename: string;
-  previousFilename?: string;
-  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
-  additions: number;
-  deletions: number;
-  changes: number;
-  patch?: string;
-  blobUrl: string;
-};
-
-export type ProjectPullRequestTimelineItem =
-  | {
-      id: string;
-      kind: "commit";
-      createdAt: string;
-      actor: ProjectPullRequestActor;
-      title: string;
-      message: string;
-      sha: string;
-      url: string;
-    }
-  | {
-      id: string;
-      kind: "comment" | "review";
-      createdAt: string;
-      actor: ProjectPullRequestActor;
-      body: string;
-      url: string;
-      state?: string;
-    };
+export type ProjectPullRequestState = GithubOAuthPullRequest["state"];
+export type ProjectPullRequest = GithubOAuthPullRequest;
+export type ProjectPullRequestActor = GithubPullRequestActor;
+export type ProjectPullRequestDetail = GithubPullRequestDetail;
+export type ProjectPullRequestFile = GithubPullRequestFile;
+export type ProjectPullRequestTimelineItem = GithubPullRequestTimelineItem;
 
 export type ProjectPullRequestsResponse = {
   project: {
@@ -95,13 +41,14 @@ async function readJson<T>(response: Response): Promise<T> {
 export function useProjectPullRequests(projectId: string) {
   return useQuery({
     queryKey: ["project", projectId, "pulls"],
+    staleTime: 30_000,
     queryFn: async () => readJson<ProjectPullRequestsResponse>(
       await fetch(`/api/project/${encodeURIComponent(projectId)}/pulls`),
     ),
   });
 }
 
-function pullRequestUrl(projectId: string, number: number, view?: "files" | "timeline") {
+function pullRequestUrl(projectId: string, number: number, view?: "files" | "timeline" | "checks") {
   const query = new URLSearchParams({ number: String(number) });
   if (view) query.set("view", view);
   return `/api/project/${encodeURIComponent(projectId)}/pulls?${query}`;
@@ -117,9 +64,9 @@ export function useProjectPullRequest(projectId: string, number?: number) {
   });
 }
 
-export function useProjectPullRequestFiles(projectId: string, number?: number, enabled = true) {
+export function useProjectPullRequestFiles(projectId: string, number?: number, enabled = true, headSha?: string) {
   return useQuery({
-    queryKey: ["project", projectId, "pull", number, "files"],
+    queryKey: ["project", projectId, "pull", number, "files", headSha],
     enabled: number !== undefined && enabled,
     queryFn: async () => readJson<{ files: ProjectPullRequestFile[] }>(
       await fetch(pullRequestUrl(projectId, number!, "files")),
@@ -133,6 +80,16 @@ export function useProjectPullRequestTimeline(projectId: string, number?: number
     enabled: number !== undefined && enabled,
     queryFn: async () => readJson<{ timeline: ProjectPullRequestTimelineItem[] }>(
       await fetch(pullRequestUrl(projectId, number!, "timeline")),
+    ),
+  });
+}
+
+export function useProjectPullRequestChecks(projectId: string, number: number) {
+  return useQuery({
+    queryKey: ["project", projectId, "pull", number, "checks"],
+    staleTime: 30_000,
+    queryFn: async () => readJson<Awaited<ReturnType<typeof fetchGithubPullRequestChecks>>>(
+      await fetch(pullRequestUrl(projectId, number, "checks")),
     ),
   });
 }

@@ -49,6 +49,7 @@ async function GET(_req: Request, { params }: { params: Promise<{ projectId: str
     }
     const inspected = await inspectProjectSandboxGit({
       sandboxId: project.sandboxId,
+      sandboxProvider: project.sandboxProvider ?? "daytona",
       repoName: project.repoName,
       sandboxWorkDir: project.sandboxWorkDir,
     });
@@ -103,6 +104,7 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
     try {
       await switchProjectSandboxBranch({
         sandboxId: project.sandboxId,
+        sandboxProvider: project.sandboxProvider ?? "daytona",
         branch,
         repoName: project.repoName,
         sandboxWorkDir: project.sandboxWorkDir,

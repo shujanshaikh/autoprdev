@@ -18,7 +18,7 @@ export default defineConfig({
   build: {
     // Keep runtime-loaded packages out of Trigger's JavaScript bundle. Sharp
     // must remain external because it loads a platform-specific native binary.
-    external: ["@daytona/sdk", "busboy", "form-data", "sharp"],
+    external: ["@daytona/sdk", "busboy", "e2b", "form-data", "sharp"],
   },
   retries: {
     enabledInDev: false,

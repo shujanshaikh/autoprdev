@@ -52,6 +52,18 @@ describe("buildSandboxAgentSystemPrompt", () => {
     expect(prompt).toContain("Never transmit environment variables, tokens, credentials");
   });
 
+  it("identifies E2B as the selected execution environment", () => {
+    const prompt = buildSandboxAgentSystemPrompt({
+      cwd: "/home/daytona/repo",
+      sandboxId: "e2b-sandbox-1",
+      sandboxProvider: "e2b",
+    });
+
+    expect(prompt).toContain("sandbox provided by E2B");
+    expect(prompt).toContain("Treat the E2B sandbox as the execution environment");
+    expect(prompt).toContain("Sandbox provider: e2b");
+  });
+
   it("teaches computer agents to ground every pointer action on a fresh screenshot", () => {
     const prompt = buildSandboxAgentSystemPrompt({
       cwd: "/home/repo",

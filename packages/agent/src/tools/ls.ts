@@ -43,7 +43,7 @@ async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOp
   const allEntries = (await raceWithTimeout(
     () => context.sandbox.fs.listFiles(remotePath),
     LS_TIMEOUT_MS,
-    () => new Error(`Timed out listing ${remotePath} in Daytona.`),
+    () => new Error(`Timed out listing ${remotePath} in the sandbox.`),
   ))
     .map((entry) => entry as FileListEntry)
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -98,13 +98,15 @@ async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOp
   };
 }
 
-export function createDaytonaLsTool(sandboxOptions: SandboxSessionOptions) {
+export function createSandboxLsTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "ls",
     description:
-      "List one Daytona sandbox directory in stable name order with 1-based offset pagination. Use for quick directory inspection before broader searches or reads, and follow nextOffset when more entries remain. Paths are canonicalized inside the workspace jail. Read-only and safe to retry.",
+      "List one sandbox directory in stable name order with 1-based offset pagination. Use for quick directory inspection before broader searches or reads, and follow nextOffset when more entries remain. Paths are canonicalized inside the workspace jail. Read-only and safe to retry.",
     inputSchema: lsInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaLs(input, sandboxOptions),
   });
 }
+
+export const createDaytonaLsTool = createSandboxLsTool;

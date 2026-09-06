@@ -145,6 +145,7 @@ async function GET(
       try {
         const diff = await readThreadGitFileDiff({
           sandboxId: project.sandboxId,
+          sandboxProvider: project.sandboxProvider ?? "daytona",
           worktreePath: worktree.worktreePath,
           file: requestedDiffFile,
         });
@@ -215,6 +216,7 @@ async function GET(
 
       const status = await readThreadGitStatus({
         sandboxId: project.sandboxId,
+        sandboxProvider: project.sandboxProvider ?? "daytona",
         worktreePath: worktree.worktreePath,
         baseBranch: worktree.baseBranch,
         repositoryUrl: project.cloneUrl,
@@ -446,6 +448,7 @@ async function POST(
           const githubToken = await getGithubRepositoryToken(project.repoOwner, project.repoName);
           const renamed = await renameProjectSandboxBranch({
             sandboxId,
+            sandboxProvider: project.sandboxProvider ?? "daytona",
             expectedBranch: workspace.featureBranch,
             preferredBranch,
             githubToken,
@@ -461,6 +464,7 @@ async function POST(
 
           await renameProjectSandboxBranch({
             sandboxId,
+            sandboxProvider: project.sandboxProvider ?? "daytona",
             expectedBranch: renamed.branch,
             preferredBranch: workspace.featureBranch,
             githubToken,
@@ -542,6 +546,7 @@ async function POST(
           : await getGithubRepositoryToken(project.repoOwner, project.repoName);
         const result = await pullProjectSandboxBranch({
           sandboxId,
+          sandboxProvider: project.sandboxProvider ?? "daytona",
           branch: worktree.featureBranch,
           githubToken,
           repoName: project.repoName,

@@ -174,20 +174,22 @@ function runProcessOperation<T>(label: string, operation: () => Promise<T>) {
   return raceWithTimeout(
     operation,
     PROCESS_OPERATION_TIMEOUT_MS,
-    () => new Error(`Timed out while trying to ${label} in Daytona.`),
+    () => new Error(`Timed out while trying to ${label} in the sandbox.`),
   );
 }
 
-export function createDaytonaProcessTool(
+export function createSandboxProcessTool(
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
 ) {
   return tool({
     title: "process",
     description:
-      "Manage long-running commands started by bash with isBackground=true in the current agent run. Use list to discover this run's sessions, poll for tail-preserving bounded logs and exit status, input to send stdin, and terminate to clean up. Each Daytona operation has a bounded wait. Poll only when new output or completion is expected.",
+      "Manage long-running commands started by bash with isBackground=true in the current agent run. Use list to discover this run's sessions, poll for tail-preserving bounded logs and exit status, input to send stdin, and terminate to clean up. Each sandbox operation has a bounded wait. Poll only when new output or completion is expected.",
     inputSchema: processInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaProcess(input, sandboxOptions, backgroundProcesses),
   });
 }
+
+export const createDaytonaProcessTool = createSandboxProcessTool;

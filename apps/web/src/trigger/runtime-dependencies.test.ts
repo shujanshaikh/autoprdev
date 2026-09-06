@@ -22,10 +22,11 @@ function triggerWriterPath(runtimeRequire: NodeJS.Require) {
 }
 
 describe("Trigger runtime dependencies", () => {
-  it("can resolve Daytona and its runtime-loaded multipart dependencies from a task bundle", () => {
+  it("can resolve sandbox providers and Daytona's runtime-loaded multipart dependencies from a task bundle", () => {
     const runtimeRequire = createTriggerRuntimeRequire();
 
     expect(runtimeRequire.resolve("@daytona/sdk")).toContain("@daytona/sdk");
+    expect(runtimeRequire.resolve("e2b")).toContain("e2b");
     expect(runtimeRequire.resolve("busboy")).toContain("busboy");
     expect(runtimeRequire.resolve("form-data")).toContain("form-data");
   });

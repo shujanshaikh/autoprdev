@@ -25,7 +25,7 @@ const writeInputSchema = z.object({
     .string()
     .min(1)
     .max(4_096)
-    .describe("Path to the file to write. Relative paths resolve from the Daytona sandbox workdir."),
+    .describe("Path to the file to write. Relative paths resolve from the selected sandbox workdir."),
   content: z.string().refine(
     (content) => Buffer.byteLength(content, "utf8") <= MAX_WRITE_CONTENT_BYTES,
     "File content must be at most 10 MiB.",
@@ -130,17 +130,19 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     waitTimeoutMs: FILE_MUTATION_WAIT_TIMEOUT_MS,
     runTimeoutMs: FILE_MUTATION_RUN_TIMEOUT_MS,
     createWaitTimeoutError: () => new Error(`Timed out waiting to write ${remotePath}; another edit is still running.`),
-    createRunTimeoutError: () => new Error(`Timed out writing ${remotePath} in Daytona.`),
+    createRunTimeoutError: () => new Error(`Timed out writing ${remotePath} in the sandbox.`),
   });
 }
 
-export function createDaytonaWriteTool(sandboxOptions: SandboxSessionOptions) {
+export function createSandboxWriteTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "write",
     description:
-      "Write complete text content to a Daytona file, creating parents or overwriting as needed. Canonicalizes paths inside the workspace jail, skips identical writes, serializes same-file mutations, and omits oversized diff previews safely. Use for new files or intentional rewrites; use edit for targeted changes.",
+      "Write complete text content to a sandbox file, creating parents or overwriting as needed. Canonicalizes paths inside the workspace jail, skips identical writes, serializes same-file mutations, and omits oversized diff previews safely. Use for new files or intentional rewrites; use edit for targeted changes.",
     inputSchema: writeInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaWrite(input, sandboxOptions),
   });
 }
+
+export const createDaytonaWriteTool = createSandboxWriteTool;

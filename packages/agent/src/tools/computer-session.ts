@@ -42,7 +42,7 @@ export function getCuaToolSession(
   sandboxOptions: SandboxSessionOptions,
   options: CuaComputerOptions,
 ): CuaToolSession {
-  // Daytona refreshes its SDK wrapper on a short TTL. The tool options object
+  // Providers refresh their SDK wrappers on a short TTL. The tool options object
   // lives for the whole agent turn, so keying by it preserves the observation,
   // trajectory, and operation queue when the wrapper is refreshed.
   const key = clientKey(sandbox.id, options);

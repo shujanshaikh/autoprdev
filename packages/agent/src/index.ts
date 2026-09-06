@@ -27,13 +27,18 @@ export {
   createSandboxCacheKey,
   type BootstrappedRepositorySandbox,
   type SandboxContext,
+  type SandboxAdapter,
   type SandboxSessionOptions,
+  type SandboxProvider,
 } from "./sandbox";
-export { prepareDaytonaSandbox, type PreparedSandbox } from "./steps";
+export { prepareDaytonaSandbox, prepareSandbox, type PreparedSandbox } from "./steps";
 export {
   createDaytonaTools,
+  createE2BTools,
+  createSandboxTools,
   type CuaComputerToolOptions,
   type DaytonaTools,
+  type SandboxTools,
   type RunSubAgent,
   type SubAgentInput,
   type SubAgentRunResult,

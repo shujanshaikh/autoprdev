@@ -178,7 +178,7 @@ describe("Daytona computer-use lifecycle", () => {
       pollIntervalMs: 0,
       timeoutMs: 25,
     });
-    const rejected = expect(readiness).rejects.toThrow("Daytona desktop did not become ready");
+    const rejected = expect(readiness).rejects.toThrow("Sandbox desktop did not become ready");
     await vi.advanceTimersByTimeAsync(25);
     await vi.runAllTimersAsync();
 

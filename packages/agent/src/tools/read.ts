@@ -148,13 +148,15 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
   };
 }
 
-export function createDaytonaReadTool(sandboxOptions: SandboxSessionOptions) {
+export function createSandboxReadTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "read",
     description:
-      "Read a UTF-8 text file from the Daytona sandbox with 1-based line pagination. Returns up to 2,000 lines / 64 KiB and an exact offset (plus byteOffset for a single oversized line) when more remains. Use before editing or explaining code. Paths are canonicalized inside the workspace jail; binary files are reported instead of displayed. Read-only and safe to retry.",
+      "Read a UTF-8 text file from the selected sandbox with 1-based line pagination. Returns up to 2,000 lines / 64 KiB and an exact offset (plus byteOffset for a single oversized line) when more remains. Use before editing or explaining code. Paths are canonicalized inside the workspace jail; binary files are reported instead of displayed. Read-only and safe to retry.",
     inputSchema: readInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaRead(input, sandboxOptions),
   });
 }
+
+export const createDaytonaReadTool = createSandboxReadTool;

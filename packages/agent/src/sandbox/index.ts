@@ -2,16 +2,29 @@ import { Daytona } from "@daytona/sdk";
 import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 
 import {
-  DEFAULT_SANDBOX_WORKDIR,
+  sandboxDefaultWorkDir,
   sandboxRepositoryDirectoryName,
   sandboxRepositoryPath,
+  type SandboxProvider,
 } from "./repo-path";
+import {
+  createE2BSandbox,
+  deleteE2BSandbox,
+  getE2BSandboxWithoutStarting,
+} from "./e2b";
+export { E2B_ENV_MANIFEST } from "./e2b";
+export { SandboxRuntimeNotStartedError } from "./errors";
 
 export {
   DEFAULT_SANDBOX_WORKDIR,
+  DAYTONA_SANDBOX_HOME,
+  E2B_SANDBOX_WORKDIR,
+  sandboxDefaultWorkDir,
+  sandboxUserHome,
   sandboxRelativeRepositoryPath,
   sandboxRepositoryDirectoryName,
   sandboxRepositoryPath,
+  type SandboxProvider,
 } from "./repo-path";
 export {
   DEFAULT_SANDBOX_DOMAIN_ALLOW_LIST,
@@ -19,20 +32,23 @@ export {
 } from "@autopr/config/sandbox-network-policy";
 
 export interface SandboxContext {
-  sandbox: DaytonaSandbox;
+  sandbox: SandboxAdapter;
+  provider: SandboxProvider;
   workDir: string;
 }
 
-export interface DaytonaSandbox {
+export interface SandboxAdapter {
   id: string;
   name?: string;
   snapshot?: string;
   state?: string;
+  autoStopInterval?: number;
   autoArchiveInterval?: number;
   toolboxProxyUrl?: string;
   domainAllowList?: string;
   start(timeout?: number): Promise<void>;
-  setAutoArchiveInterval(interval: number): Promise<void>;
+  refreshActivity(): Promise<void>;
+  setAutoArchiveInterval?(interval: number): Promise<void>;
   updateNetworkSettings(settings: { domainAllowList: string }): Promise<void>;
   getWorkDir(): Promise<string | undefined>;
   getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
@@ -88,7 +104,7 @@ export interface DaytonaSandbox {
   };
   fs: {
     downloadFile(path: string): Promise<Uint8Array>;
-    uploadFile(file: Uint8Array | Buffer, path: string): Promise<unknown>;
+    uploadFile(file: Uint8Array, path: string): Promise<unknown>;
     deleteFile(path: string, recursive?: boolean): Promise<void>;
     listFiles(path: string): Promise<unknown[]>;
     searchFiles(path: string, pattern: string): Promise<{ files: string[] }>;
@@ -145,7 +161,11 @@ export interface DaytonaSandbox {
   };
 }
 
+/** Backward-compatible name for consumers that still type the Daytona SDK boundary directly. */
+export type DaytonaSandbox = SandboxAdapter;
+
 export interface SandboxSessionOptions {
+  provider?: SandboxProvider;
   cacheKey?: string;
   sandboxId?: string;
   snapshot?: string;
@@ -159,6 +179,7 @@ export interface SandboxSessionOptions {
 
 // Default Daytona snapshot to use when DAYTONA_SNAPSHOT is not configured.
 const DEFAULT_DAYTONA_SNAPSHOT = "autopr-cua";
+const DEFAULT_E2B_TEMPLATE = "autopr";
 const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
 const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const SANDBOX_START_TIMEOUT_SECONDS = 120;
@@ -213,6 +234,7 @@ async function retryDaytonaRateLimit<T>(operation: () => Promise<T>): Promise<T>
 }
 
 interface ResolvedSandboxSessionOptions {
+  provider: SandboxProvider;
   cacheKey: string;
   sandboxId?: string;
   snapshot: string;
@@ -225,15 +247,24 @@ interface ResolvedSandboxSessionOptions {
 }
 
 function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSandboxSessionOptions {
-  const sandboxId = options.sandboxId ?? process.env.DAYTONA_SANDBOX_ID;
-  const snapshot = options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT;
-  const repoUrl = options.repoUrl ?? process.env.DAYTONA_REPO_URL;
-  const repoBranch = options.repoBranch ?? process.env.DAYTONA_REPO_BRANCH;
-  const repoName = options.repoName ?? process.env.DAYTONA_REPO_NAME;
-  const workDir = options.workDir ?? process.env.DAYTONA_WORKDIR;
-  const cacheKey = options.cacheKey ?? (sandboxId ? `sandbox:${sandboxId}` : `snapshot:${snapshot}`);
+  const provider = options.provider ?? (process.env.SANDBOX_PROVIDER === "e2b" ? "e2b" : "daytona");
+  const sandboxId = options.sandboxId
+    ?? (provider === "e2b" ? process.env.E2B_SANDBOX_ID : process.env.DAYTONA_SANDBOX_ID);
+  const snapshot = options.snapshot
+    ?? (provider === "e2b"
+      ? process.env.E2B_TEMPLATE ?? DEFAULT_E2B_TEMPLATE
+      : process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT);
+  const repoUrl = options.repoUrl ?? process.env.SANDBOX_REPO_URL ?? process.env.DAYTONA_REPO_URL;
+  const repoBranch = options.repoBranch ?? process.env.SANDBOX_REPO_BRANCH ?? process.env.DAYTONA_REPO_BRANCH;
+  const repoName = options.repoName ?? process.env.SANDBOX_REPO_NAME ?? process.env.DAYTONA_REPO_NAME;
+  const workDir = options.workDir
+    ?? process.env.SANDBOX_WORKDIR
+    ?? (provider === "e2b" ? process.env.E2B_WORKDIR : process.env.DAYTONA_WORKDIR);
+  const cacheKey = options.cacheKey
+    ?? (sandboxId ? `${provider}:sandbox:${sandboxId}` : `${provider}:snapshot:${snapshot}`);
 
   return {
+    provider,
     cacheKey,
     sandboxId,
     snapshot,
@@ -248,11 +279,11 @@ function resolveSessionOptions(options: SandboxSessionOptions = {}): ResolvedSan
 
 async function resolveSandboxRepoPath(
   _sandbox: DaytonaSandbox,
-  options: { repoName?: string; repoUrl?: string },
+  options: { provider: SandboxProvider; repoName?: string; repoUrl?: string },
 ): Promise<{ repoPath: string }> {
   const repoDir = sandboxRepositoryDirectoryName(options);
   return {
-    repoPath: sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir),
+    repoPath: sandboxRepositoryPath(sandboxDefaultWorkDir(options.provider), repoDir),
   };
 }
 
@@ -266,6 +297,9 @@ async function ensureSandboxStarted(sandbox: DaytonaSandbox): Promise<DaytonaSan
 
 async function ensureSandboxAutoArchiveInterval(sandbox: DaytonaSandbox): Promise<DaytonaSandbox> {
   if (sandbox.autoArchiveInterval !== SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES) {
+    if (!sandbox.setAutoArchiveInterval) {
+      throw new Error("This sandbox provider does not support automatic archiving.");
+    }
     await sandbox.setAutoArchiveInterval(SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES);
   }
 
@@ -274,6 +308,7 @@ async function ensureSandboxAutoArchiveInterval(sandbox: DaytonaSandbox): Promis
 
 async function ensureRepoCloned(
   sandbox: DaytonaSandbox,
+  provider: SandboxProvider,
   repoUrl: string | undefined,
   repoBranch: string | undefined,
   repoName: string | undefined,
@@ -282,7 +317,7 @@ async function ensureRepoCloned(
     return undefined;
   }
 
-  const { repoPath } = await resolveSandboxRepoPath(sandbox, { repoName, repoUrl });
+  const { repoPath } = await resolveSandboxRepoPath(sandbox, { provider, repoName, repoUrl });
 
   try {
     await sandbox.git.status(repoPath);
@@ -335,8 +370,11 @@ async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
   return sandbox;
 }
 
-export async function createSandbox(options: SandboxSessionOptions = {}): Promise<DaytonaSandbox> {
+export async function createSandbox(options: SandboxSessionOptions = {}): Promise<SandboxAdapter> {
   const resolved = resolveSessionOptions(options);
+  if (resolved.provider === "e2b") {
+    return await createE2BSandbox(resolved);
+  }
   const daytona = await createDaytonaClient();
 
   if (resolved.sandboxId) {
@@ -382,13 +420,21 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
 }
 
 /** Fetches an existing sandbox without changing its runtime state. */
-export async function getSandboxWithoutStarting(sandboxId: string): Promise<DaytonaSandbox> {
+export async function getSandboxWithoutStarting(
+  sandboxId: string,
+  provider: SandboxProvider = "daytona",
+): Promise<SandboxAdapter> {
+  if (provider === "e2b") return await getE2BSandboxWithoutStarting(sandboxId);
   const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
   return ensureSandboxNetworkPolicy(sandbox);
 }
 
-export async function deleteSandbox(sandboxId: string): Promise<void> {
+export async function deleteSandbox(
+  sandboxId: string,
+  provider: SandboxProvider = "daytona",
+): Promise<void> {
+  if (provider === "e2b") return await deleteE2BSandbox(sandboxId);
   const daytona = createDaytonaClient();
   const pendingLookup = sandboxLookupPromises.get(sandboxId);
   if (pendingLookup) await pendingLookup.catch(() => undefined);
@@ -396,6 +442,7 @@ export async function deleteSandbox(sandboxId: string): Promise<void> {
   recentSandboxes.delete(sandboxId);
   const deadline = Date.now() + SANDBOX_DELETE_TIMEOUT_SECONDS * 1_000;
   let lastError: unknown;
+  let rateLimitAttempt = 0;
 
   while (Date.now() <= deadline) {
     try {
@@ -406,10 +453,23 @@ export async function deleteSandbox(sandboxId: string): Promise<void> {
     } catch (error) {
       if (isSandboxNotFoundError(error)) return;
       lastError = error;
-      if (!isSandboxStateChangeInProgressError(error) || Date.now() >= deadline) {
-        throw error;
+      if (isSandboxStateChangeInProgressError(error) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, SANDBOX_DELETE_POLL_MS));
+        continue;
       }
-      await new Promise((resolve) => setTimeout(resolve, SANDBOX_DELETE_POLL_MS));
+      const rateLimitDelay = DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS[
+        Math.min(rateLimitAttempt, DAYTONA_RATE_LIMIT_RETRY_DELAYS_MS.length - 1)
+      ];
+      if (
+        isDaytonaRateLimitError(error)
+        && rateLimitDelay !== undefined
+        && Date.now() + rateLimitDelay <= deadline
+      ) {
+        rateLimitAttempt += 1;
+        await new Promise((resolve) => setTimeout(resolve, rateLimitDelay));
+        continue;
+      }
+      throw error;
     }
   }
 
@@ -417,7 +477,6 @@ export async function deleteSandbox(sandboxId: string): Promise<void> {
     ? lastError
     : new Error("Sandbox deletion did not become available before the timeout.");
 }
-
 
 export async function getSandboxContext(options: SandboxSessionOptions = {}): Promise<SandboxContext> {
   const resolved = resolveSessionOptions(options);
@@ -432,15 +491,23 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
     if (resolved.workDir) {
       return {
         sandbox,
+        provider: resolved.provider,
         workDir: resolved.workDir,
       };
     }
 
-    const clonedRepoPath = await ensureRepoCloned(sandbox, resolved.repoUrl, resolved.repoBranch, resolved.repoName);
+    const clonedRepoPath = await ensureRepoCloned(
+      sandbox,
+      resolved.provider,
+      resolved.repoUrl,
+      resolved.repoBranch,
+      resolved.repoName,
+    );
 
     return {
       sandbox,
-      workDir: clonedRepoPath ?? DEFAULT_SANDBOX_WORKDIR,
+      provider: resolved.provider,
+      workDir: clonedRepoPath ?? sandboxDefaultWorkDir(resolved.provider),
     };
   });
 
@@ -459,7 +526,7 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
           sandboxContextPromises.delete(resolved.cacheKey);
         }
       }, SANDBOX_LOOKUP_CACHE_MS);
-      evictionTimer.unref?.();
+      (evictionTimer as { unref?: () => void }).unref?.();
     }
     return context;
   }).catch((error) => {
@@ -474,6 +541,7 @@ export async function getSandboxContext(options: SandboxSessionOptions = {}): Pr
 }
 
 export interface BootstrapRepositorySandboxOptions {
+  provider?: SandboxProvider;
   cacheKey: string;
   repoUrl: string;
   repoBranch?: string;
@@ -482,6 +550,7 @@ export interface BootstrapRepositorySandboxOptions {
 }
 
 export interface BootstrappedRepositorySandbox {
+  provider: SandboxProvider;
   sandboxId: string;
   sandboxName?: string;
   snapshot?: string;
@@ -492,6 +561,7 @@ export async function bootstrapRepositorySandbox(
   options: BootstrapRepositorySandboxOptions,
 ): Promise<BootstrappedRepositorySandbox> {
   const context = await getSandboxContext({
+    provider: options.provider,
     cacheKey: options.cacheKey,
     repoUrl: options.repoUrl,
     repoBranch: options.repoBranch,
@@ -500,6 +570,7 @@ export async function bootstrapRepositorySandbox(
   });
 
   return {
+    provider: context.provider,
     sandboxId: context.sandbox.id,
     sandboxName: context.sandbox.name,
     snapshot: context.sandbox.snapshot,

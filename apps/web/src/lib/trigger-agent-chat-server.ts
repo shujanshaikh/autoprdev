@@ -26,6 +26,7 @@ import {
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
 import type { agentChatTask } from "#/trigger/agent-chat";
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 
 const APPEND_OPERATION = "append";
 
@@ -68,6 +69,7 @@ type AgentProject = {
   sandboxStatus: "creating" | "ready" | "failed";
   sandboxCacheKey: string;
   sandboxId?: string;
+  sandboxProvider?: SandboxProvider;
   sandboxWorkDir?: string;
   cloneUrl: string;
   currentBranch?: string;
@@ -194,6 +196,7 @@ async function createTrustedClientData(options: {
       options.thread.threadId,
     ),
     sandboxId: options.project.sandboxId,
+    sandboxProvider: options.project.sandboxProvider ?? "daytona",
     sandboxWorkDir: worktree.worktreePath,
     repoUrl: options.project.cloneUrl,
     repoBranch: worktree.featureBranch,

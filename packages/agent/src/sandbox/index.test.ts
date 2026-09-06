@@ -153,4 +153,25 @@ describe("sandbox lookup coalescing", () => {
     expect(mocks.delete.mock.calls[0]).toEqual([sandbox, 120, true]);
     vi.useRealTimers();
   });
+
+  it("retries a rate-limited Daytona deletion", async () => {
+    vi.useFakeTimers();
+    const sandbox = { id: "sandbox-rate-limited" };
+    const rateLimitError = Object.assign(new Error("Too many requests"), {
+      name: "DaytonaRateLimitError",
+    });
+    mocks.get.mockResolvedValue(sandbox);
+    mocks.delete
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce(undefined);
+    const { deleteSandbox } = await import("./index");
+
+    const deletion = deleteSandbox(sandbox.id);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(deletion).resolves.toBeUndefined();
+
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    expect(mocks.delete).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
 });

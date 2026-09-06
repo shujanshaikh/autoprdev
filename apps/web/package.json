@@ -51,6 +51,7 @@
     "convex": "catalog:",
     "diff": "^8.0.2",
     "dotenv": "catalog:",
+    "e2b": "2.45.0",
     "form-data": "^4.0.4",
     "jose": "^6.2.5",
     "lucide-react": "^0.545.0",

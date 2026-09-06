@@ -163,6 +163,7 @@ async function POST(req: Request, { params }: { params: Promise<{ projectId: str
       );
       const checkout = await materializeGithubPullRequestWorktree({
         sandboxId: project.sandboxId,
+        sandboxProvider: project.sandboxProvider ?? "daytona",
         repositoryPath: project.sandboxWorkDir,
         worktreePath: thread.worktreePath,
         localBranch: thread.featureBranch,

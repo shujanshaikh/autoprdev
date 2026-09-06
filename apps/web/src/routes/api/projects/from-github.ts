@@ -24,6 +24,7 @@ const requestSchema = z.object({
     defaultBranch: z.string(),
   }),
   branch: z.string().min(1),
+  sandboxProvider: z.enum(["daytona", "e2b"]).default("daytona"),
 });
 
 async function POST(req: Request) {
@@ -33,7 +34,7 @@ async function POST(req: Request) {
   }
 
 
-  const { repository, branch } = parsed.data;
+  const { repository, branch, sandboxProvider } = parsed.data;
 
   try {
     const authState = await requireWorkOSAuth();
@@ -61,10 +62,21 @@ async function POST(req: Request) {
       repoName: verifiedRepo.name,
       defaultBranch: verifiedRepo.defaultBranch,
       repoBranch: branch,
+      sandboxProvider,
     });
 
     if (!project.created) {
       const existingBranch = branch;
+      if (project.sandboxProvider !== sandboxProvider) {
+        const existingProvider = project.sandboxProvider === "e2b" ? "E2B" : "Daytona";
+        const selectedProvider = sandboxProvider === "e2b" ? "E2B" : "Daytona";
+        return Response.json({
+          projectId: project.projectId,
+          reused: true,
+          sandboxStatus: project.sandboxStatus,
+          error: `This repository already uses ${existingProvider}. Delete that project before recreating it with ${selectedProvider}.`,
+        }, { status: 409 });
+      }
 
       if (project.sandboxStatus === "ready" && project.sandboxId) {
         const projectBeforeSwitch = await convexQuery(api.projects.get, { projectId: project.projectId });
@@ -84,6 +96,7 @@ async function POST(req: Request) {
             branch: existingBranch,
             repoName: verifiedRepo.name,
             sandboxWorkDir: project.sandboxWorkDir,
+            sandboxProvider: project.sandboxProvider,
             githubToken: repositoryToken,
           });
           await convexMutation(api.projects.markBranchSwitchReady, {
@@ -115,6 +128,7 @@ async function POST(req: Request) {
         githubToken: repositoryToken,
         branch,
         repoName: verifiedRepo.name,
+        sandboxProvider: project.sandboxProvider,
       });
 
       await convexAction(api.projectActions.bindProvisionedSandbox, {

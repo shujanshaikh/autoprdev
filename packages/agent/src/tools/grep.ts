@@ -244,7 +244,7 @@ function formatExcludeFlag(exclude: GrepInput["exclude"]): string | undefined {
   return exclude;
 }
 
-export function createDaytonaGrepTool(sandboxOptions: SandboxSessionOptions) {
+export function createSandboxGrepTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "grep",
     description:
@@ -254,3 +254,5 @@ export function createDaytonaGrepTool(sandboxOptions: SandboxSessionOptions) {
     execute: (input) => executeDaytonaGrep(input, sandboxOptions),
   });
 }
+
+export const createDaytonaGrepTool = createSandboxGrepTool;

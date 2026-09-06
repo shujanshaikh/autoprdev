@@ -1,3 +1,4 @@
+import { SandboxProviderLabel } from "#/components/sandbox-provider-label";
 import { Link } from "@tanstack/react-router";
 import { GitBranch, Loader2 } from "lucide-react";
 import { cn } from "@autopr/ui/lib/utils";
@@ -105,6 +106,10 @@ function ProjectRow({ project }: { project: WorkspaceProject }) {
       <div className="hidden min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground sm:flex">
         <GitBranch className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{branch}</span>
+        <span className="text-muted-foreground/40">·</span>
+        <span className="shrink-0 text-[9px] uppercase tracking-[0.14em]">
+          <SandboxProviderLabel provider={project.sandboxProvider} />
+        </span>
       </div>
       <div className="min-w-0 flex items-center justify-start gap-2 min-[420px]:justify-end">
         <span

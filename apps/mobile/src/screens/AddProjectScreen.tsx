@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 import * as WebBrowser from "expo-web-browser";
 import { Check, GitBranch, GitFork, Lock, Search, X } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState } from "react";
@@ -86,6 +87,7 @@ export function AddProjectScreen({ navigation }: Props) {
   const [search, setSearch] = useState("");
   const [repository, setRepository] = useState<GitHubRepository | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
+  const [sandboxProvider, setSandboxProvider] = useState<SandboxProvider>("daytona");
 
   const repositories = useWebQuery<{ repositories: GitHubRepository[] }>(
     ["github", "repositories"],
@@ -108,7 +110,7 @@ export function AddProjectScreen({ navigation }: Props) {
         error?: string;
       }>("/api/projects/from-github", token, {
         method: "POST",
-        body: JSON.stringify({ repository, branch }),
+        body: JSON.stringify({ repository, branch, sandboxProvider }),
       });
     },
     {
@@ -269,6 +271,32 @@ export function AddProjectScreen({ navigation }: Props) {
             </ScrollView>
           )}
 
+          <View style={styles.runtimeField}>
+            <Text style={[styles.runtimeLabel, { color: theme.muted }]}>RUNTIME</Text>
+            <View style={[styles.runtimeOptions, { borderColor: theme.line }]}>
+              {(["daytona", "e2b"] as const).map((provider) => {
+                const active = sandboxProvider === provider;
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    key={provider}
+                    onPress={() => setSandboxProvider(provider)}
+                    style={[
+                      styles.runtimeOption,
+                      provider === "daytona" ? { borderRightColor: theme.line, borderRightWidth: 1 } : null,
+                      { backgroundColor: active ? theme.accent : theme.screen },
+                    ]}
+                  >
+                    <Text style={[styles.runtimeText, { color: active ? theme.accentInk : theme.muted }]}>
+                      {provider === "e2b" ? "E2B" : "Daytona"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
           {create.error ? <ErrorNotice message={create.error.message} /> : null}
           <PrimaryButton
             disabled={!branch}
@@ -349,4 +377,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   branchText: { fontFamily: "DMSans_500Medium", fontSize: 12 },
+  runtimeField: { gap: 6 },
+  runtimeLabel: { fontFamily: "monospace", fontSize: 10, letterSpacing: 1.4 },
+  runtimeOptions: { height: 36, borderWidth: 1, flexDirection: "row" },
+  runtimeOption: { flex: 1, alignItems: "center", justifyContent: "center" },
+  runtimeText: { fontFamily: "monospace", fontSize: 11, letterSpacing: 1 },
 });

@@ -1,3 +1,4 @@
+import { SandboxProviderLabel } from "#/components/sandbox-provider-label";
 import {
   Pagination,
   PaginationContent,
@@ -7,6 +8,7 @@ import {
   PaginationPrevious,
 } from "@autopr/ui/components/pagination";
 import { cn } from "@autopr/ui/lib/utils";
+import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 import {
   ArrowRight,
   Check,
@@ -40,6 +42,7 @@ interface CreateSandboxPanelProps {
   branches: GithubBranch[];
   selectedRepoFullName: string;
   selectedBranch: string;
+  selectedSandboxProvider: SandboxProvider;
   repoSearch: string;
   selectedRepo: GithubRepository | undefined;
   githubAppInstallation: GithubAppInstallation | undefined;
@@ -49,6 +52,7 @@ interface CreateSandboxPanelProps {
   onRepoSearchChange: (value: string) => void;
   onRepoChange: (value: string) => void;
   onBranchChange: (value: string) => void;
+  onSandboxProviderChange: (value: SandboxProvider) => void;
   onCreate: () => void;
 }
 
@@ -66,6 +70,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
     branches,
     selectedRepoFullName,
     selectedBranch,
+    selectedSandboxProvider,
     repoSearch,
     selectedRepo,
     githubAppInstallation,
@@ -75,6 +80,7 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
     onRepoSearchChange,
     onRepoChange,
     onBranchChange,
+    onSandboxProviderChange,
     onCreate,
   } = props;
 
@@ -151,11 +157,13 @@ export function CreateSandboxPanel(props: CreateSandboxPanelProps) {
           <LaunchColumn
             selectedRepo={selectedRepo}
             selectedBranch={selectedBranch}
+            selectedSandboxProvider={selectedSandboxProvider}
             isCreating={isCreating}
             isCheckingGithubAppInstallation={isCheckingGithubAppInstallation}
             githubAppInstallation={githubAppInstallation}
             launchReady={launchReady}
             onCreate={onCreate}
+            onSandboxProviderChange={onSandboxProviderChange}
           />
         </div>
       )}
@@ -662,19 +670,23 @@ function BranchColumn({
 function LaunchColumn({
   selectedRepo,
   selectedBranch,
+  selectedSandboxProvider,
   isCreating,
   isCheckingGithubAppInstallation,
   githubAppInstallation,
   launchReady,
   onCreate,
+  onSandboxProviderChange,
 }: {
   selectedRepo: GithubRepository | undefined;
   selectedBranch: string;
+  selectedSandboxProvider: SandboxProvider;
   isCreating: boolean;
   isCheckingGithubAppInstallation: boolean;
   githubAppInstallation: GithubAppInstallation | undefined;
   launchReady: boolean;
   onCreate: () => void;
+  onSandboxProviderChange: (value: SandboxProvider) => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col sm:h-[22rem]">
@@ -703,6 +715,34 @@ function LaunchColumn({
             placeholder="—"
           />
         </dl>
+
+        <fieldset className="space-y-1.5 font-mono">
+          <legend className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            runtime
+          </legend>
+          <div className="grid grid-cols-2 border border-border">
+            {(["daytona", "e2b"] as const).map((provider) => {
+              const active = provider === selectedSandboxProvider;
+              return (
+                <button
+                  key={provider}
+                  type="button"
+                  disabled={isCreating}
+                  aria-pressed={active}
+                  onClick={() => onSandboxProviderChange(provider)}
+                  className={cn(
+                    "flex h-8 items-center justify-center font-mono text-[10px] uppercase tracking-[0.16em] transition first:border-r first:border-border disabled:opacity-50",
+                    active
+                      ? "bg-foreground text-background"
+                      : "bg-background text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <SandboxProviderLabel provider={provider} />
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
 
         <div className="space-y-1.5">
           {selectedRepo && isCheckingGithubAppInstallation ? (

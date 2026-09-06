@@ -251,6 +251,7 @@ async function POST(
             threadId,
             sandboxCacheKey: threadSandboxCacheKey(project.sandboxCacheKey, threadId),
             sandboxId: project.sandboxId,
+            sandboxProvider: project.sandboxProvider ?? "daytona",
             sandboxWorkDir: worktree.worktreePath,
             repoUrl: project.cloneUrl,
             repoBranch: worktree.featureBranch,

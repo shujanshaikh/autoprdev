@@ -230,13 +230,15 @@ function isNonEmptyString(value: string): value is string {
   return value.trim().length > 0;
 }
 
-export function createDaytonaFindTool(sandboxOptions: SandboxSessionOptions) {
+export function createSandboxFindTool(sandboxOptions: SandboxSessionOptions) {
   return tool({
     title: "find",
     description:
-      "Find files in the Daytona workspace using FFF fuzzy search or glob filtering. Use for filename discovery, locating config/docs/tests, or narrowing a work area before reading. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
+      "Find files in the selected sandbox using FFF fuzzy search or glob filtering. Use for filename discovery, locating config/docs/tests, or narrowing a work area before reading. Scoped paths are canonicalized through the workspace jail. Continue with nextCursor when returned; refine the query when output truncation withholds it. Read-only and safe to retry.",
     inputSchema: findInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaFind(input, sandboxOptions),
   });
 }
+
+export const createDaytonaFindTool = createSandboxFindTool;

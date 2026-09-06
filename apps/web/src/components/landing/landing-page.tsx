@@ -15,7 +15,7 @@ const steps = [
     index: "01",
     label: "Connect",
     title: "Your repo, ready in seconds.",
-    copy: "Point AutoPR at a GitHub repository and branch. A fresh Daytona workspace spins up with the full project context.",
+    copy: "Point AutoPR at a GitHub repository and branch. Choose Daytona or E2B for a fresh workspace with the full project context.",
   },
   {
     index: "02",
@@ -41,7 +41,7 @@ const features = [
   {
     index: "01",
     label: "Isolated by default",
-    copy: "Every task runs in its own Daytona workspace — full repo, dependencies, and toolchain, with nothing touching your machine.",
+    copy: "Every task runs in its own sandbox workspace with the full repo, dependencies, and toolchain. Nothing touches your machine.",
   },
   {
     index: "02",
@@ -143,7 +143,7 @@ function Hero() {
         <p className="lp-proof lp-rise lp-rise-3">
           <span>Bring your Codex subscription</span>
           <i aria-hidden="true">·</i>
-          <span>Isolated Daytona runtime</span>
+          <span>Daytona or E2B runtime</span>
           <i aria-hidden="true">·</i>
           <span>GitHub native</span>
         </p>
@@ -304,7 +304,7 @@ function Footer() {
         </div>
         <div className="lp-footer-bottom">
           <p>© 2026 AutoPR</p>
-          <p>Isolated Daytona runtime · Powered by your Codex subscription</p>
+          <p>Daytona or E2B runtime · Powered by your Codex subscription</p>
         </div>
       </div>
     </footer>

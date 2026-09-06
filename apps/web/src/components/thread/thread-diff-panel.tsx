@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
 import { useAction } from "convex/react";
-import { CheckCheck, Columns2, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Terminal, TextSearch, TextWrap, X } from "lucide-react";
+import { ChevronRight, CheckCheck, Columns2, GitCompareArrows, SquareTerminal, FileDiff, GitBranch, GitPullRequest, KeyRound, List, Loader2, Maximize2, Minimize2, Monitor, Plus, Terminal, TextSearch, TextWrap, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { usePierreDiffPreferences, type PierreDiffStyle } from "@/components/ai-elements/pierre-diff-view";
@@ -108,11 +108,11 @@ const SURFACE_PICKER_ITEMS: Array<{
   description: string;
   icon: typeof GitBranch;
 }> = [
-  { kind: "diff", title: "Diff", description: "Review changes in this thread.", icon: FileDiff },
-  { kind: "desktop", title: "Desktop", description: "Open the workspace desktop.", icon: Monitor },
-  { kind: "terminal", title: "Terminal", description: "Start a shell in this workspace.", icon: Terminal },
-  { kind: "environment", title: "Environment", description: "Mount project secrets in this sandbox.", icon: KeyRound },
-  { kind: "pull-request", title: "Pull request", description: "Browse pull requests for this repository.", icon: GitPullRequest },
+  { kind: "diff", title: "Git changes", description: "Review changes in this thread", icon: GitCompareArrows },
+  { kind: "desktop", title: "Desktop", description: "View the sandbox desktop", icon: Monitor },
+  { kind: "terminal", title: "Terminal", description: "Run commands in the sandbox", icon: SquareTerminal },
+  { kind: "environment", title: "Environment", description: "Manage variables and secrets", icon: KeyRound },
+  { kind: "pull-request", title: "Pull request", description: "Browse repository pull requests", icon: GitPullRequest },
 ];
 
 const DIFF_LAYOUT_OPTIONS: Array<{
@@ -698,13 +698,10 @@ export function ThreadDiffPanel({
 
         {!renderedActiveTab ? (
           <div className="minimal-scrollbar flex min-h-0 flex-1 overflow-auto bg-background">
-            <div className="mx-auto flex w-full max-w-[540px] flex-col justify-center px-6 py-10">
-              <div className="mb-7 text-center">
-                <h2 className="text-xl font-medium tracking-normal text-foreground">Open a surface</h2>
-                <p className="mt-2 text-sm text-muted-foreground">Choose what to show in the right panel.</p>
-              </div>
+            <div className="mx-auto my-auto w-full max-w-[420px] px-5 py-8 sm:px-8">
+              <h2 className="mb-5 px-3 text-base font-medium tracking-tight text-foreground">Open in workspace</h2>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex flex-col divide-y divide-border/50">
                 {SURFACE_PICKER_ITEMS.map((item) => {
                   const Icon = item.icon;
                   return (
@@ -713,16 +710,17 @@ export function ThreadDiffPanel({
                       type="button"
                       onClick={() => openPanelTab(item.kind)}
                       className={cn(
-                        "group flex min-h-[118px] flex-col items-start justify-between rounded-sm border border-border bg-card p-4 text-left",
-                        "transition-[background-color,border-color,transform] duration-150 hover:border-[color:var(--project-selected-strong)] hover:bg-[color:var(--project-panel-soft)] active:translate-y-px",
+                        "group flex min-h-18 w-full items-center gap-3.5 rounded-md px-3 py-3.5 text-left",
+                        "transition-colors hover:bg-muted/50",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
                       )}
                     >
-                      <Icon className="size-6 text-foreground/80 transition-colors group-hover:text-foreground/90" aria-hidden="true" />
-                      <span className="space-y-1">
-                        <span className="block text-lg font-medium text-foreground">{item.title}</span>
-                        <span className="block text-[13px] leading-relaxed text-muted-foreground">{item.description}</span>
+                      <Icon className="size-5 shrink-0 text-muted-foreground group-hover:text-foreground group-focus-visible:text-foreground" strokeWidth={1.5} aria-hidden="true" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium leading-5 text-foreground">{item.title}</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{item.description}</span>
                       </span>
+                      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/40 group-hover:text-foreground group-focus-visible:text-foreground" aria-hidden="true" />
                     </button>
                   );
                 })}

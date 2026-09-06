@@ -130,7 +130,7 @@ async function inspectComputerUse(
     beforeDeadline(
       Promise.resolve().then(() => computerUse.getStatus()),
       deadline,
-      "Timed out reading Daytona desktop status.",
+      "Timed out reading sandbox desktop status.",
     ).then(normalizedStatus).catch(() => undefined),
     inspectProcesses(computerUse, deadline),
   ]);
@@ -143,7 +143,7 @@ function coreProcessesReady(snapshot: ComputerUseSnapshot): boolean {
 }
 
 function desktopReady(snapshot: ComputerUseSnapshot): boolean {
-  // Daytona's aggregate state can briefly remain `active` after one of the
+  // A provider's aggregate state can briefly remain `active` after one of the
   // supervised processes exits. An explicit per-process failure must win over
   // that stale aggregate state so the failed service can be restarted.
   if (snapshot.processes.some((process) => process.running === false)) return false;
@@ -196,7 +196,7 @@ async function waitForPort(
         `Timed out probing desktop port ${port}.`,
       )) return true;
     } catch {
-      // The next probe can succeed while Daytona finishes binding the process.
+      // The next probe can succeed while the provider finishes binding the process.
     }
 
     if (Date.now() >= deadline) return false;
@@ -267,7 +267,7 @@ async function readinessError(
   const attempts = Array.from(new Set(errors.map(errorMessage).filter(Boolean))).slice(0, 4);
   const processes = await Promise.all(snapshot.processes.map((process) => processDiagnostic(computerUse, process)));
   return new Error([
-    "Daytona desktop did not become ready without disrupting the active session.",
+    "Sandbox desktop did not become ready without disrupting the active session.",
     snapshot.status ? `status=${snapshot.status}` : "status=unknown",
     attempts.length > 0 ? `attempts: ${attempts.join(" | ")}` : undefined,
     processes.length > 0 ? `processes: ${processes.join("; ")}` : undefined,
@@ -300,8 +300,8 @@ async function restartFailedProcesses(
 }
 
 /**
- * Ensures Daytona's core desktop services are usable without stopping the whole
- * stack. Per-process health takes precedence over Daytona's aggregate state,
+ * Ensures the sandbox's core desktop services are usable without stopping the
+ * whole stack. Per-process health takes precedence over aggregate state,
  * and recovery is limited to services explicitly reported as down.
  */
 async function ensureComputerUseReadyUncoalesced(
@@ -324,12 +324,12 @@ async function ensureComputerUseReadyUncoalesced(
       await restartFailedProcesses(computerUse, failed, errors, deadline);
     } else {
       try {
-        // Daytona start is idempotent for services that are already running.
+        // Provider start is idempotent for services that are already running.
         // Unlike stop/start, it does not intentionally drop healthy VNC clients.
         await beforeDeadline(
           Promise.resolve().then(() => computerUse.start()),
           deadline,
-          "Timed out starting the Daytona desktop.",
+          "Timed out starting the sandbox desktop.",
         );
       } catch (error) {
         errors.push(error);
@@ -374,7 +374,7 @@ async function recoverComputerUseStreamUncoalesced(
 ): Promise<void> {
   invalidateComputerUseReadiness(computerUse);
   if (!computerUse.restartProcess) {
-    throw new Error("Daytona cannot restart the failed desktop stream processes.");
+    throw new Error("The sandbox cannot restart the failed desktop stream processes.");
   }
 
   const errors: unknown[] = [];

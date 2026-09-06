@@ -308,6 +308,12 @@ function ProjectThreadPageContent() {
               projectId={projectId}
               threadId={threadId}
               persistedStatus={thread.gitStatus}
+              expectedBranch={
+                thread.workspaceMode === "worktree"
+                || (thread.workspaceMode === undefined && Boolean(thread.featureBranch || thread.worktreePath))
+                  ? thread.featureBranch
+                  : undefined
+              }
               invalidatedAt={thread.gitStatusInvalidatedAt}
               enabled={gitStatusEnabled}
             />

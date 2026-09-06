@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+child_pid=""
+
+stop_child() {
+  if [ -n "$child_pid" ]; then
+    kill "$child_pid" 2>/dev/null || true
+  fi
+}
+
+trap stop_child EXIT INT TERM
+
+dbus-launch --exit-with-session startxfce4 &
+child_pid="$!"
+wait "$child_pid"

@@ -203,6 +203,7 @@ async function runAgentTask(
 ) {
   const persistence = getAssistantPersistenceOptions(options);
   const sandboxOptions: SandboxSessionOptions = {
+    provider: options.sandboxProvider,
     cacheKey: options.sandboxCacheKey,
     sandboxId: options.sandboxId,
     workDir: options.sandboxWorkDir,
@@ -211,6 +212,7 @@ async function runAgentTask(
     repoName: options.repoName,
   };
   const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
+  const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const subAgentBinding = createSubAgentBinding();
   const harness = new CodingHarness({
     ...sandboxOptions,
@@ -219,7 +221,7 @@ async function runAgentTask(
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
-      "This chat is streamed through a durable Trigger.dev task. The Daytona sandbox is created before you answer and all tools operate inside that sandbox.",
+      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
       options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
@@ -299,21 +301,31 @@ async function runAgentTask(
         }),
         providerOptions: agentProviderOptions(selectedModel, instructions),
       });
-      let usageMetadata: AssistantUsageMetadata | undefined;
       const uiStream = finalizeAgentUIMessageStream(
         result.toUIMessageStream({
           sendStart: !options.assistantMessageId,
           sendFinish: false,
         }),
         async () => {
-          usageMetadata = createAssistantUsageMetadata(
+          return createAssistantUsageMetadata(
             await result.steps,
             selectedModel.modelId,
             runStartedAt,
             Date.now(),
             subAgentUsageSteps,
           );
-          return usageMetadata;
+        },
+        async (metadata) => {
+          if (!persistence) {
+            return;
+          }
+
+          const response = await result.response;
+          await patchAssistantMessage({
+            ...persistence,
+            parts: responseMessagesToAssistantParts(response.messages),
+            metadata,
+          });
         },
       );
       const streamed = agentUIStream.pipe(
@@ -324,24 +336,11 @@ async function runAgentTask(
       await streamed.waitUntilComplete();
 
       streamFinished = true;
-      const response = await result.response;
-      if (!usageMetadata) {
-        throw new Error("Assistant usage metadata was not finalized with the stream.");
-      }
-
       if (!persistence) {
         return;
       }
 
       try {
-        await patchAssistantMessage({
-          ...persistence,
-          parts: responseMessagesToAssistantParts(
-            [...inputMessages, ...response.messages],
-            inputMessages.length,
-          ),
-          metadata: usageMetadata,
-        });
         await markAgentRunFinished({
           ...persistence,
           runId,

@@ -16,6 +16,7 @@ export function EnvironmentScreen({ route }: Props) {
   const { projectId } = route.params;
   const theme = useAppTheme();
   const project = useQuery(api.projects.get, { projectId });
+  const sandboxProviderName = project?.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const importVariables = useAction(api.projectActions.importSandboxEnvironmentVariables);
   const removeVariable = useAction(api.projectActions.removeSandboxEnvironmentVariable);
   const [envName, setEnvName] = useState("");
@@ -82,7 +83,7 @@ export function EnvironmentScreen({ route }: Props) {
       <View style={[styles.notice, { backgroundColor: theme.accentSoft }]}>
         <KeyRound color={theme.accentOn} size={18} />
         <Text style={[styles.noticeText, { color: theme.muted }]}>
-          Values are stored in the Daytona sandbox environment, not the AutoPR database.
+          Values are stored in the {sandboxProviderName} sandbox environment, not the AutoPR database.
         </Text>
       </View>
       <SectionLabel>Paste a .env file</SectionLabel>
@@ -189,7 +190,7 @@ export function EnvironmentScreen({ route }: Props) {
                 accessibilityLabel={`Delete ${variable.envName}`}
                 onPress={() => Alert.alert(
                   `Delete ${variable.envName}?`,
-                  "The variable will be removed from Daytona.",
+                  `The variable will be removed from ${sandboxProviderName}.`,
                   [
                     { text: "Cancel", style: "cancel" },
                     {

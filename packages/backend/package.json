@@ -11,12 +11,14 @@
     "deploy:vercel": "convex deploy --cmd \"pnpm --filter web build\" --cmd-url-env-var-name VITE_CONVEX_URL"
   },
   "dependencies": {
+    "@autopr/agent": "workspace:*",
     "@autopr/config": "workspace:*",
     "@convex-dev/r2": "^0.10.1",
     "@daytona/sdk": "0.205.0",
     "ai": "^6.0.168",
     "convex": "catalog:",
     "dotenv": "catalog:",
+    "e2b": "2.45.0",
     "zod": "catalog:"
   },
   "devDependencies": {

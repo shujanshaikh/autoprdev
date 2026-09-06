@@ -1,3 +1,4 @@
+import { SandboxProviderLabel } from "#/components/sandbox-provider-label";
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
@@ -61,7 +62,6 @@ import {
 } from "#/components/codex-prompt-connection-line";
 import { DaytonaEnvironmentDialog } from "#/components/thread/daytona-environment-view";
 import {
-  getCodexReasoningEffortLabel,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
 import {
@@ -77,6 +77,7 @@ import { deleteThreadWithCleanup } from "#/lib/delete-thread";
 import { useProjectSandboxBranchQuery } from "#/lib/project-sandbox-branch-query";
 import { buildThreadStartNavigation } from "#/lib/thread-start-navigation";
 import { OpenGithubPullRequestDialog } from "#/components/github/open-pull-request-dialog";
+import { AgentReasoningPicker } from "#/components/agent-reasoning-picker";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 
 const OPEN_PULL_REQUEST_VALUE = "__open_github_pull_request__";
@@ -127,6 +128,7 @@ function ThreadWorkspaceSelect({
   branchReadFailed,
   branchUnavailable,
   disabled,
+  sandboxProviderName,
   onChange,
 }: {
   value: ThreadWorkspaceMode;
@@ -135,6 +137,7 @@ function ThreadWorkspaceSelect({
   branchReadFailed: boolean;
   branchUnavailable: boolean;
   disabled: boolean;
+  sandboxProviderName: string;
   onChange: (value: ThreadWorkspaceMode) => void;
 }) {
   const isWorktree = value === "worktree";
@@ -147,10 +150,10 @@ function ThreadWorkspaceSelect({
         disabled={disabled}
         aria-label="Thread workspace"
         title={branchUnavailable
-          ? `Start the Daytona sandbox to verify its checkout. Last known branch: ${currentBranch}.`
+          ? `Start the ${sandboxProviderName} sandbox to verify its checkout. Last known branch: ${currentBranch}.`
           : branchReadFailed
-          ? `Showing cached branch ${currentBranch}; Daytona could not be reached.`
-          : `Daytona checkout: ${currentBranch}`}
+          ? `Showing cached branch ${currentBranch}; ${sandboxProviderName} could not be reached.`
+          : `${sandboxProviderName} checkout: ${currentBranch}`}
       >
         {isWorktree ? (
           <GitFork className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
@@ -808,6 +811,9 @@ function ProjectOverviewPage() {
                             <GitBranch className="size-3 shrink-0" aria-hidden="true" />
                             <span className="truncate">{project.repoFullName ?? "project"}</span>
                           </span>
+                          <span className="border-l border-border pl-2 text-[9px] uppercase tracking-[0.16em]">
+                            <SandboxProviderLabel provider={project.sandboxProvider} />
+                          </span>
                           <Select value={selectedBranch} onValueChange={(branch) => {
                             if (branch === OPEN_PULL_REQUEST_VALUE) {
                               setIsOpeningPullRequest(true);
@@ -869,8 +875,8 @@ function ProjectOverviewPage() {
                             <CircleAlert
                               className="size-3 text-amber-500"
                               aria-label={sandboxBranchUnavailable
-                                ? "Daytona sandbox is not running"
-                                : "Could not verify the Daytona branch"}
+                                ? "Sandbox is not running"
+                                : "Could not verify the sandbox branch"}
                             />
                           ) : null}
                         </div>
@@ -888,7 +894,7 @@ function ProjectOverviewPage() {
                           onChange={handlePromptImageInputChange}
                         />
                         <div
-                          className={`overflow-hidden rounded-[var(--radius-xxl)] border bg-muted/35 transition-[border-color,background-color,box-shadow] duration-200 dark:bg-muted/20 ${isFocused
+                          className={`autopr-chat-composer overflow-hidden rounded-[var(--radius-xxl)] border bg-muted/35 transition-[border-color,background-color,box-shadow] duration-200 dark:bg-muted/20 ${isFocused
                             ? "border-border/80 bg-muted/45 shadow-[0_0_0_3px_color-mix(in_srgb,var(--ring)_12%,transparent)] dark:bg-muted/30"
                             : "border-border/55 hover:border-border/70"
                             }`}
@@ -980,30 +986,12 @@ function ProjectOverviewPage() {
                                 triggerClassName="max-w-[11rem]"
                                 disabled={promptControlsDisabled || modelOptions.length === 0}
                               />
-                              {selectedReasoningEfforts.length > 0 ? <Select
+                              <AgentReasoningPicker
+                                efforts={selectedReasoningEfforts}
                                 value={selectedReasoningEffort}
-                                onValueChange={(value) => value && setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
-                              >
-                                <SelectTrigger
-                                  size="sm"
-                                  className="h-7 max-w-24 gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-transparent [&_[data-slot=select-value]]:min-w-0 [&_svg:not([class*='size-'])]:size-3.5"
-                                  disabled={promptControlsDisabled}
-                                  aria-label="Reasoning level"
-                                >
-                                  <SelectValue>
-                                    {getCodexReasoningEffortLabel(selectedReasoningEffort)}
-                                  </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent align="start" alignItemWithTrigger={false} side="top" sideOffset={8} className="w-36 min-w-36 rounded-[var(--radius-lg)] p-1">
-                                  {selectedReasoningEfforts.map((effort) => (
-                                    <SelectItem key={effort} value={effort} className="rounded-[var(--radius-md)] py-1.5 pr-7 pl-2 text-xs">
-                                      <span className="font-medium">
-                                        {getCodexReasoningEffortLabel(effort)}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select> : null}
+                                onValueChange={setSelectedReasoningEffortChoice}
+                                disabled={promptControlsDisabled}
+                              />
                             {demoRecordingExperimentEnabled ? (
                               <Tooltip>
                                 <TooltipTrigger
@@ -1027,8 +1015,8 @@ function ProjectOverviewPage() {
                                 />
                                 <TooltipContent side="top" align="start" className="max-w-64 rounded-[var(--radius-md)]">
                                   {effectiveDemoEnabled
-                                    ? "Experimental: new threads will record a Daytona browser demo and may fail."
-                                    : "Allow the agent to record an experimental Daytona browser demo for new threads."}
+                                    ? "Experimental: new threads will record a sandbox browser demo and may fail."
+                                    : "Allow the agent to record an experimental sandbox browser demo for new threads."}
                                 </TooltipContent>
                               </Tooltip>
                             ) : null}
@@ -1050,6 +1038,7 @@ function ProjectOverviewPage() {
                             branchReadFailed={sandboxBranchReadFailed}
                             branchUnavailable={sandboxBranchUnavailable}
                             disabled={promptControlsDisabled}
+                            sandboxProviderName={project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
                             onChange={setWorkspaceMode}
                           />
                         </div>

@@ -4,11 +4,6 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@autopr/ui/components/dropdown-menu";
 import {
@@ -81,6 +76,7 @@ import {
   CodexPromptConnectionLine,
   type CodexPromptConnectionIssue,
 } from "#/components/codex-prompt-connection-line";
+import { AgentReasoningPicker } from "#/components/agent-reasoning-picker";
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { ThreadDiffPanel } from "#/components/thread/thread-diff-panel";
 import { activeThreadComputerActivityKey } from "#/components/thread/thread-computer-activity";
@@ -91,7 +87,6 @@ import {
   ThreadSubAgentActivityPanel,
 } from "#/components/thread/thread-sub-agent-activity";
 import {
-  getCodexReasoningEffortLabel,
   type CodexModelId,
   type CodexReasoningEffort,
 } from "#/lib/codex-models";
@@ -332,7 +327,7 @@ function extractThreadDiffEntries(messages: UIMessage[]): ThreadDiffEntry[] {
 }
 
 const promptControlTriggerClassName =
-  "max-w-[48vw] lg:max-w-[12rem]";
+  "max-w-[32vw] sm:max-w-[12rem]";
 
 function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -343,7 +338,9 @@ function ThreadChatTextarea({ disabled }: { disabled: boolean }) {
         ref={textareaRef}
         disabled={disabled}
         placeholder="Add a follow up..."
-        className="max-h-50 min-h-[4.375rem] resize-none px-4 py-3 text-[14px] leading-relaxed"
+        rows={1}
+        aria-label="Follow-up prompt"
+        className="autopr-composer-textarea max-h-50 resize-none px-4 py-3 text-[14px] leading-relaxed"
       />
     </div>
   );
@@ -1804,7 +1801,7 @@ function ThreadChatRuntime({
                   issue={codexPromptIssue}
                   className="rounded-t-[var(--radius-xxl)] border-b-border/40 bg-transparent px-3.5"
                 />
-                <PromptInputHeader>
+                <PromptInputHeader className="autopr-composer-attachments">
                   <DiffPromptContextChips
                     contexts={diffPromptContexts}
                     onRemove={removeDiffPromptContext}
@@ -1817,17 +1814,25 @@ function ThreadChatRuntime({
                 <PromptInputBody>
                   <ThreadChatTextarea disabled={!ready} />
                 </PromptInputBody>
-                <PromptInputFooter className="min-w-0 gap-1.5">
+                <PromptInputFooter className="min-w-0 gap-1 px-2.5 pb-2.5">
                   <PromptInputTools className="min-w-0 flex-1 gap-1">
                     <AgentModelPicker
                       models={modelOptions}
                       value={selectedModel ? agentModelKey(selectedModel) : ""}
                       onValueChange={handleModelSelectionChange}
+                      compact
                       triggerClassName={promptControlTriggerClassName}
                       disabled={!ready || modelOptions.length === 0}
                     />
 
-                    <DropdownMenu>
+                    <AgentReasoningPicker
+                      efforts={selectedReasoningEfforts}
+                      value={selectedReasoningEffort}
+                      onValueChange={setSelectedReasoningEffortChoice}
+                      disabled={!ready}
+                    />
+
+                    {demoRecordingExperimentEnabled ? <DropdownMenu>
                       <DropdownMenuTrigger
                         render={
                           <button
@@ -1845,42 +1850,17 @@ function ThreadChatRuntime({
                         sideOffset={8}
                         className="w-52 rounded-[var(--radius-xl)] p-1.5 shadow-lg"
                       >
-                          {selectedReasoningEfforts.length > 0 ? <DropdownMenuGroup>
-                            <DropdownMenuLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
-                              Reasoning
-                            </DropdownMenuLabel>
-                            <DropdownMenuRadioGroup
-                              value={selectedReasoningEffort}
-                              onValueChange={(value) => setSelectedReasoningEffortChoice(value as CodexReasoningEffort)}
-                            >
-                              {selectedReasoningEfforts.map((effort) => (
-                                <DropdownMenuRadioItem
-                                  key={effort}
-                                  value={effort}
-                                  disabled={!ready}
-                                  className="rounded-[var(--radius-md)] py-2 text-sm"
-                                >
-                                  {getCodexReasoningEffortLabel(effort)}
-                                </DropdownMenuRadioItem>
-                              ))}
-                            </DropdownMenuRadioGroup>
-                          </DropdownMenuGroup> : null}
-                        {demoRecordingExperimentEnabled ? (
-                          <>
-                            <DropdownMenuSeparator className="my-1" />
-                            <DropdownMenuCheckboxItem
-                              checked={optimisticDemoEnabled}
-                              disabled={demoSaving}
-                              onCheckedChange={() => void toggleDemoEnabled()}
-                              className="rounded-[var(--radius-md)] py-2 text-sm"
-                            >
-                              <Video className="size-4 text-muted-foreground" aria-hidden="true" />
-                              Record demo
-                            </DropdownMenuCheckboxItem>
-                          </>
-                        ) : null}
+                        <DropdownMenuCheckboxItem
+                          checked={optimisticDemoEnabled}
+                          disabled={demoSaving}
+                          onCheckedChange={() => void toggleDemoEnabled()}
+                          className="rounded-[var(--radius-md)] py-2 text-sm"
+                        >
+                          <Video className="size-4 text-muted-foreground" aria-hidden="true" />
+                          Record demo
+                        </DropdownMenuCheckboxItem>
                       </DropdownMenuContent>
-                    </DropdownMenu>
+                    </DropdownMenu> : null}
 
                     <PromptImageUploadButton disabled={!ready} />
                     <span className="min-w-0 flex-1" />
@@ -1891,7 +1871,7 @@ function ThreadChatRuntime({
                     />
                   </PromptInputTools>
                   <PromptInputSubmit
-                    className="size-9 lg:size-8"
+                    className="size-8 shrink-0 rounded-full"
                     disabled={!ready && !busy}
                     onStop={stopGeneration}
                     status={status}

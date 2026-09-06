@@ -209,48 +209,33 @@
   border-color: transparent;
 }
 
-/* A dense glass working surface, adapted from t3code's composer shell. The
-   tint stays intentionally high so messages never show through as readable
-   content; the backdrop filter only lends depth while the timeline scrolls. */
-.autopr-chat-composer {
-  --autopr-composer-surface: var(--project-panel-soft, var(--card));
+/* Keep the empty composer short; focus and drafts restore writing space. */
+.autopr-chat-composer,
+.dark .autopr-chat-composer {
+  --autopr-composer-surface: #000;
 
   isolation: isolate;
-  border-color: color-mix(in srgb, var(--project-strong-line, var(--border)) 76%, transparent);
-  background: color-mix(in srgb, var(--autopr-composer-surface) 88%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.12);
-  backdrop-filter: blur(16px) saturate(1.12);
-  box-shadow:
-    inset 0 1px color-mix(in srgb, white 22%, transparent),
-    0 18px 42px -26px rgb(0 0 0 / 58%);
+  border-color: rgb(255 255 255 / 12%);
+  background: #000;
+  color: #fff;
+  box-shadow: none;
 }
 
-.autopr-chat-composer:has([data-slot="input-group-control"]:focus-visible) {
-  border-color: var(--project-strong-line, var(--border));
-  background: color-mix(in srgb, var(--autopr-composer-surface) 94%, transparent);
-  box-shadow:
-    inset 0 1px color-mix(in srgb, white 26%, transparent),
-    0 18px 44px -25px rgb(0 0 0 / 64%),
-    0 0 0 1px color-mix(in srgb, var(--project-selected-strong, var(--ring)) 14%, transparent);
+.autopr-chat-composer:focus-within,
+.dark .autopr-chat-composer:focus-within {
+  border-color: rgb(255 255 255 / 24%);
+  background: #000;
+  box-shadow: none;
 }
 
-.dark .autopr-chat-composer {
-  --autopr-composer-surface: color-mix(in srgb, var(--project-panel-soft, var(--card)) 96%, white);
-
-  border-color: color-mix(in srgb, white 8%, transparent);
-  background: color-mix(in srgb, var(--autopr-composer-surface) 90%, transparent);
-  box-shadow:
-    inset 0 1px rgb(255 255 255 / 4%),
-    0 20px 46px -26px rgb(0 0 0 / 86%);
+.autopr-chat-composer .autopr-composer-textarea {
+  min-height: 2.75rem;
 }
 
-.dark .autopr-chat-composer:has([data-slot="input-group-control"]:focus-visible) {
-  border-color: color-mix(in srgb, white 13%, transparent);
-  background: color-mix(in srgb, var(--autopr-composer-surface) 95%, transparent);
-  box-shadow:
-    inset 0 1px rgb(255 255 255 / 6%),
-    0 20px 48px -26px rgb(0 0 0 / 90%),
-    0 0 0 1px color-mix(in srgb, var(--project-selected-strong, var(--ring)) 18%, transparent);
+.autopr-chat-composer:focus-within .autopr-composer-textarea,
+.autopr-chat-composer .autopr-composer-textarea:not(:placeholder-shown),
+.autopr-chat-composer:has(.autopr-composer-attachments > *) .autopr-composer-textarea {
+  min-height: 5.5rem;
 }
 
 .autopr-sub-agent-activity {

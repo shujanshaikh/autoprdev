@@ -21,6 +21,16 @@ const statusConfig = {
     text: "text-muted-foreground",
     label: "Finalized",
   },
+  paused: {
+    dot: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+    label: "Paused",
+  },
+  unknown: {
+    dot: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+    label: "Awaiting sync",
+  },
 } as const;
 
 export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
@@ -31,17 +41,26 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
     }, 0) ?? 0;
 
   const activeCount =
-    sandboxCosts?.filter((r) => r.status === "active").length ?? 0;
+    sandboxCosts?.filter((r) => r.status === "active" &&
+      (r.sandboxProvider !== "e2b" || r.e2bState === "running")).length ?? 0;
+  const pausedCount = sandboxCosts?.filter((row) =>
+    row.status === "active" && row.e2bState === "paused").length ?? 0;
   const finalizedCount =
     sandboxCosts?.filter((r) => r.status === "finalized").length ?? 0;
   const hasEstimates = sandboxCosts?.some((row) => row.costSource === "estimated") ?? false;
+  const hasIncompleteUsage = sandboxCosts?.some((row) => row.e2bUsageHistoryComplete === false) ?? false;
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-2 min-[420px]:gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 min-[420px]:gap-3 sm:grid-cols-4">
         <SummaryCard
-          label="Total Spend"
+          label={hasIncompleteUsage ? "Known Spend" : "Total Spend"}
           value={`$${totalSpend.toFixed(4)}`}
+          loading={sandboxCosts === undefined}
+        />
+        <SummaryCard
+          label="Paused"
+          value={pausedCount}
           loading={sandboxCosts === undefined}
         />
         <SummaryCard
@@ -58,7 +77,8 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
 
       {hasEstimates ? (
         <p className="font-mono text-[10px] text-muted-foreground">
-          E2B totals are estimates from metered CPU, memory, and running time.
+          E2B compute estimates use allocated CPU, memory, and execution runtime.
+          {hasIncompleteUsage ? " Missing history is excluded from totals." : ""}
         </p>
       ) : null}
 
@@ -74,7 +94,6 @@ export function SettingsBilling({ sandboxCosts }: SettingsBillingProps) {
         <div className="max-h-72 divide-y divide-border/60 overflow-y-auto minimal-scrollbar">
           {sandboxCosts === undefined ? (
             <div className="flex min-h-28 items-center justify-center gap-2 text-xs text-muted-foreground">
-              <span className="inline-block size-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground" />
               Loading billing data
             </div>
           ) : sandboxCosts.length === 0 ? (
@@ -112,7 +131,7 @@ function SummaryCard({
         {label}
       </p>
       {loading ? (
-        <div className="mt-2 h-7 w-16 animate-pulse bg-muted" />
+        <div className="mt-2 h-7 w-16 bg-muted" />
       ) : (
         <p className="mt-2 truncate text-lg font-medium tabular-nums min-[420px]:text-xl">{value}</p>
       )}
@@ -121,10 +140,13 @@ function SummaryCard({
 }
 
 function BillingRow({ row }: { row: WorkspaceSandboxCost }) {
-  const config = statusConfig[row.status];
+  const status = row.status === "active" && row.sandboxProvider === "e2b"
+    ? row.e2bState === "paused" ? "paused" : row.e2bState === "running" ? "active" : "unknown"
+    : row.status;
+  const config = statusConfig[status];
   const cost = row.finalTotalPrice ?? row.latestTotalPrice;
   const costDisplay =
-    cost === undefined ? "—" : `$${cost.toFixed(4)}`;
+    cost === undefined ? "Unknown" : `${row.e2bUsageHistoryComplete === false ? "≥ " : ""}$${cost.toFixed(4)}`;
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5 px-3 py-2.5 transition-colors hover:bg-muted/30 min-[420px]:grid-cols-[minmax(0,1fr)_auto] min-[420px]:items-center min-[420px]:gap-3 min-[420px]:px-4 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_10rem]">
@@ -135,6 +157,8 @@ function BillingRow({ row }: { row: WorkspaceSandboxCost }) {
         <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
           {row.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
           {row.costSource === "estimated" ? " · estimated" : ""}
+          {row.e2bUsageHistoryComplete === false ? " · incomplete" : ""}
+          {row.syncError && row.e2bUsageHistoryComplete !== false ? " · sync failed" : ""}
         </p>
       </div>
 

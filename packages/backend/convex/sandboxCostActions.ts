@@ -5,6 +5,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
+import { fetchE2BUsageEvents } from "./lib/e2bUsage";
 import { resolvedSandboxProvider } from "./lib/sandboxProvider";
 
 function analyticsConfig() {
@@ -55,22 +56,17 @@ async function fetchAuthoritativeTotal(sandboxId: string, from: number, to: numb
 
 async function fetchE2BMeteringSnapshot(sandboxId: string) {
   const { Sandbox, SandboxNotFoundError } = await import("e2b");
-  const checkedAt = Date.now();
   const info = await Sandbox.getInfo(sandboxId, { requestTimeoutMs: 120_000 }).catch((error) => {
     if (error instanceof SandboxNotFoundError) return null;
     throw error;
   });
   if (!info) return null;
-  const now = Date.now();
   return {
     cpuCount: info.cpuCount,
     memoryMB: info.memoryMB,
     startedAt: info.startedAt.getTime(),
-    checkedAt,
     running: info.state === "running",
-    meteredUntil: info.state === "running"
-      ? now
-      : Math.min(now, info.endAt.getTime()),
+    endAt: info.endAt.getTime(),
   };
 }
 
@@ -83,33 +79,19 @@ export const syncOneSandboxCost = internalAction({
       { sandboxId: args.sandboxId },
     );
     if (!row) return false;
-    if (args.finalize ? row.status === "finalized" : false) return true;
-    if (args.finalize ? row.status !== "pending_finalization" : row.status !== "active") return false;
     const provider = resolvedSandboxProvider(row.sandboxProvider);
+    if (row.status === "finalized" && (provider !== "e2b" ||
+      (row.e2bUsageVersion === 1 && row.nextSyncAt === undefined))) return true;
+    if (provider !== "e2b" && (args.finalize ? row.status !== "pending_finalization" : row.status !== "active")) return false;
     try {
       if (provider === "e2b") {
+        // Read info after the event history so a recent pause/resume is reflected in the estimate.
+        const events = await fetchE2BUsageEvents(row.sandboxId);
+        const checkedAt = Date.now();
         const snapshot = await fetchE2BMeteringSnapshot(row.sandboxId);
-        if (args.finalize) {
-          if (snapshot) {
-            await ctx.runMutation(internal.sandboxCosts.recordSyncFailureInternal, {
-              sandboxId: row.sandboxId,
-              error: "E2B sandbox still exists; waiting for confirmed deletion before finalizing cost.",
-              finalize: true,
-            });
-            return false;
-          }
-          return await ctx.runMutation(
-            internal.sandboxCosts.finalizeE2BFromLocalMeteringInternal,
-            { sandboxId: row.sandboxId, deletedAt: Date.now() },
-          );
-        }
-        if (!snapshot) throw new Error("E2B sandbox was not found during active cost sync.");
-        const recorded = await ctx.runMutation(internal.sandboxCosts.recordE2BSyncSuccessInternal, {
-          sandboxId: row.sandboxId,
-          ...snapshot,
-          finalize: false,
+        return await ctx.runMutation(internal.sandboxCosts.recordE2BUsageInternal, {
+          sandboxId: row.sandboxId, events, snapshot, checkedAt,
         });
-        return recorded;
       }
       const totalPrice = await fetchAuthoritativeTotal(row.sandboxId, row.sandboxCreatedAt, Date.now());
       await ctx.runMutation(internal.sandboxCosts.recordSyncSuccessInternal, {
@@ -139,7 +121,7 @@ export const batchSyncActiveSandboxCosts = internalAction({
     );
     await Promise.all(rows.map((row) => ctx.runAction(internal.sandboxCostActions.syncOneSandboxCost, {
       sandboxId: row.sandboxId,
-      finalize: false,
+      finalize: row.status !== "active",
     })));
     return null;
   },

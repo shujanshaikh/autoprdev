@@ -74,6 +74,10 @@ export default defineSchema({
     e2bMemoryMB: v.optional(v.number()),
     e2bRunningMs: v.optional(v.number()),
     e2bMeteringStartedAt: v.optional(v.number()),
+    e2bUsageVersion: v.optional(v.number()),
+    e2bUsageSyncedAt: v.optional(v.number()),
+    e2bUsageHistoryComplete: v.optional(v.boolean()),
+    e2bState: v.optional(v.union(v.literal("running"), v.literal("paused"), v.literal("killed"))),
     status: v.union(v.literal("active"), v.literal("pending_finalization"), v.literal("finalized")),
     latestTotalPrice: v.optional(v.number()),
     finalTotalPrice: v.optional(v.number()),
@@ -92,6 +96,17 @@ export default defineSchema({
     .index("by_sandbox_id", ["sandboxId"])
     .index("by_author_status", ["authorId", "status"])
     .index("by_next_sync", ["nextSyncAt"]),
+
+  e2bSandboxExecutions: defineTable({
+    sandboxId: v.string(),
+    executionId: v.string(),
+    startedAt: v.number(),
+    stoppedAt: v.optional(v.number()),
+    runningMs: v.optional(v.number()),
+    cpuCount: v.optional(v.number()),
+    memoryMB: v.optional(v.number()),
+    providerMeasured: v.optional(v.boolean()),
+  }).index("by_sandbox_id", ["sandboxId"]),
 
   codexCredentials: defineTable({
     authorId: v.string(),

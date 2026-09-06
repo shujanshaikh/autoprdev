@@ -1,5 +1,6 @@
-// Current public E2B compute rates. E2B does not expose invoice totals through
-// the sandbox SDK, so billing uses these rates for a clearly labeled estimate.
+// Public compute rates: https://e2b.dev/pricing
+// Apply to allocated resources and execution runtime, not CPU utilization.
+// Estimates exclude plan fees, credits, taxes, and negotiated pricing.
 export const E2B_CPU_PRICE_PER_SECOND = 0.000014;
 export const E2B_MEMORY_GIB_PRICE_PER_SECOND = 0.0000045;
 export const E2B_DEFAULT_CPU_COUNT = 8;
@@ -11,27 +12,4 @@ export function estimatedE2BPrice(runningMs: number, cpuCount: number, memoryMB:
     Math.max(0, cpuCount) * E2B_CPU_PRICE_PER_SECOND
     + (Math.max(0, memoryMB) / 1_024) * E2B_MEMORY_GIB_PRICE_PER_SECOND
   );
-}
-
-export function e2bMeteringAt(
-  state: {
-    runningMs?: number;
-    startedAt?: number;
-    cpuCount?: number;
-    memoryMB?: number;
-  },
-  meteredUntil: number,
-) {
-  const runningMs = (state.runningMs ?? 0) + (
-    state.startedAt === undefined ? 0 : Math.max(0, meteredUntil - state.startedAt)
-  );
-  const cpuCount = state.cpuCount ?? E2B_DEFAULT_CPU_COUNT;
-  const memoryMB = state.memoryMB ?? E2B_DEFAULT_MEMORY_MB;
-
-  return {
-    runningMs,
-    cpuCount,
-    memoryMB,
-    totalPrice: estimatedE2BPrice(runningMs, cpuCount, memoryMB),
-  };
 }

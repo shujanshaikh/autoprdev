@@ -815,6 +815,7 @@ function ThreadChatRuntime({
   resumeSession?: boolean;
 }) {
   const activeRunIdRef = useRef(currentRunId);
+  const previousRunIdRef = useRef(currentRunId);
   const {
     startedAt: activeRunStartedAt,
     startedAtRef: activeRunStartedAtRef,
@@ -1441,15 +1442,24 @@ function ThreadChatRuntime({
   const busy = status === "submitted" || status === "streaming";
   const ready = status === "ready" && !disabled && !serverStreaming;
   useEffect(() => {
+    const previousRunId = previousRunIdRef.current;
+    previousRunIdRef.current = currentRunId;
+
     if (serverStreaming || busy) {
-      ensureRunStarted(Date.now());
+      // Reconnects can reveal a replacement run without an idle render.
+      // The first ID after a local submission keeps its existing start time.
+      if (!usingSessionTransport && currentRunId && previousRunId && currentRunId !== previousRunId) {
+        startNewRun(Date.now());
+      } else {
+        ensureRunStarted(Date.now());
+      }
       return;
     }
 
     if (usingSessionTransport || !activeRunIdRef.current) {
       clearRun();
     }
-  }, [busy, clearRun, ensureRunStarted, serverStreaming, usingSessionTransport]);
+  }, [busy, clearRun, currentRunId, ensureRunStarted, serverStreaming, startNewRun, usingSessionTransport]);
 
   const stopGeneration = useCallback(() => {
     const runId = activeRunIdRef.current;

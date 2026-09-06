@@ -1,3 +1,4 @@
+import { SandboxProviderLabel } from "#/components/sandbox-provider-label";
 import { createFileRoute } from "@tanstack/react-router";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { Button } from "@autopr/ui/components/button";
@@ -811,7 +812,7 @@ function ProjectOverviewPage() {
                             <span className="truncate">{project.repoFullName ?? "project"}</span>
                           </span>
                           <span className="border-l border-border pl-2 text-[9px] uppercase tracking-[0.16em]">
-                            {project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
+                            <SandboxProviderLabel provider={project.sandboxProvider} />
                           </span>
                           <Select value={selectedBranch} onValueChange={(branch) => {
                             if (branch === OPEN_PULL_REQUEST_VALUE) {

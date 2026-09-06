@@ -1,5 +1,6 @@
+import { SandboxProviderLabel } from "#/components/sandbox-provider-label";
 import { api } from "@autopr/backend/convex/_generated/api";
-import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
+import { sandboxProviderLabel, type SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
 import { Button } from "@autopr/ui/components/button";
 import {
   Dialog,
@@ -211,6 +212,9 @@ function ThreadRow({
     ?? "main";
   const pinned = Boolean(thread.pinnedAt);
   const unread = Boolean(thread.unreadAt);
+  const sandboxDescription = project
+    ? `This thread is using the ${sandboxProviderLabel(project.sandboxProvider)} sandbox`
+    : undefined;
 
   useEffect(() => {
     if (isRenaming) renameCommittedRef.current = false;
@@ -344,6 +348,8 @@ function ThreadRow({
           <button
             type="button"
             aria-label={`Open ${unread ? "unread " : ""}thread ${thread.title ?? thread.threadId}`}
+            aria-description={sandboxDescription}
+            title={sandboxDescription}
             onClick={onActivate}
             onDoubleClick={handleDoubleClick}
             className="absolute inset-0 z-0 cursor-pointer rounded-[6px] outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/50"
@@ -356,6 +362,7 @@ function ThreadRow({
               <MessageSquare className="size-3.5 shrink-0 opacity-60" aria-hidden="true" />
             )}
             {title}
+            {project ? <SandboxProviderLabel provider={project.sandboxProvider} iconOnly /> : null}
             {thread.pullRequestNumber ? (
               <span className="shrink-0 font-mono text-[9px] text-sidebar-foreground/35">
                 #{thread.pullRequestNumber}
@@ -389,6 +396,8 @@ function ThreadRow({
         <button
           type="button"
           aria-label={`Open ${unread ? "unread " : ""}thread ${thread.title ?? thread.threadId}`}
+          aria-description={sandboxDescription}
+          title={sandboxDescription}
           onClick={onActivate}
           onDoubleClick={handleDoubleClick}
           className="absolute inset-0 z-0 cursor-pointer rounded-[6px] outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/50"
@@ -429,6 +438,7 @@ function ThreadRow({
         <div className="pointer-events-none relative z-10 mt-1.5 flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-sidebar-foreground/35">
           <GitBranch className="size-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">{branch}</span>
+          {project ? <SandboxProviderLabel provider={project.sandboxProvider} className="text-sidebar-foreground/55" /> : null}
           {thread.pullRequestNumber ? <span>#{thread.pullRequestNumber}</span> : null}
         </div>
       </div>
@@ -871,7 +881,7 @@ export function WorkspaceSidebar({
                         <Folder />
                         <span className="min-w-0 truncate">{projectName(project.repoFullName)}</span>
                         <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
-                          {project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
+                          <SandboxProviderLabel provider={project.sandboxProvider} />
                         </span>
                       </DropdownMenuItem>
                     ))}
@@ -928,7 +938,7 @@ export function WorkspaceSidebar({
                         <ProjectMarker index={index} repoFullName={project.repoFullName} />
                         <span className="min-w-0 flex-1 truncate">{projectName(project.repoFullName)}</span>
                         <span className="truncate font-mono text-[9px] text-muted-foreground">
-                          {project.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
+                          <SandboxProviderLabel provider={project.sandboxProvider} />
                         </span>
                         {selected ? (
                           <Check className="ml-auto size-3.5 text-muted-foreground" aria-hidden="true" />

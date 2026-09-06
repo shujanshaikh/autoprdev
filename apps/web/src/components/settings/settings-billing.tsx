@@ -1,3 +1,4 @@
+import { SandboxProviderLabel } from "#/components/sandbox-provider-label";
 import { cn } from "@autopr/ui/lib/utils";
 import type { WorkspaceSandboxCost } from "./settings-workspace";
 
@@ -155,7 +156,7 @@ function BillingRow({ row }: { row: WorkspaceSandboxCost }) {
           {row.repoFullName ?? row.sandboxName ?? "Unnamed sandbox"}
         </p>
         <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-          {row.sandboxProvider === "e2b" ? "E2B" : "Daytona"}
+          <SandboxProviderLabel provider={row.sandboxProvider} />
           {row.costSource === "estimated" ? " · estimated" : ""}
           {row.e2bUsageHistoryComplete === false ? " · incomplete" : ""}
           {row.syncError && row.e2bUsageHistoryComplete !== false ? " · sync failed" : ""}

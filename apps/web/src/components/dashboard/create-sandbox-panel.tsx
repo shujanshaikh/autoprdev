@@ -1,3 +1,4 @@
+import { SandboxProviderLabel } from "#/components/sandbox-provider-label";
 import {
   Pagination,
   PaginationContent,
@@ -730,13 +731,13 @@ function LaunchColumn({
                   aria-pressed={active}
                   onClick={() => onSandboxProviderChange(provider)}
                   className={cn(
-                    "h-8 font-mono text-[10px] uppercase tracking-[0.16em] transition first:border-r first:border-border disabled:opacity-50",
+                    "flex h-8 items-center justify-center font-mono text-[10px] uppercase tracking-[0.16em] transition first:border-r first:border-border disabled:opacity-50",
                     active
                       ? "bg-foreground text-background"
                       : "bg-background text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {provider === "e2b" ? "E2B" : "Daytona"}
+                  <SandboxProviderLabel provider={provider} />
                 </button>
               );
             })}

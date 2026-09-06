@@ -212,19 +212,19 @@
 /* Keep the empty composer short; focus and drafts restore writing space. */
 .autopr-chat-composer,
 .dark .autopr-chat-composer {
-  --autopr-composer-surface: #000;
+  --autopr-composer-surface: var(--project-panel-soft, var(--card));
 
   isolation: isolate;
-  border-color: rgb(255 255 255 / 12%);
-  background: #000;
-  color: #fff;
+  border-color: var(--project-strong-line, var(--border));
+  background: var(--autopr-composer-surface);
+  color: var(--foreground);
   box-shadow: none;
 }
 
 .autopr-chat-composer:focus-within,
 .dark .autopr-chat-composer:focus-within {
-  border-color: rgb(255 255 255 / 24%);
-  background: #000;
+  border-color: color-mix(in srgb, var(--foreground) 24%, var(--project-strong-line, var(--border)));
+  background: var(--autopr-composer-surface);
   box-shadow: none;
 }
 

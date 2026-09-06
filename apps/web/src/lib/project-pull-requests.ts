@@ -48,9 +48,10 @@ export function useProjectPullRequests(projectId: string) {
   });
 }
 
-function pullRequestUrl(projectId: string, number: number, view?: "files" | "timeline" | "checks") {
+function pullRequestUrl(projectId: string, number: number, view?: "files" | "timeline" | "checks", headSha?: string) {
   const query = new URLSearchParams({ number: String(number) });
   if (view) query.set("view", view);
+  if (headSha) query.set("headSha", headSha);
   return `/api/project/${encodeURIComponent(projectId)}/pulls?${query}`;
 }
 
@@ -64,12 +65,11 @@ export function useProjectPullRequest(projectId: string, number?: number) {
   });
 }
 
-export function useProjectPullRequestFiles(projectId: string, number?: number, enabled = true, headSha?: string) {
+export function useProjectPullRequestFiles(projectId: string, number: number, headSha: string) {
   return useQuery({
     queryKey: ["project", projectId, "pull", number, "files", headSha],
-    enabled: number !== undefined && enabled,
     queryFn: async () => readJson<{ files: ProjectPullRequestFile[] }>(
-      await fetch(pullRequestUrl(projectId, number!, "files")),
+      await fetch(pullRequestUrl(projectId, number, "files", headSha)),
     ),
   });
 }
@@ -84,12 +84,12 @@ export function useProjectPullRequestTimeline(projectId: string, number?: number
   });
 }
 
-export function useProjectPullRequestChecks(projectId: string, number: number) {
+export function useProjectPullRequestChecks(projectId: string, number: number, headSha: string) {
   return useQuery({
-    queryKey: ["project", projectId, "pull", number, "checks"],
+    queryKey: ["project", projectId, "pull", number, "checks", headSha],
     staleTime: 30_000,
     queryFn: async () => readJson<Awaited<ReturnType<typeof fetchGithubPullRequestChecks>>>(
-      await fetch(pullRequestUrl(projectId, number, "checks")),
+      await fetch(pullRequestUrl(projectId, number, "checks", headSha)),
     ),
   });
 }

@@ -487,10 +487,19 @@ export interface GithubPullRequestCheck {
   url: string | null;
 }
 
-/** Read checks and legacy CI statuses for the PR's current commit. */
-export async function fetchGithubPullRequestChecks(token: string, owner: string, repo: string, number: number) {
-  const detail = await fetchGithubPullRequestDetail(token, owner, repo, number);
-  const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(detail.headSha)}`;
+function httpUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read checks and legacy CI statuses for the commit displayed in the review. */
+export async function fetchGithubPullRequestChecks(token: string, owner: string, repo: string, headSha: string) {
+  const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(headSha)}`;
   const [runs, statuses] = await Promise.all([
     githubJson<{ check_runs: Array<{
       id: number;
@@ -515,7 +524,7 @@ export async function fetchGithubPullRequestChecks(token: string, owner: string,
       : run.conclusion === "neutral" || run.conclusion === "skipped" ? "neutral"
       : "failure",
     description: (run.conclusion ?? run.status).replaceAll("_", " "),
-    url: run.html_url,
+    url: httpUrl(run.html_url),
   }));
   // GitHub returns newest statuses first; a rerun replaces its context's old result.
   const contexts = new Set<string>();
@@ -527,18 +536,27 @@ export async function fetchGithubPullRequestChecks(token: string, owner: string,
       name: status.context,
       status: status.state === "success" ? "success" : status.state === "pending" ? "pending" : "failure",
       description: status.description ?? status.state,
-      url: status.target_url,
+      url: httpUrl(status.target_url),
     });
   }
-  return { checks, truncated: Boolean(runs.next || statuses.next), headSha: detail.headSha };
+  return { checks, truncated: Boolean(runs.next || statuses.next), headSha };
 }
 
+/** Reject a moving PR head so paginated files cannot be cached for another commit. */
 export async function fetchGithubPullRequestFiles(
   token: string,
   owner: string,
   repo: string,
   number: number,
+  headSha: string,
 ): Promise<GithubPullRequestFile[]> {
+  const validateHead = async () => {
+    const detail = await fetchGithubPullRequestDetail(token, owner, repo, number);
+    if (detail.headSha !== headSha) {
+      throw new GithubApiError("The pull request changed. Refresh pull requests to review the latest commit.", 409);
+    }
+  };
+  await validateHead();
   const files = await paginatedGithubJson<{
     filename: string;
     previous_filename?: string;
@@ -553,6 +571,7 @@ export async function fetchGithubPullRequestFiles(
     `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}/files?per_page=100`,
     { maxPages: MAX_PULL_REQUEST_DATA_PAGES },
   );
+  await validateHead();
 
   return files.map((file) => ({
     filename: file.filename,

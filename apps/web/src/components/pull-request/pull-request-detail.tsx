@@ -155,7 +155,7 @@ function SummaryTab({ detail, projectId, onTimeline, onCode }: {
 
       <Reviewers detail={detail} projectId={projectId} onTimeline={onTimeline} />
 
-      <PullRequestChecks projectId={projectId} number={detail.number} htmlUrl={detail.htmlUrl} />
+      <PullRequestChecks projectId={projectId} number={detail.number} headSha={detail.headSha} htmlUrl={detail.htmlUrl} />
 
       {detail.state === "open" ? (
         <div className={cn("flex items-center gap-2 border-b border-border/60 px-4 py-3 text-xs", hasConflicts ? "text-red-400" : "text-muted-foreground")}>

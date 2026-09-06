@@ -56,7 +56,7 @@ function CodeGhost() {
 }
 
 function CodeTabContent({ projectId, number, headSha }: { projectId: string; number: number; headSha: string }) {
-  const query = useProjectPullRequestFiles(projectId, number, true, headSha);
+  const query = useProjectPullRequestFiles(projectId, number, headSha);
   const { diffStyle, wordWrap, setDiffStyle, setWordWrap } = usePierreDiffPreferences();
   const [activeFile, setActiveFile] = useState<string>();
   const [reviewed, setReviewed] = useState<Set<string>>(() => readReviewedFiles(projectId, number, headSha));

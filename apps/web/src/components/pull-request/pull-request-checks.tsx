@@ -8,8 +8,8 @@ const PRESENTATION = {
   neutral: { Icon: Minus, tone: "text-muted-foreground", label: "Skipped / neutral" },
 };
 
-export function PullRequestChecks({ projectId, number, htmlUrl }: { projectId: string; number: number; htmlUrl: string }) {
-  const query = useProjectPullRequestChecks(projectId, number);
+export function PullRequestChecks({ projectId, number, headSha, htmlUrl }: { projectId: string; number: number; headSha: string; htmlUrl: string }) {
+  const query = useProjectPullRequestChecks(projectId, number, headSha);
   const checks = query.data?.checks ?? [];
   const failed = checks.filter((check) => check.status === "failure").length;
   const pending = checks.filter((check) => check.status === "pending").length;

@@ -83,8 +83,6 @@ import {
   type SnoozePreset,
 } from "#/lib/workspace-sidebar";
 
-import { useProjectPullRequests } from "#/lib/project-pull-requests";
-import { pullRequestState } from "#/lib/pull-request-review";
 import { PullRequestStatus } from "#/components/pull-request/pull-request-status";
 
 export interface WorkspaceThread extends SidebarThreadRecord {
@@ -162,12 +160,8 @@ function formatSnoozeWake(timestamp?: number) {
 }
 
 function SidebarPullRequestLink({ thread, number }: { thread: WorkspaceThread; number: number }) {
-  // All rows in a repository share one cached PR list request.
-  const query = useProjectPullRequests(thread.projectId);
-  const pull = query.data?.pulls.find((pull) => pull.number === number);
   const { setOpenMobile } = useSidebar();
-  const state = pull ? pullRequestState(pull)
-    : thread.githubPullRequestState === "merged" || thread.githubPullRequestState === "closed"
+  const state = thread.githubPullRequestState === "merged" || thread.githubPullRequestState === "closed"
       ? thread.githubPullRequestState
       : thread.githubPullRequestDraft ? "draft" : thread.githubPullRequestState ?? "unknown";
   return (

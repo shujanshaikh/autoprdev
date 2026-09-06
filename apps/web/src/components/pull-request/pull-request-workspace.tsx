@@ -155,10 +155,12 @@ function PullList({
 export function PullRequestWorkspace({
   projectId,
   currentPullRequestNumber,
+  onSelectPullRequest,
   variant = "page",
 }: {
   projectId: string;
   currentPullRequestNumber?: number;
+  onSelectPullRequest?: (number: number | undefined) => void;
   variant?: "page" | "panel";
 }) {
   const queryClient = useQueryClient();
@@ -170,7 +172,11 @@ export function PullRequestWorkspace({
   const [openReference, setOpenReference] = useState<string>();
   const listQuery = useProjectPullRequests(projectId);
   const pulls = listQuery.data?.pulls ?? EMPTY_PULLS;
-  const selectedNumber = selectedOverride === undefined ? currentPullRequestNumber : selectedOverride ?? undefined;
+  const selectedNumber = onSelectPullRequest || selectedOverride === undefined ? currentPullRequestNumber : selectedOverride ?? undefined;
+  const selectPullRequest = (number: number | undefined) => {
+    if (onSelectPullRequest) onSelectPullRequest(number);
+    else setSelectedOverride(number ?? null);
+  };
   const detailFetches = useIsFetching({ queryKey: ["project", projectId, "pull", selectedNumber] });
   const refreshing = listQuery.isFetching || detailFetches > 0;
   const refresh = () => {
@@ -184,7 +190,7 @@ export function PullRequestWorkspace({
   const list = listQuery.isPending ? <div className="min-h-0 flex-1 overflow-hidden"><ListGhost /></div> : listQuery.error ? (
     <div className="m-4 text-xs" role="alert"><p className="font-medium text-red-400">Could not load pull requests</p><p className="mt-1 text-muted-foreground">{listQuery.error.message}</p><button type="button" onClick={refresh} className="mt-2 text-white underline underline-offset-4">Retry</button></div>
   ) : (
-    <PullList pulls={pulls} selectedNumber={selectedNumber} filter={filter} query={search} onFilter={setFilter} onQuery={setSearch} onSelect={(pull) => setSelectedOverride(pull.number)} />
+    <PullList pulls={pulls} selectedNumber={selectedNumber} filter={filter} query={search} onFilter={setFilter} onQuery={setSearch} onSelect={(pull) => selectPullRequest(pull.number)} />
   );
 
   return (
@@ -202,17 +208,17 @@ export function PullRequestWorkspace({
 
       {variant === "panel" ? (
         panelShowingDetail ? (
-          <div className="min-h-0 flex-1"><PullRequestDetail key={selectedNumber} projectId={projectId} number={selectedNumber} onBack={() => setSelectedOverride(null)} onOpenInAutoPR={() => setOpenReference(String(selectedNumber))} /></div>
+          <div className="min-h-0 flex-1"><PullRequestDetail key={selectedNumber} projectId={projectId} number={selectedNumber} onBack={() => selectPullRequest(undefined)} onOpenInAutoPR={() => setOpenReference(String(selectedNumber))} /></div>
         ) : list
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] max-md:grid-cols-1">
           <aside className={cn("flex min-h-0 flex-col border-r border-border", selectedNumber !== undefined && "max-md:hidden")}>{list}</aside>
           <section className={cn("min-h-0", selectedNumber === undefined && "max-md:hidden")}>
             {selectedNumber !== undefined ? (
-              <PullRequestDetail key={selectedNumber} projectId={projectId} number={selectedNumber} onBack={() => setSelectedOverride(null)} onOpenInAutoPR={() => setOpenReference(String(selectedNumber))} />
+              <PullRequestDetail key={selectedNumber} projectId={projectId} number={selectedNumber} onBack={() => selectPullRequest(undefined)} onOpenInAutoPR={() => setOpenReference(String(selectedNumber))} />
             ) : (
               <div className="grid h-full place-items-center px-8 text-center">
-                <div className="max-w-sm"><GitPullRequest className="mx-auto size-6 text-muted-foreground/45" aria-hidden="true" /><h2 className="mt-4 text-base font-medium text-foreground">Select a pull request to review</h2><p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">Read the description, follow the activity, and inspect every changed file without leaving AutoPR.</p>{pulls.length > 0 ? <button type="button" onClick={() => setSelectedOverride(pulls[0]?.number)} className="mt-4 inline-flex h-8 items-center gap-1.5 border border-border px-3 text-xs text-foreground hover:bg-[color:var(--project-panel-soft)]">Open most recent <ArrowUpRight className="size-3.5" aria-hidden="true" /></button> : null}</div>
+                <div className="max-w-sm"><GitPullRequest className="mx-auto size-6 text-muted-foreground/45" aria-hidden="true" /><h2 className="mt-4 text-base font-medium text-foreground">Select a pull request to review</h2><p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">Read the description, follow the activity, and inspect every changed file without leaving AutoPR.</p>{pulls.length > 0 ? <button type="button" onClick={() => selectPullRequest(pulls[0]?.number)} className="mt-4 inline-flex h-8 items-center gap-1.5 border border-border px-3 text-xs text-foreground hover:bg-[color:var(--project-panel-soft)]">Open most recent <ArrowUpRight className="size-3.5" aria-hidden="true" /></button> : null}</div>
               </div>
             )}
           </section>

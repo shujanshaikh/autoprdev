@@ -2,12 +2,13 @@ import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { cn } from "@autopr/ui/lib/utils";
 import { GitBranch, Loader2, RefreshCw } from "lucide-react";
 
-import { useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
+import { resolveThreadBranchLabel, useThreadGitStatusQuery } from "#/lib/thread-git-status-query";
 
 interface ThreadGitStatusIndicatorProps {
   projectId: string;
   threadId: string;
   persistedStatus?: ThreadGitStatus;
+  expectedBranch?: string;
   invalidatedAt?: number;
   enabled: boolean;
 }
@@ -73,6 +74,7 @@ export function ThreadGitStatusIndicator({
   projectId,
   threadId,
   persistedStatus,
+  expectedBranch,
   invalidatedAt,
   enabled,
 }: ThreadGitStatusIndicatorProps) {
@@ -97,9 +99,12 @@ export function ThreadGitStatusIndicator({
 
   const description = statusDescription(status);
   const tone = kindTones[status.kind];
-  const branch = status.detachedHead
-    ? `detached@${status.localHeadSha?.slice(0, 7) ?? "HEAD"}`
-    : status.currentBranch ?? "unknown branch";
+  const branch = resolveThreadBranchLabel({
+    status,
+    expectedBranch,
+    invalidatedAt,
+    readFailed: query.isError,
+  }) ?? "unknown branch";
   const aheadCount = status.aheadCount ?? 0;
   const behindCount = status.behindCount ?? 0;
   const hasCounts = aheadCount > 0 || behindCount > 0 || status.hasWorkingTreeChanges;

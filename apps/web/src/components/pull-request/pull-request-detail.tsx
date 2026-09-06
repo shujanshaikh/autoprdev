@@ -5,15 +5,12 @@ import {
   ArrowLeft,
   ArrowUpRight,
   CircleAlert,
-  Clock3,
   ExternalLink,
   GitBranch,
   GitCommitHorizontal,
-  GitMerge,
-  GitPullRequest,
-  GitPullRequestClosed,
   MessageSquare,
   RefreshCw,
+  Check,
   Users,
 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
@@ -26,6 +23,10 @@ import {
   useProjectPullRequest,
   useProjectPullRequestTimeline,
 } from "#/lib/project-pull-requests";
+
+import { latestReviewerDecisions, pullRequestState, reviewDecisionLabel } from "#/lib/pull-request-review";
+import { PullRequestChecks } from "./pull-request-checks";
+import { PullRequestStatus } from "./pull-request-status";
 
 const PullRequestCodeTab = lazy(() => import("./pull-request-code-tab").then((module) => ({ default: module.PullRequestCodeTab })));
 
@@ -64,34 +65,21 @@ function Actor({ actor }: { actor: ProjectPullRequestActor }) {
   );
 }
 
-function statePresentation(detail: ProjectPullRequestDetail) {
-  if (detail.mergedAt) {
-    return { label: "Merged", Icon: GitMerge, className: "text-violet-600 dark:text-violet-300" };
-  }
-  if (detail.state === "closed") {
-    return { label: "Closed", Icon: GitPullRequestClosed, className: "text-[color:var(--cohere-coral)]" };
-  }
-  if (detail.draft) {
-    return { label: "Draft", Icon: Clock3, className: "text-muted-foreground" };
-  }
-  return { label: "Open", Icon: GitPullRequest, className: "text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]" };
-}
-
 function DetailGhost() {
   return (
     <div className="flex h-full flex-col">
       <div className="space-y-3 border-b border-border p-5">
-        <Skeleton className="h-3 w-32 rounded-xs" />
-        <Skeleton className="h-6 w-4/5 rounded-xs" />
-        <Skeleton className="h-3 w-2/5 rounded-xs" />
+        <Skeleton className="animate-none h-3 w-32 rounded-xs" />
+        <Skeleton className="animate-none h-6 w-4/5 rounded-xs" />
+        <Skeleton className="animate-none h-3 w-2/5 rounded-xs" />
       </div>
       <div className="grid grid-cols-3 gap-3 p-5">
-        {Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-16 rounded-xs" />)}
+        {Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="animate-none h-16 rounded-xs" />)}
       </div>
       <div className="space-y-3 px-5">
-        <Skeleton className="h-3 w-24 rounded-xs" />
-        <Skeleton className="h-3 w-full rounded-xs" />
-        <Skeleton className="h-3 w-11/12 rounded-xs" />
+        <Skeleton className="animate-none h-3 w-24 rounded-xs" />
+        <Skeleton className="animate-none h-3 w-full rounded-xs" />
+        <Skeleton className="animate-none h-3 w-11/12 rounded-xs" />
       </div>
     </div>
   );
@@ -113,69 +101,75 @@ function QueryFailure({ message, onRetry }: { message: string; onRetry: () => vo
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone?: string }) {
+function Reviewers({ detail, projectId, onTimeline }: {
+  detail: ProjectPullRequestDetail;
+  projectId: string;
+  onTimeline: () => void;
+}) {
+  const activity = useProjectPullRequestTimeline(projectId, detail.number);
+  const decisions = latestReviewerDecisions(activity.data?.timeline ?? []);
+  const requested = new Set(detail.requestedReviewers.map((actor) => actor.login.toLowerCase()));
+  const reviewedLogins = new Set(decisions.map((review) => review.actor.login.toLowerCase()));
   return (
-    <div className="border-r border-border/60 px-4 py-3 last:border-r-0">
-      <dt className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">{label}</dt>
-      <dd className={cn("mt-1 font-mono text-sm tabular-nums text-foreground", tone)}>{value.toLocaleString()}</dd>
-    </div>
+      <section className="border-b border-border/60 px-4 py-3 text-xs" aria-label="Reviewers">
+        <div className="mb-2 flex items-center gap-2"><Users className="size-3.5 text-muted-foreground" aria-hidden="true" /><h2 className="font-medium text-white">Reviews</h2><button type="button" onClick={onTimeline} className="ml-auto text-muted-foreground hover:text-white">View activity →</button></div>
+        {activity.isPending ? <p role="status" className="text-muted-foreground">Loading reviews…</p> : activity.error ? <p className="text-muted-foreground" role="alert">Review history unavailable. <button type="button" onClick={() => void activity.refetch()} className="text-white underline underline-offset-4">Retry</button></p> : decisions.length === 0 && requested.size === 0 ? <p className="text-muted-foreground">No reviews yet.</p> : null}
+        <div className="divide-y divide-border/40">
+          {decisions.map((review) => (
+            <div key={review.actor.login} className="flex flex-wrap items-center gap-2 py-2">
+              <Actor actor={review.actor} />
+              <a href={review.url} target="_blank" rel="noreferrer" className={cn("ml-auto inline-flex items-center gap-1.5 hover:underline", review.state === "approved" ? "text-emerald-400" : review.state === "changes_requested" ? "text-amber-400" : "text-muted-foreground")}>
+                {review.state === "approved" ? <Check className="size-3" aria-hidden="true" /> : null}
+                {reviewDecisionLabel(review.state)}
+              </a>
+              {requested.has(review.actor.login.toLowerCase()) ? <span className="text-muted-foreground">Review requested again</span> : null}
+            </div>
+          ))}
+          {detail.requestedReviewers.map((actor) => reviewedLogins.has(actor.login.toLowerCase()) ? null : (
+            <div key={actor.login} className="flex items-center gap-2 py-2"><Actor actor={actor} /><span className="ml-auto text-muted-foreground">Awaiting review</span></div>
+          ))}
+        </div>
+      </section>
   );
 }
 
-function SummaryTab({ detail }: { detail: ProjectPullRequestDetail }) {
+function SummaryTab({ detail, projectId, onTimeline, onCode }: {
+  detail: ProjectPullRequestDetail;
+  projectId: string;
+  onTimeline: () => void;
+  onCode: () => void;
+}) {
   const comments = detail.comments + detail.reviewComments;
   const hasConflicts = detail.mergeable === false || detail.mergeableState === "dirty";
 
   return (
     <div className="minimal-scrollbar h-full overflow-y-auto">
-      <dl className="grid grid-cols-3 border-b border-border/60 bg-[color:color-mix(in_srgb,var(--project-panel-soft)_42%,transparent)]">
-        <Metric label="Files" value={detail.changedFiles} />
-        <Metric label="Added" value={detail.additions} tone="text-[color:var(--cohere-deep-green)] dark:text-[color:var(--cohere-pale-green)]" />
-        <Metric label="Removed" value={detail.deletions} tone="text-[color:var(--cohere-coral)]" />
-      </dl>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/60 px-4 py-3 text-xs">
+        <button type="button" onClick={onCode} className="flex items-center gap-2 text-white hover:underline">
+          <span>{detail.changedFiles} files changed</span>
+          <span className="font-mono text-emerald-400">+{detail.additions.toLocaleString()}</span>
+          <span className="font-mono text-red-400">−{detail.deletions.toLocaleString()}</span>
+        </button>
+        <button type="button" onClick={onTimeline} className="ml-auto inline-flex items-center gap-1.5 text-muted-foreground hover:text-white"><MessageSquare className="size-3.5" aria-hidden="true" />{comments} {comments === 1 ? "comment" : "comments"}</button>
+      </div>
 
-      <section className="grid gap-3 border-b border-border/60 px-5 py-4 text-xs sm:grid-cols-2">
-        <div className="flex items-start gap-2">
-          <Users className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Reviewers</p>
-            <div className="mt-1.5 flex min-w-0 flex-wrap gap-2 text-foreground">
-              {detail.requestedReviewers.length > 0
-                ? detail.requestedReviewers.map((reviewer) => <Actor key={reviewer.login} actor={reviewer} />)
-                : <span className="text-muted-foreground">None requested</span>}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-start gap-2">
-          <MessageSquare className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <div>
-            <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Conversation</p>
-            <p className="mt-1.5 text-foreground">{comments} {comments === 1 ? "comment" : "comments"}</p>
-          </div>
-        </div>
-      </section>
+      <Reviewers detail={detail} projectId={projectId} onTimeline={onTimeline} />
 
-      {hasConflicts ? (
-        <div className="mx-5 mt-4 flex items-start gap-2 border border-destructive/25 bg-destructive/[0.04] px-3 py-2.5 text-xs text-destructive">
-          <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          This branch conflicts with {detail.baseRef} and must be updated before it can merge.
+      <PullRequestChecks projectId={projectId} number={detail.number} headSha={detail.headSha} htmlUrl={detail.htmlUrl} />
+
+      {detail.state === "open" ? (
+        <div className={cn("flex items-center gap-2 border-b border-border/60 px-4 py-3 text-xs", hasConflicts ? "text-red-400" : "text-muted-foreground")}>
+          {hasConflicts ? <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" /> : <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />}
+          {hasConflicts ? `Conflicts with ${detail.baseRef}` : detail.mergeable === true ? `No conflicts with ${detail.baseRef}` : "GitHub is checking for merge conflicts"}
         </div>
       ) : null}
 
-      <section className="px-5 py-5">
-        <div className="mb-3 flex items-center gap-2">
-          <h2 className="text-sm font-medium text-foreground">Description</h2>
-          {detail.labels.map((label) => (
-            <span key={label.name} className="rounded-full border border-border px-2 py-0.5 font-mono text-[9px] text-muted-foreground">
-              {label.name}
-            </span>
-          ))}
+      <section className="px-4 py-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="text-xs font-medium text-white">Description</h2>
+          {detail.labels.map((label) => <span key={label.name} className="border-l border-border pl-2 text-[10px] text-muted-foreground">{label.name}</span>)}
         </div>
-        {detail.body.trim() ? (
-          <MessageResponse className="sd-render-soft !text-[13px] !leading-6 [&_p]:!text-[13px]">{detail.body}</MessageResponse>
-        ) : (
-          <p className="text-sm italic text-muted-foreground">No description provided.</p>
-        )}
+        {detail.body.trim() ? <MessageResponse className="sd-render-soft !text-[13px] !leading-6 [&_p]:!text-[13px]">{detail.body}</MessageResponse> : <p className="text-xs text-muted-foreground">No description provided.</p>}
       </section>
     </div>
   );
@@ -184,6 +178,8 @@ function SummaryTab({ detail }: { detail: ProjectPullRequestDetail }) {
 function timelineLabel(item: ProjectPullRequestTimelineItem) {
   if (item.kind === "commit") return "committed";
   if (item.kind === "comment") return "commented";
+  if (item.kind === "review-comment") return "commented on code";
+  if (item.state === "dismissed") return "had their review dismissed";
   if (item.state === "approved") return "approved these changes";
   if (item.state === "changes_requested") return "requested changes";
   return "reviewed";
@@ -212,6 +208,7 @@ function TimelineTab({ projectId, number }: { projectId: string; number: number 
               <span className="text-muted-foreground">{timelineLabel(item)}</span>
               <time className="ml-auto font-mono text-[10px] text-muted-foreground" dateTime={item.createdAt}>{fullDate(item.createdAt)}</time>
             </div>
+            {item.kind !== "commit" && item.path ? <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 block truncate font-mono text-[11px] text-muted-foreground hover:text-white" title={item.path}>{item.path}{item.line ? `:${item.line}` : ""}</a> : null}
             {item.kind === "commit" ? (
               <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 block border border-border bg-card px-3 py-2.5 hover:bg-[color:var(--project-panel-soft)]">
                 <span className="flex items-center gap-2">
@@ -250,35 +247,29 @@ export function PullRequestDetail({
   if (query.isPending) return <DetailGhost />;
   if (query.error || !detail) return <QueryFailure message={query.error?.message ?? "The pull request was unavailable."} onRetry={() => void query.refetch()} />;
 
-  const state = statePresentation(detail);
-  const StateIcon = state.Icon;
 
   return (
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <header className="shrink-0 border-b border-border bg-background">
+      <div className="flex h-full min-h-0 flex-col bg-black text-white">
+        <header className="shrink-0 border-b border-border bg-black">
           <div className="flex min-h-11 items-center gap-2 border-b border-border/60 px-3 py-2">
             {onBack ? <button type="button" onClick={onBack} aria-label="Back to pull requests" className="inline-flex size-7 items-center justify-center text-muted-foreground hover:bg-[color:var(--project-panel-soft)] hover:text-foreground"><ArrowLeft className="size-4" aria-hidden="true" /></button> : null}
-            <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", state.className)}>
-              <StateIcon className="size-3.5" aria-hidden="true" />
-              {state.label}
-            </span>
-            <span className="font-mono text-[10px] text-muted-foreground">#{detail.number}</span>
+            <PullRequestStatus state={pullRequestState(detail)} number={detail.number} showLabel className="text-xs" />
             <span className="ml-auto min-w-0 truncate font-mono text-[10px] text-muted-foreground">updated {fullDate(detail.updatedAt)}</span>
             <a href={detail.htmlUrl} target="_blank" rel="noreferrer" aria-label="Open on GitHub" className="inline-flex size-7 shrink-0 items-center justify-center text-muted-foreground hover:bg-[color:var(--project-panel-soft)] hover:text-foreground"><ExternalLink className="size-3.5" aria-hidden="true" /></a>
           </div>
 
-          <div className="px-5 py-4">
-            <h1 className="text-lg font-semibold leading-snug tracking-[-0.015em] text-foreground">{detail.title}</h1>
+          <div className="px-4 py-3">
+            <h1 className="text-base font-semibold leading-snug tracking-[-0.015em] text-foreground">{detail.title}</h1>
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               <Actor actor={detail.author} />
               <span aria-hidden="true">·</span>
               <span>opened {fullDate(detail.createdAt)}</span>
               <span aria-hidden="true">·</span>
-              <span className="inline-flex min-w-0 items-center gap-1 font-mono text-[10px]"><GitBranch className="size-3" aria-hidden="true" /><span className="max-w-48 truncate text-foreground/80">{detail.headRef}</span><span>→</span><span className="max-w-36 truncate">{detail.baseRef}</span></span>
+              <span className="inline-flex min-w-0 items-center gap-1 font-mono text-[10px]"><GitBranch className="size-3" aria-hidden="true" /><span className="max-w-48 truncate text-foreground/80" title={detail.headRef}>{detail.headRef}</span><span>→</span><span className="max-w-36 truncate">{detail.baseRef}</span></span>
             </div>
           </div>
 
-          <div className="flex items-end gap-1 px-3">
+          <div className="flex flex-wrap items-end gap-1 px-2">
             <nav className="flex min-w-0 flex-1 items-end" aria-label="Pull request views">
               {TABS.map((item) => (
                 <button key={item.value} type="button" aria-current={tab === item.value ? "page" : undefined} onClick={() => setTab(item.value)} className={cn("relative h-9 px-3 text-xs font-medium text-muted-foreground hover:text-foreground", tab === item.value && "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-[color:var(--project-selected-strong)]")}>
@@ -287,7 +278,7 @@ export function PullRequestDetail({
                 </button>
               ))}
             </nav>
-            <Button type="button" size="sm" className="mb-1.5 h-7 shrink-0 rounded-sm px-2.5 text-[11px]" onClick={onOpenInAutoPR}>
+            <Button type="button" size="sm" variant="outline" className="mb-1.5 h-7 shrink-0 rounded-none px-2.5 text-[11px]" disabled={detail.state !== "open"} onClick={onOpenInAutoPR}>
               Open in AutoPR
               <ArrowUpRight className="size-3.5" aria-hidden="true" />
             </Button>
@@ -295,9 +286,9 @@ export function PullRequestDetail({
         </header>
 
         <div className="min-h-0 flex-1">
-          {tab === "summary" ? <SummaryTab detail={detail} /> : null}
+          {tab === "summary" ? <SummaryTab detail={detail} projectId={projectId} onTimeline={() => setTab("timeline")} onCode={() => setTab("code")} /> : null}
           {tab === "timeline" ? <TimelineTab projectId={projectId} number={number} /> : null}
-          {tab === "code" ? <Suspense fallback={<DetailGhost />}><PullRequestCodeTab projectId={projectId} number={number} /></Suspense> : null}
+          {tab === "code" ? <Suspense fallback={<DetailGhost />}><PullRequestCodeTab key={detail.headSha} projectId={projectId} number={number} headSha={detail.headSha} /></Suspense> : null}
         </div>
       </div>
   );

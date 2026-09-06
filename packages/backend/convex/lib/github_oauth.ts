@@ -28,6 +28,7 @@ export interface GithubOAuthPullRequest {
   draft: boolean;
   headRef: string;
   baseRef: string;
+  mergedAt?: string;
 }
 
 export interface GithubPullRequestActor {
@@ -36,9 +37,9 @@ export interface GithubPullRequestActor {
 }
 
 export interface GithubPullRequestDetail extends GithubOAuthPullRequest {
+  headSha: string;
   body: string;
   author: GithubPullRequestActor;
-  mergedAt?: string;
   closedAt?: string;
   additions: number;
   deletions: number;
@@ -76,12 +77,14 @@ export type GithubPullRequestTimelineItem =
     }
   | {
       id: string;
-      kind: "comment" | "review";
+      kind: "comment" | "review" | "review-comment";
       createdAt: string;
       actor: GithubPullRequestActor;
       body: string;
       url: string;
       state?: string;
+      path?: string;
+      line?: number;
     };
 
 export interface ResolvedGithubPullRequest {
@@ -381,6 +384,7 @@ export async function fetchGithubPullRequests(token: string, owner: string, repo
     created_at: string;
     updated_at: string;
     draft?: boolean;
+    merged_at?: string | null;
     head: { ref: string };
     base: { ref: string };
   }>(
@@ -398,6 +402,7 @@ export async function fetchGithubPullRequests(token: string, owner: string, repo
     createdAt: pull.created_at,
     updatedAt: pull.updated_at,
     draft: Boolean(pull.draft),
+    ...(pull.merged_at ? { mergedAt: pull.merged_at } : {}),
     headRef: pull.head.ref,
     baseRef: pull.base.ref,
   }));
@@ -429,7 +434,7 @@ export async function fetchGithubPullRequestDetail(
     closed_at: string | null;
     merged_at: string | null;
     draft?: boolean;
-    head: { ref: string };
+    head: { ref: string; sha: string };
     base: { ref: string };
     additions: number;
     deletions: number;
@@ -459,6 +464,7 @@ export async function fetchGithubPullRequestDetail(
     ...(pull.merged_at ? { mergedAt: pull.merged_at } : {}),
     draft: Boolean(pull.draft),
     headRef: pull.head.ref,
+    headSha: pull.head.sha,
     baseRef: pull.base.ref,
     additions: pull.additions,
     deletions: pull.deletions,
@@ -473,12 +479,84 @@ export async function fetchGithubPullRequestDetail(
   };
 }
 
+export interface GithubPullRequestCheck {
+  id: string;
+  name: string;
+  status: "success" | "failure" | "pending" | "neutral";
+  description: string;
+  url: string | null;
+}
+
+function httpUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read checks and legacy CI statuses for the commit displayed in the review. */
+export async function fetchGithubPullRequestChecks(token: string, owner: string, repo: string, headSha: string) {
+  const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(headSha)}`;
+  const [runs, statuses] = await Promise.all([
+    githubJson<{ check_runs: Array<{
+      id: number;
+      name: string;
+      status: string;
+      conclusion: string | null;
+      html_url: string | null;
+    }> }>(token, `${baseUrl}/check-runs?per_page=100&filter=latest`),
+    githubJson<Array<{
+      id: number;
+      context: string;
+      state: string;
+      description: string | null;
+      target_url: string | null;
+    }>>(token, `${baseUrl}/statuses?per_page=100`),
+  ]);
+  const checks: GithubPullRequestCheck[] = runs.data.check_runs.map((run) => ({
+    id: `check:${run.id}`,
+    name: run.name,
+    status: run.status !== "completed" ? "pending"
+      : run.conclusion === "success" ? "success"
+      : run.conclusion === "neutral" || run.conclusion === "skipped" ? "neutral"
+      : "failure",
+    description: (run.conclusion ?? run.status).replaceAll("_", " "),
+    url: httpUrl(run.html_url),
+  }));
+  // GitHub returns newest statuses first; a rerun replaces its context's old result.
+  const contexts = new Set<string>();
+  for (const status of statuses.data) {
+    if (contexts.has(status.context)) continue;
+    contexts.add(status.context);
+    checks.push({
+      id: `status:${status.id}`,
+      name: status.context,
+      status: status.state === "success" ? "success" : status.state === "pending" ? "pending" : "failure",
+      description: status.description ?? status.state,
+      url: httpUrl(status.target_url),
+    });
+  }
+  return { checks, truncated: Boolean(runs.next || statuses.next), headSha };
+}
+
+/** Reject a moving PR head so paginated files cannot be cached for another commit. */
 export async function fetchGithubPullRequestFiles(
   token: string,
   owner: string,
   repo: string,
   number: number,
+  headSha: string,
 ): Promise<GithubPullRequestFile[]> {
+  const validateHead = async () => {
+    const detail = await fetchGithubPullRequestDetail(token, owner, repo, number);
+    if (detail.headSha !== headSha) {
+      throw new GithubApiError("The pull request changed. Refresh pull requests to review the latest commit.", 409);
+    }
+  };
+  await validateHead();
   const files = await paginatedGithubJson<{
     filename: string;
     previous_filename?: string;
@@ -493,6 +571,7 @@ export async function fetchGithubPullRequestFiles(
     `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}/files?per_page=100`,
     { maxPages: MAX_PULL_REQUEST_DATA_PAGES },
   );
+  await validateHead();
 
   return files.map((file) => ({
     filename: file.filename,
@@ -513,7 +592,7 @@ export async function fetchGithubPullRequestTimeline(
   number: number,
 ): Promise<GithubPullRequestTimelineItem[]> {
   const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const [commits, comments, reviews] = await Promise.all([
+  const [commits, comments, reviews, reviewComments] = await Promise.all([
     paginatedGithubJson<{
       sha: string;
       html_url: string;
@@ -538,6 +617,15 @@ export async function fetchGithubPullRequestTimeline(
       submitted_at: string | null;
       user: { login: string; avatar_url?: string } | null;
     }>(token, `${baseUrl}/pulls/${number}/reviews?per_page=100`, { maxPages: MAX_PULL_REQUEST_DATA_PAGES }),
+    paginatedGithubJson<{
+      id: number;
+      html_url: string;
+      body: string;
+      created_at: string;
+      user: { login: string; avatar_url?: string } | null;
+      path: string;
+      line: number | null;
+    }>(token, `${baseUrl}/pulls/${number}/comments?per_page=100`, { maxPages: MAX_PULL_REQUEST_DATA_PAGES }),
   ]);
 
   return [
@@ -561,6 +649,16 @@ export async function fetchGithubPullRequestTimeline(
       actor: githubActor(comment.user),
       body: comment.body,
       url: comment.html_url,
+    })),
+    ...reviewComments.map((comment): GithubPullRequestTimelineItem => ({
+      id: `review-comment:${comment.id}`,
+      kind: "review-comment",
+      createdAt: comment.created_at,
+      actor: githubActor(comment.user),
+      body: comment.body,
+      url: comment.html_url,
+      path: comment.path,
+      ...(comment.line !== null ? { line: comment.line } : {}),
     })),
     ...reviews.filter((review) => review.submitted_at !== null).map((review): GithubPullRequestTimelineItem => ({
       id: `review:${review.id}`,

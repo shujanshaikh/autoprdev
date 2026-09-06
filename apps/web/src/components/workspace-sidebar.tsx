@@ -31,7 +31,7 @@ import {
   useSidebar,
 } from "@autopr/ui/components/sidebar";
 import { cn } from "@autopr/ui/lib/utils";
-import { useNavigate, useRouter } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import {
   Check,
@@ -83,10 +83,13 @@ import {
   type SnoozePreset,
 } from "#/lib/workspace-sidebar";
 
+import { PullRequestStatus } from "#/components/pull-request/pull-request-status";
+
 export interface WorkspaceThread extends SidebarThreadRecord {
   isLive?: boolean;
   featureBranch?: string;
   pullRequestNumber?: number;
+  githubPullRequestDraft?: boolean;
   agentRunIssue?: { message: string };
   workflowIssue?: { message: string };
 }
@@ -156,6 +159,25 @@ function formatSnoozeWake(timestamp?: number) {
   return `${wake.toLocaleDateString(undefined, { weekday: "short" })} ${time}`;
 }
 
+function SidebarPullRequestLink({ thread, number }: { thread: WorkspaceThread; number: number }) {
+  const { setOpenMobile } = useSidebar();
+  const state = thread.githubPullRequestState === "merged" || thread.githubPullRequestState === "closed"
+      ? thread.githubPullRequestState
+      : thread.githubPullRequestDraft ? "draft" : thread.githubPullRequestState ?? "unknown";
+  return (
+    <Link
+      to="/project/$projectId/pulls"
+      params={{ projectId: thread.projectId }}
+      search={{ number }}
+      onClick={() => setOpenMobile(false)}
+      aria-label={`Review pull request #${number}`}
+      className="pointer-events-auto inline-flex shrink-0 items-center py-0.5 text-[10px] hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
+    >
+      <PullRequestStatus state={state} number={number} />
+    </Link>
+  );
+}
+
 function ThreadRow({
   thread,
   project,
@@ -210,6 +232,7 @@ function ThreadRow({
     ?? project?.repoBranch
     ?? project?.defaultBranch
     ?? "main";
+  const pullRequestLink = thread.pullRequestNumber ? <SidebarPullRequestLink thread={thread} number={thread.pullRequestNumber} /> : null;
   const pinned = Boolean(thread.pinnedAt);
   const unread = Boolean(thread.unreadAt);
   const sandboxDescription = project
@@ -363,11 +386,7 @@ function ThreadRow({
             )}
             {title}
             {project ? <SandboxProviderLabel provider={project.sandboxProvider} iconOnly /> : null}
-            {thread.pullRequestNumber ? (
-              <span className="shrink-0 font-mono text-[9px] text-sidebar-foreground/35">
-                #{thread.pullRequestNumber}
-              </span>
-            ) : null}
+            {pullRequestLink}
             <span className="ml-auto shrink-0 font-mono text-[9px] tabular-nums text-sidebar-foreground/30 group-hover/thread:hidden">
               {shortcut ?? (snoozed
                 ? formatSnoozeWake(thread.snoozedUntil)
@@ -439,7 +458,7 @@ function ThreadRow({
           <GitBranch className="size-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">{branch}</span>
           {project ? <SandboxProviderLabel provider={project.sandboxProvider} className="text-sidebar-foreground/55" /> : null}
-          {thread.pullRequestNumber ? <span>#{thread.pullRequestNumber}</span> : null}
+          {pullRequestLink}
         </div>
       </div>
     </li>

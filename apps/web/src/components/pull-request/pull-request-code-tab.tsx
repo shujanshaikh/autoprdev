@@ -3,6 +3,8 @@ import { cn } from "@autopr/ui/lib/utils";
 import {
   Check,
   CheckCheck,
+  ChevronLeft,
+  ChevronRight,
   Columns2,
   ExternalLink,
   FileCode2,
@@ -30,14 +32,14 @@ function filePatch(file: ProjectPullRequestFile) {
   return `diff --git a/${file.previousFilename ?? file.filename} b/${file.filename}\n--- ${before}\n+++ ${after}\n${file.patch}`;
 }
 
-function reviewStorageKey(projectId: string, number: number) {
-  return `autopr.pr-viewed-files.v1:${projectId}:${number}`;
+function reviewStorageKey(projectId: string, number: number, headSha: string) {
+  return `autopr.pr-viewed-files.v2:${projectId}:${number}:${headSha}`;
 }
 
-function readReviewedFiles(projectId: string, number: number) {
+function readReviewedFiles(projectId: string, number: number, headSha: string) {
   if (typeof window === "undefined") return new Set<string>();
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(reviewStorageKey(projectId, number)) ?? "[]");
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(reviewStorageKey(projectId, number, headSha)) ?? "[]");
     return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
   } catch {
     return new Set<string>();
@@ -47,27 +49,27 @@ function readReviewedFiles(projectId: string, number: number) {
 function CodeGhost() {
   return (
     <div className="grid h-full grid-cols-[minmax(180px,28%)_minmax(0,1fr)]">
-      <div className="space-y-3 border-r border-border p-3">{Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-9 rounded-xs" />)}</div>
-      <div className="space-y-3 p-4"><Skeleton className="h-8 w-full rounded-xs" /><Skeleton className="h-64 w-full rounded-xs" /></div>
+      <div className="space-y-3 border-r border-border p-3">{Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="animate-none h-9 rounded-xs" />)}</div>
+      <div className="space-y-3 p-4"><Skeleton className="animate-none h-8 w-full rounded-xs" /><Skeleton className="animate-none h-64 w-full rounded-xs" /></div>
     </div>
   );
 }
 
-function CodeTabContent({ projectId, number }: { projectId: string; number: number }) {
-  const query = useProjectPullRequestFiles(projectId, number);
+function CodeTabContent({ projectId, number, headSha }: { projectId: string; number: number; headSha: string }) {
+  const query = useProjectPullRequestFiles(projectId, number, headSha);
   const { diffStyle, wordWrap, setDiffStyle, setWordWrap } = usePierreDiffPreferences();
   const [activeFile, setActiveFile] = useState<string>();
-  const [reviewed, setReviewed] = useState<Set<string>>(() => readReviewedFiles(projectId, number));
+  const [reviewed, setReviewed] = useState<Set<string>>(() => readReviewedFiles(projectId, number, headSha));
   const files = query.data?.files ?? [];
   const selected = files.find((file) => file.filename === activeFile) ?? files[0];
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(reviewStorageKey(projectId, number), JSON.stringify([...reviewed]));
+      window.localStorage.setItem(reviewStorageKey(projectId, number, headSha), JSON.stringify([...reviewed]));
     } catch {
       // Review progress is a local convenience; storage failures do not block the diff.
     }
-  }, [number, projectId, reviewed]);
+  }, [headSha, number, projectId, reviewed]);
 
   if (query.isPending) return <CodeGhost />;
   if (query.error) {
@@ -81,6 +83,7 @@ function CodeTabContent({ projectId, number }: { projectId: string; number: numb
   }
   if (!selected) return <div className="grid h-full place-items-center p-8 text-sm text-muted-foreground">No changed files were reported.</div>;
 
+  const selectedIndex = files.indexOf(selected);
   const reviewedCount = files.filter((file) => reviewed.has(file.filename)).length;
   const allReviewed = files.length > 0 && reviewedCount === files.length;
   const toggleReviewed = (filename: string) => setReviewed((current) => {
@@ -93,11 +96,11 @@ function CodeTabContent({ projectId, number }: { projectId: string; number: numb
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(180px,28%)_minmax(0,1fr)] max-md:grid-cols-1 max-md:grid-rows-[auto_minmax(0,1fr)]">
       <aside className="minimal-scrollbar min-h-0 overflow-y-auto border-r border-border bg-[color:color-mix(in_srgb,var(--project-panel-soft)_35%,transparent)] max-md:max-h-44 max-md:border-r-0 max-md:border-b">
-        <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-3 py-2 backdrop-blur-sm">
+        <div className="sticky top-0 z-10 border-b border-border bg-black px-3 py-2">
           <div className="flex items-center justify-between gap-2 font-mono text-[10px] text-muted-foreground">
             <span>{reviewedCount}/{files.length} viewed</span>
             <button type="button" onClick={() => setReviewed(allReviewed ? new Set() : new Set(files.map((file) => file.filename)))} className="inline-flex items-center gap-1 hover:text-foreground">
-              <CheckCheck className="size-3" aria-hidden="true" />{allReviewed ? "Reset" : "View all"}
+              <CheckCheck className="size-3" aria-hidden="true" />{allReviewed ? "Reset" : "Mark all viewed"}
             </button>
           </div>
           <div className="mt-2 h-0.5 overflow-hidden bg-border/70" role="progressbar" aria-label="Files viewed" aria-valuenow={reviewedCount} aria-valuemin={0} aria-valuemax={files.length}>
@@ -134,6 +137,12 @@ function CodeTabContent({ projectId, number }: { projectId: string; number: numb
           </div>
           <button type="button" onClick={() => setWordWrap(!wordWrap)} aria-pressed={wordWrap} aria-label="Toggle line wrapping" className={cn("inline-flex size-7 items-center justify-center border border-border", wordWrap ? "bg-[color:var(--project-panel-soft)] text-foreground" : "text-muted-foreground")}><TextWrap className="size-3.5" aria-hidden="true" /></button>
         </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-[11px]">
+          <button type="button" onClick={() => toggleReviewed(selected.filename)} aria-pressed={reviewed.has(selected.filename)} className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-white"><Check className="size-3" aria-hidden="true" />{reviewed.has(selected.filename) ? "Viewed" : "Mark viewed"}</button>
+          <span className="ml-auto font-mono text-muted-foreground">{selectedIndex + 1} / {files.length}</span>
+          <button type="button" disabled={selectedIndex === 0} onClick={() => setActiveFile(files[selectedIndex - 1]?.filename)} aria-label="Previous file" className="p-1 disabled:opacity-30"><ChevronLeft className="size-3.5" aria-hidden="true" /></button>
+          <button type="button" disabled={selectedIndex === files.length - 1} onClick={() => setActiveFile(files[selectedIndex + 1]?.filename)} aria-label="Next file" className="p-1 disabled:opacity-30"><ChevronRight className="size-3.5" aria-hidden="true" /></button>
+        </div>
         <div className="minimal-scrollbar min-h-0 flex-1 overflow-auto p-2">
           {selected.patch ? <PierreDiffView key={selected.filename} fileName={selected.filename} patch={filePatch(selected)} diffStyle={diffStyle} wordWrap={wordWrap} /> : (
             <div className="grid min-h-48 place-items-center border border-border bg-muted/20 p-8 text-center"><div><FileCode2 className="mx-auto size-5 text-muted-foreground" aria-hidden="true" /><p className="mt-3 text-sm font-medium text-foreground">Diff preview unavailable</p><p className="mt-1 text-xs text-muted-foreground">GitHub does not return inline patches for some binary or very large files.</p><a href={selected.blobUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs text-[color:var(--project-selected-strong)] hover:underline">Open file on GitHub <ExternalLink className="size-3" aria-hidden="true" /></a></div></div>
@@ -144,6 +153,6 @@ function CodeTabContent({ projectId, number }: { projectId: string; number: numb
   );
 }
 
-export function PullRequestCodeTab(props: { projectId: string; number: number }) {
+export function PullRequestCodeTab(props: { projectId: string; number: number; headSha: string }) {
   return <PierreDiffWorkerPoolProvider><CodeTabContent {...props} /></PierreDiffWorkerPoolProvider>;
 }

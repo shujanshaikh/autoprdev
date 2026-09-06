@@ -4,11 +4,24 @@ import { PullRequestWorkspace } from "#/components/pull-request/pull-request-wor
 
 function PullsPage() {
   const { projectId } = Route.useParams();
+  const { number } = Route.useSearch();
+  const navigate = Route.useNavigate();
   return (
     <main className="h-full min-h-0 flex-1 overflow-hidden">
-      <PullRequestWorkspace projectId={projectId} />
+      <PullRequestWorkspace
+        key={projectId}
+        projectId={projectId}
+        currentPullRequestNumber={number}
+        onSelectPullRequest={(number) => void navigate({ search: number === undefined ? {} : { number } })}
+      />
     </main>
   );
 }
 
-export const Route = createFileRoute("/project/$projectId/pulls")({ component: PullsPage });
+export const Route = createFileRoute("/project/$projectId/pulls")({
+  validateSearch: (search: Record<string, unknown>): { number?: number } => {
+    const number = Number(search.number);
+    return Number.isSafeInteger(number) && number > 0 ? { number } : {};
+  },
+  component: PullsPage,
+});

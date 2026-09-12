@@ -1,36 +1,9 @@
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from "@autopr/ui/components/command";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@autopr/ui/components/dropdown-menu";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@autopr/ui/components/hover-card";
-import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupTextarea,
 } from "@autopr/ui/components/input-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@autopr/ui/components/select";
 import { Spinner } from "@autopr/ui/components/spinner";
 import {
   Tooltip,
@@ -38,15 +11,8 @@ import {
   TooltipTrigger,
 } from "@autopr/ui/components/tooltip";
 import { cn } from "@autopr/ui/lib/utils";
-import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "ai";
-import {
-  ArrowUpIcon,
-  ImageIcon,
-  Monitor,
-  PlusIcon,
-  SquareIcon,
-  XIcon,
-} from "lucide-react";
+import type { ChatStatus, FileUIPart } from "ai";
+import { ArrowUpIcon, SquareIcon, XIcon } from "lucide-react";
 import { nanoid } from "nanoid";
 import type {
   ChangeEvent,
@@ -101,83 +67,6 @@ const revokeObjectUrl = (url: string | undefined) => {
   }
 };
 
-const captureScreenshot = async (): Promise<File | null> => {
-  if (
-    typeof navigator === "undefined" ||
-    !navigator.mediaDevices?.getDisplayMedia
-  ) {
-    return null;
-  }
-
-  let stream: MediaStream | null = null;
-  const video = document.createElement("video");
-  video.muted = true;
-  video.playsInline = true;
-
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      audio: false,
-      video: true,
-    });
-
-    video.srcObject = stream;
-
-    // Video element uses callback-based API, wrapping in Promise is necessary
-    // oxlint-disable-next-line eslint-plugin-promise(avoid-new)
-    await new Promise<void>((resolve, reject) => {
-      // oxlint-disable-next-line eslint-plugin-unicorn(prefer-add-event-listener)
-      video.onloadedmetadata = () => resolve();
-      // oxlint-disable-next-line eslint-plugin-unicorn(prefer-add-event-listener)
-      video.onerror = () => reject(new Error("Failed to load screen stream"));
-    });
-
-    await video.play();
-
-    const width = video.videoWidth;
-    const height = video.videoHeight;
-    if (!width || !height) {
-      return null;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return null;
-    }
-
-    context.drawImage(video, 0, 0, width, height);
-    // canvas.toBlob uses callback-based API, wrapping in Promise is necessary
-    // oxlint-disable-next-line eslint-plugin-promise(avoid-new)
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, "image/png");
-    });
-    if (!blob) {
-      return null;
-    }
-
-    const timestamp = new Date()
-      .toISOString()
-      .replaceAll(/[:.]/g, "-")
-      .replace("T", "_")
-      .replace("Z", "");
-
-    return new File([blob], `screenshot-${timestamp}.png`, {
-      lastModified: Date.now(),
-      type: "image/png",
-    });
-  } finally {
-    if (stream) {
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-    }
-    video.pause();
-    video.srcObject = null;
-  }
-};
-
 // ============================================================================
 // Provider Context & Types
 // ============================================================================
@@ -192,7 +81,7 @@ export interface AttachmentsContext {
   fileInputRef: RefObject<HTMLInputElement | null>;
 }
 
-export interface TextInputContext {
+interface TextInputContext {
   value: string;
   setInput: (v: string) => void;
   clear: () => void;
@@ -215,29 +104,9 @@ const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(
   null
 );
 
-const usePromptInputController = () => {
-  const ctx = use(PromptInputController);
-  if (!ctx) {
-    throw new Error(
-      "Wrap your component inside <PromptInputProvider> to use usePromptInputController()."
-    );
-  }
-  return ctx;
-};
-
 // Optional variants (do NOT throw). Useful for dual-mode components.
 const useOptionalPromptInputController = () =>
   use(PromptInputController);
-
-const useProviderAttachments = () => {
-  const ctx = use(ProviderAttachmentsContext);
-  if (!ctx) {
-    throw new Error(
-      "Wrap your component inside <PromptInputProvider> to use useProviderAttachments()."
-    );
-  }
-  return ctx;
-};
 
 const useOptionalProviderAttachments = () =>
   use(ProviderAttachmentsContext);
@@ -404,103 +273,6 @@ export const usePromptInputAttachments = () => {
   return context;
 };
 
-// ============================================================================
-// Referenced Sources (Local to PromptInput)
-// ============================================================================
-
-export interface ReferencedSourcesContext {
-  sources: (SourceDocumentUIPart & { id: string })[];
-  add: (sources: SourceDocumentUIPart[] | SourceDocumentUIPart) => void;
-  remove: (id: string) => void;
-  clear: () => void;
-}
-
-const LocalReferencedSourcesContext =
-  createContext<ReferencedSourcesContext | null>(null);
-
-const usePromptInputReferencedSources = () => {
-  const ctx = use(LocalReferencedSourcesContext);
-  if (!ctx) {
-    throw new Error(
-      "usePromptInputReferencedSources must be used within a LocalReferencedSourcesContext.Provider"
-    );
-  }
-  return ctx;
-};
-
-export type PromptInputActionAddAttachmentsProps = ComponentProps<
-  typeof DropdownMenuItem
-> & {
-  label?: string;
-};
-
-const PromptInputActionAddAttachments = ({
-  label = "Add photos or files",
-  ...props
-}: PromptInputActionAddAttachmentsProps) => {
-  const attachments = usePromptInputAttachments();
-
-  const handleSelect = useCallback<NonNullable<PromptInputActionAddAttachmentsProps["onSelect"]>>(
-    (event) => {
-      event.preventDefault();
-      attachments.openFileDialog();
-    },
-    [attachments]
-  );
-
-  return (
-    <DropdownMenuItem {...props} onSelect={handleSelect}>
-      <ImageIcon className="mr-2 size-4" /> {label}
-    </DropdownMenuItem>
-  );
-};
-
-export type PromptInputActionAddScreenshotProps = ComponentProps<
-  typeof DropdownMenuItem
-> & {
-  label?: string;
-};
-
-const PromptInputActionAddScreenshot = ({
-  label = "Take screenshot",
-  onSelect,
-  ...props
-}: PromptInputActionAddScreenshotProps) => {
-  const attachments = usePromptInputAttachments();
-
-  const handleSelect = useCallback<NonNullable<PromptInputActionAddScreenshotProps["onSelect"]>>(
-    async (event) => {
-      onSelect?.(event);
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      try {
-        const screenshot = await captureScreenshot();
-        if (screenshot) {
-          attachments.add([screenshot]);
-        }
-      } catch (error) {
-        if (
-          error instanceof DOMException &&
-          (error.name === "NotAllowedError" || error.name === "AbortError")
-        ) {
-          return;
-        }
-        throw error;
-      }
-    },
-    [onSelect, attachments]
-  );
-
-  return (
-    <DropdownMenuItem {...props} onSelect={handleSelect}>
-      <Monitor className="mr-2 size-4" />
-      {label}
-    </DropdownMenuItem>
-  );
-};
-
 export interface PromptInputMessage {
   text: string;
   files: (FileUIPart & { id?: string })[];
@@ -557,11 +329,6 @@ export const PromptInput = ({
   // ----- Local attachments (only used when no provider)
   const [items, setItems] = useState<(FileUIPart & { id: string })[]>([]);
   const files = usingProvider ? controller.attachments.files : items;
-
-  // ----- Local referenced sources (always local to PromptInput)
-  const [referencedSources, setReferencedSources] = useState<
-    (SourceDocumentUIPart & { id: string })[]
-  >([]);
 
   // Keep a ref to files for cleanup on unmount (avoids stale closure)
   const filesRef = useRef(files);
@@ -737,11 +504,6 @@ export const PromptInput = ({
     [usingProvider, controller]
   );
 
-  const clearReferencedSources = useCallback(
-    () => setReferencedSources([]),
-    []
-  );
-
   const add = usingProvider ? addWithProviderValidation : addLocal;
   const remove = usingProvider ? controller.attachments.remove : removeLocal;
   const update = usingProvider ? controller.attachments.update : updateLocal;
@@ -749,10 +511,7 @@ export const PromptInput = ({
     ? controller.attachments.openFileDialog
     : openFileDialogLocal;
 
-  const clear = useCallback(() => {
-    clearAttachments();
-    clearReferencedSources();
-  }, [clearAttachments, clearReferencedSources]);
+  const clear = clearAttachments;
 
   // Let provider know about our hidden file input so external menus can call openFileDialog()
   useEffect(() => {
@@ -863,24 +622,6 @@ export const PromptInput = ({
     [files, add, remove, update, clearAttachments, openFileDialog]
   );
 
-  const refsCtx = useMemo<ReferencedSourcesContext>(
-    () => ({
-      add: (incoming: SourceDocumentUIPart[] | SourceDocumentUIPart) => {
-        const array = Array.isArray(incoming) ? incoming : [incoming];
-        setReferencedSources((prev) => [
-          ...prev,
-          ...array.map((s) => ({ ...s, id: nanoid() })),
-        ]);
-      },
-      clear: clearReferencedSources,
-      remove: (id: string) => {
-        setReferencedSources((prev) => prev.filter((s) => s.id !== id));
-      },
-      sources: referencedSources,
-    }),
-    [referencedSources, clearReferencedSources]
-  );
-
   const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
     async (event) => {
       event.preventDefault();
@@ -987,16 +728,10 @@ export const PromptInput = ({
     </>
   );
 
-  const withReferencedSources = (
-    <LocalReferencedSourcesContext.Provider value={refsCtx}>
-      {inner}
-    </LocalReferencedSourcesContext.Provider>
-  );
-
   // Always provide LocalAttachmentsContext so children get validated add function
   return (
     <LocalAttachmentsContext.Provider value={attachmentsCtx}>
-      {withReferencedSources}
+      {inner}
     </LocalAttachmentsContext.Provider>
   );
 };
@@ -1183,7 +918,7 @@ export const PromptInputTools = ({
   />
 );
 
-export type PromptInputButtonTooltip =
+type PromptInputButtonTooltip =
   | string
   | {
       content: ReactNode;
@@ -1236,41 +971,6 @@ export const PromptInputButton = ({
     </Tooltip>
   );
 };
-
-export type PromptInputActionMenuProps = ComponentProps<typeof DropdownMenu>;
-const PromptInputActionMenu = (props: PromptInputActionMenuProps) => (
-  <DropdownMenu {...props} />
-);
-
-export type PromptInputActionMenuTriggerProps = PromptInputButtonProps;
-
-const PromptInputActionMenuTrigger = ({
-  className,
-  children,
-  ...props
-}: PromptInputActionMenuTriggerProps) => (
-  <DropdownMenuTrigger render={<PromptInputButton className={className} {...props} />}>{children ?? <PlusIcon className="size-4" />}</DropdownMenuTrigger>
-);
-
-export type PromptInputActionMenuContentProps = ComponentProps<
-  typeof DropdownMenuContent
->;
-const PromptInputActionMenuContent = ({
-  className,
-  ...props
-}: PromptInputActionMenuContentProps) => (
-  <DropdownMenuContent align="start" className={cn(className)} {...props} />
-);
-
-export type PromptInputActionMenuItemProps = ComponentProps<
-  typeof DropdownMenuItem
->;
-const PromptInputActionMenuItem = ({
-  className,
-  ...props
-}: PromptInputActionMenuItemProps) => (
-  <DropdownMenuItem className={cn(className)} {...props} />
-);
 
 // Note: Actions that perform side-effects (like opening a file dialog)
 // are provided in opt-in modules (e.g., prompt-input-attachments).
@@ -1332,202 +1032,3 @@ export const PromptInputSubmit = ({
     </InputGroupButton>
   );
 };
-
-export type PromptInputSelectProps = ComponentProps<typeof Select>;
-
-const PromptInputSelect = (props: PromptInputSelectProps) => (
-  <Select {...props} />
-);
-
-export type PromptInputSelectTriggerProps = ComponentProps<
-  typeof SelectTrigger
->;
-
-const PromptInputSelectTrigger = ({
-  className,
-  ...props
-}: PromptInputSelectTriggerProps) => (
-  <SelectTrigger
-    className={cn(
-      "h-7 gap-1 border-none bg-transparent px-1.5 text-xs font-medium text-muted-foreground shadow-none transition-colors",
-      "hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent aria-expanded:text-foreground",
-      "focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent dark:hover:bg-transparent",
-      "data-[size=sm]:h-7 [&_svg:not([class*='size-'])]:size-3.5",
-      className
-    )}
-    {...props}
-  />
-);
-
-export type PromptInputSelectContentProps = ComponentProps<
-  typeof SelectContent
->;
-
-const PromptInputSelectContent = ({
-  className,
-  ...props
-}: PromptInputSelectContentProps) => (
-  <SelectContent className={cn(className)} {...props} />
-);
-
-export type PromptInputSelectItemProps = ComponentProps<typeof SelectItem>;
-
-const PromptInputSelectItem = ({
-  className,
-  ...props
-}: PromptInputSelectItemProps) => (
-  <SelectItem className={cn(className)} {...props} />
-);
-
-export type PromptInputSelectValueProps = ComponentProps<typeof SelectValue>;
-
-const PromptInputSelectValue = ({
-  className,
-  ...props
-}: PromptInputSelectValueProps) => (
-  <SelectValue className={cn(className)} {...props} />
-);
-
-export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard>;
-
-const PromptInputHoverCard = (props: PromptInputHoverCardProps) => (
-  <HoverCard {...props} />
-);
-
-export type PromptInputHoverCardTriggerProps = ComponentProps<
-  typeof HoverCardTrigger
->;
-
-const PromptInputHoverCardTrigger = (
-  props: PromptInputHoverCardTriggerProps
-) => <HoverCardTrigger {...props} />;
-
-export type PromptInputHoverCardContentProps = ComponentProps<
-  typeof HoverCardContent
->;
-
-const PromptInputHoverCardContent = ({
-  align = "start",
-  ...props
-}: PromptInputHoverCardContentProps) => (
-  <HoverCardContent align={align} {...props} />
-);
-
-export type PromptInputTabsListProps = HTMLAttributes<HTMLDivElement>;
-
-const PromptInputTabsList = ({
-  className,
-  ...props
-}: PromptInputTabsListProps) => <div className={cn(className)} {...props} />;
-
-export type PromptInputTabProps = HTMLAttributes<HTMLDivElement>;
-
-const PromptInputTab = ({
-  className,
-  ...props
-}: PromptInputTabProps) => <div className={cn(className)} {...props} />;
-
-export type PromptInputTabLabelProps = HTMLAttributes<HTMLHeadingElement>;
-
-const PromptInputTabLabel = ({
-  className,
-  ...props
-}: PromptInputTabLabelProps) => (
-  // Content provided via children in props
-  // oxlint-disable-next-line eslint-plugin-jsx-a11y(heading-has-content)
-  // react-doctor-disable-next-line react-doctor/heading-has-content -- This primitive receives heading content through children.
-  <h3
-    className={cn(
-      "mb-2 px-3 font-medium text-muted-foreground text-xs",
-      className
-    )}
-    {...props}
-  />
-);
-
-export type PromptInputTabBodyProps = HTMLAttributes<HTMLDivElement>;
-
-const PromptInputTabBody = ({
-  className,
-  ...props
-}: PromptInputTabBodyProps) => (
-  <div className={cn("space-y-1", className)} {...props} />
-);
-
-export type PromptInputTabItemProps = HTMLAttributes<HTMLDivElement>;
-
-const PromptInputTabItem = ({
-  className,
-  ...props
-}: PromptInputTabItemProps) => (
-  <div
-    className={cn(
-      "flex items-center gap-2 px-3 py-2 text-xs hover:bg-accent",
-      className
-    )}
-    {...props}
-  />
-);
-
-export type PromptInputCommandProps = ComponentProps<typeof Command>;
-
-const PromptInputCommand = ({
-  className,
-  ...props
-}: PromptInputCommandProps) => <Command className={cn(className)} {...props} />;
-
-export type PromptInputCommandInputProps = ComponentProps<typeof CommandInput>;
-
-const PromptInputCommandInput = ({
-  className,
-  ...props
-}: PromptInputCommandInputProps) => (
-  <CommandInput className={cn(className)} {...props} />
-);
-
-export type PromptInputCommandListProps = ComponentProps<typeof CommandList>;
-
-const PromptInputCommandList = ({
-  className,
-  ...props
-}: PromptInputCommandListProps) => (
-  <CommandList className={cn(className)} {...props} />
-);
-
-export type PromptInputCommandEmptyProps = ComponentProps<typeof CommandEmpty>;
-
-const PromptInputCommandEmpty = ({
-  className,
-  ...props
-}: PromptInputCommandEmptyProps) => (
-  <CommandEmpty className={cn(className)} {...props} />
-);
-
-export type PromptInputCommandGroupProps = ComponentProps<typeof CommandGroup>;
-
-const PromptInputCommandGroup = ({
-  className,
-  ...props
-}: PromptInputCommandGroupProps) => (
-  <CommandGroup className={cn(className)} {...props} />
-);
-
-export type PromptInputCommandItemProps = ComponentProps<typeof CommandItem>;
-
-const PromptInputCommandItem = ({
-  className,
-  ...props
-}: PromptInputCommandItemProps) => (
-  <CommandItem className={cn(className)} {...props} />
-);
-
-export type PromptInputCommandSeparatorProps = ComponentProps<
-  typeof CommandSeparator
->;
-
-const PromptInputCommandSeparator = ({
-  className,
-  ...props
-}: PromptInputCommandSeparatorProps) => (
-  <CommandSeparator className={cn(className)} {...props} />
-);

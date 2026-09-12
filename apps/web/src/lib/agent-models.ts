@@ -99,7 +99,7 @@ export function getAgentContextLimit(selection: AgentModelSelection | undefined)
   return 128_000;
 }
 
-export function normalizeGrokModelList(models: readonly string[] | undefined) {
+function normalizeGrokModelList(models: readonly string[] | undefined) {
   const normalized = new Set<string>();
   for (const model of models ?? []) {
     const modelId = model.trim();

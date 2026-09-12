@@ -1,6 +1,6 @@
 import { computeWordDiffRanges, toSegments, type DiffSegment } from "./wordDiff";
 
-export type DiffLineType = "context" | "add" | "delete" | "meta" | "hunk";
+type DiffLineType = "context" | "add" | "delete" | "meta" | "hunk";
 
 export type DiffLine = {
   id: string;

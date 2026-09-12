@@ -100,8 +100,6 @@ import {
   selectAgentReasoningEffort,
   type AgentProvider,
 } from "#/lib/agent-models";
-export { CODEX_MODELS, DEFAULT_CODEX_MODEL, isCodexModelId } from "#/lib/codex-models";
-export type { CodexModelId, CodexReasoningEffort } from "#/lib/codex-models";
 import {
   appendDiffPromptContexts,
   formatDiffPromptContextLabel,

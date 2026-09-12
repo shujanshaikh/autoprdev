@@ -537,7 +537,7 @@ function ToolDiffPartialNotice() {
   );
 }
 
-export function ToolDiffView({
+function ToolDiffView({
   diff,
   pathLine,
   onAddLineContext,
@@ -864,12 +864,10 @@ function ContentDetailsBody({
   slug,
   content,
   details,
-  recordingPlaybackBasePath,
 }: {
   slug: string;
   content: string;
   details: Record<string, unknown>;
-  recordingPlaybackBasePath?: string;
 }) {
   const meta = formatDetailsMetaLine(slug, details);
   const pathLine =
@@ -987,10 +985,6 @@ function ToolStatusText({ state }: { state: ToolPart["state"] }) {
     </span>
   );
 }
-
-const getStatusBadge = (status: ToolPart["state"]) => (
-  <ToolStatusText state={status} />
-);
 
 export type ToolHeaderProps = {
   title?: string;
@@ -1478,7 +1472,6 @@ export type ToolOutputProps = ComponentProps<"div"> & {
   errorText: ToolPart["errorText"];
   toolType?: string;
   toolName?: string;
-  recordingPlaybackBasePath?: string;
 };
 
 export const ToolOutput = ({
@@ -1487,7 +1480,6 @@ export const ToolOutput = ({
   errorText,
   toolType = "",
   toolName,
-  recordingPlaybackBasePath,
   ...props
 }: ToolOutputProps) => {
   if (!(output || errorText)) {
@@ -1516,7 +1508,6 @@ export const ToolOutput = ({
         slug={slug}
         content={computerContentDetails.content}
         details={computerContentDetails.details}
-        recordingPlaybackBasePath={recordingPlaybackBasePath}
       />
     );
   } else if (isContentDetailsOutput(output)) {
@@ -1525,7 +1516,6 @@ export const ToolOutput = ({
         slug={slug}
         content={output.content}
         details={output.details}
-        recordingPlaybackBasePath={recordingPlaybackBasePath}
       />
     );
   } else if (typeof output === "object" && !isValidElement(output)) {

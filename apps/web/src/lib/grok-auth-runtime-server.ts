@@ -160,7 +160,7 @@ export function revokeGrokAgentGrant(grantId: string) {
   return agentGrantStore.delete(grantId);
 }
 
-export async function resolveGrokAgentGrant(grantId: string, expected: GrokAgentGrantContext) {
+async function resolveGrokAgentGrant(grantId: string, expected: GrokAgentGrantContext) {
   const grant = await agentGrantStore.take(grantId);
   if (!grant) {
     throw new GrokConnectionError(

@@ -8,8 +8,6 @@ import type {
   GithubPullRequestTimelineItem,
   fetchGithubPullRequestChecks,
 } from "@autopr/backend/convex/lib/github_oauth";
-
-export type ProjectPullRequestState = GithubOAuthPullRequest["state"];
 export type ProjectPullRequest = GithubOAuthPullRequest;
 export type ProjectPullRequestActor = GithubPullRequestActor;
 export type ProjectPullRequestDetail = GithubPullRequestDetail;

@@ -14,7 +14,7 @@ import {
   requireAgentSessionPersistenceGrant,
 } from "./lib/agentPersistence";
 import { requireUserId } from "./lib/auth";
-import { resolveProjectSettings, reasoningEffortValidator } from "./lib/projectSettings";
+import { getProjectReasoningEfforts, resolveProjectSettings, reasoningEffortValidator } from "./lib/projectSettings";
 import { getUserSettingsForAuthor, requireDemoRecordingExperimentEnabled } from "./lib/userSettings";
 import { randomUuid } from "./lib/uuid";
 import { threadGitStatusValidator } from "./lib/gitStatus";
@@ -836,6 +836,8 @@ export const setAgentModelSelection = mutation({
     await ctx.db.patch(thread._id, {
       agentProvider: args.provider,
       agentModel: model,
+      agentReasoningEffort: getProjectReasoningEfforts({ provider: args.provider, modelId: model })
+        .find((effort) => effort === thread.agentReasoningEffort),
     });
     return null;
   },

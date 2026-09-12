@@ -3,7 +3,7 @@ import type { FunctionArgs } from "convex/server";
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { Doc } from "@autopr/backend/convex/_generated/dataModel";
 import { updateAgentSettings } from "@autopr/backend/convex/projects";
-import { create, setDemoEnabled } from "@autopr/backend/convex/threads";
+import { create, setAgentModelSelection, setDemoEnabled } from "@autopr/backend/convex/threads";
 import { DEFAULT_PROJECT_SETTINGS, type ProjectSettings } from "@autopr/backend/convex/lib/projectSettings";
 import { resolveThreadModelRequest } from "./thread-agent-settings";
 
@@ -15,6 +15,9 @@ const createThread = create as unknown as {
 };
 const setDemo = setDemoEnabled as unknown as {
   _handler: (ctx: unknown, args: FunctionArgs<typeof api.threads.setDemoEnabled>) => Promise<null>;
+};
+const setModel = setAgentModelSelection as unknown as {
+  _handler: (ctx: unknown, args: FunctionArgs<typeof api.threads.setAgentModelSelection>) => Promise<null>;
 };
 
 const settings: ProjectSettings = {
@@ -114,6 +117,19 @@ describe("project agent settings", () => {
 
 describe("per-turn model selection", () => {
   const thread = { agentProvider: "openai-codex", agentModel: "gpt-5.6-sol", agentReasoningEffort: "ultra" } as const;
+  it.each([
+    { provider: "openai-codex", model: "gpt-5.5", reasoningEffort: undefined },
+    { provider: "xai", model: "grok-4", reasoningEffort: undefined },
+    { provider: "openai-codex", model: "gpt-5.6-terra", reasoningEffort: "ultra" },
+  ] as const)("keeps saved reasoning compatible after switching to $model", async ({ provider, model, reasoningEffort }) => {
+    const { ctx, threads } = context(settings);
+    const threadId = await createThread._handler(ctx, { projectId: "project-1" });
+    await setModel._handler(ctx, { threadId, provider, model });
+
+    expect(threads[0]?.agentReasoningEffort).toBe(reasoningEffort);
+    expect(resolveThreadModelRequest(threads[0]!, {})).toEqual({ provider, model, reasoningEffort });
+  });
+
   it("uses persisted defaults when API callers omit their model", () => {
     expect(resolveThreadModelRequest(thread, {})).toEqual({ provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "ultra" });
   });

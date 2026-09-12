@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -33,6 +34,21 @@ afterEach(() => {
 });
 
 describe("CUA gateway response parsing", () => {
+  it("compiles the deployed Python gateway", () => {
+    const gateway = readFileSync(
+      new URL("../../../../infra/daytona/autopr/cua_gateway.py", import.meta.url),
+      "utf8",
+    );
+    const result = spawnSync(
+      "python3",
+      ["-c", "import sys; compile(sys.stdin.read(), 'cua_gateway.py', 'exec')"],
+      { encoding: "utf8", input: gateway },
+    );
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
   it("generates a syntactically valid image-launcher bootstrap script", () => {
     const bootstrap = cuaBootstrapCommand();
     const result = spawnSync("bash", ["-n"], {

@@ -217,7 +217,7 @@ function ProjectThreadPageContent() {
       : project?.sandboxStatus === "ready" && codexStatusQuery.data?.connected === false && grokStatusQuery.data?.connected === false
         ? "disconnected"
         : undefined;
-  const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled);
+  const demoRecordingExperimentEnabled = Boolean(userSettings?.demoRecordingExperimentEnabled && thread?.agentSettings?.computerUseEnabled !== false);
   const gitStatusEnabled = project?.sandboxRuntimeStatus === "started"
     && !shouldAutoSubmitInitialPrompt
     && !thread?.isLive;
@@ -451,7 +451,7 @@ function ProjectThreadPageContent() {
               initialPrompt={shouldAutoSubmitInitialPrompt ? initialPrompt : undefined}
               initialProvider={initialModel ? initialProvider : thread?.agentProvider}
               initialModel={initialModel ?? thread?.agentModel}
-              initialReasoningEffort={initialReasoningEffort}
+              initialReasoningEffort={initialReasoningEffort ?? thread?.agentReasoningEffort}
               availableCodexModels={codexStatusQuery.data?.models}
               availableGrokModels={grokStatusQuery.data?.models}
               disabled={chatDisabled}

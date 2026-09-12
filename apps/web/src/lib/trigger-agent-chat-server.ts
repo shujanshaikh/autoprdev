@@ -26,7 +26,8 @@ import {
   type AgentChatClientInput,
 } from "#/lib/trigger-agent-contract";
 import type { agentChatTask } from "#/trigger/agent-chat";
-import type { SandboxProvider } from "@autopr/backend/convex/lib/sandboxProvider";
+import type { Doc } from "@autopr/backend/convex/_generated/dataModel";
+import { resolveThreadModelRequest } from "#/lib/thread-agent-settings";
 
 const APPEND_OPERATION = "append";
 
@@ -64,33 +65,8 @@ const chatInputChunkSchema = z.union([
   stopInputChunkSchema,
 ]);
 
-type AgentProject = {
-  projectId: string;
-  sandboxStatus: "creating" | "ready" | "failed";
-  sandboxCacheKey: string;
-  sandboxId?: string;
-  sandboxProvider?: SandboxProvider;
-  sandboxWorkDir?: string;
-  cloneUrl: string;
-  currentBranch?: string;
-  defaultBranch?: string;
-  repoBranch?: string;
-  repoName: string;
-};
-
-type AgentThread = {
-  threadId: string;
-  projectId: string;
-  authorId: string;
-  demoEnabled?: boolean;
-  baseBranch?: string;
-  featureBranch?: string;
-  worktreePath?: string;
-  workspaceMode?: "checkout" | "worktree";
-  worktreeStatus?: "pending" | "provisioning" | "ready" | "failed" | "cleaned";
-  headSha?: string;
-  upstreamBranch?: string;
-};
+type AgentProject = Doc<"projects">;
+type AgentThread = Doc<"threads">;
 
 type AgentUserSettings = {
   demoRecordingExperimentEnabled?: boolean;
@@ -163,6 +139,7 @@ async function createTrustedClientData(options: {
   requested: AgentChatClientInput;
 }) {
   const persistedWorkspace = persistedThreadWorkspace(options.project, options.thread);
+  const requestedModel = resolveThreadModelRequest(options.thread, options.requested);
   const [worktree, model, persistenceGrant] = await Promise.all([
     persistedWorkspace
       ? Promise.resolve(persistedWorkspace)
@@ -172,9 +149,9 @@ async function createTrustedClientData(options: {
         }),
     createAgentModelOptions(
       options.request,
-      options.requested.provider,
-      options.requested.model,
-      options.requested.reasoningEffort,
+      requestedModel.provider,
+      requestedModel.model,
+      requestedModel.reasoningEffort,
       {
         taskId: AGENT_CHAT_TASK_ID,
         contextId: `${options.project.projectId}:${options.thread.threadId}`,
@@ -202,7 +179,10 @@ async function createTrustedClientData(options: {
     repoBranch: worktree.featureBranch,
     repoName: options.project.repoName,
     persistenceToken: persistenceGrant.token,
+    computerUseEnabled: options.thread.agentSettings?.computerUseEnabled ?? true,
+    subAgentsEnabled: options.thread.agentSettings?.subAgentsEnabled ?? true,
     demoEnabled: Boolean(
+      options.thread.agentSettings?.computerUseEnabled !== false &&
       options.thread.demoEnabled &&
         options.userSettings?.demoRecordingExperimentEnabled,
     ),

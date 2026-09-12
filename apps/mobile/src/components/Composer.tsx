@@ -28,7 +28,7 @@ type Props = {
   reasoningLabel: string;
   /** Receives where the pill sits, so its menu can open anchored to it. */
   onPressModel: (anchor: MenuAnchor) => void;
-  onPressReasoning: (anchor: MenuAnchor) => void;
+  onPressReasoning?: (anchor: MenuAnchor) => void;
   onAddImage?: () => void;
   canSend: boolean;
   sending?: boolean;
@@ -175,7 +175,7 @@ export function Composer({
                 onPress={() => openAnchoredMenu(modelPillRef.current, onPressModel)}
               />
             </View>
-            <View collapsable={false} ref={reasoningPillRef}>
+            {onPressReasoning && <View collapsable={false} ref={reasoningPillRef}>
               <ComposerToolbarButton
                 accessibilityLabel="Select reasoning effort"
                 chevron
@@ -183,7 +183,7 @@ export function Composer({
                 label={reasoningLabel}
                 onPress={() => openAnchoredMenu(reasoningPillRef.current, onPressReasoning)}
               />
-            </View>
+            </View>}
           </ComposerToolbarScroller>
           {sendControl}
         </ComposerToolbarRow>

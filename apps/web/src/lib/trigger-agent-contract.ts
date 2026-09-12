@@ -76,6 +76,8 @@ export interface AgentTaskOptions {
   assistantMessageId?: string;
   persistenceToken?: string;
   demoEnabled?: boolean;
+  computerUseEnabled?: boolean;
+  subAgentsEnabled?: boolean;
   model: AgentModelOptions<typeof AGENT_TASK_ID>;
 }
 
@@ -111,5 +113,7 @@ export interface AgentChatClientData extends Record<string, unknown> {
   repoName?: string;
   persistenceToken: string;
   demoEnabled?: boolean;
+  computerUseEnabled?: boolean;
+  subAgentsEnabled?: boolean;
   model: AgentModelOptions<typeof AGENT_CHAT_TASK_ID>;
 }

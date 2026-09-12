@@ -29,6 +29,7 @@ import {
   handleAgentChatRequest,
   isAgentChatRequest,
 } from "#/lib/trigger-agent-chat-server";
+import { resolveThreadModelRequest } from "#/lib/thread-agent-settings";
 import { persistedThreadWorkspace } from "#/lib/thread-workspace-server";
 import type { agentTask } from "#/trigger/agent";
 
@@ -179,11 +180,12 @@ async function POST(
     }
 
     const requestedAssistantMessageId = nanoid();
+    const requestedModel = resolveThreadModelRequest(thread, parsed.data);
     const model = await createAgentModelOptions(
       req,
-      parsed.data.provider,
-      parsed.data.model,
-      parsed.data.reasoningEffort,
+      requestedModel.provider,
+      requestedModel.model,
+      requestedModel.reasoningEffort,
       {
         taskId: AGENT_TASK_ID,
         contextId: `${projectId}:${threadId}:${requestedAssistantMessageId}`,
@@ -258,7 +260,9 @@ async function POST(
             repoName: project.repoName,
             assistantMessageId,
             persistenceToken: persistenceGrant.token,
-            demoEnabled: Boolean(thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
+            computerUseEnabled: thread.agentSettings?.computerUseEnabled ?? true,
+            subAgentsEnabled: thread.agentSettings?.subAgentsEnabled ?? true,
+            demoEnabled: Boolean(thread.agentSettings?.computerUseEnabled !== false && thread.demoEnabled && userSettings.demoRecordingExperimentEnabled),
             model,
           },
         },

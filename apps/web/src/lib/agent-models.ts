@@ -1,8 +1,8 @@
+import { getProjectReasoningEfforts } from "@autopr/backend/convex/lib/projectSettings";
 import {
   DEFAULT_CODEX_REASONING_EFFORT,
   formatCodexModelLabel,
   getCodexContextLimit,
-  getCodexReasoningEfforts,
   normalizeCodexModelList,
   selectCodexModel,
   type CodexReasoningEffort,
@@ -58,17 +58,7 @@ export function selectAgentModel(
 }
 
 export function getAgentReasoningEfforts(selection: AgentModelSelection | undefined): readonly CodexReasoningEffort[] {
-  if (!selection) return [];
-  if (selection.provider === "openai-codex") return getCodexReasoningEfforts(selection.modelId);
-  const modelId = selection.modelId.toLowerCase();
-  if (modelId.includes("grok-4.20") && modelId.includes("multi-agent")) {
-    return ["low", "medium", "high", "xhigh"];
-  }
-  if (modelId.includes("non-reasoning")) return [];
-  if (modelId.includes("grok-4.5") || modelId.includes("grok-4.3") || modelId.includes("grok-4.20")) {
-    return ["low", "medium", "high"];
-  }
-  return modelId.includes("grok-3-mini") ? ["low", "high"] : [];
+  return getProjectReasoningEfforts(selection);
 }
 
 export function selectAgentReasoningEffort(

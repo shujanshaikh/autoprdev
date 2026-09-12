@@ -1,3 +1,4 @@
+import { agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
   CodingHarness,
@@ -211,13 +212,12 @@ async function runAgentTask(
     repoBranch: options.repoBranch,
     repoName: options.repoName,
   };
-  const demoRecordingEnabled = Boolean(options.demoEnabled && options.projectId && options.threadId);
+  const demoRecordingEnabled = Boolean(options.computerUseEnabled !== false && options.demoEnabled && options.projectId && options.threadId);
   const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const subAgentBinding = createSubAgentBinding();
   const harness = new CodingHarness({
     ...sandboxOptions,
-    computer: { recordingEnabled: demoRecordingEnabled },
-    subAgent: { run: subAgentBinding.run },
+    ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run),
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
     appendSystemPrompt: [
@@ -227,7 +227,9 @@ async function runAgentTask(
       options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
-      demoRecordingEnabled
+      options.computerUseEnabled === false
+        ? "Computer use is disabled for this thread. Do not control a browser or desktop, including through shell commands."
+        : demoRecordingEnabled
         ? DEMO_RECORDING_INSTRUCTIONS
         : COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
     ]

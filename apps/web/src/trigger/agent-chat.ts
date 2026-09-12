@@ -1,3 +1,4 @@
+import { agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
   CodingHarness,
@@ -74,6 +75,8 @@ const agentChatClientDataSchema = z.object({
   repoName: z.string().min(1).optional(),
   persistenceToken: z.string().min(1),
   demoEnabled: z.boolean().optional(),
+  computerUseEnabled: z.boolean().optional(),
+  subAgentsEnabled: z.boolean().optional(),
   model: z.discriminatedUnion("provider", [
     z.object({
       provider: z.literal("openai-codex"),
@@ -153,6 +156,7 @@ function modelPromptCacheKey(clientData: AgentChatClientData) {
 }
 
 function demoInstructions(clientData: AgentChatClientData) {
+  if (clientData.computerUseEnabled === false) return "Computer use is disabled for this thread. Do not control a browser or desktop, including through shell commands.";
   return clientData.demoEnabled
     ? DEMO_RECORDING_INSTRUCTIONS
     : COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS;
@@ -189,10 +193,7 @@ export const agentChatTask = chat.agent({
   tools: ({ chatId, clientData }) => {
     const trusted = requireClientData(clientData, chatId);
     const binding = createSubAgentBinding();
-    const tools = createSandboxTools(sandboxOptions(trusted), {
-      computer: { recordingEnabled: Boolean(trusted.demoEnabled) },
-      subAgent: { run: binding.run },
-    });
+    const tools = createSandboxTools(sandboxOptions(trusted), agentToolSettings(trusted, binding.run));
     subAgentBindings.set(tools, binding);
     return tools;
   },
@@ -291,8 +292,7 @@ export const agentChatTask = chat.agent({
     }
     const harness = new CodingHarness({
       ...sandboxOptions(trusted),
-      computer: { recordingEnabled: Boolean(trusted.demoEnabled) },
-      subAgent: { run: subAgentBinding.run },
+      ...agentToolSettings(trusted, subAgentBinding.run),
       modelId: trusted.model.modelId,
       modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
       appendSystemPrompt: modelInstructions(trusted),

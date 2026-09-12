@@ -1,3 +1,4 @@
+import { resolveAgentDefaults } from "../lib/agentDefaults";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { useUploadFile } from "@convex-dev/r2/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -63,10 +64,6 @@ import {
   DEFAULT_CODEX_REASONING_EFFORT,
   formatCodexModelLabel,
   formatReasoningEffort,
-  getCodexModelOptions,
-  getCodexReasoningEfforts,
-  isCodexReasoningEffortForModel,
-  selectCodexModel,
   type CodexReasoningEffort,
 } from "../lib/codexModels";
 import type { PromptFilePart, RootStackParamList } from "../types";
@@ -180,11 +177,7 @@ export function ThreadScreen({ navigation, route }: Props) {
   const convex = useConvex();
   const [prompt, setPrompt] = useState(route.params.initialPrompt ?? "");
   const [selectedModelChoice, setSelectedModelChoice] = useState<string | undefined>(route.params.initialModel);
-  const [reasoningEffort, setReasoningEffort] = useState<CodexReasoningEffort>(
-    isCodexReasoningEffortForModel(route.params.initialModel, route.params.initialReasoningEffort)
-      ? route.params.initialReasoningEffort
-      : DEFAULT_CODEX_REASONING_EFFORT,
-  );
+  const [reasoningChoice, setReasoningEffort] = useState<CodexReasoningEffort>();
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [handoffFiles, setHandoffFiles] = useState<PromptFilePart[]>(route.params.initialFiles ?? []);
   const [optimisticMessage, setOptimisticMessage] = useState<OptimisticMessage | null>(null);
@@ -227,15 +220,20 @@ export function ThreadScreen({ navigation, route }: Props) {
     currentRunId: thread?.currentRunId,
     isLive: Boolean(thread?.isLive),
   });
-  const selectedModel = useMemo(
-    () => selectCodexModel(codex.data?.models, selectedModelChoice),
-    [codex.data?.models, selectedModelChoice],
-  );
-  const modelOptions = useMemo(
-    () => getCodexModelOptions(codex.data?.models, selectedModel),
-    [codex.data?.models, selectedModel],
-  );
-  const reasoningOptions = useMemo(() => getCodexReasoningEfforts(selectedModel), [selectedModel]);
+  const { provider: selectedProvider, model: selectedModel, modelOptions, reasoningOptions, reasoningEffort } = resolveAgentDefaults({
+    savedModel: thread?.agentModel ? {
+      modelId: thread.agentModel,
+      provider: thread.agentProvider ?? "openai-codex",
+      reasoningEffort: thread.agentReasoningEffort,
+    } : undefined,
+    modelChoice: selectedModelChoice,
+    reasoningChoice: reasoningChoice ?? route.params.initialReasoningEffort,
+    codexModels: codex.data?.models,
+  });
+  const grok = useWebQuery<CodexStatus>(["grok", "status"], "/api/grok/status", {
+    enabled: selectedProvider === "xai", staleTime: 60_000, retry: false,
+  });
+  const modelConnected = selectedProvider === "xai" ? grok.data?.connected : codex.data?.connected;
   const displayMessages = useMemo(() => {
     return reconcileThreadMessages({
       persistedMessages: messages,
@@ -365,12 +363,6 @@ export function ThreadScreen({ navigation, route }: Props) {
       if (runId !== currentRunId) assistantMessageIdsByRunRef.current?.delete(runId);
     }
   }, [thread?.currentRunId]);
-
-  useEffect(() => {
-    if (!isCodexReasoningEffortForModel(selectedModel, reasoningEffort)) {
-      setReasoningEffort(reasoningOptions[0] ?? DEFAULT_CODEX_REASONING_EFFORT);
-    }
-  }, [reasoningEffort, reasoningOptions, selectedModel]);
 
   useEffect(() => {
     let active = true;
@@ -808,6 +800,7 @@ export function ThreadScreen({ navigation, route }: Props) {
           },
           body: JSON.stringify({
             message: { id: messageId, role: "user", parts },
+            provider: selectedProvider,
             ...(selectedModel ? { model: selectedModel } : {}),
             reasoningEffort,
           }),
@@ -895,7 +888,7 @@ export function ThreadScreen({ navigation, route }: Props) {
       || !thread
       || !project
       || project.sandboxStatus !== "ready"
-      || codex.data?.connected !== true
+      || modelConnected !== true
       || (!route.params.initialPrompt && !route.params.initialFiles?.length)
     ) {
       return;
@@ -910,17 +903,17 @@ export function ThreadScreen({ navigation, route }: Props) {
         files: route.params.initialFiles,
       });
     });
-  }, [codex.data?.connected, loading, messages.length, project, route.params.initialFiles, route.params.initialPrompt, thread, threadId]);
+  }, [modelConnected, loading, messages.length, project, route.params.initialFiles, route.params.initialPrompt, thread, threadId]);
 
   if (loading) return <LoadingState label="Loading conversation…" />;
   if (!project || !thread || thread.projectId !== projectId) {
     return <ErrorNotice message="This conversation was not found." />;
   }
 
-  const canChat = Boolean(project.sandboxStatus === "ready" && codex.data?.connected);
+  const canChat = Boolean(project.sandboxStatus === "ready" && modelConnected);
   const composerPlaceholder = canChat
     ? messages.length > 0 ? "Add a follow-up…" : "Describe a task…"
-    : codex.data?.connected === false ? "Connect Codex in Settings" : "Workspace unavailable";
+    : modelConnected === false ? "Connect the model provider in Settings" : "Workspace unavailable";
   const hasComposerContent = Boolean(prompt.trim())
     || pendingImages.length > 0
     || handoffFiles.length > 0;
@@ -1002,11 +995,11 @@ export function ThreadScreen({ navigation, route }: Props) {
           onAddImage={() => void chooseImage()}
           onChangeText={setPrompt}
           onPressModel={setModelMenuAnchor}
-          onPressReasoning={setReasoningMenuAnchor}
+          onPressReasoning={reasoningOptions.length > 0 ? setReasoningMenuAnchor : undefined}
           onSend={() => void send()}
           onStop={() => void stop()}
           placeholder={composerPlaceholder}
-          reasoningLabel={formatReasoningEffort(reasoningEffort)}
+          reasoningLabel={reasoningEffort ? formatReasoningEffort(reasoningEffort) : "Default"}
           sending={sending}
           showStop={canStop || stopping}
           stopping={stopping}
@@ -1056,7 +1049,7 @@ export function ThreadScreen({ navigation, route }: Props) {
         efforts={reasoningOptions}
         onClose={() => setReasoningMenuAnchor(null)}
         onSelectEffort={setReasoningEffort}
-        selectedEffort={reasoningEffort}
+        selectedEffort={reasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT}
         visible={reasoningMenuAnchor !== null}
       />
       <Modal
@@ -1093,7 +1086,7 @@ export function ThreadScreen({ navigation, route }: Props) {
                     });
                   },
                 },
-                ...(userSettings?.demoRecordingExperimentEnabled ? [{
+                ...(userSettings?.demoRecordingExperimentEnabled && thread?.agentSettings?.computerUseEnabled !== false ? [{
                   key: "demo",
                   title: thread?.demoEnabled ? "Disable demo recording" : "Enable demo recording",
                   subtitle: thread?.demoEnabled

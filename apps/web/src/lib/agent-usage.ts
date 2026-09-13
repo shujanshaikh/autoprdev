@@ -5,7 +5,7 @@ import {
   type CodexUsageCost,
 } from "#/lib/codex-models";
 
-export type AssistantTokenUsageMetadata = {
+type AssistantTokenUsageMetadata = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;

@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 import { isTemporaryThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
-export const DEFAULT_THREAD_TITLE = "New thread";
+const DEFAULT_THREAD_TITLE = "New thread";
 export const MAX_THREAD_TITLE_REQUEST_ATTEMPTS = 3;
 
 export class ThreadTitleRequestError extends Error {

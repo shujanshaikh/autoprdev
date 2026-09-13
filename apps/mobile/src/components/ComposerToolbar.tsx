@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import { useAppTheme } from "../hooks/useAppTheme";
 
-export const TOOLBAR_CONTROL_HEIGHT = 44;
+const TOOLBAR_CONTROL_HEIGHT = 44;
 
 /**
  * The composer toolbar: a scrolling run of pill controls with a control pinned

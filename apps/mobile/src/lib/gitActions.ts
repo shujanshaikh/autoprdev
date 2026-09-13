@@ -6,7 +6,7 @@ import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
  * actions, with the same guard rails, off the same status document.
  */
 
-export const threadGitActions = [
+const threadGitActions = [
   "commit",
   "push",
   "create_pr",
@@ -19,7 +19,7 @@ export const threadGitActions = [
 
 export type ThreadGitAction = (typeof threadGitActions)[number];
 
-export type ThreadGitActionAvailability = {
+type ThreadGitActionAvailability = {
   enabled: boolean;
   reason?: string;
 };
@@ -41,11 +41,6 @@ export const threadGitActionLabels: Record<ThreadGitAction, string> = {
   pull: "Update branch",
   view_pr: "View PR",
 };
-
-/** Actions that run through the phased Git workflow rather than a direct call. */
-export function isGitWorkflowAction(action: ThreadGitAction) {
-  return action !== "pull" && action !== "view_pr";
-}
 
 export function createsPullRequest(action: ThreadGitAction) {
   return action === "create_pr"

@@ -15,7 +15,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-export type PromptAttachmentFile = PromptInputMessage["files"][number];
+type PromptAttachmentFile = PromptInputMessage["files"][number];
 
 export type PromptImageUploadState =
   | { status: "uploading" }

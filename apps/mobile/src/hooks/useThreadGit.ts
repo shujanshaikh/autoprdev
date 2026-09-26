@@ -35,7 +35,7 @@ export type GitActionInput = {
   pullRequestDraft?: boolean;
 };
 
-export function threadGitStatusKey(projectId: string, threadId: string) {
+function threadGitStatusKey(projectId: string, threadId: string) {
   return ["git-status", projectId, threadId] as const;
 }
 

@@ -1,6 +1,6 @@
-export const DESKTOP_CONNECTION_OPEN_TIMEOUT_MS = 15_000;
-export const DESKTOP_RECOVERY_CONFIRMATION_TIMEOUT_MS = 5_000;
-export const DESKTOP_CONNECTION_RETRY_DELAYS_MS = [500, 1_000, 2_000, 5_000, 10_000] as const;
+const DESKTOP_CONNECTION_OPEN_TIMEOUT_MS = 15_000;
+const DESKTOP_RECOVERY_CONFIRMATION_TIMEOUT_MS = 5_000;
+const DESKTOP_CONNECTION_RETRY_DELAYS_MS = [500, 1_000, 2_000, 5_000, 10_000] as const;
 
 export type DesktopRecoveryReason = "credentials" | "stream";
 export type DesktopRecoveryResult = boolean | "current" | void;

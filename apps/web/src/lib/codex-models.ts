@@ -21,7 +21,7 @@ type CodexModel = {
   };
 };
 
-export const PREFERRED_CODEX_MODEL: CodexModelId = "gpt-5.6-sol";
+const PREFERRED_CODEX_MODEL: CodexModelId = "gpt-5.6-sol";
 
 export const CODEX_MODELS: readonly CodexModel[] = [
   {

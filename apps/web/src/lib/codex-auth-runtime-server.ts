@@ -9,7 +9,7 @@ import {
 import { WorkOS } from "@workos-inc/node";
 import { nanoid } from "nanoid";
 
-export const CODEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CODEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const DEFAULT_RESPONSES_RATE_LIMIT = 30;
 const DEFAULT_RESPONSES_RATE_WINDOW_MS = 60 * 1000;
@@ -19,7 +19,7 @@ export type CodexResponsesModel = ReturnType<
   ReturnType<typeof createChatGPTProxyProvider>["responses"]
 >;
 
-export type WorkOSVaultObject = {
+type WorkOSVaultObject = {
   id: string;
   value?: string;
   metadata?: {
@@ -290,7 +290,7 @@ function authRequestFromCookieHeader(cookieHeader: string) {
  * Grants are atomically consumed and deleted on redemption, explicitly revoked
  * after task completion or failed startup, and stale grants are deleted if read.
  */
-export const CODEX_AGENT_GRANT_TTL_MS = 2 * 60 * 60 * 1000;
+const CODEX_AGENT_GRANT_TTL_MS = 2 * 60 * 60 * 1000;
 
 export type CodexAgentGrant = {
   userId: string;

@@ -30,9 +30,8 @@ import {
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 import type { CodexAgentModelOptions } from "#/lib/trigger-agent-contract";
 
-export const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
-
-export { CodexConnectionError, createCodexResponsesModel };
+const CHATGPT_AUTH_BASE_PATH = "/api/chatgpt";
+export { CodexConnectionError };
 
 async function loadAccountCodexSessionLink() {
   const authState = await requireWorkOSAuth();
@@ -254,7 +253,7 @@ export async function createAuthenticatedCodexResponsesModel(options: {
   }
 }
 
-export async function getCodexAgentModelConfig(request: Request, model?: string, reasoningEffort?: string) {
+async function getCodexAgentModelConfig(request: Request, model?: string, reasoningEffort?: string) {
   const { authState, resolved } = await resolveAccountCodexSession(request);
 
   if (!resolved || resolved.session.status !== "authenticated") {

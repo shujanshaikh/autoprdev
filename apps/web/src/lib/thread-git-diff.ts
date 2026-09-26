@@ -1,4 +1,4 @@
-export type ThreadGitFileDiff = {
+type ThreadGitFileDiff = {
   file: string;
   patch: string;
   patchOmitted: boolean;

@@ -7,21 +7,21 @@ const desktopActivitySubscriptions = new Map<string, {
   timer: ReturnType<typeof setInterval>;
 }>();
 
-export type DaytonaDesktopPreview = {
+type DaytonaDesktopPreview = {
   url: string;
   websocketUrl: string;
   port: number;
   expiresInSeconds: number;
 };
 
-export type DaytonaDesktopConnection = {
+type DaytonaDesktopConnection = {
   projectId: string;
   websocketUrl: string;
   expiresAt: number;
   revision: number;
 };
 
-export type DaytonaDesktopSessionSnapshot = {
+type DaytonaDesktopSessionSnapshot = {
   connection?: DaytonaDesktopConnection;
   loading: boolean;
   error?: string;
@@ -140,7 +140,7 @@ function createDesktopSession(
   };
 }
 
-export type DaytonaDesktopSession = ReturnType<typeof createDesktopSession>;
+type DaytonaDesktopSession = ReturnType<typeof createDesktopSession>;
 
 const desktopSessions = new Map<string, DaytonaDesktopSession>();
 

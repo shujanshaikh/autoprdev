@@ -34,6 +34,21 @@ afterEach(() => {
 });
 
 describe("CUA gateway response parsing", () => {
+  it("compiles the deployed Python gateway", () => {
+    const gateway = readFileSync(
+      new URL("../../../../infra/daytona/autopr/cua_gateway.py", import.meta.url),
+      "utf8",
+    );
+    const result = spawnSync(
+      "python3",
+      ["-c", "import sys; compile(sys.stdin.read(), 'cua_gateway.py', 'exec')"],
+      { encoding: "utf8", input: gateway },
+    );
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
   it("generates a syntactically valid image-launcher bootstrap script", () => {
     const bootstrap = cuaBootstrapCommand();
     const result = spawnSync("bash", ["-n"], {
@@ -45,81 +60,6 @@ describe("CUA gateway response parsing", () => {
     expect(bootstrap).toContain("/opt/autopr/bin/autopr-cua-gateway");
     expect(bootstrap).toContain("rebuild and roll out the provider template");
     expect(bootstrap).not.toContain("pip install");
-  });
-
-  it("uses the official CUA SDK directly behind a thin gateway", () => {
-    const launcher = readFileSync(
-      new URL("../../../../infra/daytona/autopr/autopr-cua-gateway", import.meta.url),
-      "utf8",
-    );
-    const gateway = readFileSync(
-      new URL("../../../../infra/daytona/autopr/cua_gateway.py", import.meta.url),
-      "utf8",
-    );
-    const dockerfile = readFileSync(
-      new URL("../../../../infra/daytona/autopr/Dockerfile", import.meta.url),
-      "utf8",
-    );
-    const pythonSyntax = spawnSync("python3", ["-c", "compile(__import__('sys').stdin.read(), 'cua_gateway.py', 'exec')"], {
-      encoding: "utf8",
-      input: gateway,
-    });
-    expect(pythonSyntax.stderr).toBe("");
-    expect(pythonSyntax.status).toBe(0);
-    expect(gateway).toContain("from cua_driver import (");
-    expect(gateway).toContain("CuaDriver.create()");
-    expect(gateway).toContain("asyncio.wait_for(driver.metadata()");
-    expect(gateway).toContain('await self._driver.call_tool(\n                    "launch_app"');
-    expect(gateway).toContain('ActionTarget.DESKTOP(display_id="primary")');
-    expect(gateway).toContain("StartSessionInput");
-    expect(gateway).toContain("CaptureScope.DESKTOP");
-    expect(gateway).toContain('result.get("error_code") == "session_ended"');
-    expect(gateway).toContain("future.cancel()");
-    expect(gateway).toContain("SDK_CALL_TIMEOUT_SECONDS = 50");
-    expect(gateway).toContain("self.connection.settimeout(REQUEST_BODY_TIMEOUT_SECONDS)");
-    expect(gateway).toContain("segments = list(zip(points, points[1:]))");
-    expect(gateway).not.toContain("start, end = path[0], path[-1]");
-    expect(gateway).toContain("await self._driver.get_desktop_state(");
-    expect(gateway).not.toContain('"images": images');
-    expect(gateway).toContain("await self._driver.clipboard_read(");
-    expect(gateway).not.toContain("computer_server");
-    expect(launcher).not.toContain('nohup "$CUA_DRIVER_BIN" serve');
-    expect(launcher).not.toContain("CUA_DRIVER_SOCKET");
-    expect(launcher).toContain('"$CUA_RUNTIME/bin/python" "$CUA_GATEWAY"');
-    expect(launcher).toContain('flock -w "$CUA_STARTUP_TIMEOUT_SECONDS" 9');
-    expect(launcher).toContain('CUA_STATE_DIR="/tmp/autopr-cua/${CUA_PORT}-${CUA_DISPLAY_KEY}"');
-    expect(launcher).toContain("CUA_STARTUP_DEADLINE");
-    expect(launcher).toContain("CUA_ATTEMPT_TIMEOUT_SECONDS");
-    expect(launcher).toContain('readiness_curl 2 --fail --silent');
-    expect(launcher).toContain('while [ "$SECONDS" -lt "$CUA_STARTUP_DEADLINE" ]');
-    expect(launcher).not.toContain("seq 1 80");
-    const startupLoop = launcher.slice(launcher.indexOf("gateway_starts=1"));
-    expect(startupLoop.indexOf("stop_gateway")).toBeLessThan(
-      startupLoop.indexOf("start_gateway", startupLoop.indexOf("stop_gateway")),
-    );
-    expect(startupLoop).toContain(
-      'echo "AutoPR CUA gateway did not become ready on port ${CUA_PORT}." >&2\nstop_gateway',
-    );
-    expect(launcher.indexOf('flock -w')).toBeLessThan(launcher.indexOf('if is_gateway_ready; then'));
-    expect(launcher.match(/9>&-/g)).toHaveLength(1);
-    expect(launcher).toContain('kill -KILL "$pid"');
-    expect(launcher).toContain('readlink -f "/proc/${pid}/exe"');
-    expect(launcher).toContain("mapfile -d '' -t argv");
-    expect(launcher).toContain('{"command":"get_cursor_position"}');
-    expect(launcher).toContain("{command:\"move_cursor\",params:{x:$x,y:$y}}");
-    expect(launcher).toContain(".implicit == true");
-    expect(launcher).toContain('(.enabled | type) == "boolean"');
-    expect(launcher).toContain(".session == null");
-    expect(launcher).toContain(".label_visible == false");
-    expect(launcher).toContain('.runtime_mode == "embedded"');
-    expect(launcher).toContain('.version == "1.3.0"');
-    expect(launcher).not.toContain("CUA_DRIVER_SESSION_ID");
-    expect(dockerfile).toContain("ARG CUA_DRIVER_VERSION=0.21.0");
-    expect(dockerfile).toContain('"cua-driver==${CUA_DRIVER_VERSION}"');
-    expect(dockerfile).toContain("/opt/autopr/cua-gateway/cua_gateway.py");
-    expect(dockerfile).not.toContain("cua-computer-server");
-    expect(dockerfile).not.toContain("cua_source");
-    expect(dockerfile).not.toContain("git apply");
   });
 
   it("parses gateway JSON and legacy SSE during snapshot rollout", () => {

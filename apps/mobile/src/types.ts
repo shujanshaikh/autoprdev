@@ -1,4 +1,4 @@
-export type MobileUser = {
+type MobileUser = {
   id: string;
   email: string;
   firstName: string | null;

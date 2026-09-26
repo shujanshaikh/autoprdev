@@ -40,7 +40,7 @@ export function parseProjectSandboxBranchResponse(value: unknown): ProjectSandbo
   };
 }
 
-export function projectSandboxBranchQueryKey(projectId: string) {
+function projectSandboxBranchQueryKey(projectId: string) {
   return ["project", projectId, "sandbox-branch"] as const;
 }
 

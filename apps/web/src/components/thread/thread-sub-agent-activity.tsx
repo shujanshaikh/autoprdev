@@ -12,7 +12,7 @@ import { useState } from "react";
 
 import { toolSlugFromPart } from "@/components/ai-elements/tool";
 
-export type ThreadSubAgentTask = {
+type ThreadSubAgentTask = {
   id: string;
   description: string;
   status: "running" | "completed" | "failed";

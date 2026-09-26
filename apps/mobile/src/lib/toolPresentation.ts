@@ -23,7 +23,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function toolSlug(type: string, toolName?: string) {
+function toolSlug(type: string, toolName?: string) {
   if (type === "dynamic-tool" && toolName) return toolName;
   const parts = type.split("-");
   if (parts[0] === "tool" && parts.length > 1) return parts.slice(1).join("-");

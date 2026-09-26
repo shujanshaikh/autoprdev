@@ -421,40 +421,6 @@ function AssistantRunTimerRow({
   );
 }
 
-function SandboxStatusBar({
-  sandboxStatus,
-  runtimeStatus,
-  checking = false,
-}: {
-  sandboxStatus?: "creating" | "ready" | "failed";
-  runtimeStatus?: "started" | "stopped" | "archived" | "unknown";
-  checking?: boolean;
-}) {
-  const vmLabel = sandboxStatus === "ready" ? runtimeStatus ?? "unknown" : sandboxStatus ?? "unknown";
-  const barClass =
-    sandboxStatus === "failed"
-      ? "bg-destructive"
-      : sandboxStatus === "creating" || checking
-        ? "bg-[color:var(--cohere-coral)]"
-        : runtimeStatus === "started"
-          ? "bg-[color:var(--cohere-deep-green)]"
-          : runtimeStatus === "stopped"
-            ? "bg-muted-foreground"
-            : runtimeStatus === "archived"
-              ? "bg-[color:var(--cohere-action-blue)]"
-            : "bg-muted-foreground/60";
-
-  return (
-    <div className="-mt-px flex h-6 items-center justify-end border border-t-0 border-border bg-card/70 px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-      <span className="mr-2 relative inline-flex h-2 w-5 shrink-0 items-end rounded-full bg-muted">
-        <span className={cn("h-0.5 w-full rounded-full", barClass, checking && "animate-pulse")} aria-hidden="true" />
-      </span>
-      <span className="shrink-0 tabular-nums">vm {checking ? "checking" : vmLabel}</span>
-    </div>
-  );
-}
-
-
 type KeyedMessage = { message: UIMessage; messageKey: string };
 
 export function ThreadMessages({
@@ -538,13 +504,13 @@ export function ThreadMessages({
         </div>
       </ConversationEmptyState>
     ) : null}
-  
+
     {keyedMessages.map(({ message, messageKey }) => {
       const filteredParts = message.parts.filter(Boolean);
       type GroupedItem =
         | { kind: "single"; part: (typeof filteredParts)[number]; stableKey: string }
         | { kind: "explore-group"; tools: { part: (typeof filteredParts)[number]; stableKey: string }[] };
-  
+
       const grouped: GroupedItem[] = [];
       const partKeyCounts = new Map<string, number>();
       for (const part of filteredParts) {
@@ -575,7 +541,7 @@ export function ThreadMessages({
           grouped.push({ kind: "single", part, stableKey });
         }
       }
-  
+
       const isUser = message.role === "user";
       const messageChangedFiles = !isUser && message.id !== activeAssistantMessageId
         ? changedFilesForMessage(diffEntries, message.id)
@@ -788,7 +754,6 @@ export function ThreadMessages({
                 <ToolOutput
                   errorText={errorText}
                   output={output}
-                  recordingPlaybackBasePath={recordingPlaybackBasePath}
                   toolName={part.type === "dynamic-tool" ? getToolName(part) : undefined}
                   toolType={part.type}
                 />
@@ -810,7 +775,7 @@ export function ThreadMessages({
           </div>
         );
       };
-  
+
       return (
         <ConversationMessage
           key={messageKey}
@@ -889,7 +854,7 @@ export function ThreadMessages({
         </ConversationMessage>
       );
     })}
-  
+
     {error ? (
       <div className="w-full min-w-0 max-w-full" role="alert">
         <div className="mx-auto w-full min-w-0 max-w-[680px] px-6 py-3 sm:px-8">
@@ -899,7 +864,7 @@ export function ThreadMessages({
         </div>
       </div>
     ) : null}
-  
+
     {showingInitialPromptHandoff ? <ThreadHandoffPreview prompt={initialPrompt!} /> : null}
     {awaitingAgentResponse ? <AwaitingAgentIndicator startedAt={activeRunStartedAt} /> : null}
     <div className="h-8 shrink-0" />

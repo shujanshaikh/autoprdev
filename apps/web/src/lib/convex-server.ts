@@ -17,7 +17,7 @@ import {
 const missingConvexAuthMessage =
   "Convex auth is not configured for WorkOS AuthKit. Set WORKOS_CLIENT_ID in Convex and make sure the app uses the same WorkOS environment.";
 
-export class ConvexAuthConfigurationError extends Error {
+class ConvexAuthConfigurationError extends Error {
   constructor(message = missingConvexAuthMessage) {
     super(message);
     this.name = "ConvexAuthConfigurationError";

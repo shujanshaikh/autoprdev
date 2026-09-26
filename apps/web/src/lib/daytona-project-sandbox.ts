@@ -170,10 +170,6 @@ export async function createProjectSandbox(options: {
   };
 }
 
-export async function deleteProjectSandbox(sandboxId: string, sandboxProvider: SandboxProvider = "daytona"): Promise<void> {
-  await deleteSandbox(sandboxId, sandboxProvider);
-}
-
 export async function switchProjectSandboxBranch(options: {
   sandboxId: string;
   branch: string;

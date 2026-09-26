@@ -13,8 +13,6 @@ import {
 import { requireWorkOSAuth } from "#/lib/github-oauth-server";
 import type { GrokAgentModelOptions } from "#/lib/trigger-agent-contract";
 
-export { GrokConnectionError };
-
 export async function startAuthenticatedGrokDeviceAuthorization() {
   const authState = await requireWorkOSAuth();
   return startGrokDeviceAuthorization(authState.user.id);

@@ -13,7 +13,7 @@ export const threadGitActions = [
 
 export type ThreadGitAction = (typeof threadGitActions)[number];
 
-export interface ThreadGitActionAvailability {
+interface ThreadGitActionAvailability {
   enabled: boolean;
   reason?: string;
 }

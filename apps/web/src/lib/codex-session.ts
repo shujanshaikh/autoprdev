@@ -1,4 +1,4 @@
-export const CHATGPT_SESSION_COOKIE_NAME = "lwc_session";
+const CHATGPT_SESSION_COOKIE_NAME = "lwc_session";
 
 export type CodexPublicSession = {
   status: "unauthenticated" | "pending" | "authenticated" | "expired" | "error";

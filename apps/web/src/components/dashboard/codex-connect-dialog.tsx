@@ -1,11 +1,4 @@
 import { Button, buttonVariants } from "@autopr/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@autopr/ui/components/dialog";
 import { cn } from "@autopr/ui/lib/utils";
 import {
   ChatGPTMark,
@@ -17,43 +10,14 @@ import { useEffect, useRef, useState } from "react";
 
 import type { CodexStatus } from "#/lib/codex-status";
 
-interface CodexConnectDialogProps {
-  open: boolean;
-  status?: CodexStatus;
-  onOpenChange: (open: boolean) => void;
-  onStatusChange: () => void;
-}
-
-export function CodexConnectDialog({
-  open,
-  status,
-  onOpenChange,
-  onStatusChange,
-}: CodexConnectDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 border-border bg-background p-0 sm:max-w-sm">
-        <CodexConnectPanel
-          active={open}
-          asDialogHeader
-          status={status}
-          onStatusChange={onStatusChange}
-        />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function CodexConnectPanel({
   active,
   autoStart = true,
-  asDialogHeader = false,
   status,
   onStatusChange,
 }: {
   active: boolean;
   autoStart?: boolean;
-  asDialogHeader?: boolean;
   status?: CodexStatus;
   onStatusChange: () => void;
 }) {
@@ -129,23 +93,12 @@ export function CodexConnectPanel({
 
   return (
     <div className="p-5 pr-12 min-[420px]:p-6 min-[420px]:pr-12">
-      {asDialogHeader ? (
-        <DialogHeader className="gap-1.5 text-left">
-          <DialogTitle className="text-lg font-medium tracking-tight text-foreground">
-            <ConnectTitle connected={connected}>{title}</ConnectTitle>
-          </DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed text-muted-foreground">
-            {description}
-          </DialogDescription>
-        </DialogHeader>
-      ) : (
-        <div className="space-y-1.5">
-          <h2 className="text-lg font-medium tracking-tight text-foreground">
-            <ConnectTitle connected={connected}>{title}</ConnectTitle>
-          </h2>
-          <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
-        </div>
-      )}
+      <div className="space-y-1.5">
+        <h2 className="text-lg font-medium tracking-tight text-foreground">
+          <ConnectTitle connected={connected}>{title}</ConnectTitle>
+        </h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+      </div>
 
       <div className="mt-5">
         {connected ? (

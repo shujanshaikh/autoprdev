@@ -525,6 +525,14 @@ export function emergencyCompactProviderPrompt(
     }
   }
 
+  const tail = conversation.slice(start);
+  // Encrypted reasoning is opaque. If the newest coherent exchange cannot fit,
+  // stop recovery instead of corrupting it or sending another oversized retry.
+  if (safeJsonStringify(tail).length > budget || (conversation.length > 0 && tail.length === 0)) {
+    throw new Error(
+      `Automatic context recovery stopped: the latest messages and reasoning cannot fit the ${budget}-character recovery budget. Start a new thread with the current task state.`,
+    );
+  }
   const head = conversation.slice(0, start);
   const checkpoint = {
     role: "user" as const,
@@ -534,7 +542,7 @@ export function emergencyCompactProviderPrompt(
     }],
   };
 
-  return [...systems, checkpoint, ...conversation.slice(start)];
+  return [...systems, checkpoint, ...tail];
 }
 
 function streamContainsModelOutput(type: string) {

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { createAgentRequestTelemetry, logAgentToolStep } from "#/lib/agent-request-telemetry";
 import { agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
@@ -243,7 +245,8 @@ async function runAgentTask(
   let persistenceFinished = false;
   let streamFinished = false;
   const runStartedAt = Date.now();
-  const subAgentUsageSteps: AssistantUsageSource[] = [];
+  const additionalUsageSteps: AssistantUsageSource[] = [];
+  const telemetryTurnId = randomUUID();
 
   if (options.assistantMessageId) {
     await agentUIStream.append({
@@ -256,11 +259,17 @@ async function runAgentTask(
     await harness.run(async ({ instructions, repositoryContext, sandbox, tools }) => {
       const responseModels = await createAgentResponseModels(selectedModel);
       const model = wrapLanguageModel({
-        model: responseModels.parent,
+        model: wrapLanguageModel({
+          model: responseModels.parent,
+          middleware: createAgentRequestTelemetry({ threadId: options.threadId, turnId: telemetryTurnId, role: "parent" }),
+        }),
         middleware: createContextOverflowRecoveryMiddleware(),
       });
       const subAgentModel = wrapLanguageModel({
-        model: responseModels.subAgent,
+        model: wrapLanguageModel({
+          model: responseModels.subAgent,
+          middleware: createAgentRequestTelemetry({ threadId: options.threadId, turnId: telemetryTurnId, role: "subagent" }),
+        }),
         middleware: createContextOverflowRecoveryMiddleware(),
       });
       subAgentBinding.bind(createAgentSubAgentRunner({
@@ -272,8 +281,9 @@ async function runAgentTask(
         model: subAgentModel,
         selectedModel: responseModels.subAgentOptions,
         parentAbortSignal: signal,
+        telemetry: { threadId: options.threadId, turnId: telemetryTurnId },
         onUsageStep: (step) => {
-          subAgentUsageSteps.push({
+          additionalUsageSteps.push({
             modelId: responseModels.subAgentOptions.modelId,
             step,
           });
@@ -287,6 +297,7 @@ async function runAgentTask(
         ),
         tools,
         toolChoice: "auto",
+        onStepFinish: (step) => logAgentToolStep(step, { threadId: options.threadId, turnId: telemetryTurnId, role: "parent" }),
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
         maxRetries: 2,
         experimental_transform: smoothStream({
@@ -298,6 +309,7 @@ async function runAgentTask(
           prepareStep: createAgentContextCompactor({
             contextWindow: getAgentContextLimit(selectedModel),
             systemPrompt: instructions,
+            onUsage: (usage) => additionalUsageSteps.push({ modelId: selectedModel.modelId, step: { usage } }),
             abortSignal: signal,
           }),
         }),
@@ -314,7 +326,7 @@ async function runAgentTask(
             selectedModel.modelId,
             runStartedAt,
             Date.now(),
-            subAgentUsageSteps,
+            additionalUsageSteps,
           );
         },
         async (metadata) => {

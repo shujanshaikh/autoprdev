@@ -3,6 +3,7 @@ import {
   type LanguageModel,
   type LanguageModelMiddleware,
   type ModelMessage,
+  type LanguageModelUsage,
   type PrepareStepFunction,
 } from "ai";
 
@@ -38,12 +39,14 @@ type SummaryInput = {
   conversation: string;
   model: LanguageModel;
   abortSignal?: AbortSignal;
+  onUsage?: (usage: LanguageModelUsage) => void;
 };
 
 export type AgentContextCompactorOptions = {
   contextWindow?: number;
   systemPrompt?: string;
   abortSignal?: AbortSignal;
+  onUsage?: (usage: LanguageModelUsage) => void;
   summarize?: (input: SummaryInput) => Promise<string>;
 };
 
@@ -269,6 +272,7 @@ async function generateCheckpoint({
   conversation,
   model,
   abortSignal,
+  onUsage,
 }: SummaryInput) {
   // The ChatGPT-backed Codex responses endpoint rejects non-streaming requests,
   // so checkpoints stream and collect their text instead of using `generateText`.
@@ -282,6 +286,7 @@ async function generateCheckpoint({
     ]
       .filter(Boolean)
       .join("\n\n"),
+    onStepFinish: ({ usage }) => onUsage?.(usage),
     maxOutputTokens: 6_000,
     maxRetries: 1,
     abortSignal,
@@ -309,6 +314,7 @@ async function summarizeMessages(
         conversation,
         model,
         abortSignal: options.abortSignal,
+        onUsage: options.onUsage,
       });
       summary = generated.trim()
         ? truncateText(generated.trim(), SUMMARY_MAX_CHARS)

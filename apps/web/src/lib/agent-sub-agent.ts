@@ -1,3 +1,4 @@
+import { logAgentToolStep } from "./agent-request-telemetry";
 import {
   applyAgenticCache,
   CodingHarness,
@@ -22,6 +23,7 @@ interface AgentSubAgentRunnerOptions {
   model: LanguageModel;
   selectedModel: AgentModelOptions;
   parentAbortSignal?: AbortSignal;
+  telemetry?: { threadId?: string; turnId: string };
   onUsageStep?: (step: AssistantUsageStep) => void;
 }
 
@@ -85,9 +87,11 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
             contextWindow: getAgentContextLimit(options.selectedModel),
             systemPrompt: instructions,
             abortSignal: signal,
+            onUsage: (usage) => options.onUsageStep?.({ usage }),
           }),
         }),
         onStepFinish: (step) => {
+          if (options.telemetry) logAgentToolStep(step, { ...options.telemetry, role: "subagent" });
           stepCount += 1;
           options.onUsageStep?.(step);
         },

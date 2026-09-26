@@ -57,16 +57,16 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
         options.selectedModel.provider === "xai"
           ? "SuperGrok subscription"
           : "ChatGPT / Codex subscription",
+      additionalSetupContext: `Assigned task: ${description}`,
       appendSystemPrompt: [
         "You are a focused sub-agent working inside the parent agent's sandbox.",
-        `Assigned task: ${description}`,
         "Complete only the supplied task. Other agents may be working in the same repository, so preserve unrelated changes and stay within any stated file scope.",
         "Do not leave background processes running. Terminate any process you start before responding.",
         "You cannot delegate further. Return a concise result with changed files, validation, and any blocker the parent must handle.",
       ].join("\n"),
     });
 
-    return harness.run(async ({ instructions, repositoryContext, tools }) => {
+    return harness.run(async ({ instructions, repositoryContext, setupContext, tools }) => {
       let stepCount = 0;
       const result = streamText({
         model: options.model,
@@ -75,6 +75,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
           withSandboxAgentProjectContext(
             [{ role: "user", content: prompt }],
             repositoryContext,
+            setupContext,
           ),
         ),
         tools,

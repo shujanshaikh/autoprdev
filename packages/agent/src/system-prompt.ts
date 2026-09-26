@@ -94,6 +94,7 @@ export interface BuildSystemPromptOptions {
   appendSystemPrompt?: string;
   customPrompt?: string;
   now?: Date;
+  omitSandboxMetadata?: boolean;
 }
 
 export function buildSandboxAgentSystemPrompt(options: BuildSystemPromptOptions): string {
@@ -104,7 +105,7 @@ export function buildSandboxAgentSystemPrompt(options: BuildSystemPromptOptions)
   };
   const toolsList = formatToolsList(selectedTools, toolSnippets);
   const append = formatAdditionalInstructions(options.appendSystemPrompt);
-  const metadata = formatSandboxMetadata(options);
+  const metadata = options.omitSandboxMetadata ? "" : formatSandboxMetadata(options);
   const modelDescriptor = formatModelDescriptor(options.modelId);
   const providerName = options.modelProviderName?.trim() || "connected AI subscription";
   const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
@@ -171,9 +172,11 @@ export function buildSandboxAgentProjectContext(
 export function withSandboxAgentProjectContext(
   messages: ModelMessage[],
   repositoryContext: string | undefined,
+  setupContext?: string,
 ): ModelMessage[] {
-  if (!repositoryContext) return messages;
-  return [{ role: "user", content: repositoryContext }, ...messages];
+  const setup = [setupContext, repositoryContext].filter(Boolean).join("\n\n");
+  if (!setup) return messages;
+  return [{ role: "user", content: setup }, ...messages];
 }
 
 function formatToolsList(selectedTools: string[], toolSnippets: Record<string, string>): string {
@@ -262,6 +265,10 @@ function formatAdditionalInstructions(appendSystemPrompt: string | undefined): s
   }
 
   return `\n\n<run_context>\n${appendSystemPrompt.trim()}\n</run_context>`;
+}
+
+export function buildSandboxAgentSetupContext(options: BuildSystemPromptOptions): string {
+  return formatSandboxMetadata(options).trim();
 }
 
 function formatSandboxMetadata(options: BuildSystemPromptOptions): string {

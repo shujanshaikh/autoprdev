@@ -125,6 +125,7 @@ describe("agent sub-agent runtime", () => {
     expect(mocks.withSandboxAgentProjectContext).toHaveBeenCalledWith(
       [{ role: "user", content: "Inspect parser.ts and report the issue." }],
       "repository context",
+      undefined,
     );
     expect(onUsageStep).toHaveBeenCalledWith(usageStep);
     expect(mocks.streamText).toHaveBeenCalledWith(expect.objectContaining({

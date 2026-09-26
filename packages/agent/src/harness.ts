@@ -1,5 +1,6 @@
 import {
   buildSandboxAgentProjectContext,
+  buildSandboxAgentSetupContext,
   buildSandboxAgentSystemPrompt,
 } from "./system-prompt";
 import { loadSandboxProjectInstructions } from "./project-instructions";
@@ -22,6 +23,7 @@ export interface CodingHarnessContext {
   unavailableSelectedTools: string[];
   instructions: string;
   repositoryContext?: string;
+  setupContext?: string;
 }
 
 export type CodingHarnessEvent =
@@ -42,6 +44,7 @@ export type CodingHarnessListenerErrorHandler = (failure: CodingHarnessListenerE
 
 export interface CodingHarnessOptions extends SandboxSessionOptions {
   appendSystemPrompt?: string;
+  additionalSetupContext?: string;
   modelId?: string;
   modelProviderName?: string;
   selectedTools?: string[];
@@ -116,7 +119,7 @@ export class CodingHarness {
             filenames: this.options.projectInstructionFilenames,
             maxBytes: this.options.projectInstructionMaxBytes,
           });
-      const instructions = buildSandboxAgentSystemPrompt({
+      const promptOptions = {
         cwd: sandbox.workDir,
         sandboxProvider: sandbox.provider,
         sandboxId: sandbox.sandboxId,
@@ -127,7 +130,10 @@ export class CodingHarness {
         selectedTools: toolSelection.toolNames,
         contextFiles: instructionFiles,
         appendSystemPrompt: this.options.appendSystemPrompt,
-      });
+        omitSandboxMetadata: true,
+      };
+      const instructions = buildSandboxAgentSystemPrompt(promptOptions);
+      const setupContext = [buildSandboxAgentSetupContext(promptOptions), this.options.additionalSetupContext].filter(Boolean).join("\n\n");
       const repositoryContext = buildSandboxAgentProjectContext(instructionFiles);
 
       const context = {
@@ -138,6 +144,7 @@ export class CodingHarness {
         unavailableSelectedTools: toolSelection.unavailableToolNames,
         instructions,
         repositoryContext,
+        setupContext,
       };
       this.prepared = context;
       await this.emit({ type: "sandbox_prepared", context });
@@ -229,7 +236,8 @@ function selectTools(
   const availableToolNames = Object.keys(tools);
   const requestedToolNames = selectedTools ? dedupeToolNames(selectedTools) : availableToolNames;
   const availableToolNameSet = new Set(availableToolNames);
-  const toolNames = requestedToolNames.filter((toolName) => availableToolNameSet.has(toolName));
+  const requestedToolNameSet = new Set(requestedToolNames);
+  const toolNames = availableToolNames.filter((toolName) => requestedToolNameSet.has(toolName));
   const unavailableToolNames = requestedToolNames.filter((toolName) => !availableToolNameSet.has(toolName));
 
   const selectedToolSet = new Set(toolNames);

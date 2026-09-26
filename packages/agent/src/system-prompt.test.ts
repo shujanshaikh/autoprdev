@@ -91,3 +91,10 @@ describe("buildSandboxAgentSystemPrompt", () => {
     expect(prompt).toContain("Do not duplicate delegated work locally");
   });
 });
+
+it("keeps the system prefix identical when sandbox identity and date change", () => {
+  const options = { cwd: "/repo", sandboxId: "first", omitSandboxMetadata: true, now: new Date(2026, 0, 1) };
+  expect(buildSandboxAgentSystemPrompt(options)).toBe(buildSandboxAgentSystemPrompt({
+    ...options, cwd: "/other", sandboxId: "second", now: new Date(2026, 0, 2),
+  }));
+});

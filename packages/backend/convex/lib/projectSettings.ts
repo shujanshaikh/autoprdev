@@ -36,8 +36,8 @@ export function getProjectReasoningEfforts(model: ProjectSettings["model"]): rea
   if (!model) return [];
   const id = model.modelId.toLowerCase();
   if (model.provider === "openai-codex") {
-    if (id === "gpt-5.6-sol" || id === "gpt-5.6-terra") return ["low", "medium", "high", "xhigh", "max", "ultra"];
-    if (id === "gpt-5.6-luna") return ["low", "medium", "high", "xhigh", "max"];
+    if (id === "gpt-6-astra" || id === "gpt-6-sol" || id === "gpt-5.6-sol" || id === "gpt-5.6-terra") return ["low", "medium", "high", "xhigh", "max", "ultra"];
+    if (id === "gpt-6-luna" || id === "gpt-5.6-luna") return ["low", "medium", "high", "xhigh", "max"];
     return ["low", "medium", "high", "xhigh"];
   }
   if (id.includes("grok-4.20") && id.includes("multi-agent")) return ["low", "medium", "high", "xhigh"];

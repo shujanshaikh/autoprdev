@@ -8,6 +8,9 @@ import {
 describe("ChatGPT Codex model limits", () => {
   it("uses the ChatGPT catalog limits instead of public API limits", () => {
     expect(CHATGPT_CODEX_MODEL_LIMITS).toEqual({
+      "gpt-6-sol": { contextWindowTokens: 272_000, maxOutputTokens: 128_000 },
+      "gpt-6-astra": { contextWindowTokens: 272_000, maxOutputTokens: 128_000 },
+      "gpt-6-luna": { contextWindowTokens: 272_000, maxOutputTokens: 128_000 },
       "gpt-5.6-sol": { contextWindowTokens: 272_000, maxOutputTokens: 128_000 },
       "gpt-5.6-terra": { contextWindowTokens: 272_000, maxOutputTokens: 128_000 },
       "gpt-5.6-luna": { contextWindowTokens: 272_000, maxOutputTokens: 128_000 },

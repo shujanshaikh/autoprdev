@@ -491,7 +491,11 @@ describe("createChatGPTHandler", () => {
     expect(await tooLarge.json()).toEqual({ error: "responses_request_too_large", maxRequestBytes: 20 });
   });
 
-  test("passes validated Codex service tier through the responses proxy", async () => {
+  test.each([
+    ["gpt-6-luna", "max"],
+    ["gpt-6-sol", "ultra"],
+    ["gpt-6-astra", "ultra"],
+  ])("passes %s with %s reasoning and fast service tier through the proxy", async (model, effort) => {
     let responseBody: Record<string, unknown> | undefined;
     const fetch = createMockFetch((url, init) => {
       if (url.endsWith("/deviceauth/usercode")) {
@@ -531,15 +535,15 @@ describe("createChatGPTHandler", () => {
           cookie,
           "content-type": "application/json",
           "x-login-with-chatgpt-service-tier": "fast",
-          "x-login-with-chatgpt-reasoning-effort": "max",
+          "x-login-with-chatgpt-reasoning-effort": effort,
         },
-        body: JSON.stringify({ model: "gpt-5.6-luna", input: "hi" }),
+        body: JSON.stringify({ model, input: "hi" }),
       }),
     );
 
     expect(responses.status).toBe(200);
     expect(responseBody?.service_tier).toBe("fast");
-    expect(responseBody?.reasoning).toMatchObject({ effort: "max" });
+    expect(responseBody?.reasoning).toMatchObject({ effort });
 
     const invalid = await handler.handler(
       new Request(`${BASE}/responses`, {

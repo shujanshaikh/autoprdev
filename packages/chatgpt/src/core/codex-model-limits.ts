@@ -3,9 +3,21 @@
  *
  * These are intentionally separate from the public OpenAI API model limits:
  * AutoPR authenticates with ChatGPT and calls the Codex backend, whose catalog
- * currently caps GPT-5.6 Sol, Terra, and Luna at a 272k context window.
+ * defaults GPT-6 Astra, Sol, and Luna and GPT-5.6 models to 272k context.
  */
 export const CHATGPT_CODEX_MODEL_LIMITS = {
+  "gpt-6-sol": {
+    contextWindowTokens: 272_000,
+    maxOutputTokens: 128_000,
+  },
+  "gpt-6-astra": {
+    contextWindowTokens: 272_000,
+    maxOutputTokens: 128_000,
+  },
+  "gpt-6-luna": {
+    contextWindowTokens: 272_000,
+    maxOutputTokens: 128_000,
+  },
   "gpt-5.6-sol": {
     contextWindowTokens: 272_000,
     maxOutputTokens: 128_000,

@@ -15,6 +15,9 @@ type ModelDefinition = {
 };
 
 const MODELS: readonly ModelDefinition[] = [
+  { id: "gpt-6-sol", label: "GPT-6-Sol", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-6-sol"].contextWindowTokens, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-6-astra", label: "GPT-6-Astra", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-6-astra"].contextWindowTokens, reasoningEfforts: ULTRA_REASONING_EFFORTS },
+  { id: "gpt-6-luna", label: "GPT-6-Luna", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-6-luna"].contextWindowTokens, reasoningEfforts: MAX_REASONING_EFFORTS },
   { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-sol"].contextWindowTokens, reasoningEfforts: ULTRA_REASONING_EFFORTS },
   { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-terra"].contextWindowTokens, reasoningEfforts: ULTRA_REASONING_EFFORTS },
   { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-luna"].contextWindowTokens, reasoningEfforts: MAX_REASONING_EFFORTS },
@@ -38,7 +41,7 @@ const REASONING_EFFORT_DESCRIPTIONS: Record<CodexReasoningEffort, string> = {
   ultra: "The longest thinking budget. Slowest, most thorough.",
 };
 
-export const PREFERRED_CODEX_MODEL = "gpt-5.6-sol";
+export const PREFERRED_CODEX_MODEL = "gpt-6-sol";
 export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = "low";
 
 export function normalizeCodexModelList(models: readonly string[] | undefined) {

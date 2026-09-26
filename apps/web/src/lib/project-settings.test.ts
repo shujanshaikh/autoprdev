@@ -50,6 +50,24 @@ function context(agentSettings?: ProjectSettings) {
 }
 
 describe("project agent settings", () => {
+  it.each([
+    ["gpt-6-sol", "ultra"],
+    ["gpt-6-astra", "ultra"],
+    ["gpt-6-luna", "max"],
+  ] as const)("persists supported reasoning for %s", async (modelId, reasoningEffort) => {
+    const { ctx, project } = context();
+    const updated = { ...settings, model: { provider: "openai-codex", modelId, reasoningEffort } } as const;
+    await update._handler(ctx, { projectId: "project-1", settings: updated });
+    expect(project.agentSettings).toEqual(updated);
+  });
+
+  it("rejects Ultra for GPT-6 Luna", async () => {
+    const { ctx } = context();
+    await expect(update._handler(ctx, { projectId: "project-1", settings: {
+      ...settings, model: { provider: "openai-codex", modelId: "gpt-6-luna", reasoningEffort: "ultra" },
+    } })).rejects.toThrow("INVALID_REASONING_EFFORT");
+  });
+
   it("copies project defaults into new threads and preserves existing threads after settings change", async () => {
     const { ctx, threads } = context(settings);
     await createThread._handler(ctx, { projectId: "project-1" });

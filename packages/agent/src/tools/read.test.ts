@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DaytonaSandbox } from "../sandbox";
 
@@ -106,8 +106,10 @@ async function executeRead(input: { path: string; offset?: number; limit?: numbe
   return await readTool.execute(input, { toolCallId: "read-call-1", messages: [] }) as ReadResult;
 }
 describe("Daytona read tool", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("AUTOPR_SPARSE_READ_LINES", "0");
   });
 
   it("reads a small file with numbered lines", async () => {
@@ -138,6 +140,23 @@ describe("Daytona read tool", () => {
     expect(result.content).not.toContain("1 | l1");
     expect(result.content).toContain("[Use offset=4 to continue.]");
     expect(result.details.truncated).toBe(true);
+  });
+
+  it("keeps every source line and exact pagination in the sparse experiment", async () => {
+    const lines = Array.from({ length: 40 }, (_, index) => index === 12 ? "" : `  source ${index + 1}`);
+    createSandboxFiles({ [`${WORK_DIR}/long.txt`]: lines.join("\n") });
+    const baseline = await executeRead({ path: "long.txt", offset: 7, limit: 23 });
+    vi.stubEnv("AUTOPR_SPARSE_READ_LINES", "1");
+    const sparse = await executeRead({ path: "long.txt", offset: 7, limit: 23 });
+    expect(sparse.details).toEqual(baseline.details);
+    expect(sparse.content).toContain("Showing lines 7-29 of 40");
+    expect(sparse.content).toContain("[Use offset=30 to continue.]");
+    const expected = lines.slice(6, 29).map((line, index) =>
+      index === 0 || (index + 7) % 10 === 0 ? `${index + 7} | ${line}` : line).join("\n");
+    expect(sparse.content).toContain(`\n\n${expected}\n\n[Use offset=30`);
+    const short = await executeRead({ path: "long.txt", offset: 7, limit: 2 });
+    expect(short.content).toContain("7 |   source 7\n8 |   source 8");
+    expect(short.content).not.toContain("Unnumbered");
   });
 
   it("rejects offsets beyond the end of the file", async () => {

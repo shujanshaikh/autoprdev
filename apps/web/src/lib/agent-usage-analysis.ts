@@ -10,6 +10,7 @@ const requestSchema = z.object({
   event: z.literal("agent_request"), requestId: z.string(), turnId: z.string(), status: z.string(),
   modelId: z.string().optional(), provider: z.string().optional(), role: z.string().optional(),
   purpose: z.string().optional(), promptVariant: z.string().optional(),
+  readOutputVariant: z.string().optional(),
   inputTokens: optionalCount, uncachedInputTokens: optionalCount, cachedInputTokens: optionalCount,
   outputTokens: optionalCount, cacheWriteTokens: optionalCount, durationMs: optionalCount,
   apiEquivalentCost: costSchema.nullable().optional(),
@@ -125,7 +126,7 @@ export function analyzeAgentUsage(events: unknown[], taskLabels: unknown) {
   });
   const groups = new Map<string, Request[]>();
   for (const request of assignedRequests) {
-    const key = JSON.stringify([request.provider, request.modelId, request.role, request.purpose, request.promptVariant]);
+    const key = JSON.stringify([request.provider, request.modelId, request.role, request.purpose, request.promptVariant, request.readOutputVariant]);
     const group = groups.get(key) ?? [];
     group.push(request);
     groups.set(key, group);
@@ -135,7 +136,8 @@ export function analyzeAgentUsage(events: unknown[], taskLabels: unknown) {
     tasks: taskResults, tools: toolResults,
     requestGroups: [...groups.values()].map((calls) => ({
       provider: calls[0]!.provider, modelId: calls[0]!.modelId, role: calls[0]!.role,
-      purpose: calls[0]!.purpose, promptVariant: calls[0]!.promptVariant, ...summarizeRequests(calls),
+      purpose: calls[0]!.purpose, promptVariant: calls[0]!.promptVariant,
+      readOutputVariant: calls[0]!.readOutputVariant, ...summarizeRequests(calls),
     })),
     completedTasks: completed,
     completionRate: tasks.length ? completed / tasks.length : null,

@@ -116,6 +116,7 @@ export function createAgentRequestTelemetry(options: {
       const base = {
         event: "agent_request", threadId: options.threadId, turnId: options.turnId,
         requestId, role: options.role, promptVariant: process.env.AUTOPR_COMPACT_TOOL_PROMPT === "1" ? "compact-tools" : "baseline", modelId: model.modelId, provider: model.provider,
+        readOutputVariant: process.env.AUTOPR_SPARSE_READ_LINES === "1" ? "sparse-lines" : "baseline",
         purpose: params.prompt.some((message) => message.role === "system"
           && message.content.startsWith("You create context checkpoints")) ? "compaction" : "task",
         ...profileAgentRequest(params),

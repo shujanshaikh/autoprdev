@@ -46,7 +46,7 @@ export const DEVICE_CODE_TTL_MS = 15 * 60 * 1000;
  * Supported models depend on the user's plan and the `client_version` sent;
  * query the models endpoint for the authoritative list.
  */
-export const DEFAULT_MODEL = "gpt-5.5";
+export const DEFAULT_MODEL = "gpt-6-sol";
 
 /**
  * Codex client version sent as the `client_version` query parameter. The
@@ -54,7 +54,7 @@ export const DEFAULT_MODEL = "gpt-5.5";
  * sending a stale value) makes every model report as "not supported". Bump
  * this toward the current Codex CLI release if models disappear.
  */
-export const DEFAULT_CLIENT_VERSION = "0.142.5";
+export const DEFAULT_CLIENT_VERSION = "0.157.1";
 
 /** Default system instructions sent to the Codex responses API. */
 export const DEFAULT_CODEX_INSTRUCTIONS =

@@ -21,11 +21,29 @@ type CodexModel = {
   };
 };
 
-export const PREFERRED_CODEX_MODEL: CodexModelId = "gpt-5.6-sol";
+export const PREFERRED_CODEX_MODEL: CodexModelId = "gpt-6-sol";
 
 export const CODEX_MODELS: readonly CodexModel[] = [
   {
     id: PREFERRED_CODEX_MODEL,
+    label: "GPT-6-Sol",
+    contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-6-sol"].contextWindowTokens,
+    reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
+  },
+  {
+    id: "gpt-6-astra",
+    label: "GPT-6-Astra",
+    contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-6-astra"].contextWindowTokens,
+    reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,
+  },
+  {
+    id: "gpt-6-luna",
+    label: "GPT-6-Luna",
+    contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-6-luna"].contextWindowTokens,
+    reasoningEfforts: MAX_CODEX_REASONING_EFFORTS,
+  },
+  {
+    id: "gpt-5.6-sol",
     label: "GPT-5.6-Sol",
     contextLimit: CHATGPT_CODEX_MODEL_LIMITS["gpt-5.6-sol"].contextWindowTokens,
     reasoningEfforts: ULTRA_CODEX_REASONING_EFFORTS,

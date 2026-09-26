@@ -20,7 +20,7 @@ describe("createChatGPT", () => {
   test("accepts a lazy credentials function and defaults the model", () => {
     const chatgpt = createChatGPT({ credentials: () => ({ accessToken: "at", accountId: "a" }) });
     const model = chatgpt(); // no model id -> default
-    expect((model as { modelId?: string }).modelId).toBe("gpt-5.5");
+    expect((model as { modelId?: string }).modelId).toBe("gpt-6-sol");
   });
 
   test("reloads function credentials when an unrefreshable access token expires", async () => {

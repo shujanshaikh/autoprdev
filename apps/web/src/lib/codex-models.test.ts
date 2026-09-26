@@ -14,8 +14,23 @@ import {
 } from "./codex-models";
 
 describe("Codex model cost helpers", () => {
+  it.each([
+    ["gpt-6-sol", "GPT-6-Sol", true],
+    ["gpt-6-astra", "GPT-6-Astra", true],
+    ["gpt-6-luna", "GPT-6-Luna", false],
+  ] as const)("recognizes %s context and reasoning capabilities", (modelId, label, ultra) => {
+    expect(formatCodexModelLabel(modelId)).toBe(label);
+    expect(getCodexContextLimit(modelId)).toBe(272_000);
+    expect(getCodexReasoningEfforts(modelId)).toEqual([
+      "low", "medium", "high", "xhigh", "max", ...(ultra ? ["ultra"] : []),
+    ]);
+  });
+
   it("matches the current user-selectable Codex model catalog", () => {
     expect(CODEX_MODELS.map(({ id, label, contextLimit }) => ({ id, label, contextLimit }))).toEqual([
+      { id: "gpt-6-sol", label: "GPT-6-Sol", contextLimit: 272_000 },
+      { id: "gpt-6-astra", label: "GPT-6-Astra", contextLimit: 272_000 },
+      { id: "gpt-6-luna", label: "GPT-6-Luna", contextLimit: 272_000 },
       { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", contextLimit: 272_000 },
       { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", contextLimit: 272_000 },
       { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", contextLimit: 272_000 },
@@ -120,7 +135,8 @@ describe("Codex model cost helpers", () => {
   });
 
   it("selects from discovered account models without assuming the preferred model exists", () => {
-    expect(selectCodexModel(["gpt-a", "gpt-5.6-sol", "gpt-b"])).toBe("gpt-5.6-sol");
+    expect(selectCodexModel(["gpt-5.6-sol", "gpt-6-sol", "gpt-6-astra"])).toBe("gpt-6-sol");
+    expect(selectCodexModel(["gpt-5.6-sol", "gpt-6-sol"], "gpt-5.6-sol")).toBe("gpt-5.6-sol");
     expect(selectCodexModel(["gpt-a", "gpt-b"])).toBe("gpt-a");
     expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-b")).toBe("gpt-b");
     expect(selectCodexModel(["gpt-a", "gpt-b"], "gpt-missing")).toBe("gpt-a");

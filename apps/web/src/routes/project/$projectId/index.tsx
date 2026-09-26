@@ -1137,8 +1137,8 @@ function ProjectOverviewPage() {
                   ) : null}
 
                   <div id="project-threads" className="scroll-mt-4 mx-auto w-full max-w-[600px] px-5 pt-2 pb-12">
-                    <div className="mb-3 flex items-center gap-2">
-                      <div className="flex items-center gap-2">
+                    <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 sm:flex">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0">
                         {openThreads.length > 0 ? (
                           <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground/60">
                             <span className="size-1.5 rounded-full bg-primary/70" />
@@ -1150,36 +1150,35 @@ function ProjectOverviewPage() {
                         </h2>
                       </div>
 
-                      <div className="ml-auto flex items-center gap-1.5">
-                        <label className="flex h-8 w-44 items-center gap-1.5 rounded-xs border border-border/60 bg-background px-2.5 text-xs text-muted-foreground transition-colors focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/30">
-                          <Search className="size-3 shrink-0 text-muted-foreground/40" aria-hidden="true" />
-                          <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search…"
-                            className="w-full bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground/40"
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => void startThread()}
-                          disabled={promptControlsDisabled}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-pill)] border border-primary/20 bg-primary/6 px-3 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <MessageSquarePlus className="size-3" aria-hidden="true" />
-                          New
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsOpeningPullRequest(true)}
-                          disabled={project.sandboxStatus !== "ready"}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-pill)] border border-border/70 px-3 font-mono text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <GitPullRequest className="size-3" aria-hidden="true" />
-                          Open PR
-                        </button>
-                      </div>
+                      <label className="order-last col-span-3 flex h-8 min-w-0 w-full items-center gap-1.5 rounded-xs border border-border/60 bg-background px-2.5 text-xs text-muted-foreground transition-colors focus-within:border-[color:var(--cohere-form-focus)] focus-within:ring-1 focus-within:ring-ring/30 sm:order-none sm:ml-auto sm:w-44">
+                        <Search className="size-3 shrink-0 text-muted-foreground/40" aria-hidden="true" />
+                        <span className="sr-only">Search threads</span>
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search…"
+                          className="min-w-0 w-full bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground/40"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void startThread()}
+                        disabled={promptControlsDisabled}
+                        className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-pill)] border border-primary/20 bg-primary/6 px-3 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <MessageSquarePlus className="size-3" aria-hidden="true" />
+                        New
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsOpeningPullRequest(true)}
+                        disabled={project.sandboxStatus !== "ready"}
+                        className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-pill)] border border-border/70 px-3 font-mono text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <GitPullRequest className="size-3" aria-hidden="true" />
+                        Open PR
+                      </button>
                     </div>
 
                     <div className="divide-y divide-border/60 rounded-sm border border-border/60 bg-background">

@@ -4,10 +4,11 @@ import {
   type ProjectSettings,
 } from "@autopr/backend/convex/lib/projectSettings";
 import { Button } from "@autopr/ui/components/button";
+import { Checkbox } from "@autopr/ui/components/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@autopr/ui/components/dialog";
 import { useMutation } from "convex/react";
-import { Settings } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, Settings } from "lucide-react";
+import { useId, useState } from "react";
 
 import { AgentModelPicker } from "#/components/agent-model-picker";
 import { AgentReasoningPicker } from "#/components/agent-reasoning-picker";
@@ -34,11 +35,11 @@ export function ProjectAgentSettings({ projectId, repoFullName, settings, models
         Project settings
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent animated={false} className="max-h-[90svh] overflow-y-auto rounded-sm bg-black text-white sm:max-w-xl">
-          <div className="pr-8">
-            <DialogTitle>Project settings</DialogTitle>
-            <p className="mt-1 truncate font-mono text-xs">{repoFullName}</p>
-            <DialogDescription className="mt-3 text-xs text-white/60">
+        <DialogContent animated={false} className="max-h-[min(90svh,42rem)] gap-0 overflow-y-auto rounded-sm border-border bg-black p-0 text-white sm:max-w-lg">
+          <div className="border-b border-border px-5 pb-4 pt-5 pr-12 sm:px-6 sm:pr-12">
+            <DialogTitle className="text-base font-semibold tracking-tight">Project settings</DialogTitle>
+            <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{repoFullName}</p>
+            <DialogDescription className="mt-3 text-xs leading-5 text-muted-foreground">
               Defaults for new threads. Existing threads keep their settings.
             </DialogDescription>
           </div>
@@ -84,32 +85,35 @@ export function ProjectAgentSettingsForm({ settings, models, demoAvailable, onSa
       event.preventDefault();
       void save({ ...draft, demoEnabled: draft.demoEnabled && draft.computerUseEnabled && demoAvailable });
     }}>
-      <fieldset disabled={saving} className="min-w-0 divide-y divide-white/15">
+      <fieldset disabled={saving} className="min-w-0 divide-y divide-border px-5 sm:px-6">
         <ProjectModelSettings model={draft.model} models={models} disabled={saving}
           onChange={(model) => setDraft({ ...draft, model })} />
-        <label className="flex items-center justify-between gap-3 py-4 text-sm">
-          Workspace
-          <select className="max-w-[65%] rounded-sm border border-white/20 bg-black p-2 text-xs" value={draft.workspaceMode}
-            onChange={(event) => setDraft({ ...draft, workspaceMode: event.target.value === "worktree" ? "worktree" : "checkout" })}>
-            <option value="checkout">Shared checkout</option>
-            <option value="worktree">Isolated worktree</option>
-          </select>
+        <label className="flex min-h-14 items-center justify-between gap-3 py-3 text-sm">
+          <span className="font-medium">Workspace</span>
+          <span className="relative min-w-0 shrink-0">
+            <select className="h-8 max-w-[11rem] appearance-none rounded-sm border border-border bg-black py-1 pl-3 pr-8 text-xs text-white outline-none transition-colors hover:border-muted-foreground/60 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary/40" value={draft.workspaceMode}
+              onChange={(event) => setDraft({ ...draft, workspaceMode: event.target.value === "worktree" ? "worktree" : "checkout" })}>
+              <option value="checkout">Shared checkout</option>
+              <option value="worktree">Isolated worktree</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          </span>
         </label>
         <SettingToggle label="Computer use" description="Let the agent control the browser and desktop."
-          checked={draft.computerUseEnabled}
+          checked={draft.computerUseEnabled} disabled={saving}
           onChange={(computerUseEnabled) => setDraft({ ...draft, computerUseEnabled, demoEnabled: computerUseEnabled && draft.demoEnabled })} />
         <SettingToggle label="Subagents" description="Let the agent delegate work to additional agents."
-          checked={draft.subAgentsEnabled} onChange={(subAgentsEnabled) => setDraft({ ...draft, subAgentsEnabled })} />
+          checked={draft.subAgentsEnabled} disabled={saving} onChange={(subAgentsEnabled) => setDraft({ ...draft, subAgentsEnabled })} />
         <SettingToggle label="Demo recording"
           description={!draft.computerUseEnabled ? "Requires computer use." : !demoAvailable ? "Enable demo recording in Settings → Labs first." : "Record a demo of the agent's work."}
-          disabled={!draft.computerUseEnabled || !demoAvailable}
+          disabled={saving || !draft.computerUseEnabled || !demoAvailable}
           checked={draft.demoEnabled && draft.computerUseEnabled && demoAvailable}
           onChange={(demoEnabled) => setDraft({ ...draft, demoEnabled })} />
       </fieldset>
-      {error && <p role="alert" className="py-2 text-xs text-red-400">{error}</p>}
-      <div className="flex items-center justify-between border-t border-white/15 pt-4">
-        <Button type="button" variant="ghost" size="sm" disabled={saving || !settings} onClick={() => void save(null)}>Reset defaults</Button>
-        <Button type="submit" size="sm" disabled={saving}>{saving ? "Saving…" : "Save settings"}</Button>
+      {error && <p role="alert" className="px-5 py-2 text-xs text-destructive sm:px-6">{error}</p>}
+      <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4 sm:px-6">
+        <Button type="button" variant="ghost" size="sm" className="rounded-sm px-2 text-muted-foreground hover:bg-muted hover:text-white" disabled={saving || !settings} onClick={() => void save(null)}>Reset defaults</Button>
+        <Button type="submit" size="sm" className="rounded-sm px-4 font-medium" disabled={saving}>{saving ? "Saving…" : "Save settings"}</Button>
       </div>
     </form>
   );
@@ -122,11 +126,12 @@ function SettingToggle({ label, description, checked, disabled, onChange }: {
   disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
-  return <label className="flex cursor-pointer items-center justify-between gap-4 py-4">
-    <span><span className="block text-sm">{label}</span><span className="mt-1 block text-xs text-white/60">{description}</span></span>
-    <input type="checkbox" aria-label={label} checked={checked} disabled={disabled}
-      onChange={(event) => onChange(event.target.checked)} className="size-4 shrink-0 accent-white" />
-  </label>;
+  const id = useId();
+  return <div className="flex min-h-16 items-center justify-between gap-4 py-3">
+    <div className="min-w-0"><label htmlFor={id} className="block cursor-pointer text-sm font-medium">{label}</label><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{description}</span></div>
+    <Checkbox id={id} checked={checked} disabled={disabled}
+      onCheckedChange={(value) => onChange(value === true)} className="border-border bg-black" />
+  </div>;
 }
 
 function ProjectModelSettings({ model, models, disabled, onChange }: {
@@ -139,10 +144,10 @@ function ProjectModelSettings({ model, models, disabled, onChange }: {
   const available = !selectedKey || models.some((option) => option.key === selectedKey);
   const efforts = getAgentReasoningEfforts(model);
   return <>
-    <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-      <span className="text-sm">Model</span>
+    <div className="flex min-h-14 flex-wrap items-center justify-between gap-2 py-3">
+      <span className="text-sm font-medium">Model</span>
       <div className="flex flex-wrap items-center gap-2">
-        <AgentModelPicker models={models} value={selectedKey} disabled={disabled || models.length === 0}
+        <AgentModelPicker models={models} value={selectedKey} disabled={disabled || models.length === 0} triggerClassName="rounded-sm border border-border bg-black hover:border-muted-foreground/60 hover:bg-muted/40"
           onValueChange={(key) => {
             const selected = models.find((option) => option.key === key);
             if (selected) onChange({
@@ -151,13 +156,13 @@ function ProjectModelSettings({ model, models, disabled, onChange }: {
               reasoningEffort: selectAgentReasoningEffort(selected, model?.reasoningEffort),
             });
           }} />
-        {model && <button type="button" className="text-xs text-white/60 hover:text-white" onClick={() => onChange(undefined)}>Use app default</button>}
+        {model && <button type="button" className="text-xs text-muted-foreground hover:text-white focus-visible:outline-none focus-visible:underline" onClick={() => onChange(undefined)}>Use app default</button>}
       </div>
-      {!model && <p className="w-full text-xs text-white/60">Use the app default model from your connected providers.</p>}
+      {!model && <p className="w-full text-xs text-muted-foreground">Uses the app default from your connected providers.</p>}
       {!available && <p role="status" className="w-full text-xs text-amber-400">{model?.modelId} is unavailable. Connect its provider or choose another model. New threads will use an available model.</p>}
     </div>
-    {model && efforts.length > 0 && <div className="flex items-center justify-between gap-3 py-4">
-      <span className="text-sm">Reasoning level</span>
+    {model && efforts.length > 0 && <div className="flex min-h-14 items-center justify-between gap-3 py-3">
+      <span className="text-sm font-medium">Reasoning level</span>
       <AgentReasoningPicker efforts={efforts} value={selectAgentReasoningEffort(model, model.reasoningEffort)} disabled={disabled}
         onValueChange={(reasoningEffort) => onChange({ ...model, reasoningEffort })} />
     </div>}

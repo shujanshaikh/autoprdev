@@ -11,7 +11,7 @@ describe("project settings form", () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<ProjectAgentSettingsForm settings={{ ...DEFAULT_PROJECT_SETTINGS, demoEnabled: true }} models={[]} demoAvailable onSave={onSave} />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Computer use" }));
-    expect((screen.getByRole("checkbox", { name: "Demo recording" }) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByRole("checkbox", { name: "Demo recording" }).getAttribute("aria-disabled")).toBe("true");
     fireEvent.change(screen.getByRole("combobox", { name: "Workspace" }), { target: { value: "worktree" } });
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith({ ...DEFAULT_PROJECT_SETTINGS, computerUseEnabled: false, demoEnabled: false, workspaceMode: "worktree" }));
@@ -23,7 +23,7 @@ describe("project settings form", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Subagents" }));
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await screen.findByRole("alert");
-    expect((screen.getByRole("checkbox", { name: "Subagents" }) as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByRole("checkbox", { name: "Subagents" }).getAttribute("aria-checked")).toBe("false");
     fireEvent.click(screen.getByRole("button", { name: "Reset defaults" }));
     await waitFor(() => expect(onSave).toHaveBeenLastCalledWith(null));
   });

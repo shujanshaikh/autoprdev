@@ -1,3 +1,4 @@
+import { logAgentToolStep } from "./agent-request-telemetry";
 import {
   applyAgenticCache,
   CodingHarness,
@@ -22,6 +23,7 @@ interface AgentSubAgentRunnerOptions {
   model: LanguageModel;
   selectedModel: AgentModelOptions;
   parentAbortSignal?: AbortSignal;
+  telemetry?: { threadId?: string; turnId: string };
   onUsageStep?: (step: AssistantUsageStep) => void;
 }
 
@@ -47,6 +49,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
   return async ({ description, prompt, abortSignal }) => {
     const signal = combineAbortSignals(options.parentAbortSignal, abortSignal);
     const harness = new CodingHarness({
+      compactToolPrompt: process.env.AUTOPR_COMPACT_TOOL_PROMPT === "1",
       ...options.sandboxOptions,
       computer: false,
       selectedTools: SUB_AGENT_TOOLS,
@@ -55,16 +58,16 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
         options.selectedModel.provider === "xai"
           ? "SuperGrok subscription"
           : "ChatGPT / Codex subscription",
+      additionalSetupContext: `Assigned task: ${description}`,
       appendSystemPrompt: [
         "You are a focused sub-agent working inside the parent agent's sandbox.",
-        `Assigned task: ${description}`,
         "Complete only the supplied task. Other agents may be working in the same repository, so preserve unrelated changes and stay within any stated file scope.",
         "Do not leave background processes running. Terminate any process you start before responding.",
         "You cannot delegate further. Return a concise result with changed files, validation, and any blocker the parent must handle.",
       ].join("\n"),
     });
 
-    return harness.run(async ({ instructions, repositoryContext, tools }) => {
+    return harness.run(async ({ instructions, repositoryContext, setupContext, tools }) => {
       let stepCount = 0;
       const result = streamText({
         model: options.model,
@@ -73,6 +76,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
           withSandboxAgentProjectContext(
             [{ role: "user", content: prompt }],
             repositoryContext,
+            setupContext,
           ),
         ),
         tools,
@@ -85,9 +89,11 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
             contextWindow: getAgentContextLimit(options.selectedModel),
             systemPrompt: instructions,
             abortSignal: signal,
+            onUsage: (usage) => options.onUsageStep?.({ usage }),
           }),
         }),
         onStepFinish: (step) => {
+          if (options.telemetry) logAgentToolStep(step, { ...options.telemetry, role: "subagent" });
           stepCount += 1;
           options.onUsageStep?.(step);
         },

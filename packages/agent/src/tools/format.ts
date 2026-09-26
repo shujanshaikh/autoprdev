@@ -140,8 +140,11 @@ export function clampLimit(limit: number | undefined, defaultLimit: number, maxL
   return Math.min(limit, maxLimit);
 }
 
-export function formatNumberedLines(lines: string[], startLine: number): string {
-  return lines.map((line, index) => `${startLine + index} | ${line}`).join("\n");
+export function formatNumberedLines(lines: string[], startLine: number, sparse = false): string {
+  return lines.map((line, index) => {
+    const lineNumber = startLine + index;
+    return !sparse || index === 0 || lineNumber % 10 === 0 ? `${lineNumber} | ${line}` : line;
+  }).join("\n");
 }
 
 export function formatSize(bytes: number): string {

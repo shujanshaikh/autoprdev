@@ -36,7 +36,7 @@ describe("Daytona bash tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-bash" },
+      sandbox: { id: "sandbox-bash", fs: { uploadFile: vi.fn().mockResolvedValue(undefined) } },
       workDir: "/workspace/repo",
     });
     mocks.executeSandboxCommand.mockResolvedValue({

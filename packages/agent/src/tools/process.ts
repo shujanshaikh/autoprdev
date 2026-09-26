@@ -1,3 +1,4 @@
+import { preserveLargeOutput } from "./output-artifact";
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -131,7 +132,7 @@ async function executeDaytonaProcess(
     commandId,
     logs.output || combineCommandOutput(redactedStdout, redactedStderr),
   );
-  const output = truncateToolOutput(combined, { direction: "tail" });
+  const output = await preserveLargeOutput(combined, (content, path) => sandbox.fs.uploadFile(content, path));
   const stdout = truncateToolOutput(redactedStdout, { direction: "tail" });
   const stderr = truncateToolOutput(redactedStderr, { direction: "tail" });
   const commandPreview = truncateText(

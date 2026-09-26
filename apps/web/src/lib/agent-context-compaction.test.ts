@@ -1,4 +1,5 @@
 import { wrapLanguageModel, type LanguageModel, type ModelMessage } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -186,4 +187,62 @@ describe("agent context compaction", () => {
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
   });
+});
+
+it("retains encrypted reasoning in the emergency recovery tail", () => {
+  const reasoning = { type: "reasoning" as const, text: "", providerOptions: { openai: { reasoningEncryptedContent: "opaque-state" } } };
+  const messages = emergencyCompactProviderPrompt([
+    { role: "user", content: [{ type: "text", text: "Continue" }] },
+    { role: "assistant", content: [reasoning, { type: "text", text: "Working" }] },
+  ], 1);
+  expect(messages.at(-1)).toMatchObject({ content: expect.arrayContaining([reasoning]) });
+});
+
+it.each(["response", "stream"] as const)("stops %s overflow recovery when the newest reasoning cannot fit", async (mode) => {
+  const reasoning = { type: "reasoning" as const, text: "", providerOptions: {
+    openai: { reasoningEncryptedContent: "opaque-state".repeat(10_000) },
+  } };
+  const prompt = [
+    { role: "user" as const, content: [{ type: "text" as const, text: "Run the tests" }] },
+    { role: "assistant" as const, content: [reasoning,
+      { type: "tool-call" as const, toolCallId: "t1", toolName: "bash", input: { command: "pnpm test" } },
+    ] },
+    { role: "tool" as const, content: [{ type: "tool-result" as const, toolCallId: "t1", toolName: "bash",
+      output: { type: "text" as const, value: "Tests passed" },
+    }] },
+  ];
+  const original = JSON.stringify(prompt);
+  const doStream = vi.fn(async () => {
+    const error = new Error("context_length_exceeded");
+    if (mode === "response") throw error;
+    return { stream: new ReadableStream({ start(controller) {
+      controller.enqueue({ type: "error", error });
+      controller.close();
+    } }) };
+  });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    const wrapped = wrapLanguageModel({ model: new MockLanguageModelV3({ doStream }),
+      middleware: createContextOverflowRecoveryMiddleware() });
+    if (mode === "response") {
+      await expect(wrapped.doStream({ prompt })).rejects.toThrow("Automatic context recovery stopped");
+    } else {
+      const result = await wrapped.doStream({ prompt });
+      const reader = result.stream.getReader();
+      await expect(reader.read()).rejects.toThrow("Automatic context recovery stopped");
+      reader.releaseLock();
+    }
+    expect(doStream).toHaveBeenCalledOnce();
+    expect(JSON.stringify(prompt)).toBe(original);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+it("rejects an oversized standalone assistant message without dropping its reasoning", () => {
+  expect(() => emergencyCompactProviderPrompt([{
+    role: "assistant", content: [{ type: "reasoning", text: "", providerOptions: {
+      openai: { reasoningEncryptedContent: "x".repeat(100_000) },
+    } }],
+  }], 2)).toThrow("32000-character recovery budget");
 });

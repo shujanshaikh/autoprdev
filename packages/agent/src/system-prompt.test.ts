@@ -91,3 +91,22 @@ describe("buildSandboxAgentSystemPrompt", () => {
     expect(prompt).toContain("Do not duplicate delegated work locally");
   });
 });
+
+it("keeps mode rules in the compact experiment and moves sandbox metadata independently", () => {
+  const options = { cwd: "/repo", sandboxId: "sandbox-unique", selectedTools: ["read", "edit", "computer"] };
+  const original = buildSandboxAgentSystemPrompt(options);
+  const compact = buildSandboxAgentSystemPrompt({ ...options, compactToolPrompt: true, omitSandboxMetadata: true });
+  expect(compact.length).toBeLessThan(original.length);
+  expect(compact).not.toContain("sandbox-unique");
+  expect(compact).toContain("exact observationId");
+  expect(compact).toContain("matched against the original file");
+  const messages = withSandboxAgentProjectContext([{ role: "user", content: "task" }], "rules", "cwd: /repo");
+  expect(messages).toEqual([{ role: "user", content: "cwd: /repo\n\nrules" }, { role: "user", content: "task" }]);
+});
+
+it("keeps the system prefix identical when sandbox identity and date change", () => {
+  const options = { cwd: "/repo", sandboxId: "first", omitSandboxMetadata: true, now: new Date(2026, 0, 1) };
+  expect(buildSandboxAgentSystemPrompt(options)).toBe(buildSandboxAgentSystemPrompt({
+    ...options, cwd: "/other", sandboxId: "second", now: new Date(2026, 0, 2),
+  }));
+});

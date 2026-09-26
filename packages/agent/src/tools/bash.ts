@@ -1,3 +1,4 @@
+import { preserveLargeOutput } from "./output-artifact";
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -68,7 +69,7 @@ async function executeDaytonaBash(
   const stderr = redactSensitiveValues(result.stderr ?? "", environmentSecrets);
   const output = redactSensitiveValues(result.output ?? "", environmentSecrets);
   const combined = output || combineCommandOutput(stdout, stderr);
-  const truncatedOutput = truncateToolOutput(combined, { direction: "tail" });
+  const truncatedOutput = await preserveLargeOutput(combined, (content, path) => context.sandbox.fs.uploadFile(content, path));
   const stdoutPreview = truncateToolOutput(stdout, { direction: "tail" });
   const stderrPreview = truncateToolOutput(stderr, { direction: "tail" });
   const commandPreview = truncateText(command, MAX_COMMAND_SUMMARY_CHARS);
@@ -124,7 +125,7 @@ export function createSandboxBashTool(
   return tool({
     title: "bash",
     description:
-      "Run shell commands inside the selected sandbox with a 120-second default foreground timeout and tail-preserving bounded output. Use for package scripts, tests, type checks, installs, and Git inspection. Commands mutate state when the command does; use isBackground=true for servers/watchers and manage them with process. Environment values are never echoed. Do not retry a failed command unchanged without using the final diagnostic.",
+      "Run shell commands inside the selected sandbox with a 120-second default foreground timeout and bounded previews and full oversized output saved under /tmp. Use for package scripts, tests, type checks, installs, and Git inspection. Commands mutate state when the command does; use isBackground=true for servers/watchers and manage them with process. Environment values are never echoed. Do not retry a failed command unchanged without using the final diagnostic.",
     inputSchema: bashInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
     execute: (input) => executeDaytonaBash(input, sandboxOptions, backgroundProcesses),

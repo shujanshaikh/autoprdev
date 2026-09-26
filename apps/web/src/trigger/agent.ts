@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { createAgentRequestTelemetry, logAgentToolStep } from "#/lib/agent-request-telemetry";
 import { agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
@@ -216,17 +218,20 @@ async function runAgentTask(
   const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const subAgentBinding = createSubAgentBinding();
   const harness = new CodingHarness({
+    compactToolPrompt: process.env.AUTOPR_COMPACT_TOOL_PROMPT === "1",
     ...sandboxOptions,
     ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run),
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
-    appendSystemPrompt: [
-      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
+    additionalSetupContext: [
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
       options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
+    ].filter(Boolean).join("\n"),
+    appendSystemPrompt: [
+      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
       options.computerUseEnabled === false
         ? "Computer use is disabled for this thread. Do not control a browser or desktop, including through shell commands."
         : demoRecordingEnabled
@@ -243,7 +248,8 @@ async function runAgentTask(
   let persistenceFinished = false;
   let streamFinished = false;
   const runStartedAt = Date.now();
-  const subAgentUsageSteps: AssistantUsageSource[] = [];
+  const additionalUsageSteps: AssistantUsageSource[] = [];
+  const telemetryTurnId = randomUUID();
 
   if (options.assistantMessageId) {
     await agentUIStream.append({
@@ -253,14 +259,20 @@ async function runAgentTask(
   }
 
   try {
-    await harness.run(async ({ instructions, repositoryContext, sandbox, tools }) => {
+    await harness.run(async ({ instructions, repositoryContext, setupContext, sandbox, tools }) => {
       const responseModels = await createAgentResponseModels(selectedModel);
       const model = wrapLanguageModel({
-        model: responseModels.parent,
+        model: wrapLanguageModel({
+          model: responseModels.parent,
+          middleware: createAgentRequestTelemetry({ threadId: options.threadId, turnId: telemetryTurnId, role: "parent" }),
+        }),
         middleware: createContextOverflowRecoveryMiddleware(),
       });
       const subAgentModel = wrapLanguageModel({
-        model: responseModels.subAgent,
+        model: wrapLanguageModel({
+          model: responseModels.subAgent,
+          middleware: createAgentRequestTelemetry({ threadId: options.threadId, turnId: telemetryTurnId, role: "subagent" }),
+        }),
         middleware: createContextOverflowRecoveryMiddleware(),
       });
       subAgentBinding.bind(createAgentSubAgentRunner({
@@ -272,8 +284,9 @@ async function runAgentTask(
         model: subAgentModel,
         selectedModel: responseModels.subAgentOptions,
         parentAbortSignal: signal,
+        telemetry: { threadId: options.threadId, turnId: telemetryTurnId },
         onUsageStep: (step) => {
-          subAgentUsageSteps.push({
+          additionalUsageSteps.push({
             modelId: responseModels.subAgentOptions.modelId,
             step,
           });
@@ -283,10 +296,11 @@ async function runAgentTask(
         model,
         system: agentSystemPrompt(selectedModel, instructions),
         messages: applyAgenticCache(
-          withSandboxAgentProjectContext(inputMessages, repositoryContext),
+          withSandboxAgentProjectContext(inputMessages, repositoryContext, setupContext),
         ),
         tools,
         toolChoice: "auto",
+        onStepFinish: (step) => logAgentToolStep(step, { threadId: options.threadId, turnId: telemetryTurnId, role: "parent" }),
         stopWhen: stepCountIs(MAX_AGENT_STEPS),
         maxRetries: 2,
         experimental_transform: smoothStream({
@@ -298,6 +312,7 @@ async function runAgentTask(
           prepareStep: createAgentContextCompactor({
             contextWindow: getAgentContextLimit(selectedModel),
             systemPrompt: instructions,
+            onUsage: (usage) => additionalUsageSteps.push({ modelId: selectedModel.modelId, step: { usage } }),
             abortSignal: signal,
           }),
         }),
@@ -314,7 +329,7 @@ async function runAgentTask(
             selectedModel.modelId,
             runStartedAt,
             Date.now(),
-            subAgentUsageSteps,
+            additionalUsageSteps,
           );
         },
         async (metadata) => {

@@ -3,6 +3,7 @@ import {
   type LanguageModel,
   type LanguageModelMiddleware,
   type ModelMessage,
+  type LanguageModelUsage,
   type PrepareStepFunction,
 } from "ai";
 
@@ -38,12 +39,14 @@ type SummaryInput = {
   conversation: string;
   model: LanguageModel;
   abortSignal?: AbortSignal;
+  onUsage?: (usage: LanguageModelUsage) => void;
 };
 
 export type AgentContextCompactorOptions = {
   contextWindow?: number;
   systemPrompt?: string;
   abortSignal?: AbortSignal;
+  onUsage?: (usage: LanguageModelUsage) => void;
   summarize?: (input: SummaryInput) => Promise<string>;
 };
 
@@ -269,6 +272,7 @@ async function generateCheckpoint({
   conversation,
   model,
   abortSignal,
+  onUsage,
 }: SummaryInput) {
   // The ChatGPT-backed Codex responses endpoint rejects non-streaming requests,
   // so checkpoints stream and collect their text instead of using `generateText`.
@@ -282,6 +286,7 @@ async function generateCheckpoint({
     ]
       .filter(Boolean)
       .join("\n\n"),
+    onStepFinish: ({ usage }) => onUsage?.(usage),
     maxOutputTokens: 6_000,
     maxRetries: 1,
     abortSignal,
@@ -309,6 +314,7 @@ async function summarizeMessages(
         conversation,
         model,
         abortSignal: options.abortSignal,
+        onUsage: options.onUsage,
       });
       summary = generated.trim()
         ? truncateText(generated.trim(), SUMMARY_MAX_CHARS)
@@ -443,6 +449,7 @@ function compactProviderMessage(
   const content: unknown[] = [];
   for (const part of message.content) {
     if (part.type === "reasoning") {
+      content.push(part);
       continue;
     }
     if (part.type === "text") {
@@ -518,6 +525,14 @@ export function emergencyCompactProviderPrompt(
     }
   }
 
+  const tail = conversation.slice(start);
+  // Encrypted reasoning is opaque. If the newest coherent exchange cannot fit,
+  // stop recovery instead of corrupting it or sending another oversized retry.
+  if (safeJsonStringify(tail).length > budget || (conversation.length > 0 && tail.length === 0)) {
+    throw new Error(
+      `Automatic context recovery stopped: the latest messages and reasoning cannot fit the ${budget}-character recovery budget. Start a new thread with the current task state.`,
+    );
+  }
   const head = conversation.slice(0, start);
   const checkpoint = {
     role: "user" as const,
@@ -527,7 +542,7 @@ export function emergencyCompactProviderPrompt(
     }],
   };
 
-  return [...systems, checkpoint, ...conversation.slice(start)];
+  return [...systems, checkpoint, ...tail];
 }
 
 function streamContainsModelOutput(type: string) {

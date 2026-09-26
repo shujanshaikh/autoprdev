@@ -94,6 +94,8 @@ export interface BuildSystemPromptOptions {
   appendSystemPrompt?: string;
   customPrompt?: string;
   now?: Date;
+  compactToolPrompt?: boolean;
+  omitSandboxMetadata?: boolean;
 }
 
 export function buildSandboxAgentSystemPrompt(options: BuildSystemPromptOptions): string {
@@ -104,7 +106,7 @@ export function buildSandboxAgentSystemPrompt(options: BuildSystemPromptOptions)
   };
   const toolsList = formatToolsList(selectedTools, toolSnippets);
   const append = formatAdditionalInstructions(options.appendSystemPrompt);
-  const metadata = formatSandboxMetadata(options);
+  const metadata = options.omitSandboxMetadata ? "" : formatSandboxMetadata(options);
   const modelDescriptor = formatModelDescriptor(options.modelId);
   const providerName = options.modelProviderName?.trim() || "connected AI subscription";
   const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
@@ -124,8 +126,7 @@ Success means:
 - Validate changed behavior with the most relevant available checks.
 - Report the result, validation, and any real blocker without claiming unverified success.
 
-Available tools:
-${toolsList}
+${options.compactToolPrompt ? "" : `Available tools:\n${toolsList}\n`}
 
 Constraints:
 ${REPOSITORY_SAFETY_POLICY}
@@ -157,7 +158,7 @@ Output:
 - Keep required facts and caveats; trim preambles, repetition, and generic reassurance first.
 
 Tool guidelines:
-${formatGuidelines(selectedTools, options.promptGuidelines ?? [])}
+${formatGuidelines(selectedTools, options.promptGuidelines ?? [], options.compactToolPrompt)}
 ${append}${metadata}`;
 }
 
@@ -171,9 +172,11 @@ export function buildSandboxAgentProjectContext(
 export function withSandboxAgentProjectContext(
   messages: ModelMessage[],
   repositoryContext: string | undefined,
+  setupContext?: string,
 ): ModelMessage[] {
-  if (!repositoryContext) return messages;
-  return [{ role: "user", content: repositoryContext }, ...messages];
+  const setup = [setupContext, repositoryContext].filter(Boolean).join("\n\n");
+  if (!setup) return messages;
+  return [{ role: "user", content: setup }, ...messages];
 }
 
 function formatToolsList(selectedTools: string[], toolSnippets: Record<string, string>): string {
@@ -186,7 +189,7 @@ function formatToolsList(selectedTools: string[], toolSnippets: Record<string, s
   return visibleTools.map((name) => `- ${name}: ${toolSnippets[name]}`).join("\n");
 }
 
-function formatGuidelines(selectedTools: string[], promptGuidelines: string[]): string {
+function formatGuidelines(selectedTools: string[], promptGuidelines: string[], compact = false): string {
   const guidelines: string[] = [];
   const seen = new Set<string>();
   const addGuideline = (guideline: string): void => {
@@ -223,6 +226,8 @@ function formatGuidelines(selectedTools: string[], promptGuidelines: string[]): 
   );
 
   for (const toolName of selectedTools) {
+    // Keep observed schema quirks and mode rules; core tool schemas describe routine use.
+    if (compact && ["sandboxInfo", "read", "ls", "find", "bash", "process"].includes(toolName)) continue;
     for (const guideline of TOOL_PROMPT_GUIDELINES[toolName] ?? []) {
       addGuideline(guideline);
     }
@@ -262,6 +267,10 @@ function formatAdditionalInstructions(appendSystemPrompt: string | undefined): s
   }
 
   return `\n\n<run_context>\n${appendSystemPrompt.trim()}\n</run_context>`;
+}
+
+export function buildSandboxAgentSetupContext(options: BuildSystemPromptOptions): string {
+  return formatSandboxMetadata(options).trim();
 }
 
 function formatSandboxMetadata(options: BuildSystemPromptOptions): string {

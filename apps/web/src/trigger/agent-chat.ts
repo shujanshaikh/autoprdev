@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { createAgentRequestTelemetry, logAgentToolStep } from "#/lib/agent-request-telemetry";
 import { agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
@@ -166,6 +168,14 @@ function modelInstructions(clientData: AgentChatClientData) {
   const provider = clientData.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   return [
     `This chat is streamed through a durable Trigger.dev Session. The ${provider} sandbox is prepared before you answer and all tools operate inside that sandbox.`,
+    demoInstructions(clientData),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function modelSetupContext(clientData: AgentChatClientData) {
+  return [
     clientData.repoUrl ? `Repository: ${clientData.repoUrl}` : undefined,
     clientData.repoBranch ? `Repository branch: ${clientData.repoBranch}` : undefined,
     clientData.sandboxWorkDir
@@ -173,10 +183,7 @@ function modelInstructions(clientData: AgentChatClientData) {
       : undefined,
     `Project ID: ${clientData.projectId}`,
     `Thread ID: ${clientData.threadId}`,
-    demoInstructions(clientData),
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 export const agentChatTask = chat.agent({
@@ -291,11 +298,13 @@ export const agentChatTask = chat.agent({
       throw new Error("The sub-agent runtime is unavailable for this chat turn.");
     }
     const harness = new CodingHarness({
+      compactToolPrompt: process.env.AUTOPR_COMPACT_TOOL_PROMPT === "1",
       ...sandboxOptions(trusted),
       ...agentToolSettings(trusted, subAgentBinding.run),
       modelId: trusted.model.modelId,
       modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
       appendSystemPrompt: modelInstructions(trusted),
+      additionalSetupContext: modelSetupContext(trusted),
     });
     const selectedModel = {
       ...trusted.model,
@@ -303,17 +312,24 @@ export const agentChatTask = chat.agent({
         trusted.model.promptCacheKey ?? modelPromptCacheKey(trusted),
     };
     const startedAt = Date.now();
-    const subAgentUsageSteps: AssistantUsageSource[] = [];
-    const [{ instructions, repositoryContext, sandbox }, responseModels] = await Promise.all([
+    const additionalUsageSteps: AssistantUsageSource[] = [];
+    const telemetryTurnId = randomUUID();
+    const [{ instructions, repositoryContext, setupContext, sandbox }, responseModels] = await Promise.all([
       harness.prepare(),
       createAgentResponseModels(selectedModel),
     ]);
     const model = wrapLanguageModel({
-      model: responseModels.parent,
+      model: wrapLanguageModel({
+        model: responseModels.parent,
+        middleware: createAgentRequestTelemetry({ threadId: chatId, turnId: telemetryTurnId, role: "parent" }),
+      }),
       middleware: createContextOverflowRecoveryMiddleware(),
     });
     const subAgentModel = wrapLanguageModel({
-      model: responseModels.subAgent,
+      model: wrapLanguageModel({
+        model: responseModels.subAgent,
+        middleware: createAgentRequestTelemetry({ threadId: chatId, turnId: telemetryTurnId, role: "subagent" }),
+      }),
       middleware: createContextOverflowRecoveryMiddleware(),
     });
     subAgentBinding.bind(createAgentSubAgentRunner({
@@ -325,8 +341,9 @@ export const agentChatTask = chat.agent({
       model: subAgentModel,
       selectedModel: responseModels.subAgentOptions,
       parentAbortSignal: signal,
+      telemetry: { threadId: chatId, turnId: telemetryTurnId },
       onUsageStep: (step) => {
-        subAgentUsageSteps.push({
+        additionalUsageSteps.push({
           modelId: responseModels.subAgentOptions.modelId,
           step,
         });
@@ -338,10 +355,11 @@ export const agentChatTask = chat.agent({
       model,
       system: agentSystemPrompt(selectedModel, instructions),
       messages: applyAgenticCache(
-        withSandboxAgentProjectContext(messages, repositoryContext),
+        withSandboxAgentProjectContext(messages, repositoryContext, setupContext),
       ),
       tools,
       toolChoice: "auto",
+      onStepFinish: (step) => logAgentToolStep(step, { threadId: chatId, turnId: telemetryTurnId, role: "parent" }),
       stopWhen: stepCountIs(MAX_AGENT_STEPS),
       maxRetries: 2,
       experimental_transform: smoothStream({
@@ -353,6 +371,7 @@ export const agentChatTask = chat.agent({
         prepareStep: createAgentContextCompactor({
           contextWindow: getAgentContextLimit(selectedModel),
           systemPrompt: instructions,
+          onUsage: (usage) => additionalUsageSteps.push({ modelId: selectedModel.modelId, step: { usage } }),
           abortSignal: signal,
         }),
       }),
@@ -362,7 +381,7 @@ export const agentChatTask = chat.agent({
           selectedModel.modelId,
           startedAt,
           Date.now(),
-          subAgentUsageSteps,
+          additionalUsageSteps,
         );
       },
       providerOptions: agentProviderOptions(selectedModel, instructions),

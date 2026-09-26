@@ -546,6 +546,7 @@ export function responseMessagesToAssistantParts(messages: ModelMessage[], start
             type: "reasoning",
             text: part.text,
             state: "done",
+            ...(part.providerOptions ? { providerMetadata: part.providerOptions } : {}),
           });
           continue;
         }

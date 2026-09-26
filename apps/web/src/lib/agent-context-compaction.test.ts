@@ -187,3 +187,12 @@ describe("agent context compaction", () => {
     warn.mockRestore();
   });
 });
+
+it("retains encrypted reasoning in the emergency recovery tail", () => {
+  const reasoning = { type: "reasoning" as const, text: "", providerOptions: { openai: { reasoningEncryptedContent: "opaque-state" } } };
+  const messages = emergencyCompactProviderPrompt([
+    { role: "user", content: [{ type: "text", text: "Continue" }] },
+    { role: "assistant", content: [reasoning, { type: "text", text: "Working" }] },
+  ], 1);
+  expect(messages.at(-1)).toMatchObject({ content: expect.arrayContaining([reasoning]) });
+});

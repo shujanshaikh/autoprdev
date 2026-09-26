@@ -449,6 +449,7 @@ function compactProviderMessage(
   const content: unknown[] = [];
   for (const part of message.content) {
     if (part.type === "reasoning") {
+      content.push(part);
       continue;
     }
     if (part.type === "text") {

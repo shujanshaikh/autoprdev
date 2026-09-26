@@ -1,7 +1,9 @@
+import { convertToModelMessages } from "ai";
 import { describe, expect, it } from "vitest";
 
 import {
   COMPUTER_METADATA_PREFIX,
+  responseMessagesToAssistantParts,
   findDemoRecordingMetadataInParts,
   mergePersistedAssistantParts,
   sanitizeAssistantPartsForPersistence,
@@ -343,5 +345,18 @@ describe("chat message persistence helpers", () => {
     expect(toolCall.input.edits[0].newText).toContain("edit.edits[0].newText omitted from model prompt");
     expect(toolResult.output.value.details.diff.patch).toBe(longText);
     expect(toolResult.output.value.details.diff.patchChars).toBe(5_000);
+  });
+});
+
+
+it("preserves encrypted reasoning through persistence and the next request", async () => {
+  const providerOptions = { openai: { itemId: "rs_1", reasoningEncryptedContent: "opaque-state" } };
+  const parts = responseMessagesToAssistantParts([{
+    role: "assistant",
+    content: [{ type: "reasoning", text: "", providerOptions }, { type: "text", text: "Done." }],
+  }]);
+  const messages = await convertToModelMessages([{ id: "assistant", role: "assistant", parts }]);
+  expect(messages[0]).toMatchObject({
+    content: expect.arrayContaining([{ type: "reasoning", text: "", providerOptions }]),
   });
 });

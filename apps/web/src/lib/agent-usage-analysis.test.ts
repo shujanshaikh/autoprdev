@@ -47,6 +47,29 @@ describe("task usage analysis", () => {
     ]);
   });
 
+  it("derives absent uncached counts and keeps unavailable counters unknown", () => {
+    const result = analyzeAgentUsage([
+      request,
+      { ...request, requestId: "r2", uncachedInputTokens: null, cacheWriteTokens: null },
+      { ...request, requestId: "r3", uncachedInputTokens: undefined, cacheWriteTokens: undefined },
+    ], [task]);
+    for (const summary of [result.tasks[0], result.requestGroups[0]]) {
+      expect(summary).toMatchObject({
+        observedInputTokens: 300, observedCachedInputTokens: 120,
+        observedUncachedInputTokens: 180, observedCacheWriteTokens: null,
+        requestsWithoutCacheWriteUsage: 2,
+      });
+    }
+    expect(analyzeAgentUsage([request], [task]).tasks[0]?.observedCacheWriteTokens).toBe(0);
+    const missing = analyzeAgentUsage([
+      { ...request, cachedInputTokens: null, uncachedInputTokens: null, outputTokens: null },
+    ], [task]).tasks[0];
+    expect(missing?.observedUncachedInputTokens).toBeNull();
+    expect(missing?.observedCachedInputTokens).toBeNull();
+    expect(missing?.observedOutputTokens).toBeNull();
+    expect(analyzeAgentUsage([], [task]).tasks[0]?.observedInputTokens).toBeNull();
+  });
+
   it("rejects duplicate assignments and malformed usage instead of understating cost", () => {
     expect(() => analyzeAgentUsage([], [task, task])).toThrow("Duplicate task");
     expect(() => analyzeAgentUsage([], [task, { ...task, taskId: "other" }])).toThrow("Turn assigned more than once");

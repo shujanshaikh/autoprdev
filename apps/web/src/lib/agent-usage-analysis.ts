@@ -28,8 +28,21 @@ type Request = z.infer<typeof requestSchema>;
 
 function summarizeRequests(calls: Request[]) {
   const finished = calls.filter((call) => call.status === "finished");
-  const sum = (field: "inputTokens" | "uncachedInputTokens" | "cachedInputTokens" | "outputTokens" | "cacheWriteTokens") =>
-    finished.reduce((total, call) => total + (call[field] ?? 0), 0);
+  const sum = (field: "inputTokens" | "uncachedInputTokens" | "cachedInputTokens" | "outputTokens" | "cacheWriteTokens") => {
+    if (finished.length === 0) return null;
+    let total = 0;
+    for (const call of finished) {
+      const value = call[field] ?? (field === "uncachedInputTokens"
+        && call.inputTokens != null && call.cachedInputTokens != null
+        && call.inputTokens >= call.cachedInputTokens
+        ? call.inputTokens - call.cachedInputTokens : null);
+      if (value === null) return null;
+      total += value;
+    }
+    return total;
+  };
+  const inputTokens = sum("inputTokens");
+  const cachedInputTokens = sum("cachedInputTokens");
   const completeUsage = calls.length > 0 && calls.every((call) => call.status === "finished"
     && call.inputTokens != null && call.cachedInputTokens != null && call.outputTokens != null);
   const completeCost = completeUsage && calls.every((call) => call.apiEquivalentCost != null);
@@ -48,11 +61,12 @@ function summarizeRequests(calls: Request[]) {
       || call.inputTokens == null || call.cachedInputTokens == null || call.outputTokens == null).length,
     apiEquivalentCost: completeCost ? finished.reduce((sum, call) => sum + call.apiEquivalentCost!.total, 0) : null,
     costByBillingType,
-    observedInputTokens: sum("inputTokens"), observedUncachedInputTokens: sum("uncachedInputTokens"),
-    observedCachedInputTokens: sum("cachedInputTokens"), observedOutputTokens: sum("outputTokens"),
+    observedInputTokens: inputTokens, observedUncachedInputTokens: sum("uncachedInputTokens"),
+    observedCachedInputTokens: cachedInputTokens, observedOutputTokens: sum("outputTokens"),
     observedCacheWriteTokens: sum("cacheWriteTokens"),
     requestsWithoutCacheWriteUsage: calls.filter((call) => call.status !== "finished" || call.cacheWriteTokens == null).length,
-    cacheReadFraction: completeUsage && sum("inputTokens") > 0 ? sum("cachedInputTokens") / sum("inputTokens") : null,
+    cacheReadFraction: completeUsage && inputTokens != null && inputTokens > 0 && cachedInputTokens != null
+      ? cachedInputTokens / inputTokens : null,
     cacheHitRate: completeUsage ? finished.filter((call) => call.cachedInputTokens! > 0).length / calls.length : null,
     meanRequestDurationMs: calls.length > 0 && calls.every((call) => call.durationMs != null)
       ? calls.reduce((sum, call) => sum + call.durationMs!, 0) / calls.length : null,

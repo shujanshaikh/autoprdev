@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getAgentModelOptions } from "#/lib/agent-models";
 import { AgentModelPicker } from "./agent-model-picker";
 
 const models = [
@@ -38,6 +39,21 @@ afterEach(() => {
 });
 
 describe("AgentModelPicker", () => {
+  it("shows all discovered GPT-6 models and selects Luna", async () => {
+    const onValueChange = vi.fn();
+    render(
+      <AgentModelPicker
+        models={getAgentModelOptions({ codexModels: ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna"] })}
+        value="openai-codex:gpt-6-sol"
+        onValueChange={onValueChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /choose model/i }));
+    expect(await screen.findByText("GPT-6-Astra")).toBeTruthy();
+    fireEvent.click(screen.getByText("GPT-6-Luna"));
+    expect(onValueChange).toHaveBeenCalledWith("openai-codex:gpt-6-luna");
+  });
+
   it("switches provider catalogs and selects a model", async () => {
     const onValueChange = vi.fn();
     render(

@@ -1,3 +1,5 @@
+import { DEFAULT_CLIENT_VERSION, resolveConfig } from "@autopr/chatgpt/core";
+import { createChatGPTHandler } from "@autopr/chatgpt/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type ProxyProviderOptions = {
@@ -95,6 +97,10 @@ vi.mock("@workos-inc/node", () => ({
 }));
 
 vi.mock("@autopr/chatgpt/ai", () => ({ createChatGPTProxyProvider }));
+vi.mock("@autopr/chatgpt/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@autopr/chatgpt/server")>();
+  return { ...actual, createChatGPTHandler: vi.fn(actual.createChatGPTHandler) };
+});
 
 import {
   chatGPTAuth,
@@ -128,6 +134,27 @@ afterEach(() => {
   } else {
     process.env.WORKOS_API_KEY = previousWorkOSApiKey;
   }
+});
+
+describe("Codex client version", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([undefined, "", "   "])("uses the package catalog version when the override is %j", async (override) => {
+    vi.stubEnv("LWC_CLIENT_VERSION", override);
+    vi.resetModules();
+    await import("./codex-auth-runtime-server");
+    const options = vi.mocked(createChatGPTHandler).mock.calls.at(-1)?.[0];
+    expect(options).toBeDefined();
+    expect(options?.clientVersion).toBeUndefined();
+    expect(resolveConfig(options).clientVersion).toBe(DEFAULT_CLIENT_VERSION);
+  });
+
+  it("preserves an explicit client version override", async () => {
+    vi.stubEnv("LWC_CLIENT_VERSION", " 0.999.0 ");
+    vi.resetModules();
+    await import("./codex-auth-runtime-server");
+    expect(vi.mocked(createChatGPTHandler).mock.calls.at(-1)?.[0]?.clientVersion).toBe("0.999.0");
+  });
 });
 
 describe("Codex agent grants", () => {

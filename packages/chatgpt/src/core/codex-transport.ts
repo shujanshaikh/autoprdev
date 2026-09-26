@@ -11,7 +11,7 @@ export interface CodexAuth {
 }
 
 /** Reasoning effort levels accepted by the Codex backend. */
-export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 /** Service tiers accepted by Codex-style responses requests. */
 export type CodexServiceTier = "auto" | "default" | "flex" | "priority" | "fast";

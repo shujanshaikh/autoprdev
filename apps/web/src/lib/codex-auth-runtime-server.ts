@@ -13,7 +13,6 @@ export const CODEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const DEFAULT_RESPONSES_RATE_LIMIT = 30;
 const DEFAULT_RESPONSES_RATE_WINDOW_MS = 60 * 1000;
-const DEFAULT_CODEX_CLIENT_VERSION = "0.144.0";
 
 export type CodexResponsesModel = ReturnType<
   ReturnType<typeof createChatGPTProxyProvider>["responses"]
@@ -88,10 +87,6 @@ function getAllowedModels() {
     .filter(Boolean);
 
   return models.length > 0 ? models : undefined;
-}
-
-function getCodexClientVersion() {
-  return process.env.LWC_CLIENT_VERSION?.trim() || DEFAULT_CODEX_CLIENT_VERSION;
 }
 
 function isResponseStatus(error: unknown, status: number) {
@@ -260,7 +255,7 @@ export class WorkOSVaultStore<T> implements KeyValueStore<T> {
 
 export const chatGPTAuth = createChatGPTHandler({
   basePath: "/api/chatgpt",
-  clientVersion: getCodexClientVersion(),
+  clientVersion: process.env.LWC_CLIENT_VERSION?.trim() || undefined,
   secret: getChatGPTSecret(),
   sessionStore: new WorkOSVaultStore<StoredSession>("session"),
   sessionTtlMs: CODEX_SESSION_TTL_MS,

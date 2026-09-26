@@ -218,6 +218,7 @@ async function runAgentTask(
   const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const subAgentBinding = createSubAgentBinding();
   const harness = new CodingHarness({
+    compactToolPrompt: process.env.AUTOPR_COMPACT_TOOL_PROMPT === "1",
     ...sandboxOptions,
     ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run),
     modelId: options.model.modelId,

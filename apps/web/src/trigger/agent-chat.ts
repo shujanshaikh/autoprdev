@@ -298,6 +298,7 @@ export const agentChatTask = chat.agent({
       throw new Error("The sub-agent runtime is unavailable for this chat turn.");
     }
     const harness = new CodingHarness({
+      compactToolPrompt: process.env.AUTOPR_COMPACT_TOOL_PROMPT === "1",
       ...sandboxOptions(trusted),
       ...agentToolSettings(trusted, subAgentBinding.run),
       modelId: trusted.model.modelId,

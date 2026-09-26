@@ -49,6 +49,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
   return async ({ description, prompt, abortSignal }) => {
     const signal = combineAbortSignals(options.parentAbortSignal, abortSignal);
     const harness = new CodingHarness({
+      compactToolPrompt: process.env.AUTOPR_COMPACT_TOOL_PROMPT === "1",
       ...options.sandboxOptions,
       computer: false,
       selectedTools: SUB_AGENT_TOOLS,

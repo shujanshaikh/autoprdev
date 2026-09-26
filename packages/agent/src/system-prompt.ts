@@ -94,6 +94,7 @@ export interface BuildSystemPromptOptions {
   appendSystemPrompt?: string;
   customPrompt?: string;
   now?: Date;
+  compactToolPrompt?: boolean;
   omitSandboxMetadata?: boolean;
 }
 
@@ -125,8 +126,7 @@ Success means:
 - Validate changed behavior with the most relevant available checks.
 - Report the result, validation, and any real blocker without claiming unverified success.
 
-Available tools:
-${toolsList}
+${options.compactToolPrompt ? "" : `Available tools:\n${toolsList}\n`}
 
 Constraints:
 ${REPOSITORY_SAFETY_POLICY}
@@ -158,7 +158,7 @@ Output:
 - Keep required facts and caveats; trim preambles, repetition, and generic reassurance first.
 
 Tool guidelines:
-${formatGuidelines(selectedTools, options.promptGuidelines ?? [])}
+${formatGuidelines(selectedTools, options.promptGuidelines ?? [], options.compactToolPrompt)}
 ${append}${metadata}`;
 }
 
@@ -189,7 +189,7 @@ function formatToolsList(selectedTools: string[], toolSnippets: Record<string, s
   return visibleTools.map((name) => `- ${name}: ${toolSnippets[name]}`).join("\n");
 }
 
-function formatGuidelines(selectedTools: string[], promptGuidelines: string[]): string {
+function formatGuidelines(selectedTools: string[], promptGuidelines: string[], compact = false): string {
   const guidelines: string[] = [];
   const seen = new Set<string>();
   const addGuideline = (guideline: string): void => {
@@ -226,6 +226,8 @@ function formatGuidelines(selectedTools: string[], promptGuidelines: string[]): 
   );
 
   for (const toolName of selectedTools) {
+    // Keep observed schema quirks and mode rules; core tool schemas describe routine use.
+    if (compact && ["sandboxInfo", "read", "ls", "find", "bash", "process"].includes(toolName)) continue;
     for (const guideline of TOOL_PROMPT_GUIDELINES[toolName] ?? []) {
       addGuideline(guideline);
     }

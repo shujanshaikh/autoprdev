@@ -45,6 +45,7 @@ export type CodingHarnessListenerErrorHandler = (failure: CodingHarnessListenerE
 export interface CodingHarnessOptions extends SandboxSessionOptions {
   appendSystemPrompt?: string;
   additionalSetupContext?: string;
+  compactToolPrompt?: boolean;
   modelId?: string;
   modelProviderName?: string;
   selectedTools?: string[];
@@ -130,6 +131,7 @@ export class CodingHarness {
         selectedTools: toolSelection.toolNames,
         contextFiles: instructionFiles,
         appendSystemPrompt: this.options.appendSystemPrompt,
+        compactToolPrompt: this.options.compactToolPrompt,
         omitSandboxMetadata: true,
       };
       const instructions = buildSandboxAgentSystemPrompt(promptOptions);

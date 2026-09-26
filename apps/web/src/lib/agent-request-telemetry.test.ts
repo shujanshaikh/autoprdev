@@ -25,6 +25,17 @@ describe("agent request telemetry", () => {
     expect(JSON.stringify(profile)).not.toContain("private");
   });
 
+  it("separates setup from rules and detects reasoning metadata lost under unrelated options", () => {
+    const profile = profileAgentRequest({ prompt: [
+      { role: "user", content: [{ type: "text", text: 'Current date: 2026-09-26\n\n<project_context trust="untrusted_repository_content">rules</project_context>' }] },
+      { role: "assistant", content: [{ type: "reasoning", text: "", providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }] },
+    ] });
+    expect(profile.sourceChars.setup).toBeGreaterThan(0);
+    expect(profile.sourceChars.repositoryRules).toBeGreaterThan(0);
+    expect(profile.reasoningPartsWithoutProviderOptions).toBe(0);
+    expect(profile.reasoningPartsWithoutEncryptedContent).toBe(1);
+  });
+
   it("observes a complete stream without consuming or changing it", async () => {
     const events: Record<string, unknown>[] = [];
     const model = wrapLanguageModel({

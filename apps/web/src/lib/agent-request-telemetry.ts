@@ -17,11 +17,12 @@ export function profileAgentRequest(params: Request) {
   const sourceChars: Record<string, number> = {};
   let reasoningParts = 0;
   let reasoningPartsWithoutProviderOptions = 0;
+  let reasoningPartsWithoutEncryptedContent = 0;
   const add = (source: string, value: unknown) => {
     sourceChars[source] = (sourceChars[source] ?? 0) + (JSON.stringify(value)?.length ?? 0);
   };
   add("tools", params.tools ?? []);
-  add("system", params.providerOptions?.openai?.instructions ?? "");
+  if (params.providerOptions?.openai?.instructions) add("system", params.providerOptions.openai.instructions);
   for (const message of params.prompt) {
     if (message.role === "system") {
       add("system", message.content);
@@ -31,6 +32,7 @@ export function profileAgentRequest(params: Request) {
       if (part.type === "reasoning") {
         reasoningParts += 1;
         if (!part.providerOptions) reasoningPartsWithoutProviderOptions += 1;
+        if (!part.providerOptions?.openai?.reasoningEncryptedContent) reasoningPartsWithoutEncryptedContent += 1;
       }
       if (part.type === "tool-result") {
         const source = part.toolName === "read" ? "fileReads"
@@ -38,8 +40,17 @@ export function profileAgentRequest(params: Request) {
           : part.toolName === "sub-agent" ? "subagents" : "toolOutput";
         add(source, part);
       } else if (part.type === "text" && message.role === "user") {
-        add(part.text.includes('<project_context trust=') ? "repositoryRules"
-          : part.text.startsWith("<context-checkpoint>") ? "summaries" : "user", part);
+        // Setup and repository guidance share one user message. Keep their sizes
+        // separate so repository rules do not hide the changing environment.
+        const projectStart = part.text.indexOf('<project_context trust=');
+        if (projectStart >= 0) {
+          add("setup", part.text.slice(0, projectStart));
+          add("repositoryRules", part.text.slice(projectStart));
+        } else {
+          add(part.text.startsWith("Current date:") ? "setup"
+            : part.text.startsWith("<context-checkpoint>") || part.text.startsWith("<context-overflow-recovery>")
+              ? "summaries" : "user", part);
+        }
       } else {
         add("history", part);
       }
@@ -49,6 +60,8 @@ export function profileAgentRequest(params: Request) {
     sourceChars,
     reasoningParts,
     reasoningPartsWithoutProviderOptions,
+    reasoningPartsWithoutEncryptedContent,
+    staticChars: (sourceChars.tools ?? 0) + (sourceChars.system ?? 0),
     toolsHash: fingerprint(params.tools ?? []),
     systemHash: fingerprint([
       params.providerOptions?.openai?.instructions,
@@ -108,6 +121,10 @@ export function createAgentRequestTelemetry(options: {
         ...profileAgentRequest(params),
       };
       emit({ ...base, status: "started" });
+      if (model.provider.startsWith("openai") && base.reasoningPartsWithoutEncryptedContent > 0) {
+        emit({ event: "agent_reasoning_warning", threadId: options.threadId, turnId: options.turnId,
+          requestId, modelId: model.modelId, missingEncryptedParts: base.reasoningPartsWithoutEncryptedContent });
+      }
       try {
         const result = await doStream();
         const reader = result.stream.getReader();

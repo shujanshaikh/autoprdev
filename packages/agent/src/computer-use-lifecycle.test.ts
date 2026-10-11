@@ -4,7 +4,7 @@ import {
   recoverComputerUseStream,
   type ComputerUseProcessName,
 } from "@autopr/config/computer-use-lifecycle";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 afterEach(() => {
   vi.useRealTimers();

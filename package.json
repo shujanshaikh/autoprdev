@@ -6,14 +6,13 @@
     "packages/*"
   ],
   "type": "module",
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
     "dev": "turbo run dev trigger:dev",
     "build": "turbo build",
     "deploy:vercel": "pnpm --filter @autopr/backend run deploy:vercel",
     "check-types": "turbo check-types",
+    "check": "vp check",
+    "test": "pnpm -r --if-present test",
     "dev:web": "turbo -F web dev",
     "dev:server": "turbo -F @autopr/backend dev",
     "dev:setup": "turbo -F @autopr/backend dev:setup",
@@ -29,7 +28,11 @@
     "e2b": "2.45.0",
     "tsx": "^4.20.6",
     "turbo": "^2.8.12",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
   },
   "packageManager": "pnpm@10.33.2"
 }

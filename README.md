@@ -10,15 +10,40 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 - **Shared UI package** - shadcn/ui primitives live in `packages/ui`
 - **Convex** - Reactive backend-as-a-service platform
 - **Authentication** - WorkOS AuthKit
+- **Vite+** - Vite, Vitest, Oxlint, and Oxfmt through the `vp` CLI
 - **Turborepo** - Optimized monorepo build system
 
 ## Getting Started
 
+Use Node 24.21.0 from `.node-version` and pnpm 10.33.2 from `packageManager`.
+The project installs Vite+ 1.1.0 locally; a global `vp` installation is optional.
 First, install the dependencies:
 
 ```bash
 pnpm install
 ```
+
+Run the workspace checks and tests:
+
+```bash
+pnpm exec vp check
+pnpm exec vp run test
+pnpm exec vp run check-types
+pnpm exec vp run build
+```
+
+Tests run from each package to preserve package-relative paths and runner resolution.
+`vp check` runs lint and type checks. Formatting is opt-in through `pnpm exec vp fmt`;
+the repository does not yet have a consistent formatting baseline.
+Generated code such as Convex declarations and the route tree stays generator-owned.
+
+`vp dev` starts Vite directly. For the web server on port 3001, use
+`pnpm --filter web exec vp run dev`. `pnpm exec vp run dev` runs the existing
+workspace development script, including Convex and the Trigger.dev worker.
+`vp run <task>` runs a project script or task; `vp test` runs Vitest directly.
+For example, `pnpm --filter web exec vp test run` runs only the web tests.
+The workspace build still uses Turbo to preserve its caching and environment policy.
+Shared packages export TypeScript source, so they do not need `vp pack` builds.
 
 ## Convex Setup
 

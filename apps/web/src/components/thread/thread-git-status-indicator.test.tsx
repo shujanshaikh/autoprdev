@@ -2,7 +2,7 @@
 
 import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vite-plus/test";
 
 import { ThreadGitStatusIndicator } from "./thread-git-status-indicator";
 

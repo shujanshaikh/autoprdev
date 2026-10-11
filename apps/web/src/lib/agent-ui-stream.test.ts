@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { UIMessageChunk } from "ai";
 
 import { createAssistantUsageMetadata } from "#/lib/agent-usage";

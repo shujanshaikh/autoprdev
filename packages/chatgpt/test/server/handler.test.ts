@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { createChatGPTHandler, type RealtimeBridgeEvent } from "../../src/server/index.ts";
 import { createMockFetch, createOpenAIMock, jsonResponse, makeAccessToken, makeIdToken, makeJwt } from "./helpers.ts";
 

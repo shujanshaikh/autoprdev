@@ -4,7 +4,7 @@ import type {
   GitWorkflowPhaseResult,
 } from "@autopr/backend/convex/lib/gitWorkflow";
 import { phasesForGitWorkflowAction } from "@autopr/backend/convex/lib/gitWorkflow";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   executeResumableGitWorkflow,

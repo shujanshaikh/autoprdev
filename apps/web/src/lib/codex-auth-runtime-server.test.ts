@@ -1,6 +1,6 @@
 import { DEFAULT_CLIENT_VERSION, resolveConfig } from "@autopr/chatgpt/core";
 import { createChatGPTHandler } from "@autopr/chatgpt/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 type ProxyProviderOptions = {
   basePath?: string;

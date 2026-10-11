@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import { createThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   firstUserMessageForTitle,
@@ -28,11 +28,13 @@ describe("thread title generation", () => {
   });
 
   it("provides a useful prompt for an image-only first message", () => {
-    const messages = [{
-      id: "user-1",
-      role: "user",
-      parts: [{ type: "file", mediaType: "image/png", url: "data:image/png;base64,abc" }],
-    }] satisfies UIMessage[];
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "file", mediaType: "image/png", url: "data:image/png;base64,abc" }],
+      },
+    ] satisfies UIMessage[];
 
     expect(firstUserMessageForTitle(messages)).toBe("Review the attached image");
   });
@@ -51,49 +53,61 @@ describe("thread title generation", () => {
     const threadId = "thread-1";
     const featureBranch = createThreadFeatureBranch("New thread", threadId);
 
-    expect(shouldRequestThreadMetadata({
-      title: "New thread",
-      featureBranch,
-      threadId,
-      worktreeStatus: "pending",
-    })).toBe(true);
-    expect(shouldRequestThreadMetadata({
-      title: "Fix worktree startup",
-      featureBranch,
-      threadId,
-      worktreeStatus: "provisioning",
-    })).toBe(false);
-    expect(shouldRequestThreadMetadata({
-      title: "Fix worktree startup",
-      featureBranch,
-      threadId,
-      worktreeStatus: "ready",
-    })).toBe(true);
-    expect(shouldRequestThreadMetadata({
-      title: "Fix worktree startup",
-      featureBranch: "autopr/fix-worktree-startup",
-      threadId,
-      worktreeStatus: "ready",
-    })).toBe(false);
+    expect(
+      shouldRequestThreadMetadata({
+        title: "New thread",
+        featureBranch,
+        threadId,
+        worktreeStatus: "pending",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequestThreadMetadata({
+        title: "Fix worktree startup",
+        featureBranch,
+        threadId,
+        worktreeStatus: "provisioning",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRequestThreadMetadata({
+        title: "Fix worktree startup",
+        featureBranch,
+        threadId,
+        worktreeStatus: "ready",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequestThreadMetadata({
+        title: "Fix worktree startup",
+        featureBranch: "autopr/fix-worktree-startup",
+        threadId,
+        worktreeStatus: "ready",
+      }),
+    ).toBe(false);
   });
 
   it("requests a forced regeneration without trusting the current title", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      JSON.stringify({ title: "A better title", updated: true }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    ));
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ title: "A better title", updated: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
 
-    await expect(requestGeneratedThreadTitle({
-      projectId: "project/1",
-      threadId: "thread/1",
-      regenerate: true,
-    })).resolves.toEqual({ title: "A better title", updated: true });
+    await expect(
+      requestGeneratedThreadTitle({
+        projectId: "project/1",
+        threadId: "thread/1",
+        regenerate: true,
+      }),
+    ).resolves.toEqual({ title: "A better title", updated: true });
 
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(String(init?.body))).toEqual({ action: "regenerate_title" });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "/api/project/project%2F1/thread/thread%2F1",
-    );
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/project/project%2F1/thread/thread%2F1");
     fetchMock.mockRestore();
   });
 });

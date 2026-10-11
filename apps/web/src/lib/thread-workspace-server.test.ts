@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { createThreadFeatureBranch } from "@autopr/backend/convex/lib/threadWorktree";
 
 import {

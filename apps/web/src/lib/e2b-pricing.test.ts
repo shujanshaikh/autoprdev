@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { estimatedE2BPrice } from "@autopr/backend/convex/lib/e2bPricing";
 
 describe("E2B sandbox cost estimates", () => {

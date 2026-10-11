@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { useProjectPullRequest, type ProjectPullRequest } from "#/lib/project-pull-requests";
 import { PullRequestWorkspace } from "./pull-request-workspace";
 import { Route as PullsRoute } from "#/routes/project/$projectId/pulls";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { MemoryStore, resolveConfig } from "../../src/core/index.ts";
 import { SessionManager, type StoredSession } from "../../src/server/session.ts";
 import { createOpenAIMock, makeAccessToken } from "./helpers.ts";

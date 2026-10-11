@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { DEFAULT_PROJECT_SETTINGS } from "@autopr/backend/convex/lib/projectSettings";
 import { ProjectAgentSettingsForm } from "./project-agent-settings";
 

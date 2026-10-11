@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { decryptJson, encryptJson, sign, unsign } from "../../src/server/crypto.ts";
 
 const SECRET = "test-secret-please-change";

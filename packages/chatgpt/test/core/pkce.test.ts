@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { base64UrlEncode, generatePkce, randomToken } from "../../src/core/index.ts";
 
 describe("pkce", () => {

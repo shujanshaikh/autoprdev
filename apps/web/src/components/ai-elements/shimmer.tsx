@@ -1,10 +1,10 @@
 import { cn } from "@autopr/ui/lib/utils";
 import { domAnimation, LazyMotion, m } from "motion/react";
-import type { CSSProperties, ElementType } from "react";
+import type { CSSProperties, ElementType, ReactNode } from "react";
 import { memo, useMemo } from "react";
 
 export interface TextShimmerProps {
-  children: string;
+  children: ReactNode;
   as?: ElementType;
   className?: string;
   duration?: number;
@@ -19,7 +19,7 @@ const ShimmerComponent = ({
   spread = 2,
 }: TextShimmerProps) => {
   const dynamicSpread = useMemo(
-    () => (children?.length ?? 0) * spread,
+    () => (typeof children === "string" || Array.isArray(children) ? children.length : 0) * spread,
     [children, spread]
   );
   const motionProps = {

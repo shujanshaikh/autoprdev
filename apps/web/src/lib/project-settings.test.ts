@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@autopr/backend/convex/_generated/api";
 import type { Doc } from "@autopr/backend/convex/_generated/dataModel";

@@ -376,9 +376,9 @@ async function POST(
   if (parsed.data.action === "generate_title" || parsed.data.action === "regenerate_title") {
     try {
       const regenerating = parsed.data.action === "regenerate_title";
-      const message = regenerating
-        ? await convexQuery(api.messages.getFirstUserMessageForTitle, { threadId }) ?? undefined
-        : parsed.data.message;
+      const message = parsed.data.action === "generate_title"
+        ? parsed.data.message
+        : await convexQuery(api.messages.getFirstUserMessageForTitle, { threadId }) ?? undefined;
       if (!message) {
         return Response.json(
           { error: "Add a message before regenerating the thread title." },

@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { ChatTransportEvent, useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
 import type { ChatStatus, UIMessage } from "ai";
 import type { ComponentProps, PropsWithChildren } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { TriggerChatTransport } from "#/lib/trigger-chat-transport";
 import type { ThreadMessages } from "./thread-messages";

@@ -513,7 +513,7 @@ const CodeBlockContainer = ({
   />
 );
 
-const CodeBlockHeader = ({
+export const CodeBlockHeader = ({
   children,
   className,
   ...props
@@ -529,7 +529,7 @@ const CodeBlockHeader = ({
   </div>
 );
 
-const CodeBlockTitle = ({
+export const CodeBlockTitle = ({
   children,
   className,
   ...props
@@ -539,7 +539,7 @@ const CodeBlockTitle = ({
   </div>
 );
 
-const CodeBlockFilename = ({
+export const CodeBlockFilename = ({
   children,
   className,
   ...props
@@ -549,7 +549,7 @@ const CodeBlockFilename = ({
   </span>
 );
 
-const CodeBlockActions = ({
+export const CodeBlockActions = ({
   children,
   className,
   ...props
@@ -666,7 +666,7 @@ export type CodeBlockCopyButtonProps = ComponentProps<typeof Button> & {
   timeout?: number;
 };
 
-const CodeBlockCopyButton = ({
+export const CodeBlockCopyButton = ({
   onCopy,
   onError,
   timeout = 2000,
@@ -721,7 +721,7 @@ const CodeBlockCopyButton = ({
 
 export type CodeBlockLanguageSelectorProps = ComponentProps<typeof Select>;
 
-const CodeBlockLanguageSelector = (
+export const CodeBlockLanguageSelector = (
   props: CodeBlockLanguageSelectorProps
 ) => <Select {...props} />;
 
@@ -729,7 +729,7 @@ export type CodeBlockLanguageSelectorTriggerProps = ComponentProps<
   typeof SelectTrigger
 >;
 
-const CodeBlockLanguageSelectorTrigger = ({
+export const CodeBlockLanguageSelectorTrigger = ({
   className,
   ...props
 }: CodeBlockLanguageSelectorTriggerProps) => (
@@ -747,7 +747,7 @@ export type CodeBlockLanguageSelectorValueProps = ComponentProps<
   typeof SelectValue
 >;
 
-const CodeBlockLanguageSelectorValue = (
+export const CodeBlockLanguageSelectorValue = (
   props: CodeBlockLanguageSelectorValueProps
 ) => <SelectValue {...props} />;
 
@@ -755,7 +755,7 @@ export type CodeBlockLanguageSelectorContentProps = ComponentProps<
   typeof SelectContent
 >;
 
-const CodeBlockLanguageSelectorContent = ({
+export const CodeBlockLanguageSelectorContent = ({
   align = "end",
   ...props
 }: CodeBlockLanguageSelectorContentProps) => (
@@ -766,6 +766,6 @@ export type CodeBlockLanguageSelectorItemProps = ComponentProps<
   typeof SelectItem
 >;
 
-const CodeBlockLanguageSelectorItem = (
+export const CodeBlockLanguageSelectorItem = (
   props: CodeBlockLanguageSelectorItemProps
 ) => <SelectItem {...props} />;

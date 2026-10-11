@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 const initialGithubAppId = process.env.GITHUB_APP_ID;
 const initialGithubAppPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY;

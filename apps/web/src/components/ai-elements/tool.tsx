@@ -864,7 +864,6 @@ function ContentDetailsBody({
   slug,
   content,
   details,
-  recordingPlaybackBasePath,
 }: {
   slug: string;
   content: string;
@@ -987,10 +986,6 @@ function ToolStatusText({ state }: { state: ToolPart["state"] }) {
     </span>
   );
 }
-
-const getStatusBadge = (status: ToolPart["state"]) => (
-  <ToolStatusText state={status} />
-);
 
 export type ToolHeaderProps = {
   title?: string;

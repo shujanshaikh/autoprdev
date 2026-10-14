@@ -215,7 +215,7 @@ export type MessageBranchProps = HTMLAttributes<HTMLDivElement> & {
   onBranchChange?: (branchIndex: number) => void;
 };
 
-const MessageBranch = ({
+export const MessageBranch = ({
   defaultBranch = 0,
   onBranchChange,
   className,
@@ -268,7 +268,7 @@ const MessageBranch = ({
 
 export type MessageBranchContentProps = HTMLAttributes<HTMLDivElement>;
 
-const MessageBranchContent = ({
+export const MessageBranchContent = ({
   children,
   ...props
 }: MessageBranchContentProps) => {
@@ -300,7 +300,7 @@ const MessageBranchContent = ({
 
 export type MessageBranchSelectorProps = ComponentProps<typeof ButtonGroup>;
 
-const MessageBranchSelector = ({
+export const MessageBranchSelector = ({
   className,
   ...props
 }: MessageBranchSelectorProps) => {
@@ -324,7 +324,7 @@ const MessageBranchSelector = ({
 
 export type MessageBranchPreviousProps = ComponentProps<typeof Button>;
 
-const MessageBranchPrevious = ({
+export const MessageBranchPrevious = ({
   children,
   ...props
 }: MessageBranchPreviousProps) => {
@@ -347,7 +347,7 @@ const MessageBranchPrevious = ({
 
 export type MessageBranchNextProps = ComponentProps<typeof Button>;
 
-const MessageBranchNext = ({
+export const MessageBranchNext = ({
   children,
   ...props
 }: MessageBranchNextProps) => {
@@ -370,7 +370,7 @@ const MessageBranchNext = ({
 
 export type MessageBranchPageProps = HTMLAttributes<HTMLSpanElement>;
 
-const MessageBranchPage = ({
+export const MessageBranchPage = ({
   className,
   ...props
 }: MessageBranchPageProps) => {
@@ -450,7 +450,7 @@ MessageResponse.displayName = "MessageResponse";
 
 export type MessageToolbarProps = ComponentProps<"div">;
 
-const MessageToolbar = ({
+export const MessageToolbar = ({
   className,
   children,
   ...props

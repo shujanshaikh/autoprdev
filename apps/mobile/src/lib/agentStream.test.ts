@@ -1,5 +1,5 @@
 import { createUIMessageStreamResponse, type UIMessage, type UIMessageChunk } from "ai";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { consumeAgentRunStream } from "./agentStream";
 

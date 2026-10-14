@@ -1,5 +1,5 @@
 import { readyTerminalPort } from "@autopr/backend/convex/lib/sandboxCommandOutput";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 describe("terminal preview readiness", () => {
   it("accepts E2B's stdout marker when no exit code is available", () => {

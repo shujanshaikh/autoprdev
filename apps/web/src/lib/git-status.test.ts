@@ -5,7 +5,7 @@ import {
   parseGitStatusPorcelainV2,
   type ThreadGitStatus,
 } from "@autopr/backend/convex/lib/gitStatus";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 const oid = "1234567890abcdef1234567890abcdef12345678";
 

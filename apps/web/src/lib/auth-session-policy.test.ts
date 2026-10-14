@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { AUTHKIT_CLIENT_SESSION_POLICY } from "./auth-session-policy";
 

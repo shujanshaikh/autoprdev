@@ -215,7 +215,7 @@ const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(
   null
 );
 
-const usePromptInputController = () => {
+export const usePromptInputController = () => {
   const ctx = use(PromptInputController);
   if (!ctx) {
     throw new Error(
@@ -229,7 +229,7 @@ const usePromptInputController = () => {
 const useOptionalPromptInputController = () =>
   use(PromptInputController);
 
-const useProviderAttachments = () => {
+export const useProviderAttachments = () => {
   const ctx = use(ProviderAttachmentsContext);
   if (!ctx) {
     throw new Error(
@@ -418,7 +418,7 @@ export interface ReferencedSourcesContext {
 const LocalReferencedSourcesContext =
   createContext<ReferencedSourcesContext | null>(null);
 
-const usePromptInputReferencedSources = () => {
+export const usePromptInputReferencedSources = () => {
   const ctx = use(LocalReferencedSourcesContext);
   if (!ctx) {
     throw new Error(
@@ -434,7 +434,7 @@ export type PromptInputActionAddAttachmentsProps = ComponentProps<
   label?: string;
 };
 
-const PromptInputActionAddAttachments = ({
+export const PromptInputActionAddAttachments = ({
   label = "Add photos or files",
   ...props
 }: PromptInputActionAddAttachmentsProps) => {
@@ -461,7 +461,7 @@ export type PromptInputActionAddScreenshotProps = ComponentProps<
   label?: string;
 };
 
-const PromptInputActionAddScreenshot = ({
+export const PromptInputActionAddScreenshot = ({
   label = "Take screenshot",
   onSelect,
   ...props
@@ -1238,13 +1238,13 @@ export const PromptInputButton = ({
 };
 
 export type PromptInputActionMenuProps = ComponentProps<typeof DropdownMenu>;
-const PromptInputActionMenu = (props: PromptInputActionMenuProps) => (
+export const PromptInputActionMenu = (props: PromptInputActionMenuProps) => (
   <DropdownMenu {...props} />
 );
 
 export type PromptInputActionMenuTriggerProps = PromptInputButtonProps;
 
-const PromptInputActionMenuTrigger = ({
+export const PromptInputActionMenuTrigger = ({
   className,
   children,
   ...props
@@ -1255,7 +1255,7 @@ const PromptInputActionMenuTrigger = ({
 export type PromptInputActionMenuContentProps = ComponentProps<
   typeof DropdownMenuContent
 >;
-const PromptInputActionMenuContent = ({
+export const PromptInputActionMenuContent = ({
   className,
   ...props
 }: PromptInputActionMenuContentProps) => (
@@ -1265,7 +1265,7 @@ const PromptInputActionMenuContent = ({
 export type PromptInputActionMenuItemProps = ComponentProps<
   typeof DropdownMenuItem
 >;
-const PromptInputActionMenuItem = ({
+export const PromptInputActionMenuItem = ({
   className,
   ...props
 }: PromptInputActionMenuItemProps) => (
@@ -1335,7 +1335,7 @@ export const PromptInputSubmit = ({
 
 export type PromptInputSelectProps = ComponentProps<typeof Select>;
 
-const PromptInputSelect = (props: PromptInputSelectProps) => (
+export const PromptInputSelect = (props: PromptInputSelectProps) => (
   <Select {...props} />
 );
 
@@ -1343,7 +1343,7 @@ export type PromptInputSelectTriggerProps = ComponentProps<
   typeof SelectTrigger
 >;
 
-const PromptInputSelectTrigger = ({
+export const PromptInputSelectTrigger = ({
   className,
   ...props
 }: PromptInputSelectTriggerProps) => (
@@ -1363,7 +1363,7 @@ export type PromptInputSelectContentProps = ComponentProps<
   typeof SelectContent
 >;
 
-const PromptInputSelectContent = ({
+export const PromptInputSelectContent = ({
   className,
   ...props
 }: PromptInputSelectContentProps) => (
@@ -1372,7 +1372,7 @@ const PromptInputSelectContent = ({
 
 export type PromptInputSelectItemProps = ComponentProps<typeof SelectItem>;
 
-const PromptInputSelectItem = ({
+export const PromptInputSelectItem = ({
   className,
   ...props
 }: PromptInputSelectItemProps) => (
@@ -1381,7 +1381,7 @@ const PromptInputSelectItem = ({
 
 export type PromptInputSelectValueProps = ComponentProps<typeof SelectValue>;
 
-const PromptInputSelectValue = ({
+export const PromptInputSelectValue = ({
   className,
   ...props
 }: PromptInputSelectValueProps) => (
@@ -1390,7 +1390,7 @@ const PromptInputSelectValue = ({
 
 export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard>;
 
-const PromptInputHoverCard = (props: PromptInputHoverCardProps) => (
+export const PromptInputHoverCard = (props: PromptInputHoverCardProps) => (
   <HoverCard {...props} />
 );
 
@@ -1398,7 +1398,7 @@ export type PromptInputHoverCardTriggerProps = ComponentProps<
   typeof HoverCardTrigger
 >;
 
-const PromptInputHoverCardTrigger = (
+export const PromptInputHoverCardTrigger = (
   props: PromptInputHoverCardTriggerProps
 ) => <HoverCardTrigger {...props} />;
 
@@ -1406,7 +1406,7 @@ export type PromptInputHoverCardContentProps = ComponentProps<
   typeof HoverCardContent
 >;
 
-const PromptInputHoverCardContent = ({
+export const PromptInputHoverCardContent = ({
   align = "start",
   ...props
 }: PromptInputHoverCardContentProps) => (
@@ -1415,21 +1415,21 @@ const PromptInputHoverCardContent = ({
 
 export type PromptInputTabsListProps = HTMLAttributes<HTMLDivElement>;
 
-const PromptInputTabsList = ({
+export const PromptInputTabsList = ({
   className,
   ...props
 }: PromptInputTabsListProps) => <div className={cn(className)} {...props} />;
 
 export type PromptInputTabProps = HTMLAttributes<HTMLDivElement>;
 
-const PromptInputTab = ({
+export const PromptInputTab = ({
   className,
   ...props
 }: PromptInputTabProps) => <div className={cn(className)} {...props} />;
 
 export type PromptInputTabLabelProps = HTMLAttributes<HTMLHeadingElement>;
 
-const PromptInputTabLabel = ({
+export const PromptInputTabLabel = ({
   className,
   ...props
 }: PromptInputTabLabelProps) => (
@@ -1447,7 +1447,7 @@ const PromptInputTabLabel = ({
 
 export type PromptInputTabBodyProps = HTMLAttributes<HTMLDivElement>;
 
-const PromptInputTabBody = ({
+export const PromptInputTabBody = ({
   className,
   ...props
 }: PromptInputTabBodyProps) => (
@@ -1456,7 +1456,7 @@ const PromptInputTabBody = ({
 
 export type PromptInputTabItemProps = HTMLAttributes<HTMLDivElement>;
 
-const PromptInputTabItem = ({
+export const PromptInputTabItem = ({
   className,
   ...props
 }: PromptInputTabItemProps) => (
@@ -1471,14 +1471,14 @@ const PromptInputTabItem = ({
 
 export type PromptInputCommandProps = ComponentProps<typeof Command>;
 
-const PromptInputCommand = ({
+export const PromptInputCommand = ({
   className,
   ...props
 }: PromptInputCommandProps) => <Command className={cn(className)} {...props} />;
 
 export type PromptInputCommandInputProps = ComponentProps<typeof CommandInput>;
 
-const PromptInputCommandInput = ({
+export const PromptInputCommandInput = ({
   className,
   ...props
 }: PromptInputCommandInputProps) => (
@@ -1487,7 +1487,7 @@ const PromptInputCommandInput = ({
 
 export type PromptInputCommandListProps = ComponentProps<typeof CommandList>;
 
-const PromptInputCommandList = ({
+export const PromptInputCommandList = ({
   className,
   ...props
 }: PromptInputCommandListProps) => (
@@ -1496,7 +1496,7 @@ const PromptInputCommandList = ({
 
 export type PromptInputCommandEmptyProps = ComponentProps<typeof CommandEmpty>;
 
-const PromptInputCommandEmpty = ({
+export const PromptInputCommandEmpty = ({
   className,
   ...props
 }: PromptInputCommandEmptyProps) => (
@@ -1505,7 +1505,7 @@ const PromptInputCommandEmpty = ({
 
 export type PromptInputCommandGroupProps = ComponentProps<typeof CommandGroup>;
 
-const PromptInputCommandGroup = ({
+export const PromptInputCommandGroup = ({
   className,
   ...props
 }: PromptInputCommandGroupProps) => (
@@ -1514,7 +1514,7 @@ const PromptInputCommandGroup = ({
 
 export type PromptInputCommandItemProps = ComponentProps<typeof CommandItem>;
 
-const PromptInputCommandItem = ({
+export const PromptInputCommandItem = ({
   className,
   ...props
 }: PromptInputCommandItemProps) => (
@@ -1525,7 +1525,7 @@ export type PromptInputCommandSeparatorProps = ComponentProps<
   typeof CommandSeparator
 >;
 
-const PromptInputCommandSeparator = ({
+export const PromptInputCommandSeparator = ({
   className,
   ...props
 }: PromptInputCommandSeparatorProps) => (

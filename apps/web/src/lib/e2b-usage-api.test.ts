@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { fetchE2BUsageEvents, mergeE2BExecutions } from "@autopr/backend/convex/lib/e2bUsage";
 
 const rawEvent = {

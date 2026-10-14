@@ -1,5 +1,5 @@
 import { wrapLanguageModel, type LanguageModel, type ModelMessage } from "ai";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createAgentContextCompactor,

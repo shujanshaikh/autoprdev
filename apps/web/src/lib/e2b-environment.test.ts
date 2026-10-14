@@ -1,5 +1,5 @@
 import { getFunctionName, type FunctionArgs } from "convex/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   createSandbox: vi.fn(),

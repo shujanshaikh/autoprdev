@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { getFunctionName } from "convex/server";
 import { Sandbox, SandboxNotFoundError } from "e2b";
 import { syncOneSandboxCost } from "@autopr/backend/convex/sandboxCostActions";

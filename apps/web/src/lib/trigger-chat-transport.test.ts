@@ -1,5 +1,5 @@
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { TriggerChatTransport } from "./trigger-chat-transport";
 

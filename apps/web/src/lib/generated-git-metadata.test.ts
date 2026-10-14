@@ -1,5 +1,5 @@
 import { MockLanguageModelV3, simulateReadableStream } from "ai/test";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import {
@@ -18,35 +18,41 @@ vi.mock("#/lib/codex-auth-server", () => ({
 
 describe("generated Git metadata", () => {
   it("normalizes concise generated thread titles and bounds fallback prompts", () => {
-    expect(normalizeGeneratedThreadTitle('"Improve Git workflow."', "ignored"))
-      .toBe("Improve Git workflow");
-    expect(normalizeGeneratedThreadTitle(
-      "",
-      "I want you to improve the pull request body and branch naming behavior for this project",
-    )).toBe("improve the pull request body and branch naming");
+    expect(normalizeGeneratedThreadTitle('"Improve Git workflow."', "ignored")).toBe(
+      "Improve Git workflow",
+    );
+    expect(
+      normalizeGeneratedThreadTitle(
+        "",
+        "I want you to improve the pull request body and branch naming behavior for this project",
+      ),
+    ).toBe("improve the pull request body and branch naming");
   });
 
   it("parses JSON metadata from plain Codex text responses", () => {
     const schema = z.object({ title: z.string() });
 
-    expect(parseGeneratedMetadata(
-      '```json\n{"title":"Fix thread titles"}\n```',
-      schema,
-    )).toEqual({ title: "Fix thread titles" });
-    expect(parseGeneratedMetadata(
-      'Generated metadata:\n{"title":"Improve branch naming"}\nDone.',
-      schema,
-    )).toEqual({ title: "Improve branch naming" });
+    expect(parseGeneratedMetadata('```json\n{"title":"Fix thread titles"}\n```', schema)).toEqual({
+      title: "Fix thread titles",
+    });
+    expect(
+      parseGeneratedMetadata(
+        'Generated metadata:\n{"title":"Improve branch naming"}\nDone.',
+        schema,
+      ),
+    ).toEqual({ title: "Improve branch naming" });
   });
 
   it("rejects malformed plain-text metadata", () => {
-    expect(() => parseGeneratedMetadata("not json", z.object({ title: z.string() })))
-      .toThrow("Codex returned invalid generated metadata.");
+    expect(() => parseGeneratedMetadata("not json", z.object({ title: z.string() }))).toThrow(
+      "Codex returned invalid generated metadata.",
+    );
   });
 
   it("keeps commit subjects on one safe line", () => {
-    expect(normalizeGeneratedCommitMessage("Subject: Improve PR metadata.\nExtra explanation"))
-      .toBe("Improve PR metadata");
+    expect(
+      normalizeGeneratedCommitMessage("Subject: Improve PR metadata.\nExtra explanation"),
+    ).toBe("Improve PR metadata");
   });
 
   it("creates useful PR content without leaking internal thread IDs", () => {
@@ -65,31 +71,38 @@ describe("generated Git metadata", () => {
 
   it("streams thread titles because the Codex responses endpoint rejects non-streaming calls", async () => {
     const doGenerate = vi.fn();
-    createCodexModel.mockResolvedValue(new MockLanguageModelV3({
-      doGenerate,
-      doStream: async () => ({
-        stream: simulateReadableStream({
-          chunks: [
-            { type: "stream-start", warnings: [] },
-            { type: "text-start", id: "0" },
-            { type: "text-delta", id: "0", delta: '{"title":"Fix thread title generation"}' },
-            { type: "text-end", id: "0" },
-            {
-              type: "finish",
-              finishReason: "stop",
-              usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
-            },
-          ],
+    createCodexModel.mockResolvedValue(
+      new MockLanguageModelV3({
+        doGenerate,
+        doStream: async () => ({
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "0" },
+              { type: "text-delta", id: "0", delta: '{"title":"Fix thread title generation"}' },
+              { type: "text-end", id: "0" },
+              {
+                type: "finish",
+                finishReason: { unified: "stop", raw: "stop" },
+                usage: {
+                  inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+                  outputTokens: { total: 10, text: 10, reasoning: 0 },
+                },
+              },
+            ],
+          }),
         }),
       }),
-    }));
+    );
 
-    await expect(generateThreadTitle({
-      request: new Request("http://localhost/api/project/project-1/thread/thread-1"),
-      projectId: "project-1",
-      threadId: "thread-1",
-      message: "the thread title generation keeps failing with a bad request",
-    })).resolves.toBe("Fix thread title generation");
+    await expect(
+      generateThreadTitle({
+        request: new Request("http://localhost/api/project/project-1/thread/thread-1"),
+        projectId: "project-1",
+        threadId: "thread-1",
+        message: "the thread title generation keeps failing with a bad request",
+      }),
+    ).resolves.toBe("Fix thread title generation");
     expect(doGenerate).not.toHaveBeenCalled();
   });
 });

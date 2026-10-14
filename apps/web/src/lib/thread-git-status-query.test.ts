@@ -1,5 +1,5 @@
 import type { ThreadGitStatus } from "@autopr/backend/convex/lib/gitStatus";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { resolveThreadBranchLabel } from "./thread-git-status-query";
 

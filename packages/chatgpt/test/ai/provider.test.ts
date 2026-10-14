@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { ChatGPTImageError, ChatGPTProxyError, createChatGPT, createChatGPTProxyProvider } from "../../src/ai/index.ts";
 import { createMockFetch, jsonResponse, makeAccessToken, makeIdToken } from "../core/helpers.ts";
 

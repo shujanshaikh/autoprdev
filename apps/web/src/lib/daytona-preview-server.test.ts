@@ -2,7 +2,7 @@ import {
   previewWebsocketUrl,
   waitForPreviewRoute,
 } from "@autopr/backend/convex/lib/daytonaPreview";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 describe("Daytona preview routing", () => {
   it("preserves a signed token path when adding the WebSocket route", () => {

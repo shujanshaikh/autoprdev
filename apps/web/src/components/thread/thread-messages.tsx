@@ -421,7 +421,7 @@ function AssistantRunTimerRow({
   );
 }
 
-function SandboxStatusBar({
+export function SandboxStatusBar({
   sandboxStatus,
   runtimeStatus,
   checking = false,

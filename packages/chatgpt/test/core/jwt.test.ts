@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { decodeJwt, deriveAccountId, getTokenExpiry, parseUser } from "../../src/core/index.ts";
 import { makeIdToken, makeJwt } from "./helpers.ts";
 

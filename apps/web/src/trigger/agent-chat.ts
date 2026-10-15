@@ -7,7 +7,7 @@ import {
   createSandboxTools,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
-  withSandboxAgentProjectContext,
+  withSandboxAgentSetupContext,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
 import { logger } from "@trigger.dev/sdk";
@@ -168,14 +168,16 @@ function modelInstructions(clientData: AgentChatClientData) {
   const provider = clientData.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   return [
     `This chat is streamed through a durable Trigger.dev Session. The ${provider} sandbox is prepared before you answer and all tools operate inside that sandbox.`,
+    demoInstructions(clientData),
+  ].join("\n");
+}
+
+function runContext(clientData: AgentChatClientData) {
+  return [
     clientData.repoUrl ? `Repository: ${clientData.repoUrl}` : undefined,
     clientData.repoBranch ? `Repository branch: ${clientData.repoBranch}` : undefined,
-    clientData.sandboxWorkDir
-      ? `Sandbox working directory: ${clientData.sandboxWorkDir}`
-      : undefined,
     `Project ID: ${clientData.projectId}`,
     `Thread ID: ${clientData.threadId}`,
-    demoInstructions(clientData),
   ]
     .filter(Boolean)
     .join("\n");
@@ -298,6 +300,7 @@ export const agentChatTask = chat.agent({
       modelId: trusted.model.modelId,
       modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
       appendSystemPrompt: modelInstructions(trusted),
+      runContext: runContext(trusted),
     });
     const selectedModel = {
       ...trusted.model,
@@ -306,7 +309,7 @@ export const agentChatTask = chat.agent({
     };
     const startedAt = Date.now();
     const subAgentUsageSteps: AssistantUsageSource[] = [];
-    const [{ instructions, repositoryContext, sandbox }, responseModels] = await Promise.all([
+    const [{ instructions, setupContext, sandbox }, responseModels] = await Promise.all([
       harness.prepare(),
       createAgentResponseModels(selectedModel),
     ]);
@@ -340,7 +343,7 @@ export const agentChatTask = chat.agent({
       model,
       system: agentSystemPrompt(selectedModel, instructions),
       messages: applyAgenticCache(
-        withSandboxAgentProjectContext(messages, repositoryContext),
+        withSandboxAgentSetupContext(messages, setupContext),
       ),
       tools,
       toolChoice: "auto",

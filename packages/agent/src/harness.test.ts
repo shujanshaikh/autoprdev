@@ -49,7 +49,9 @@ describe("CodingHarness", () => {
 
     await expect(harness.run(async (context) => {
       expect(context.sandbox.workDir).toBe("/workspace/repo");
-      expect(context.repositoryContext).toContain("Use pnpm.");
+      expect(context.setupContext).toContain("Use pnpm.");
+      expect(context.setupContext).toContain("Sandbox ID: sandbox-1");
+      expect(context.instructions).not.toContain("sandbox-1");
       return "complete";
     })).resolves.toBe("complete");
 

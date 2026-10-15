@@ -1,5 +1,5 @@
 import {
-  buildSandboxAgentProjectContext,
+  buildSandboxAgentSetupContext,
   buildSandboxAgentSystemPrompt,
 } from "./system-prompt";
 import { loadSandboxProjectInstructions } from "./project-instructions";
@@ -21,7 +21,8 @@ export interface CodingHarnessContext {
   instructionFiles: Array<{ path: string; content: string }>;
   unavailableSelectedTools: string[];
   instructions: string;
-  repositoryContext?: string;
+  /** First user message of the run: environment facts and project instructions. */
+  setupContext: string;
 }
 
 export type CodingHarnessEvent =
@@ -41,7 +42,10 @@ export interface CodingHarnessListenerError {
 export type CodingHarnessListenerErrorHandler = (failure: CodingHarnessListenerError) => void | Promise<void>;
 
 export interface CodingHarnessOptions extends SandboxSessionOptions {
+  /** Stable instructions appended to the system prompt. */
   appendSystemPrompt?: string;
+  /** Per-run facts (repository, branch, IDs) placed in the setup context, not the system prompt. */
+  runContext?: string;
   modelId?: string;
   modelProviderName?: string;
   selectedTools?: string[];
@@ -117,18 +121,21 @@ export class CodingHarness {
             maxBytes: this.options.projectInstructionMaxBytes,
           });
       const instructions = buildSandboxAgentSystemPrompt({
+        sandboxProvider: sandbox.provider,
+        modelId: this.options.modelId,
+        modelProviderName: this.options.modelProviderName,
+        selectedTools: toolSelection.toolNames,
+        appendSystemPrompt: this.options.appendSystemPrompt,
+      });
+      const setupContext = buildSandboxAgentSetupContext({
         cwd: sandbox.workDir,
         sandboxProvider: sandbox.provider,
         sandboxId: sandbox.sandboxId,
         sandboxName: sandbox.sandboxName,
         snapshot: sandbox.snapshot,
-        modelId: this.options.modelId,
-        modelProviderName: this.options.modelProviderName,
-        selectedTools: toolSelection.toolNames,
+        runContext: this.options.runContext,
         contextFiles: instructionFiles,
-        appendSystemPrompt: this.options.appendSystemPrompt,
       });
-      const repositoryContext = buildSandboxAgentProjectContext(instructionFiles);
 
       const context = {
         sandbox,
@@ -137,7 +144,7 @@ export class CodingHarness {
         instructionFiles,
         unavailableSelectedTools: toolSelection.unavailableToolNames,
         instructions,
-        repositoryContext,
+        setupContext,
       };
       this.prepared = context;
       await this.emit({ type: "sandbox_prepared", context });

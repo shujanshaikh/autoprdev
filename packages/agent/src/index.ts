@@ -10,10 +10,10 @@ export {
   type CodingHarnessPhase,
 } from "./harness";
 export {
-  buildSandboxAgentProjectContext,
+  buildSandboxAgentSetupContext,
   buildSandboxAgentSystemPrompt,
   REPOSITORY_SAFETY_POLICY,
-  withSandboxAgentProjectContext,
+  withSandboxAgentSetupContext,
 } from "./system-prompt";
 export { applyAgenticCache, createCachedSystemMessage } from "./cache";
 export {

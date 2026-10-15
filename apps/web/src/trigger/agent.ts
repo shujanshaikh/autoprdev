@@ -6,7 +6,7 @@ import {
   createAgentStepController,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
-  withSandboxAgentProjectContext,
+  withSandboxAgentSetupContext,
 } from "@autopr/agent";
 import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
@@ -221,13 +221,16 @@ async function runAgentTask(
     ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run),
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
-    appendSystemPrompt: [
-      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
+    runContext: [
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
-      options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    appendSystemPrompt: [
+      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
       options.computerUseEnabled === false
         ? "Computer use is disabled for this thread. Do not control a browser or desktop, including through shell commands."
         : demoRecordingEnabled
@@ -254,7 +257,7 @@ async function runAgentTask(
   }
 
   try {
-    await harness.run(async ({ instructions, repositoryContext, sandbox, tools }) => {
+    await harness.run(async ({ instructions, setupContext, sandbox, tools }) => {
       const responseModels = await createAgentResponseModels(selectedModel);
       const model = wrapLanguageModel({
         model: responseModels.parent,
@@ -284,7 +287,7 @@ async function runAgentTask(
         model,
         system: agentSystemPrompt(selectedModel, instructions),
         messages: applyAgenticCache(
-          withSandboxAgentProjectContext(inputMessages, repositoryContext),
+          withSandboxAgentSetupContext(inputMessages, setupContext),
         ),
         tools,
         toolChoice: "auto",

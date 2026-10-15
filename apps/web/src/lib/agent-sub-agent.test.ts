@@ -34,6 +34,7 @@ vi.mock("ai", () => ({
 
 vi.mock("#/lib/agent-context-compaction", () => ({
   createAgentContextCompactor: (options: unknown) => options,
+  SETUP_CONTEXT_MESSAGES: 1,
 }));
 
 vi.mock("#/lib/agent-auth-runtime-server", () => ({

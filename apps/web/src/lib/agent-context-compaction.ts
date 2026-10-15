@@ -17,6 +17,9 @@ const TOOL_OUTPUT_MAX_CHARS = 60_000;
 const TOOL_OUTPUT_PREVIEW_CHARS = 4_000;
 const EMERGENCY_TAIL_CHARS = [80_000, 32_000] as const;
 
+/** withSandboxAgentSetupContext opens every run with one setup message that compaction must keep. */
+export const SETUP_CONTEXT_MESSAGES = 1;
+
 const SUMMARY_SYSTEM_PROMPT = `You create context checkpoints for a coding agent.
 
 Summarize the supplied conversation so another agent can continue the work without repeating completed actions. Do not continue the task and do not answer the conversation. Preserve exact file paths, commands, errors, constraints, decisions, unfinished work, and important tool results.`;
@@ -42,6 +45,8 @@ type SummaryInput = {
 
 export type AgentContextCompactorOptions = {
   contextWindow?: number;
+  /** Leading messages kept verbatim and never summarized, such as the run's setup context. */
+  pinnedLeadingMessages?: number;
   systemPrompt?: string;
   abortSignal?: AbortSignal;
   summarize?: (input: SummaryInput) => Promise<string>;
@@ -336,10 +341,12 @@ export function createAgentContextCompactor(
   const reserveTokens = Math.min(COMPACTION_RESERVE_TOKENS, Math.floor(contextWindow * 0.25));
   const usableTokens = contextWindow - reserveTokens;
   const systemTokens = Math.ceil((options.systemPrompt?.length ?? 0) / 4);
+  const pinnedCount = Math.max(0, options.pinnedLeadingMessages ?? 0);
   let state: CompactionState | undefined;
 
   return async ({ messages, model, steps }) => {
     const compacted = capLargeToolOutputs(compactPromptMessagesForModel(messages));
+    const pinned = compacted.slice(0, pinnedCount);
     const stateMatches = state
       && state.firstMessage === messages[0]
       && state.summarizedThrough <= messages.length;
@@ -348,7 +355,7 @@ export function createAgentContextCompactor(
     }
 
     const activeMessages = state
-      ? [summaryMessage(state.summary), ...compacted.slice(state.summarizedThrough)]
+      ? [...pinned, summaryMessage(state.summary), ...compacted.slice(state.summarizedThrough)]
       : compacted;
     const lastProviderInput = steps.at(-1)?.usage.inputTokens ?? 0;
     const estimatedTokens = Math.max(
@@ -360,19 +367,17 @@ export function createAgentContextCompactor(
       return { messages: activeMessages };
     }
 
+    const summarizedThrough = state?.summarizedThrough ?? pinnedCount;
     const tailStart = Math.max(
-      state?.summarizedThrough ?? 0,
+      summarizedThrough,
       findTailStart(compacted, Math.min(KEEP_RECENT_TOKENS, Math.floor(usableTokens * 0.25))),
     );
-    if (tailStart <= (state?.summarizedThrough ?? 0) && state) {
-      return { messages: activeMessages };
-    }
-    if (tailStart <= 0) {
+    if (tailStart <= summarizedThrough) {
       return { messages: activeMessages };
     }
 
     const summary = await summarizeMessages(
-      compacted.slice(state?.summarizedThrough ?? 0, tailStart),
+      compacted.slice(summarizedThrough, tailStart),
       state?.summary,
       model,
       options,
@@ -384,7 +389,7 @@ export function createAgentContextCompactor(
     };
 
     return {
-      messages: [summaryMessage(summary), ...compacted.slice(tailStart)],
+      messages: [...pinned, summaryMessage(summary), ...compacted.slice(tailStart)],
     };
   };
 }
@@ -492,11 +497,14 @@ function serializeProviderHead(messages: ProviderPrompt) {
 export function emergencyCompactProviderPrompt(
   prompt: ProviderPrompt,
   attempt: number,
+  pinnedLeadingMessages = 0,
 ): ProviderPrompt {
   const normalizedAttempt = Math.max(1, attempt);
   const systems = prompt.filter((message) => message.role === "system");
-  const conversation = prompt
-    .filter((message) => message.role !== "system")
+  const nonSystem = prompt.filter((message) => message.role !== "system");
+  const pinned = nonSystem.slice(0, Math.max(0, pinnedLeadingMessages));
+  const conversation = nonSystem
+    .slice(pinned.length)
     .map((message) => compactProviderMessage(message, normalizedAttempt));
   const budget = EMERGENCY_TAIL_CHARS[
     Math.min(normalizedAttempt - 1, EMERGENCY_TAIL_CHARS.length - 1)
@@ -527,7 +535,7 @@ export function emergencyCompactProviderPrompt(
     }],
   };
 
-  return [...systems, checkpoint, ...conversation.slice(start)];
+  return [...systems, ...pinned, checkpoint, ...conversation.slice(start)];
 }
 
 function streamContainsModelOutput(type: string) {
@@ -621,14 +629,19 @@ function withStreamOverflowRecovery(
   };
 }
 
-/** Converts provider context overflows into progressively more aggressive retries. */
-export function createContextOverflowRecoveryMiddleware(): LanguageModelMiddleware {
+/**
+ * Converts provider context overflows into progressively more aggressive retries.
+ * Pinned leading messages, such as the run's setup context, are kept verbatim.
+ */
+export function createContextOverflowRecoveryMiddleware(
+  options: { pinnedLeadingMessages?: number } = {},
+): LanguageModelMiddleware {
   return {
     specificationVersion: "v3",
     wrapStream: async ({ doStream, model, params }) => {
       const retry = async (attempt: number) => model.doStream({
         ...params,
-        prompt: emergencyCompactProviderPrompt(params.prompt, attempt),
+        prompt: emergencyCompactProviderPrompt(params.prompt, attempt, options.pinnedLeadingMessages),
       });
       let attempt = 0;
       let result: ProviderStreamResult;

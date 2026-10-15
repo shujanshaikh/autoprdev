@@ -25,6 +25,7 @@ import { z } from "zod";
 import {
   createAgentContextCompactor,
   createContextOverflowRecoveryMiddleware,
+  SETUP_CONTEXT_MESSAGES,
 } from "#/lib/agent-context-compaction";
 import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
 import {
@@ -320,11 +321,11 @@ export const agentChatTask = chat.agent({
     ]);
     const model = wrapLanguageModel({
       model: responseModels.parent,
-      middleware: createContextOverflowRecoveryMiddleware(),
+      middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
     });
     const subAgentModel = wrapLanguageModel({
       model: responseModels.subAgent,
-      middleware: createContextOverflowRecoveryMiddleware(),
+      middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
     });
     subAgentBinding.bind(createAgentSubAgentRunner({
       sandboxOptions: {
@@ -362,6 +363,7 @@ export const agentChatTask = chat.agent({
       abortSignal: signal,
       prepareStep: createAgentStepController({
         prepareStep: createAgentContextCompactor({
+          pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES,
           contextWindow: getAgentContextLimit(selectedModel),
           systemPrompt: instructions,
           abortSignal: signal,

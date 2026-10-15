@@ -17,6 +17,7 @@ import { smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
 import {
   createAgentContextCompactor,
   createContextOverflowRecoveryMiddleware,
+  SETUP_CONTEXT_MESSAGES,
 } from "#/lib/agent-context-compaction";
 import {
   createAssistantUsageMetadata,
@@ -263,11 +264,11 @@ async function runAgentTask(
       const responseModels = await createAgentResponseModels(selectedModel);
       const model = wrapLanguageModel({
         model: responseModels.parent,
-        middleware: createContextOverflowRecoveryMiddleware(),
+        middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
       });
       const subAgentModel = wrapLanguageModel({
         model: responseModels.subAgent,
-        middleware: createContextOverflowRecoveryMiddleware(),
+        middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
       });
       subAgentBinding.bind(createAgentSubAgentRunner({
         sandboxOptions: {
@@ -303,6 +304,7 @@ async function runAgentTask(
         abortSignal: signal,
         prepareStep: createAgentStepController({
           prepareStep: createAgentContextCompactor({
+            pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES,
             contextWindow: getAgentContextLimit(selectedModel),
             systemPrompt: instructions,
             abortSignal: signal,

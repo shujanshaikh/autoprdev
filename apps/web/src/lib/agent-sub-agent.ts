@@ -9,7 +9,10 @@ import {
 } from "@autopr/agent";
 import { stepCountIs, streamText, type LanguageModel } from "ai";
 
-import { createAgentContextCompactor } from "#/lib/agent-context-compaction";
+import {
+  createAgentContextCompactor,
+  SETUP_CONTEXT_MESSAGES,
+} from "#/lib/agent-context-compaction";
 import { agentProviderOptions, agentSystemPrompt } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit } from "#/lib/agent-models";
 import type { AssistantUsageStep } from "#/lib/agent-usage";
@@ -85,6 +88,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
         abortSignal: signal,
         prepareStep: createAgentStepController({
           prepareStep: createAgentContextCompactor({
+            pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES,
             contextWindow: getAgentContextLimit(options.selectedModel),
             systemPrompt: instructions,
             abortSignal: signal,

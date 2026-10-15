@@ -11,6 +11,7 @@ import {
   isProbablyBinary,
   toTextModelOutput,
 } from "./format";
+import { TOOL_OUTPUT_DIR } from "./output-file";
 import { requireString } from "./validation";
 
 const DEFAULT_READ_LIMIT = 2_000;
@@ -43,6 +44,7 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
   const remotePath = await resolveJailedSandboxPath(path, {
     workDir: context.workDir,
     sandboxOptions,
+    extraAllowedRoots: [TOOL_OUTPUT_DIR],
   });
   const offset = Math.max(1, input.offset ?? 1);
   const byteOffset = input.byteOffset ?? 0;

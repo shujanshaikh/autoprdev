@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
+  ensureRemoteParentDirectory: vi.fn(),
   executeSandboxCommand: vi.fn(),
   getSandboxContext: vi.fn(),
+  uploadFile: vi.fn(),
 }));
 
 vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
 vi.mock("../sandbox/execute", async (importOriginal) => {
   const original = await importOriginal<typeof import("../sandbox/execute")>();
-  return { ...original, executeSandboxCommand: mocks.executeSandboxCommand };
+  return {
+    ...original,
+    ensureRemoteParentDirectory: mocks.ensureRemoteParentDirectory,
+    executeSandboxCommand: mocks.executeSandboxCommand,
+  };
 });
 
 import { createDaytonaBashTool } from "./bash";
@@ -36,7 +42,7 @@ describe("Daytona bash tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-bash" },
+      sandbox: { id: "sandbox-bash", fs: { uploadFile: mocks.uploadFile } },
       workDir: "/workspace/repo",
     });
     mocks.executeSandboxCommand.mockResolvedValue({
@@ -72,6 +78,20 @@ describe("Daytona bash tool", () => {
       outputStats: { truncatedBy: "lines" },
     });
     expect(String(result.details.stdout).length).toBeLessThan(60_000);
+
+    const fullOutputPath = "/tmp/autopr-tool-output/autopr-session.log";
+    expect(result.details.fullOutputPath).toBe(fullOutputPath);
+    expect(result.content).toContain(`Full output: ${fullOutputPath} (2101 lines`);
+    const [savedOutput, savedPath] = mocks.uploadFile.mock.calls[0]!;
+    expect(savedPath).toBe(fullOutputPath);
+    expect(Buffer.from(savedOutput).toString("utf8")).toContain("progress 0\n");
+  });
+
+  it("does not save output that fits inline", async () => {
+    const result = await executeBash({ command: "echo done" });
+    expect(result.details.fullOutputPath).toBeNull();
+    expect(result.content).not.toContain("Full output:");
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
   });
 
   it("does not impose the foreground timeout after a background launch", async () => {

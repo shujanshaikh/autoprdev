@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand, resolveSandboxPath } from "../sandbox/execute";
-import { combineCommandOutput, toTextModelOutput, truncateText, truncateToolOutput } from "./format";
+import { combineCommandOutput, formatSize, toTextModelOutput, truncateText, truncateToolOutput } from "./format";
+import { saveToolOutputFile } from "./output-file";
 import { requireString } from "./validation";
 import type { BackgroundProcessScope } from "./background-process-scope";
 import { environmentSecretValues, redactSensitiveValues } from "./redaction";
@@ -80,6 +81,13 @@ async function executeDaytonaBash(
     : "The sandbox timed out while waiting for the command to finish.";
 
   const envNames = Object.keys(input.env ?? {});
+  const fullOutputPath = truncatedOutput.truncated && !isBackground
+    ? await saveToolOutputFile(combined, result.sessionId, sandboxOptions)
+    : undefined;
+  const fullOutputNote = fullOutputPath
+    ? `Full output: ${fullOutputPath} (${truncatedOutput.totalLines} lines, ${formatSize(truncatedOutput.totalBytes)}). ` +
+      "Page it with read offset/limit or search it with grep in bash instead of re-running the command.\n"
+    : "";
 
   return {
     content:
@@ -90,7 +98,8 @@ async function executeDaytonaBash(
       `Session ID: ${result.sessionId}\n` +
       `Command ID: ${result.cmdId ?? "unknown"}\n` +
       `Timed out: ${timedOut ? "yes" : "no"}\n` +
-      `Exit code: ${isBackground && !backgroundLaunchFailed ? "pending" : result.exitCode ?? "unknown"}\n\n` +
+      `Exit code: ${isBackground && !backgroundLaunchFailed ? "pending" : result.exitCode ?? "unknown"}\n` +
+      `${fullOutputNote}\n` +
       `${truncatedOutput.text || (timedOut ? timeoutSummary : isBackground ? "Command started in background." : "(no output)")}`,
     details: {
       command: commandPreview.text,
@@ -113,6 +122,7 @@ async function executeDaytonaBash(
       timedOut,
       timeout: result.timeout ?? null,
       truncated: truncatedOutput.truncated,
+      fullOutputPath: fullOutputPath ?? null,
     },
   };
 }

@@ -1,11 +1,10 @@
-import { agentToolSettings } from "#/lib/agent-tool-settings";
+import { agentHarnessExperiments, agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
   CodingHarness,
   COMPUTER_USE_WITHOUT_RECORDING_INSTRUCTIONS,
   createAgentStepController,
   DEMO_RECORDING_INSTRUCTIONS,
-  parseHarnessExperiments,
   type SandboxSessionOptions,
   withSandboxAgentSetupContext,
 } from "@autopr/agent";
@@ -217,10 +216,10 @@ async function runAgentTask(
   const demoRecordingEnabled = Boolean(options.computerUseEnabled !== false && options.demoEnabled && options.projectId && options.threadId);
   const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const subAgentBinding = createSubAgentBinding();
-  const experiments = parseHarnessExperiments(process.env.AUTOPR_HARNESS_EXPERIMENTS);
+  const experiments = agentHarnessExperiments();
   const harness = new CodingHarness({
     ...sandboxOptions,
-    ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run),
+    ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run, experiments),
     experiments,
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",

@@ -1,4 +1,4 @@
-import { agentToolSettings } from "#/lib/agent-tool-settings";
+import { agentHarnessExperiments, agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
   CodingHarness,
@@ -6,7 +6,6 @@ import {
   createAgentStepController,
   createSandboxTools,
   DEMO_RECORDING_INSTRUCTIONS,
-  parseHarnessExperiments,
   type SandboxSessionOptions,
   withSandboxAgentSetupContext,
 } from "@autopr/agent";
@@ -198,7 +197,10 @@ export const agentChatTask = chat.agent({
   tools: ({ chatId, clientData }) => {
     const trusted = requireClientData(clientData, chatId);
     const binding = createSubAgentBinding();
-    const tools = createSandboxTools(sandboxOptions(trusted), agentToolSettings(trusted, binding.run));
+    const tools = createSandboxTools(
+      sandboxOptions(trusted),
+      agentToolSettings(trusted, binding.run, agentHarnessExperiments()),
+    );
     subAgentBindings.set(tools, binding);
     return tools;
   },
@@ -295,10 +297,10 @@ export const agentChatTask = chat.agent({
     if (!subAgentBinding) {
       throw new Error("The sub-agent runtime is unavailable for this chat turn.");
     }
-    const experiments = parseHarnessExperiments(process.env.AUTOPR_HARNESS_EXPERIMENTS);
+    const experiments = agentHarnessExperiments();
     const harness = new CodingHarness({
       ...sandboxOptions(trusted),
-      ...agentToolSettings(trusted, subAgentBinding.run),
+      ...agentToolSettings(trusted, subAgentBinding.run, experiments),
       experiments,
       modelId: trusted.model.modelId,
       modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",

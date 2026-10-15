@@ -26,10 +26,11 @@ async function executeBash(input: {
   timeout?: number;
   isBackground?: boolean;
   env?: Record<string, string>;
-}) {
+}, options: { compactOutput?: boolean } = {}) {
   const bash = createDaytonaBashTool(
     { cacheKey: "bash-test" },
     createBackgroundProcessScope("bash-test-owner"),
+    options,
   );
   if (!bash.execute) throw new Error("bash tool is not executable");
   return await bash.execute(input, { toolCallId: "bash-1", messages: [] }) as {
@@ -85,6 +86,15 @@ describe("Daytona bash tool", () => {
     const [savedOutput, savedPath] = mocks.uploadFile.mock.calls[0]!;
     expect(savedPath).toBe(fullOutputPath);
     expect(Buffer.from(savedOutput).toString("utf8")).toContain("progress 0\n");
+  });
+
+  it("drops headers the model already sent in compact output", async () => {
+    const result = await executeBash({ command: "pnpm test" }, { compactOutput: true });
+    expect(result.content).toBe("Exit code: 0\n\ndone\n");
+
+    const background = await executeBash({ command: "pnpm dev", isBackground: true }, { compactOutput: true });
+    expect(background.content).toContain("Session ID: autopr-bash-test-owner-session");
+    expect(background.content).toContain("Command ID: cmd-1");
   });
 
   it("does not save output that fits inline", async () => {

@@ -17,6 +17,11 @@ export {
 } from "./system-prompt";
 export { applyAgenticCache, createCachedSystemMessage } from "./cache";
 export {
+  HARNESS_EXPERIMENTS,
+  parseHarnessExperiments,
+  type HarnessExperiment,
+} from "./experiments";
+export {
   createAgentStepController,
   detectRepeatedToolLoop,
   type AgentStepControllerOptions,

@@ -97,4 +97,20 @@ describe("buildSandboxAgentSystemPrompt", () => {
     expect(setupContext).toContain("Thread ID: thread-1");
     expect(buildSandboxAgentSystemPrompt(options)).not.toMatch(/Current date|Sandbox ID|Thread ID/);
   });
+
+  it("builds a shorter compact prompt that keeps the safety policy and mode-specific guidance", () => {
+    const allTools = ["sandboxInfo", "read", "ls", "find", "grep", "edit", "write", "bash", "process", "sub-agent", "computer"];
+    const compact = buildSandboxAgentSystemPrompt({ selectedTools: allTools, compact: true, appendSystemPrompt: "Run policy." });
+    const standard = buildSandboxAgentSystemPrompt({ selectedTools: allTools, appendSystemPrompt: "Run policy." });
+
+    expect(compact.length).toBeLessThan(standard.length * 0.7);
+    expect(compact).toContain("Never transmit environment variables, tokens, credentials");
+    expect(compact).toContain("exact observationId");
+    expect(compact).toContain("isBackground: true");
+    expect(compact).toContain("<run_context>\nRun policy.\n</run_context>");
+
+    const withoutComputer = buildSandboxAgentSystemPrompt({ selectedTools: ["read", "bash"], compact: true });
+    expect(withoutComputer).not.toContain("observationId");
+    expect(withoutComputer).not.toContain("sub-agent");
+  });
 });

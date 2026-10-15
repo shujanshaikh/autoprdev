@@ -10,6 +10,7 @@ import {
   type SubAgentToolOptions,
 } from "./tools";
 import { prepareSandbox, type PreparedSandbox } from "./steps";
+import type { HarnessExperiment } from "./experiments";
 import type { SandboxSessionOptions } from "./sandbox";
 
 export type CodingHarnessPhase = "idle" | "preparing" | "running" | "settling";
@@ -54,6 +55,7 @@ export interface CodingHarnessOptions extends SandboxSessionOptions {
   projectInstructionMaxBytes?: number;
   computer?: false | CuaComputerToolOptions;
   subAgent?: false | SubAgentToolOptions;
+  experiments?: readonly HarnessExperiment[];
   onListenerError?: CodingHarnessListenerErrorHandler;
 }
 
@@ -107,9 +109,11 @@ export class CodingHarness {
         sandboxId: sandbox.sandboxId,
         workDir: sandbox.workDir,
       } satisfies SandboxSessionOptions;
+      const experiments = new Set(this.options.experiments);
       const tools = createSandboxTools(resolvedSandboxOptions, {
         computer: this.options.computer,
         subAgent: this.options.subAgent,
+        compactOutput: experiments.has("compact-tool-output"),
       });
       const toolSelection = selectTools(tools, this.options.selectedTools);
       const instructionFiles = this.options.includeProjectInstructions === false
@@ -126,6 +130,7 @@ export class CodingHarness {
         modelProviderName: this.options.modelProviderName,
         selectedTools: toolSelection.toolNames,
         appendSystemPrompt: this.options.appendSystemPrompt,
+        compact: experiments.has("compact-prompt"),
       });
       const setupContext = buildSandboxAgentSetupContext({
         cwd: sandbox.workDir,

@@ -17,6 +17,8 @@ import { createDaytonaWriteTool } from "../write";
 export interface DaytonaToolsOptions {
   computer?: false | CuaComputerToolOptions;
   subAgent?: false | SubAgentToolOptions;
+  /** compact-tool-output experiment: sparse read line numbers and short bash headers. */
+  compactOutput?: boolean;
 }
 
 /** Builds the existing Daytona tool set without changing its behavior. */
@@ -28,13 +30,13 @@ export function createDaytonaTools(
   const backgroundProcesses = createBackgroundProcessScope();
   const tools: ToolSet = {
     sandboxInfo: createDaytonaSandboxInfoTool(resolvedOptions),
-    read: createDaytonaReadTool(resolvedOptions),
+    read: createDaytonaReadTool(resolvedOptions, { compactOutput: options.compactOutput }),
     ls: createDaytonaLsTool(resolvedOptions),
     find: createDaytonaFindTool(resolvedOptions),
     grep: createDaytonaGrepTool(resolvedOptions),
     edit: createDaytonaEditTool(resolvedOptions),
     write: createDaytonaWriteTool(resolvedOptions),
-    bash: createDaytonaBashTool(resolvedOptions, backgroundProcesses),
+    bash: createDaytonaBashTool(resolvedOptions, backgroundProcesses, { compactOutput: options.compactOutput }),
     process: createDaytonaProcessTool(resolvedOptions, backgroundProcesses),
   };
 

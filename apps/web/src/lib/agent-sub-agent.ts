@@ -2,6 +2,7 @@ import {
   applyAgenticCache,
   CodingHarness,
   createAgentStepController,
+  type HarnessExperiment,
   type RunSubAgent,
   type SandboxSessionOptions,
   withSandboxAgentSetupContext,
@@ -21,6 +22,7 @@ interface AgentSubAgentRunnerOptions {
   sandboxOptions: SandboxSessionOptions;
   model: LanguageModel;
   selectedModel: AgentModelOptions;
+  experiments?: readonly HarnessExperiment[];
   parentAbortSignal?: AbortSignal;
   onUsageStep?: (step: AssistantUsageStep) => void;
 }
@@ -50,6 +52,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
       ...options.sandboxOptions,
       computer: false,
       selectedTools: SUB_AGENT_TOOLS,
+      experiments: options.experiments,
       modelId: options.selectedModel.modelId,
       modelProviderName:
         options.selectedModel.provider === "xai"

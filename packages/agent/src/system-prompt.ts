@@ -126,7 +126,7 @@ export function buildSandboxAgentSystemPrompt(options: BuildSystemPromptOptions)
     return `${options.customPrompt}\n\n${REPOSITORY_SAFETY_POLICY}${append}`;
   }
   if (options.compact) {
-    return buildCompactSystemPrompt(selectedTools, providerName, modelDescriptor, sandboxProviderName, append);
+    return buildCompactSystemPrompt(options, selectedTools, providerName, modelDescriptor, sandboxProviderName, append);
   }
 
   return `You are AutoPR, a senior coding agent running through the user's ${providerName}${modelDescriptor}. You share a repository with the user and operate only inside a sandbox provided by ${sandboxProviderName}.
@@ -200,14 +200,27 @@ const COMPACT_TOOL_GUIDANCE: Record<string, string[]> = {
   ],
 };
 
+/**
+ * The compact-prompt experiment. Built-in tool descriptions live in the tool
+ * schemas, so only caller-supplied snippets and guidelines are listed here.
+ */
 function buildCompactSystemPrompt(
+  options: BuildSystemPromptOptions,
   selectedTools: string[],
   providerName: string,
   modelDescriptor: string,
   sandboxProviderName: string,
   append: string,
 ): string {
-  const toolGuidance = selectedTools.flatMap((name) => COMPACT_TOOL_GUIDANCE[name] ?? []);
+  const customSnippets = selectedTools.flatMap((name) => {
+    const snippet = options.toolSnippets?.[name]?.trim();
+    return snippet ? [`${name}: ${snippet}`] : [];
+  });
+  const toolGuidance = [
+    ...customSnippets,
+    ...selectedTools.flatMap((name) => COMPACT_TOOL_GUIDANCE[name] ?? []),
+    ...(options.promptGuidelines ?? []).map((guideline) => guideline.trim()).filter(Boolean),
+  ];
   const tools = toolGuidance.length > 0
     ? `\n\nTools:\n${toolGuidance.map((line) => `- ${line}`).join("\n")}`
     : "";

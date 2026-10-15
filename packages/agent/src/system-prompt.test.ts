@@ -113,4 +113,17 @@ describe("buildSandboxAgentSystemPrompt", () => {
     expect(withoutComputer).not.toContain("observationId");
     expect(withoutComputer).not.toContain("sub-agent");
   });
+
+  it("keeps caller tool snippets and guidelines in the compact prompt", () => {
+    const prompt = buildSandboxAgentSystemPrompt({
+      selectedTools: ["read", "deploy"],
+      toolSnippets: { deploy: "Deploy the preview environment", unused: "Not selected" },
+      promptGuidelines: ["Run deploy only after tests pass."],
+      compact: true,
+    });
+
+    expect(prompt).toContain("- deploy: Deploy the preview environment");
+    expect(prompt).toContain("- Run deploy only after tests pass.");
+    expect(prompt).not.toContain("Not selected");
+  });
 });

@@ -17,6 +17,8 @@ import { createSandboxWriteTool } from "../write";
 export interface E2BToolsOptions {
   computer?: false | CuaComputerToolOptions;
   subAgent?: false | SubAgentToolOptions;
+  /** compact-tool-output experiment: sparse read line numbers and short bash headers. */
+  compactOutput?: boolean;
 }
 
 /** Builds tools backed by E2B's SDK adapter and the shared CUA driver. */
@@ -28,13 +30,13 @@ export function createE2BTools(
   const backgroundProcesses = createBackgroundProcessScope();
   const tools: ToolSet = {
     sandboxInfo: createSandboxInfoTool(resolvedOptions),
-    read: createSandboxReadTool(resolvedOptions),
+    read: createSandboxReadTool(resolvedOptions, { compactOutput: options.compactOutput }),
     ls: createSandboxLsTool(resolvedOptions),
     find: createSandboxFindTool(resolvedOptions),
     grep: createSandboxGrepTool(resolvedOptions),
     edit: createSandboxEditTool(resolvedOptions),
     write: createSandboxWriteTool(resolvedOptions),
-    bash: createSandboxBashTool(resolvedOptions, backgroundProcesses),
+    bash: createSandboxBashTool(resolvedOptions, backgroundProcesses, { compactOutput: options.compactOutput }),
     process: createSandboxProcessTool(resolvedOptions, backgroundProcesses),
   };
 

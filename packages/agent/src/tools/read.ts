@@ -8,9 +8,11 @@ import {
   completeUtf8PrefixLength,
   formatNumberedLines,
   formatSize,
+  formatSparselyNumberedLines,
   isProbablyBinary,
   toTextModelOutput,
 } from "./format";
+import { TOOL_OUTPUT_DIR } from "./output-file";
 import { requireString } from "./validation";
 
 const DEFAULT_READ_LIMIT = 2_000;
@@ -37,12 +39,21 @@ const readInputSchema = z.object({
 
 type ReadInput = z.infer<typeof readInputSchema>;
 
-async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessionOptions) {
+interface ReadToolOptions {
+  compactOutput?: boolean;
+}
+
+async function executeDaytonaRead(
+  input: ReadInput,
+  sandboxOptions: SandboxSessionOptions,
+  options: ReadToolOptions,
+) {
   const path = requireString(input.path, "path", "read");
   const context = await getSandboxContext(sandboxOptions);
   const remotePath = await resolveJailedSandboxPath(path, {
     workDir: context.workDir,
     sandboxOptions,
+    extraAllowedRoots: [TOOL_OUTPUT_DIR],
   });
   const offset = Math.max(1, input.offset ?? 1);
   const byteOffset = input.byteOffset ?? 0;
@@ -129,11 +140,16 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
       ? `\n[Stopped at the ${formatSize(MAX_READ_WINDOW_BYTES)} per-read byte cap; the returned final line is only a byte fragment.]`
       : "";
 
+  const numberedLines = options.compactOutput
+    ? formatSparselyNumberedLines(windowLines, offset)
+    : formatNumberedLines(windowLines, offset);
+  const numberingNote = options.compactOutput ? "; the first and every 10th line are numbered as `N | `" : "";
+
   return {
     content:
       `File: ${remotePath}\n` +
-      `Showing lines ${offset}-${lineEnd} of ${totalLines}${byteOffset > 0 ? ` (line ${offset} starting at byte ${byteOffset})` : ""}\n\n` +
-      `${formatNumberedLines(windowLines, offset)}${continuation}${byteCapNote}`,
+      `Showing lines ${offset}-${lineEnd} of ${totalLines}${byteOffset > 0 ? ` (line ${offset} starting at byte ${byteOffset})` : ""}${numberingNote}\n\n` +
+      `${numberedLines}${continuation}${byteCapNote}`,
     details: {
       path: remotePath,
       bytes: chunk.totalBytes,
@@ -148,14 +164,14 @@ async function executeDaytonaRead(input: ReadInput, sandboxOptions: SandboxSessi
   };
 }
 
-export function createSandboxReadTool(sandboxOptions: SandboxSessionOptions) {
+export function createSandboxReadTool(sandboxOptions: SandboxSessionOptions, options: ReadToolOptions = {}) {
   return tool({
     title: "read",
     description:
       "Read a UTF-8 text file from the selected sandbox with 1-based line pagination. Returns up to 2,000 lines / 64 KiB and an exact offset (plus byteOffset for a single oversized line) when more remains. Use before editing or explaining code. Paths are canonicalized inside the workspace jail; binary files are reported instead of displayed. Read-only and safe to retry.",
     inputSchema: readInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaRead(input, sandboxOptions),
+    execute: (input) => executeDaytonaRead(input, sandboxOptions, options),
   });
 }
 

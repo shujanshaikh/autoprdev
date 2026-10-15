@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   streamText: vi.fn(),
   agentProviderOptions: vi.fn(() => ({ openai: { store: false } })),
   harnessOptions: [] as Array<Record<string, unknown>>,
-  withSandboxAgentProjectContext: vi.fn((messages: unknown) => messages),
+  withSandboxAgentSetupContext: vi.fn((messages: unknown) => messages),
 }));
 
 vi.mock("@autopr/agent", () => ({
@@ -18,13 +18,13 @@ vi.mock("@autopr/agent", () => ({
     run<T>(execute: (context: Record<string, unknown>) => Promise<T>) {
       return execute({
         instructions: "child instructions",
-        repositoryContext: "repository context",
+        setupContext: "setup context",
         tools: { read: { description: "read" } },
       });
     }
   },
   createAgentStepController: (options: unknown) => options,
-  withSandboxAgentProjectContext: mocks.withSandboxAgentProjectContext,
+  withSandboxAgentSetupContext: mocks.withSandboxAgentSetupContext,
 }));
 
 vi.mock("ai", () => ({
@@ -34,6 +34,7 @@ vi.mock("ai", () => ({
 
 vi.mock("#/lib/agent-context-compaction", () => ({
   createAgentContextCompactor: (options: unknown) => options,
+  SETUP_CONTEXT_MESSAGES: 1,
 }));
 
 vi.mock("#/lib/agent-auth-runtime-server", () => ({
@@ -120,11 +121,12 @@ describe("agent sub-agent runtime", () => {
       computer: false,
       selectedTools: ["sandboxInfo", "read", "ls", "find", "grep", "bash", "process"],
       modelId: "gpt-5.6-sol",
+      runContext: "Assigned task: Inspect parser",
     });
     expect(mocks.harnessOptions[0]).not.toHaveProperty("subAgent");
-    expect(mocks.withSandboxAgentProjectContext).toHaveBeenCalledWith(
+    expect(mocks.withSandboxAgentSetupContext).toHaveBeenCalledWith(
       [{ role: "user", content: "Inspect parser.ts and report the issue." }],
-      "repository context",
+      "setup context",
     );
     expect(onUsageStep).toHaveBeenCalledWith(usageStep);
     expect(mocks.streamText).toHaveBeenCalledWith(expect.objectContaining({

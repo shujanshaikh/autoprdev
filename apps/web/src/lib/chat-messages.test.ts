@@ -1,9 +1,11 @@
+import { convertToModelMessages } from "ai";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   COMPUTER_METADATA_PREFIX,
   findDemoRecordingMetadataInParts,
   mergePersistedAssistantParts,
+  responseMessagesToAssistantParts,
   sanitizeAssistantPartsForPersistence,
   sanitizeMessageForModelConversion,
   sanitizeStoppedAssistantParts,
@@ -343,5 +345,26 @@ describe("chat message persistence helpers", () => {
     expect(toolCall.input.edits[0].newText).toContain("edit.edits[0].newText omitted from model prompt");
     expect(toolResult.output.value.details.diff.patch).toBe(longText);
     expect(toolResult.output.value.details.diff.patchChars).toBe(5_000);
+  });
+
+  it("keeps reasoning provider metadata so the next turn can replay it", async () => {
+    const reasoningOptions = {
+      openai: { itemId: "rs_1", reasoningEncryptedContent: "encrypted" },
+    };
+    const parts = responseMessagesToAssistantParts([{
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "Checking the file.", providerOptions: reasoningOptions },
+        { type: "text", text: "Done." },
+      ],
+    }]);
+
+    expect(parts[0]).toMatchObject({ type: "reasoning", providerMetadata: reasoningOptions });
+
+    const [message] = await convertToModelMessages([{ role: "assistant", parts }]);
+    expect(message?.content).toContainEqual(expect.objectContaining({
+      type: "reasoning",
+      providerOptions: reasoningOptions,
+    }));
   });
 });

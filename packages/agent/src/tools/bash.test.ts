@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
   executeSandboxCommand: vi.fn(),
   getSandboxContext: vi.fn(),
+  uploadFile: vi.fn(),
 }));
 
 vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
 vi.mock("../sandbox/execute", async (importOriginal) => {
   const original = await importOriginal<typeof import("../sandbox/execute")>();
-  return { ...original, executeSandboxCommand: mocks.executeSandboxCommand };
+  return {
+    ...original,
+    executeSandboxCommand: mocks.executeSandboxCommand,
+  };
 });
 
 import { createDaytonaBashTool } from "./bash";
@@ -20,10 +24,11 @@ async function executeBash(input: {
   timeout?: number;
   isBackground?: boolean;
   env?: Record<string, string>;
-}) {
+}, options: { compactOutput?: boolean } = {}) {
   const bash = createDaytonaBashTool(
     { cacheKey: "bash-test" },
     createBackgroundProcessScope("bash-test-owner"),
+    options,
   );
   if (!bash.execute) throw new Error("bash tool is not executable");
   return await bash.execute(input, { toolCallId: "bash-1", messages: [] }) as {
@@ -36,7 +41,7 @@ describe("Daytona bash tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-bash" },
+      sandbox: { id: "sandbox-bash", fs: { uploadFile: mocks.uploadFile } },
       workDir: "/workspace/repo",
     });
     mocks.executeSandboxCommand.mockResolvedValue({
@@ -54,7 +59,7 @@ describe("Daytona bash tool", () => {
   });
 
   it("keeps the final diagnostic and bounds persisted output previews", async () => {
-    mocks.executeSandboxCommand.mockResolvedValue({
+    mocks.executeSandboxCommand.mockResolvedValueOnce({
       cwd: "/workspace/repo",
       sessionId: "autopr-session",
       cmdId: "cmd-1",
@@ -72,6 +77,29 @@ describe("Daytona bash tool", () => {
       outputStats: { truncatedBy: "lines" },
     });
     expect(String(result.details.stdout).length).toBeLessThan(60_000);
+
+    const fullOutputPath = "/tmp/autopr-tool-output/autopr-session.log";
+    expect(result.details.fullOutputPath).toBe(fullOutputPath);
+    expect(result.content).toContain(`Full output: ${fullOutputPath} (2101 lines`);
+    const [savedOutput, savedPath] = mocks.uploadFile.mock.calls[0]!;
+    expect(savedPath).toBe(fullOutputPath);
+    expect(Buffer.from(savedOutput).toString("utf8")).toContain("progress 0\n");
+  });
+
+  it("drops headers the model already sent in compact output", async () => {
+    const result = await executeBash({ command: "pnpm test" }, { compactOutput: true });
+    expect(result.content).toBe("Exit code: 0\n\ndone\n");
+
+    const background = await executeBash({ command: "pnpm dev", isBackground: true }, { compactOutput: true });
+    expect(background.content).toContain("Session ID: autopr-bash-test-owner-session");
+    expect(background.content).toContain("Command ID: cmd-1");
+  });
+
+  it("does not save output that fits inline", async () => {
+    const result = await executeBash({ command: "echo done" });
+    expect(result.details.fullOutputPath).toBeNull();
+    expect(result.content).not.toContain("Full output:");
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
   });
 
   it("does not impose the foreground timeout after a background launch", async () => {

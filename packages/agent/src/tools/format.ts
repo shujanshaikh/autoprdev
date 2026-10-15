@@ -144,6 +144,18 @@ export function formatNumberedLines(lines: string[], startLine: number): string 
   return lines.map((line, index) => `${startLine + index} | ${line}`).join("\n");
 }
 
+export const SPARSE_LINE_NUMBER_INTERVAL = 10;
+
+/** Numbers the first line and every 10th line as `N | `; other lines are unprefixed. */
+export function formatSparselyNumberedLines(lines: string[], startLine: number): string {
+  return lines
+    .map((line, index) => {
+      const lineNumber = startLine + index;
+      return index === 0 || lineNumber % SPARSE_LINE_NUMBER_INTERVAL === 0 ? `${lineNumber} | ${line}` : line;
+    })
+    .join("\n");
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024) {
     return `${bytes} B`;

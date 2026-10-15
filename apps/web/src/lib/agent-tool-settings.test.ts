@@ -21,4 +21,9 @@ describe.each(["daytona", "e2b"] as const)("%s project tool settings", (provider
     expect(tools.computer).toBeDefined();
     expect(tools["sub-agent"]).toBeUndefined();
   });
+
+  it("turns on compact tool output only when the experiment is enabled", () => {
+    expect(agentToolSettings({}, vi.fn())).toMatchObject({ compactOutput: false });
+    expect(agentToolSettings({}, vi.fn(), ["compact-tool-output"])).toMatchObject({ compactOutput: true });
+  });
 });

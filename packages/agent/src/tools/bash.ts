@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { getSandboxContext, type SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand, resolveSandboxPath } from "../sandbox/execute";
-import { combineCommandOutput, toTextModelOutput, truncateText, truncateToolOutput } from "./format";
+import { combineCommandOutput, formatSize, toTextModelOutput, truncateText, truncateToolOutput } from "./format";
+import { saveToolOutputFile } from "./output-file";
 import { requireString } from "./validation";
 import type { BackgroundProcessScope } from "./background-process-scope";
 import { environmentSecretValues, redactSensitiveValues } from "./redaction";
@@ -43,10 +44,15 @@ const bashInputSchema = z.object({
 
 type BashInput = z.infer<typeof bashInputSchema>;
 
+interface BashToolOptions {
+  compactOutput?: boolean;
+}
+
 async function executeDaytonaBash(
   input: BashInput,
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
+  options: BashToolOptions,
 ) {
   const command = requireString(input.command, "command", "bash");
   const context = await getSandboxContext(sandboxOptions);
@@ -80,18 +86,32 @@ async function executeDaytonaBash(
     : "The sandbox timed out while waiting for the command to finish.";
 
   const envNames = Object.keys(input.env ?? {});
+  const fullOutputPath = truncatedOutput.truncated && !isBackground
+    ? await saveToolOutputFile(combined, result.sessionId, sandboxOptions)
+    : undefined;
+  const fullOutputNote = fullOutputPath
+    ? `Full output: ${fullOutputPath} (${truncatedOutput.totalLines} lines, ${formatSize(truncatedOutput.totalBytes)}). ` +
+      "Page it with read offset/limit or search it with grep in bash instead of re-running the command.\n"
+    : "";
 
-  return {
-    content:
-      `Command: ${commandPreview.text}\n` +
+  const exitCode = isBackground && !backgroundLaunchFailed ? "pending" : result.exitCode ?? "unknown";
+  const outputText =
+    truncatedOutput.text || (timedOut ? timeoutSummary : isBackground ? "Command started in background." : "(no output)");
+  // The compact header keeps only what the model did not already send in its
+  // call: background sessions still need their IDs for the process tool.
+  const header = options.compactOutput && !isBackground
+    ? `Exit code: ${exitCode}${timedOut ? " (timed out)" : ""}\n`
+    : `Command: ${commandPreview.text}\n` +
       (envNames.length > 0 ? `Environment overrides: ${envNames.join(", ")} (values hidden)\n` : "") +
       `Working directory: ${result.cwd}\n` +
       `Background: ${isBackground ? "yes" : "no"}\n` +
       `Session ID: ${result.sessionId}\n` +
       `Command ID: ${result.cmdId ?? "unknown"}\n` +
       `Timed out: ${timedOut ? "yes" : "no"}\n` +
-      `Exit code: ${isBackground && !backgroundLaunchFailed ? "pending" : result.exitCode ?? "unknown"}\n\n` +
-      `${truncatedOutput.text || (timedOut ? timeoutSummary : isBackground ? "Command started in background." : "(no output)")}`,
+      `Exit code: ${exitCode}\n`;
+
+  return {
+    content: `${header}${fullOutputNote}\n${outputText}`,
     details: {
       command: commandPreview.text,
       commandTruncated: commandPreview.truncated,
@@ -113,6 +133,7 @@ async function executeDaytonaBash(
       timedOut,
       timeout: result.timeout ?? null,
       truncated: truncatedOutput.truncated,
+      fullOutputPath: fullOutputPath ?? null,
     },
   };
 }
@@ -120,6 +141,7 @@ async function executeDaytonaBash(
 export function createSandboxBashTool(
   sandboxOptions: SandboxSessionOptions,
   backgroundProcesses: BackgroundProcessScope,
+  options: BashToolOptions = {},
 ) {
   return tool({
     title: "bash",
@@ -127,7 +149,7 @@ export function createSandboxBashTool(
       "Run shell commands inside the selected sandbox with a 120-second default foreground timeout and tail-preserving bounded output. Use for package scripts, tests, type checks, installs, and Git inspection. Commands mutate state when the command does; use isBackground=true for servers/watchers and manage them with process. Environment values are never echoed. Do not retry a failed command unchanged without using the final diagnostic.",
     inputSchema: bashInputSchema,
     toModelOutput: ({ output }) => toTextModelOutput(output),
-    execute: (input) => executeDaytonaBash(input, sandboxOptions, backgroundProcesses),
+    execute: (input) => executeDaytonaBash(input, sandboxOptions, backgroundProcesses, options),
   });
 }
 

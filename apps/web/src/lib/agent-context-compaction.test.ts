@@ -57,6 +57,55 @@ describe("agent context compaction", () => {
     expect(summarize).toHaveBeenCalledTimes(summaryCalls);
   });
 
+  it("keeps pinned setup context verbatim when it compacts history", async () => {
+    const setup: ModelMessage = { role: "user", content: "<environment>\nSandbox ID: sandbox-1\n</environment>" };
+    const messages: ModelMessage[] = [
+      setup,
+      { role: "user", content: `Initial request\n${"a".repeat(70_000)}` },
+      { role: "assistant", content: `Earlier progress\n${"b".repeat(50_000)}` },
+      { role: "user", content: "Continue the implementation." },
+    ];
+    const summarize = vi.fn(async () => "## Goal\nFinish the implementation.");
+    const prepareStep = createAgentContextCompactor({
+      contextWindow: 32_000,
+      pinnedLeadingMessages: 1,
+      summarize,
+    });
+    const step = (stepMessages: ModelMessage[], stepNumber: number) => prepareStep({
+      messages: stepMessages,
+      model: "test-model" as LanguageModel,
+      steps: [],
+      stepNumber,
+      experimental_context: undefined,
+    });
+
+    const result = await step(messages, 0);
+    expect(result?.messages?.[0]).toEqual(setup);
+    expect(String(result?.messages?.[1]?.content)).toContain("<context-checkpoint>");
+    expect(JSON.stringify(summarize.mock.calls)).not.toContain("Sandbox ID: sandbox-1");
+
+    const nextMessages: ModelMessage[] = [...messages, { role: "assistant", content: "Running tests." }];
+    const nextResult = await step(nextMessages, 1);
+    expect(nextResult?.messages?.[0]).toEqual(setup);
+    expect(nextResult?.messages?.at(-1)).toEqual(nextMessages.at(-1));
+  });
+
+  it("keeps pinned setup context out of emergency compaction", () => {
+    const setup = { role: "user" as const, content: [{ type: "text" as const, text: `<environment>${"e".repeat(20_000)}</environment>` }] };
+    const prompt = [
+      { role: "system" as const, content: "System instructions" },
+      setup,
+      { role: "user" as const, content: [{ type: "text" as const, text: "a".repeat(120_000) }] },
+      { role: "user" as const, content: [{ type: "text" as const, text: "Latest request" }] },
+    ];
+
+    const compacted = emergencyCompactProviderPrompt(prompt, 2, 1);
+    expect(compacted[0]).toEqual(prompt[0]);
+    expect(compacted[1]).toEqual(setup);
+    expect(JSON.stringify(compacted[2])).toContain("<context-overflow-recovery>");
+    expect(compacted.at(-1)).toEqual(prompt.at(-1));
+  });
+
   it("recognizes nested provider overflow errors", () => {
     expect(
       isContextOverflowError({

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
-  ensureRemoteParentDirectory: vi.fn(),
   executeSandboxCommand: vi.fn(),
   getSandboxContext: vi.fn(),
   uploadFile: vi.fn(),
@@ -12,7 +11,6 @@ vi.mock("../sandbox/execute", async (importOriginal) => {
   const original = await importOriginal<typeof import("../sandbox/execute")>();
   return {
     ...original,
-    ensureRemoteParentDirectory: mocks.ensureRemoteParentDirectory,
     executeSandboxCommand: mocks.executeSandboxCommand,
   };
 });
@@ -61,7 +59,7 @@ describe("Daytona bash tool", () => {
   });
 
   it("keeps the final diagnostic and bounds persisted output previews", async () => {
-    mocks.executeSandboxCommand.mockResolvedValue({
+    mocks.executeSandboxCommand.mockResolvedValueOnce({
       cwd: "/workspace/repo",
       sessionId: "autopr-session",
       cmdId: "cmd-1",

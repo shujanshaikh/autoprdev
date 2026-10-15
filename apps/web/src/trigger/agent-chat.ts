@@ -10,6 +10,7 @@ import {
   withSandboxAgentProjectContext,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { logger } from "@trigger.dev/sdk";
 import { chat } from "@trigger.dev/sdk/ai";
 import { fetchAction } from "convex/nextjs";
 import {
@@ -34,6 +35,7 @@ import {
   createAssistantUsageMetadata,
   type AssistantUsageSource,
   type AssistantUsageMetadata,
+  usageLogAttributes,
 } from "#/lib/agent-usage";
 import {
   createAgentSubAgentRunner,
@@ -364,6 +366,11 @@ export const agentChatTask = chat.agent({
           Date.now(),
           subAgentUsageSteps,
         );
+        logger.info("agent run usage", {
+          threadId: trusted.threadId,
+          modelId: selectedModel.modelId,
+          ...usageLogAttributes(turnState.usageMetadata),
+        });
       },
       providerOptions: agentProviderOptions(selectedModel, instructions),
     });

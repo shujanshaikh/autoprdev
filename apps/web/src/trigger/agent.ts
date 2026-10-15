@@ -10,7 +10,7 @@ import {
 } from "@autopr/agent";
 import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { task } from "@trigger.dev/sdk";
+import { logger, task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
 import { smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
 
@@ -22,6 +22,7 @@ import {
   createAssistantUsageMetadata,
   type AssistantUsageSource,
   type AssistantUsageMetadata,
+  usageLogAttributes,
 } from "#/lib/agent-usage";
 import { finalizeAgentUIMessageStream } from "#/lib/agent-ui-stream";
 import {
@@ -309,13 +310,19 @@ async function runAgentTask(
           sendFinish: false,
         }),
         async () => {
-          return createAssistantUsageMetadata(
+          const metadata = createAssistantUsageMetadata(
             await result.steps,
             selectedModel.modelId,
             runStartedAt,
             Date.now(),
             subAgentUsageSteps,
           );
+          logger.info("agent run usage", {
+            threadId: options.threadId,
+            modelId: selectedModel.modelId,
+            ...usageLogAttributes(metadata),
+          });
+          return metadata;
         },
         async (metadata) => {
           if (!persistence) {

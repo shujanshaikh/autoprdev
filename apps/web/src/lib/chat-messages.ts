@@ -542,10 +542,13 @@ export function responseMessagesToAssistantParts(messages: ModelMessage[], start
         }
 
         if (part.type === "reasoning") {
+          // Provider metadata carries the reasoning item id and encrypted
+          // content. Without it the next turn cannot replay this reasoning.
           parts.push({
             type: "reasoning",
             text: part.text,
             state: "done",
+            ...(part.providerOptions ? { providerMetadata: part.providerOptions } : {}),
           });
           continue;
         }

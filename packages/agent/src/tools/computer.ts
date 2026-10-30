@@ -444,7 +444,7 @@ async function runOneAction(
   cua: CuaComputerClient,
   observation: CuaObservation | undefined,
 ): Promise<ActionResult> {
-  const { computerUse } = context.sandbox;
+  const { computerUse } = context.sandbox.runtime;
   switch (action.type) {
     case "start":
       await cua.ensureReady();
@@ -692,7 +692,7 @@ async function executeCuaComputer(
     throw new Error("Demo recording is disabled for this thread. Enable demo mode before starting a screen recording.");
   }
   const context = await getSandboxContext(sandboxOptions);
-  const session = getCuaToolSession(context.sandbox, sandboxOptions, computerOptions);
+  const session = getCuaToolSession(context.sandbox.runtime, sandboxOptions, computerOptions);
   return serializeComputerOperations(session, (track) => executeCuaComputerAction(
     action,
     context,
@@ -720,7 +720,7 @@ async function executeCuaComputerAction(
       await runBoundedComputerOperation(
         track,
         async () => {
-          await ensureComputerUseReady(context.sandbox.computerUse, {
+          await ensureComputerUseReady(context.sandbox.runtime.computerUse, {
             cacheMs: COMPUTER_DESKTOP_READY_CACHE_MS,
             coordinationKey: session,
           });

@@ -8,23 +8,25 @@ const sandboxInfoInputSchema = z.object({});
 
 async function executeDaytonaSandboxInfo(sandboxOptions: SandboxSessionOptions) {
   const context = await getSandboxContext(sandboxOptions);
+  const { runtime } = context.sandbox;
+  const autoArchiveInterval = "autoArchiveInterval" in runtime ? runtime.autoArchiveInterval : undefined;
 
   return {
     content:
       `Provider: ${context.provider === "e2b" ? "E2B" : "Daytona"}\n` +
       `Sandbox ID: ${context.sandbox.id}\n` +
-      `Sandbox name: ${context.sandbox.name ?? "(unnamed)"}\n` +
-      `Snapshot: ${context.sandbox.snapshot ?? "(unknown)"}\n` +
-      `State: ${context.sandbox.state ?? "(unknown)"}\n` +
-      `Auto-archive interval: ${context.sandbox.autoArchiveInterval ?? "(default)"}\n` +
+      `Sandbox name: ${runtime.name ?? "(unnamed)"}\n` +
+      `Snapshot: ${runtime.snapshot ?? "(unknown)"}\n` +
+      `State: ${runtime.state ?? "(unknown)"}\n` +
+      `Auto-archive interval: ${autoArchiveInterval ?? "(default)"}\n` +
       `Working directory: ${context.workDir}`,
     details: {
       provider: context.provider,
       sandboxId: context.sandbox.id,
-      sandboxName: context.sandbox.name ?? null,
-      snapshot: context.sandbox.snapshot ?? null,
-      state: context.sandbox.state ?? null,
-      autoArchiveInterval: context.sandbox.autoArchiveInterval ?? null,
+      sandboxName: runtime.name ?? null,
+      snapshot: runtime.snapshot ?? null,
+      state: runtime.state ?? null,
+      autoArchiveInterval: autoArchiveInterval ?? null,
       workDir: context.workDir,
     },
   };

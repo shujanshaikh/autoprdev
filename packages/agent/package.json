@@ -16,6 +16,7 @@
   "dependencies": {
     "@autopr/config": "workspace:*",
     "@daytona/sdk": "0.205.0",
+    "@opencoredev/sandbox-sdk": "1.0.3",
     "ai": "^6.0.168",
     "diff": "^8.0.2",
     "e2b": "2.45.0",

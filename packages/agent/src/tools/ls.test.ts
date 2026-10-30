@@ -26,16 +26,16 @@ describe("Daytona ls tool", () => {
     vi.clearAllMocks();
     mocks.resolveJailedSandboxPath.mockResolvedValue("/workspace/repo");
     mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-ls", fs: { listFiles } },
+      sandbox: { id: "sandbox-ls", files: { list: listFiles } },
       workDir: "/workspace/repo",
     });
   });
 
   it("sorts and paginates listings without silently skipping entries", async () => {
     listFiles.mockResolvedValue([
-      { name: "z.ts", size: 10, permissions: "-rw-r--r--" },
-      { name: "a", isDir: true, permissions: "drwxr-xr-x" },
-      { name: "b.ts", size: 20, permissions: "-rw-r--r--" },
+      { path: "z.ts", size: 10, permissions: "-rw-r--r--" },
+      { path: "a", type: "directory", permissions: "drwxr-xr-x" },
+      { path: "b.ts", size: 20, permissions: "-rw-r--r--" },
     ]);
 
     const first = await executeLs({ limit: 2 });
@@ -56,7 +56,7 @@ describe("Daytona ls tool", () => {
       details: { entries: 0, totalEntries: 0, hasMore: false },
     });
 
-    listFiles.mockResolvedValueOnce([{ name: "only.ts" }]);
+    listFiles.mockResolvedValueOnce([{ path: "only.ts" }]);
     await expect(executeLs({ offset: 2 })).rejects.toThrow("Offset 2 is beyond the end");
   });
 

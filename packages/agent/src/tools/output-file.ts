@@ -31,7 +31,7 @@ export async function saveToolOutputFile(
       throw new Error(prepared.stderr || prepared.output || "Could not prepare the tool output directory.");
     }
     const { sandbox } = await getSandboxContext(sandboxOptions);
-    await sandbox.fs.uploadFile(Buffer.from(text, "utf8"), path);
+    await sandbox.files.write(path, text);
     return path;
   } catch (error) {
     console.warn("Could not save full tool output to the sandbox.", error);

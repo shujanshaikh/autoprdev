@@ -161,7 +161,7 @@ async function executeDaytonaEdit(input: EditInput, sandboxOptions: SandboxSessi
     const nextBuffer = Buffer.from(nextText, "utf8");
 
     await ensureRemoteParentDirectory(remotePath, sandboxOptions);
-    await context.sandbox.fs.uploadFile(nextBuffer, remotePath);
+    await context.sandbox.files.write(remotePath, nextBuffer);
 
     return {
       content: `Applied ${edits.length} exact replacement(s) to ${remotePath}.`,

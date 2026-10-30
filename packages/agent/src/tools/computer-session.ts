@@ -1,4 +1,4 @@
-import type { DaytonaSandbox, SandboxSessionOptions } from "../sandbox";
+import type { SandboxRuntime, SandboxSessionOptions } from "../sandbox";
 import { CuaComputerClient, type CuaComputerOptions } from "./cua-client";
 import type { CuaObservation, ScreenshotRequest } from "./computer-observation";
 
@@ -38,7 +38,7 @@ function clientKey(sandboxId: string, options: CuaComputerOptions): string {
 }
 
 export function getCuaToolSession(
-  sandbox: DaytonaSandbox,
+  sandbox: SandboxRuntime,
   sandboxOptions: SandboxSessionOptions,
   options: CuaComputerOptions,
 ): CuaToolSession {

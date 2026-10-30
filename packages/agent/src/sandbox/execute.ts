@@ -70,11 +70,8 @@ function createCommandSessionId(ownerId?: string): string {
   return `autopr-${ownerSegment}${crypto.randomUUID()}`;
 }
 
-const DAYTONA_TIMEOUT_ERROR_NAME = "DaytonaTimeoutError";
 const COMMAND_TIMEOUT_EXIT_CODE = 124;
-const COMMAND_TIMEOUT_GRACE_SECONDS = 5;
 const BACKGROUND_COMMAND_START_TIMEOUT_SECONDS = 15;
-const SESSION_CLEANUP_TIMEOUT_MS = 10_000;
 
 export interface SandboxCommandResult {
   cwd: string;
@@ -98,41 +95,6 @@ function normalizeCommandTimeout(timeout: number | undefined): number | undefine
   }
 
   return Math.ceil(timeout);
-}
-
-function isDaytonaTimeoutError(error: unknown): error is Error {
-  return error instanceof Error && error.name === DAYTONA_TIMEOUT_ERROR_NAME;
-}
-
-function buildTimedCommand(command: string, timeout: number): string {
-  const script = shellQuote(command);
-  const duration = shellQuote(`${timeout}s`);
-
-  return `if command -v timeout >/dev/null 2>&1; then timeout ${duration} bash -lc ${script}; else bash -lc ${script}; fi`;
-}
-
-function formatTimeoutMessage(timeout: number | undefined): string {
-  if (timeout) {
-    return `Command timed out after ${timeout} second${timeout === 1 ? "" : "s"}.`;
-  }
-
-  return "Daytona timed out while waiting for the command to finish.";
-}
-
-async function cleanupCommandSession(
-  deleteSession: () => Promise<unknown>,
-): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      deleteSession().catch(() => undefined),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, SESSION_CLEANUP_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
 }
 
 export function resolveSandboxPath(inputPath: string | undefined, sandboxWorkDir: string): string {
@@ -334,62 +296,41 @@ export async function executeSandboxCommand(
   const cwd = options.cwd ?? workDir;
   const sessionId = createCommandSessionId(options.sessionOwnerId);
   const requestedTimeout = normalizeCommandTimeout(options.timeout);
-  const isBackground = Boolean(options.isBackground);
-  const commandTimeout = isBackground ? undefined : requestedTimeout;
-  const commandWithEnv = prependEnvExports(command, options.env);
-  const remoteCommandBody = commandTimeout ? buildTimedCommand(commandWithEnv, commandTimeout) : commandWithEnv;
-  const remoteCommand = `cd ${shellQuote(cwd)} && ${remoteCommandBody}`;
-  const sdkTimeout = isBackground
-    ? BACKGROUND_COMMAND_START_TIMEOUT_SECONDS
-    : commandTimeout
-      ? commandTimeout + COMMAND_TIMEOUT_GRACE_SECONDS
-      : requestedTimeout;
-
-  await sandbox.process.createSession(sessionId);
-
-  try {
-    const result = await sandbox.process.executeSessionCommand(
-      sessionId,
-      {
-        command: remoteCommand,
-        runAsync: isBackground,
+  if (options.isBackground) {
+    // The SDK's background handles do not expose stdin. Native sessions retain
+    // interactive input and the existing per-run ownership contract.
+    const process = sandbox.runtime.process;
+    await process.createSession(sessionId);
+    try {
+      const result = await process.executeSessionCommand(sessionId, {
+        command: `cd ${shellQuote(cwd)} && ${prependEnvExports(command, options.env)}`,
+        runAsync: true,
         suppressInputEcho: true,
-      },
-      sdkTimeout,
-    );
-
-    return {
-      cwd,
-      sessionId,
-      cmdId: result.cmdId,
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      output: "output" in result && typeof result.output === "string" ? result.output : undefined,
-      timedOut: commandTimeout !== undefined && result.exitCode === COMMAND_TIMEOUT_EXIT_CODE,
-      timeout: commandTimeout,
-    };
-  } catch (error) {
-    if (!isDaytonaTimeoutError(error)) {
+      }, BACKGROUND_COMMAND_START_TIMEOUT_SECONDS);
+      return { ...result, cwd, sessionId, timedOut: false };
+    } catch (error) {
+      await process.deleteSession(sessionId).catch(() => undefined);
       throw error;
     }
-
-    const message = formatTimeoutMessage(commandTimeout);
-
-    return {
-      cwd,
-      sessionId,
-      exitCode: COMMAND_TIMEOUT_EXIT_CODE,
-      stderr: message,
-      output: message,
-      timedOut: true,
-      timeout: commandTimeout,
-    };
-  } finally {
-    if (!isBackground) {
-      await cleanupCommandSession(() => sandbox.process.deleteSession(sessionId));
-    }
   }
+
+  // The SDK applies its CI/TERM defaults after `env`; shell exports keep caller overrides.
+  const result = await sandbox.run(prependEnvExports(command, options.env), {
+    cwd,
+    timeoutMs: requestedTimeout === undefined ? undefined : requestedTimeout * 1_000,
+    // File reads and diffs bound their output at the source; preserve their byte budgets.
+    maxOutputBytes: 16 * 1024 * 1024,
+  });
+  return {
+    cwd,
+    sessionId,
+    exitCode: result.timedOut ? COMMAND_TIMEOUT_EXIT_CODE : result.exitCode ?? undefined,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    output: result.output,
+    timedOut: result.timedOut,
+    timeout: requestedTimeout,
+  };
 }
 
 export async function ensureRemoteParentDirectory(

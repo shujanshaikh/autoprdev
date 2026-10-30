@@ -3,7 +3,7 @@ import "@tanstack/react-start/server-only";
 import {
   getSandboxWithoutStarting,
   SandboxRuntimeNotStartedError,
-  type DaytonaSandbox,
+  type SandboxRuntime as DaytonaSandbox,
   type SandboxProvider,
 } from "@autopr/agent/sandbox";
 import {

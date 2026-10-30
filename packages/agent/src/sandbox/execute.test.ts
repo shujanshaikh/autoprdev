@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   executeSessionCommand: vi.fn(),
+  run: vi.fn(),
   getSandboxContext: vi.fn(),
 }));
 
@@ -23,16 +24,19 @@ const WORK_DIR = "/work/repo";
 
 const fakeSandbox = {
   id: "sandbox-execute-test",
-  process: {
-    createSession: vi.fn(async () => ({})),
-    executeSessionCommand: mocks.executeSessionCommand,
-    deleteSession: vi.fn(async () => ({})),
+  run: mocks.run,
+  runtime: {
+    process: {
+      createSession: vi.fn(async () => ({})),
+      executeSessionCommand: mocks.executeSessionCommand,
+      deleteSession: vi.fn(async () => ({})),
+    },
   },
 };
 
-/** Unwraps the `'\''`-escaped single-quoted tokens embedded in our commands. */
+/** Extracts single-quoted paths embedded in our commands. */
 function extractQuotedTokens(segment: string): string[] {
-  return [...segment.matchAll(/'\\''(.*?)'\\''/gs)].map((match) => match[1]!);
+  return [...segment.matchAll(/'(.*?)'/gs)].map((match) => match[1]!);
 }
 
 function resolveEmulated(path: string, symlinks: Record<string, string>): string {
@@ -58,7 +62,7 @@ function emulateCanonicalize(command: string, symlinks: Record<string, string>) 
 }
 
 function emulateDownload(command: string, files: Record<string, string>) {
-  const path = /wc(?: -l)? -c < '\\''(.*?)'\\''/s.exec(command)?.[1];
+  const path = /wc(?: -l)? -c < '(.*?)'/s.exec(command)?.[1];
   if (!path) {
     throw new Error(`Could not find download path in command: ${command}`);
   }
@@ -74,7 +78,7 @@ function emulateDownload(command: string, files: Record<string, string>) {
   const meta = countLines ? `${newlineCount} ${buffer.length}` : `${buffer.length}`;
 
   const cap = Number(/head -c (\d+)/.exec(command)?.[1]);
-  const sedRange = /sed -n '\\''(\d+),(\d+)p'\\''/.exec(command);
+  const sedRange = /sed -n '(\d+),(\d+)p'/.exec(command);
 
   let payload = buffer;
   if (sedRange) {
@@ -105,14 +109,14 @@ function emulateDownload(command: string, files: Record<string, string>) {
 function emulateRemote(
   options: { files?: Record<string, string>; symlinks?: Record<string, string> } = {},
 ) {
-  return async (_sessionId: string, request: { command: string }) => {
-    if (request.command.includes("realpath -m")) {
-      return emulateCanonicalize(request.command, options.symlinks ?? {});
+  return async (command: string) => {
+    if (command.includes("realpath -m")) {
+      return emulateCanonicalize(command, options.symlinks ?? {});
     }
-    if (request.command.includes("| base64 |")) {
-      return emulateDownload(request.command, options.files ?? {});
+    if (command.includes("| base64 |")) {
+      return emulateDownload(command, options.files ?? {});
     }
-    throw new Error(`Unexpected sandbox command: ${request.command}`);
+    throw new Error(`Unexpected sandbox command: ${command}`);
   };
 }
 
@@ -138,35 +142,30 @@ describe("executeSandboxCommand lifecycle", () => {
       expect.objectContaining({ runAsync: true, suppressInputEcho: true }),
       15,
     );
-    expect(fakeSandbox.process.deleteSession).not.toHaveBeenCalled();
+    expect(fakeSandbox.runtime.process.deleteSession).not.toHaveBeenCalled();
   });
 
-  it("cleans up foreground sessions after command completion", async () => {
-    mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-foreground", exitCode: 0 });
-
-    const result = await executeSandboxCommand("pnpm test", { sandboxOptions: {} });
-
-    expect(mocks.executeSessionCommand).toHaveBeenCalledWith(
-      result.sessionId,
-      expect.objectContaining({ runAsync: false, suppressInputEcho: true }),
-      undefined,
-    );
-    expect(fakeSandbox.process.deleteSession).toHaveBeenCalledWith(result.sessionId);
+  it("passes command, environment and millisecond timeout to the SDK", async () => {
+    mocks.run.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "", output: "ok", timedOut: false });
+    await expect(executeSandboxCommand("pnpm test", {
+      timeout: 30, env: { CI: "false" }, sandboxOptions: {},
+    })).resolves.toMatchObject({ exitCode: 0, output: "ok", timedOut: false });
+    expect(mocks.run).toHaveBeenCalledWith("export CI='false'; pnpm test", {
+      cwd: WORK_DIR, timeoutMs: 30_000, maxOutputBytes: 16 * 1024 * 1024,
+    });
   });
 
-  it("does not hang a completed command when Daytona session cleanup stalls", async () => {
-    vi.useFakeTimers();
-    try {
-      mocks.executeSessionCommand.mockResolvedValue({ cmdId: "cmd-cleanup-timeout", exitCode: 0 });
-      fakeSandbox.process.deleteSession.mockImplementationOnce(() => new Promise(() => undefined));
+  it("preserves timeout output and maps the SDK's null exit code to 124", async () => {
+    mocks.run.mockResolvedValue({ exitCode: null, stdout: "partial", stderr: "", output: "partial", timedOut: true });
+    await expect(executeSandboxCommand("sleep 60", { timeout: 1 })).resolves.toMatchObject({
+      exitCode: 124, output: "partial", timedOut: true, timeout: 1,
+    });
+  });
 
-      const pending = executeSandboxCommand("pnpm test", { sandboxOptions: {} });
-      await vi.advanceTimersByTimeAsync(10_000);
-
-      await expect(pending).resolves.toMatchObject({ cmdId: "cmd-cleanup-timeout", exitCode: 0 });
-    } finally {
-      vi.useRealTimers();
-    }
+  it("cleans up a native session if background startup fails", async () => {
+    mocks.executeSessionCommand.mockRejectedValueOnce(new Error("startup failed"));
+    await expect(executeSandboxCommand("pnpm dev", { isBackground: true })).rejects.toThrow("startup failed");
+    expect(fakeSandbox.runtime.process.deleteSession).toHaveBeenCalledOnce();
   });
 });
 
@@ -190,13 +189,13 @@ describe("isPathWithinRoot", () => {
 
 describe("resolveJailedSandboxPath", () => {
   it("resolves in-workspace relative paths after canonicalization", async () => {
-    mocks.executeSessionCommand.mockImplementation(emulateRemote());
+    mocks.run.mockImplementation(emulateRemote());
 
     await expect(
       resolveJailedSandboxPath("src/a.ts", { workDir: WORK_DIR, sandboxOptions: {} }),
     ).resolves.toBe(`${WORK_DIR}/src/a.ts`);
 
-    const commands = mocks.executeSessionCommand.mock.calls.map((call) => call[1].command as string);
+    const commands = mocks.run.mock.calls.map((call) => call[0] as string);
     expect(commands).toHaveLength(2);
     expect(commands.every((command) => command.includes("realpath -m"))).toBe(true);
     expect(commands.some((command) => command.includes(WORK_DIR))).toBe(true);
@@ -206,18 +205,18 @@ describe("resolveJailedSandboxPath", () => {
     await expect(
       resolveJailedSandboxPath("/etc/passwd", { workDir: WORK_DIR, sandboxOptions: {} }),
     ).rejects.toBeInstanceOf(SandboxPathBoundaryError);
-    expect(mocks.executeSessionCommand).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
   });
 
   it("rejects ../ traversal that collapses outside the workspace", async () => {
     await expect(
       resolveJailedSandboxPath("../../../etc/passwd", { workDir: WORK_DIR, sandboxOptions: {} }),
     ).rejects.toBeInstanceOf(SandboxPathBoundaryError);
-    expect(mocks.executeSessionCommand).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
   });
 
   it("rejects symlink escapes that pass the lexical check", async () => {
-    mocks.executeSessionCommand.mockImplementation(
+    mocks.run.mockImplementation(
       emulateRemote({ symlinks: { [`${WORK_DIR}/link`]: "/etc" } }),
     );
 
@@ -227,7 +226,7 @@ describe("resolveJailedSandboxPath", () => {
   });
 
   it("allows paths under explicitly added roots", async () => {
-    mocks.executeSessionCommand.mockImplementation(emulateRemote());
+    mocks.run.mockImplementation(emulateRemote());
 
     await expect(
       resolveJailedSandboxPath("/data/cache/blob", {
@@ -239,7 +238,7 @@ describe("resolveJailedSandboxPath", () => {
   });
 
   it("returns the canonical in-workspace target for symlink aliases", async () => {
-    mocks.executeSessionCommand.mockImplementation(
+    mocks.run.mockImplementation(
       emulateRemote({ symlinks: { [`${WORK_DIR}/alias.ts`]: `${WORK_DIR}/src/target.ts` } }),
     );
 
@@ -253,12 +252,12 @@ describe("resolveJailedSandboxPath", () => {
       sandbox: { ...fakeSandbox, id: "sandbox-cache-test" },
       workDir: WORK_DIR,
     });
-    mocks.executeSessionCommand.mockImplementation(emulateRemote());
+    mocks.run.mockImplementation(emulateRemote());
 
     await resolveJailedSandboxPath("src/a.ts", { workDir: WORK_DIR, sandboxOptions: {} });
     await resolveJailedSandboxPath("src/b.ts", { workDir: WORK_DIR, sandboxOptions: {} });
 
-    expect(mocks.executeSessionCommand).toHaveBeenCalledTimes(3);
+    expect(mocks.run).toHaveBeenCalledTimes(3);
   });
 
   it("rejects paths containing newlines", async () => {
@@ -270,7 +269,7 @@ describe("resolveJailedSandboxPath", () => {
 
 describe("downloadRemoteFileChunk", () => {
   it("downloads a whole small file with its remote size", async () => {
-    mocks.executeSessionCommand.mockImplementation(
+    mocks.run.mockImplementation(
       emulateRemote({ files: { "/work/repo/a.txt": "hello\n" } }),
     );
 
@@ -284,13 +283,13 @@ describe("downloadRemoteFileChunk", () => {
     expect(chunk.totalBytes).toBe(6);
     expect(chunk.reachedMaxBytes).toBe(false);
 
-    const command = mocks.executeSessionCommand.mock.calls[0]![1].command as string;
+    const command = mocks.run.mock.calls[0]![0] as string;
     expect(command).toContain("head -c 1024 --");
     expect(command).not.toContain("sed -n");
   });
 
   it("caps the transferred bytes at maxBytes", async () => {
-    mocks.executeSessionCommand.mockImplementation(
+    mocks.run.mockImplementation(
       emulateRemote({ files: { "/work/repo/big.txt": "x".repeat(4096) } }),
     );
 
@@ -306,7 +305,7 @@ describe("downloadRemoteFileChunk", () => {
   });
 
   it("downloads a line window with line and byte counts", async () => {
-    mocks.executeSessionCommand.mockImplementation(
+    mocks.run.mockImplementation(
       emulateRemote({ files: { "/work/repo/lines.txt": "one\ntwo\nthree\n" } }),
     );
 
@@ -323,14 +322,14 @@ describe("downloadRemoteFileChunk", () => {
     expect(chunk.totalLines).toBe(3);
     expect(chunk.totalBytes).toBe(14);
 
-    const command = mocks.executeSessionCommand.mock.calls[0]![1].command as string;
+    const command = mocks.run.mock.calls[0]![0] as string;
     expect(command).toContain("sed -n");
     expect(command).toContain("2,3p");
     expect(command).not.toContain("set -o pipefail");
   });
 
   it("skips bytes within a selected line before applying the cap", async () => {
-    mocks.executeSessionCommand.mockImplementation(
+    mocks.run.mockImplementation(
       emulateRemote({ files: { "/work/repo/line.txt": "abcdefghij\n" } }),
     );
 
@@ -347,7 +346,7 @@ describe("downloadRemoteFileChunk", () => {
   });
 
   it("throws RemoteFileNotFoundError for missing files", async () => {
-    mocks.executeSessionCommand.mockImplementation(emulateRemote());
+    mocks.run.mockImplementation(emulateRemote());
 
     await expect(
       downloadRemoteFileChunk({ remotePath: "/work/repo/missing.txt", maxBytes: 16, sandboxOptions: {} }),
@@ -355,7 +354,7 @@ describe("downloadRemoteFileChunk", () => {
   });
 
   it("throws a descriptive error when the sandbox command fails", async () => {
-    mocks.executeSessionCommand.mockResolvedValue({
+    mocks.run.mockResolvedValue({
       cmdId: "cmd-failed",
       exitCode: 1,
       stderr: "boom",
@@ -370,7 +369,7 @@ describe("downloadRemoteFileChunk", () => {
     await expect(
       downloadRemoteFileChunk({ remotePath: "/work/repo/a.txt", maxBytes: 0, sandboxOptions: {} }),
     ).rejects.toThrow("Invalid download byte cap");
-    expect(mocks.executeSessionCommand).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
   });
 });
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
   executeSandboxCommand: vi.fn(),
   getSandboxContext: vi.fn(),
-  uploadFile: vi.fn(),
+  write: vi.fn(),
 }));
 
 vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
@@ -41,7 +41,7 @@ describe("Daytona bash tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-bash", fs: { uploadFile: mocks.uploadFile } },
+      sandbox: { id: "sandbox-bash", files: { write: mocks.write } },
       workDir: "/workspace/repo",
     });
     mocks.executeSandboxCommand.mockResolvedValue({
@@ -81,9 +81,9 @@ describe("Daytona bash tool", () => {
     const fullOutputPath = "/tmp/autopr-tool-output/autopr-session.log";
     expect(result.details.fullOutputPath).toBe(fullOutputPath);
     expect(result.content).toContain(`Full output: ${fullOutputPath} (2101 lines`);
-    const [savedOutput, savedPath] = mocks.uploadFile.mock.calls[0]!;
+    const [savedPath, savedOutput] = mocks.write.mock.calls[0]!;
     expect(savedPath).toBe(fullOutputPath);
-    expect(Buffer.from(savedOutput).toString("utf8")).toContain("progress 0\n");
+    expect(savedOutput).toContain("progress 0\n");
   });
 
   it("drops headers the model already sent in compact output", async () => {
@@ -99,7 +99,7 @@ describe("Daytona bash tool", () => {
     const result = await executeBash({ command: "echo done" });
     expect(result.details.fullOutputPath).toBeNull();
     expect(result.content).not.toContain("Full output:");
-    expect(mocks.uploadFile).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
   });
 
   it("does not impose the foreground timeout after a background launch", async () => {

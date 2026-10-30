@@ -1,4 +1,7 @@
-import { Daytona } from "@daytona/sdk";
+import { Daytona, type Sandbox as NativeDaytonaSandbox } from "@daytona/sdk";
+import { connectSandbox, type Sandbox } from "@opencoredev/sandbox-sdk";
+import { daytona } from "@opencoredev/sandbox-sdk/daytona";
+import { e2b } from "@opencoredev/sandbox-sdk/e2b";
 import { sandboxDomainAllowList } from "@autopr/config/sandbox-network-policy";
 
 import {
@@ -9,6 +12,7 @@ import {
 } from "./repo-path";
 import {
   createE2BSandbox,
+  E2BSandboxRuntime,
   deleteE2BSandbox,
   getE2BSandboxWithoutStarting,
 } from "./e2b";
@@ -37,131 +41,11 @@ export interface SandboxContext {
   workDir: string;
 }
 
-export interface SandboxAdapter {
-  id: string;
-  name?: string;
-  snapshot?: string;
-  state?: string;
-  autoStopInterval?: number;
-  autoArchiveInterval?: number;
-  toolboxProxyUrl?: string;
-  domainAllowList?: string;
-  start(timeout?: number): Promise<void>;
-  refreshActivity(): Promise<void>;
-  setAutoArchiveInterval?(interval: number): Promise<void>;
-  updateNetworkSettings(settings: { domainAllowList: string }): Promise<void>;
-  getWorkDir(): Promise<string | undefined>;
-  getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<{ url: string }>;
-  computerUse: {
-    start(): Promise<unknown>;
-    stop(): Promise<unknown>;
-    getStatus(): Promise<unknown>;
-    getProcessStatus?(processName: string): Promise<unknown>;
-    restartProcess?(processName: string): Promise<unknown>;
-    getProcessLogs?(processName: string): Promise<unknown>;
-    getProcessErrors?(processName: string): Promise<unknown>;
-    recording: {
-      start(label?: string): Promise<unknown>;
-      stop(id: string): Promise<unknown>;
-      list(): Promise<unknown>;
-      get(id: string): Promise<unknown>;
-      download(id: string, localPath: string): Promise<void>;
-    };
-  };
-  git: {
-    status(path: string): Promise<unknown>;
-    clone(
-      url: string,
-      path: string,
-      branch?: string,
-      commitId?: string,
-      username?: string,
-      password?: string,
-    ): Promise<unknown>;
-    add(path: string, files: string[]): Promise<unknown>;
-    commit(
-      path: string,
-      message: string,
-      author: string,
-      email: string,
-      allowEmpty?: boolean,
-    ): Promise<{ sha: string }>;
-    push(
-      path: string,
-      username?: string,
-      password?: string,
-      branch?: string,
-      remote?: string,
-      setUpstream?: boolean,
-    ): Promise<unknown>;
-    pull(
-      path: string,
-      username?: string,
-      password?: string,
-      branch?: string,
-      remote?: string,
-    ): Promise<unknown>;
-  };
-  fs: {
-    downloadFile(path: string): Promise<Uint8Array>;
-    uploadFile(file: Uint8Array, path: string): Promise<unknown>;
-    deleteFile(path: string, recursive?: boolean): Promise<void>;
-    listFiles(path: string): Promise<unknown[]>;
-    searchFiles(path: string, pattern: string): Promise<{ files: string[] }>;
-  };
-  process: {
-    executeCommand(
-      command: string,
-      cwd?: string,
-      env?: Record<string, string>,
-      timeout?: number,
-    ): Promise<{
-      exitCode?: number;
-      result?: string;
-      stdout?: string;
-      stderr?: string;
-      artifacts?: { stdout?: string };
-    }>;
-    createSession(sessionId: string): Promise<unknown>;
-    executeSessionCommand(
-      sessionId: string,
-      command: {
-        command: string;
-        runAsync?: boolean;
-        suppressInputEcho?: boolean;
-      },
-      timeout?: number,
-    ): Promise<{
-      cmdId: string;
-      exitCode?: number;
-      stdout?: string;
-      stderr?: string;
-      output?: string;
-    }>;
-    getSessionCommand(sessionId: string, commandId: string): Promise<{
-      command: string;
-      exitCode?: number;
-      id: string;
-    }>;
-    getSessionCommandLogs(sessionId: string, commandId: string): Promise<{
-      output?: string;
-      stdout?: string;
-      stderr?: string;
-    }>;
-    sendSessionCommandInput(sessionId: string, commandId: string, data: string): Promise<void>;
-    listSessions(): Promise<Array<{
-      sessionId: string;
-      commands: Array<{
-        command: string;
-        exitCode?: number;
-        id: string;
-      }> | null;
-    }>>;
-    deleteSession(sessionId: string): Promise<unknown>;
-  };
-}
+/** Provider-only lifecycle, desktop, and interactive session operations. */
+export type SandboxRuntime = NativeDaytonaSandbox | E2BSandboxRuntime;
 
-/** Backward-compatible name for consumers that still type the Daytona SDK boundary directly. */
+/** The SDK owns commands, files and git; runtime holds Autopr's provider extensions. */
+export type SandboxAdapter = Sandbox & { runtime: SandboxRuntime };
 export type DaytonaSandbox = SandboxAdapter;
 
 export interface SandboxSessionOptions {
@@ -191,8 +75,8 @@ const sandboxContextPromises = new Map<string, {
   promise: Promise<SandboxContext>;
   expiresAt: number;
 }>();
-const sandboxLookupPromises = new Map<string, Promise<DaytonaSandbox>>();
-const recentSandboxes = new Map<string, { sandbox: DaytonaSandbox; expiresAt: number }>();
+const sandboxLookupPromises = new Map<string, Promise<SandboxRuntime>>();
+const recentSandboxes = new Map<string, { sandbox: SandboxRuntime; expiresAt: number }>();
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -287,7 +171,7 @@ async function resolveSandboxRepoPath(
   };
 }
 
-async function ensureSandboxStarted(sandbox: DaytonaSandbox): Promise<DaytonaSandbox> {
+async function ensureSandboxStarted(sandbox: NativeDaytonaSandbox): Promise<NativeDaytonaSandbox> {
   if (sandbox.state && sandbox.state !== "started") {
     await sandbox.start(SANDBOX_START_TIMEOUT_SECONDS);
   }
@@ -295,7 +179,7 @@ async function ensureSandboxStarted(sandbox: DaytonaSandbox): Promise<DaytonaSan
   return sandbox;
 }
 
-async function ensureSandboxAutoArchiveInterval(sandbox: DaytonaSandbox): Promise<DaytonaSandbox> {
+async function ensureSandboxAutoArchiveInterval(sandbox: NativeDaytonaSandbox): Promise<NativeDaytonaSandbox> {
   if (sandbox.autoArchiveInterval !== SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES) {
     if (!sandbox.setAutoArchiveInterval) {
       throw new Error("This sandbox provider does not support automatic archiving.");
@@ -319,13 +203,12 @@ async function ensureRepoCloned(
 
   const { repoPath } = await resolveSandboxRepoPath(sandbox, { provider, repoName, repoUrl });
 
-  try {
-    await sandbox.git.status(repoPath);
-    return repoPath;
-  } catch {
-    await sandbox.git.clone(repoUrl, repoPath, repoBranch);
-    return repoPath;
+  const status = await sandbox.git.status(repoPath);
+  if (!status.ok) {
+    const cloned = await sandbox.git.clone(repoUrl, { dir: repoPath, branch: repoBranch });
+    if (!cloned.ok) throw new Error(cloned.output || "Could not clone the repository.");
   }
+  return repoPath;
 }
 
 export function createSandboxCacheKey(prefix = "sandbox"): string {
@@ -354,7 +237,7 @@ function createDaytonaClient() {
   return client;
 }
 
-async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
+async function ensureSandboxNetworkPolicy(sandbox: NativeDaytonaSandbox) {
   const domainAllowList = sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST);
   if (sandboxDomainAllowList(sandbox.domainAllowList) === domainAllowList) return sandbox;
   if (sandbox.state && sandbox.state !== "started") {
@@ -370,12 +253,12 @@ async function ensureSandboxNetworkPolicy(sandbox: DaytonaSandbox) {
   return sandbox;
 }
 
-export async function createSandbox(options: SandboxSessionOptions = {}): Promise<SandboxAdapter> {
+async function createSandboxRuntime(options: SandboxSessionOptions = {}): Promise<SandboxRuntime> {
   const resolved = resolveSessionOptions(options);
   if (resolved.provider === "e2b") {
     return await createE2BSandbox(resolved);
   }
-  const daytona = await createDaytonaClient();
+  const daytona = createDaytonaClient();
 
   if (resolved.sandboxId) {
     const sandboxId = resolved.sandboxId;
@@ -419,11 +302,63 @@ export async function createSandbox(options: SandboxSessionOptions = {}): Promis
   );
 }
 
+const sdkHandles = new WeakMap<SandboxRuntime, Promise<SandboxAdapter>>();
+
+export async function createSandbox(options: SandboxSessionOptions = {}): Promise<SandboxAdapter> {
+  const runtime = await createSandboxRuntime(options);
+  const existing = sdkHandles.get(runtime);
+  if (existing) return existing;
+
+  const pending = (async () => {
+    const provider = {
+      ...(runtime instanceof E2BSandboxRuntime ? e2b() : daytona()),
+      commandShell: "bash" as const,
+    };
+    const exec = provider.exec.bind(provider);
+    provider.exec = async (id, input) => exec(id, {
+      ...input,
+      // Preserve Bash syntax and login setup. The upstream E2B transport runs
+      // as root, but Autopr's repositories and desktop belong to e2b.
+      command: `${runtime instanceof E2BSandboxRuntime ? "runuser -u e2b -- " : ""}bash -lc '${input.command.replace(/'/g, "'\\''")}'`,
+      // Secret references can change between commands, so read the current manifest.
+      env: runtime instanceof E2BSandboxRuntime
+        ? { ...await runtime.commandEnvironment(), ...input.env }
+        : input.env,
+    });
+    if (runtime instanceof E2BSandboxRuntime) {
+      provider.files.write = async (_id, path, data) => {
+        await runtime.fs.uploadFile(data, path);
+      };
+      provider.files.mkdir = async (_id, path) => {
+        await runtime.makeDirectory(path);
+      };
+    }
+    const sandbox = await connectSandbox(provider, runtime.id, { recoverSecrets: false });
+    // E2B's SDK connection changes its timeout. Restore Autopr's idle window.
+    if (runtime instanceof E2BSandboxRuntime) await runtime.refreshActivity();
+    return Object.assign(sandbox, { runtime });
+  })();
+  sdkHandles.set(runtime, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    sdkHandles.delete(runtime);
+    if (!resolveSessionOptions(options).sandboxId) {
+      try {
+        await deleteSandbox(runtime.id, runtime instanceof E2BSandboxRuntime ? "e2b" : "daytona");
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Sandbox SDK connection failed and cleanup did not complete.");
+      }
+    }
+    throw error;
+  }
+}
+
 /** Fetches an existing sandbox without changing its runtime state. */
 export async function getSandboxWithoutStarting(
   sandboxId: string,
   provider: SandboxProvider = "daytona",
-): Promise<SandboxAdapter> {
+): Promise<SandboxRuntime> {
   if (provider === "e2b") return await getE2BSandboxWithoutStarting(sandboxId);
   const daytona = createDaytonaClient();
   const sandbox = await daytona.get(sandboxId);
@@ -572,8 +507,8 @@ export async function bootstrapRepositorySandbox(
   return {
     provider: context.provider,
     sandboxId: context.sandbox.id,
-    sandboxName: context.sandbox.name,
-    snapshot: context.sandbox.snapshot,
+    sandboxName: context.sandbox.runtime.name,
+    snapshot: context.sandbox.runtime.snapshot,
     workDir: context.workDir,
   };
 }

@@ -1,4 +1,4 @@
-import type { DaytonaSandbox, SandboxSessionOptions } from "../sandbox";
+import type { SandboxRuntime, SandboxSessionOptions } from "../sandbox";
 import { executeSandboxCommand } from "../sandbox/execute";
 import { sandboxUserHome } from "../sandbox/repo-path";
 
@@ -223,7 +223,7 @@ export function cuaBootstrapCommand(): string {
 }
 
 async function startCuaServer(
-  sandbox: DaytonaSandbox,
+  sandbox: SandboxRuntime,
   sandboxOptions: SandboxSessionOptions,
   options: Required<Pick<CuaComputerOptions, "display" | "serverPort">>,
 ): Promise<void> {
@@ -265,7 +265,7 @@ async function startCuaServer(
 }
 
 async function ensureDesktopPointer(
-  sandbox: DaytonaSandbox,
+  sandbox: SandboxRuntime,
   sandboxOptions: SandboxSessionOptions,
   display: string,
   mode: "native" | "overlay",
@@ -314,7 +314,7 @@ async function ensureDesktopPointer(
 }
 
 export class CuaComputerClient {
-  private sandbox: DaytonaSandbox;
+  private sandbox: SandboxRuntime;
   private baseUrl?: string;
   private baseUrlExpiresAt = 0;
   private baseUrlPromise?: Promise<string>;
@@ -326,7 +326,7 @@ export class CuaComputerClient {
   private readonly requestTimeoutMs: number;
 
   constructor(
-    sandbox: DaytonaSandbox,
+    sandbox: SandboxRuntime,
     private readonly sandboxOptions: SandboxSessionOptions,
     options: CuaComputerOptions = {},
   ) {
@@ -339,7 +339,7 @@ export class CuaComputerClient {
   }
 
   /** Keeps a turn-scoped CUA session attached when the provider refreshes its SDK wrapper. */
-  updateSandbox(sandbox: DaytonaSandbox): void {
+  updateSandbox(sandbox: SandboxRuntime): void {
     if (sandbox.id !== this.sandbox.id) {
       this.invalidateConnection();
     }

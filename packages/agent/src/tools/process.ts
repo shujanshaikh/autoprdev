@@ -55,7 +55,7 @@ async function executeDaytonaProcess(
   const { sandbox } = await getSandboxContext(sandboxOptions);
 
   if (input.action === "list") {
-    const ownedSessions = (await runProcessOperation("list sessions", () => sandbox.process.listSessions()))
+    const ownedSessions = (await runProcessOperation("list sessions", () => sandbox.runtime.process.listSessions()))
       .filter((session) => backgroundProcesses.ownsSession(session.sessionId));
     const sessions = ownedSessions
       .slice(0, MAX_LISTED_SESSIONS)
@@ -98,7 +98,7 @@ async function executeDaytonaProcess(
   const sessionId = requireOwnedSessionId(input.sessionId, backgroundProcesses);
 
   if (input.action === "terminate") {
-    await runProcessOperation(`terminate session ${sessionId}`, () => sandbox.process.deleteSession(sessionId));
+    await runProcessOperation(`terminate session ${sessionId}`, () => sandbox.runtime.process.deleteSession(sessionId));
     backgroundProcesses.forgetSession(sessionId);
     return {
       content: `Terminated background session ${sessionId}.`,
@@ -112,7 +112,7 @@ async function executeDaytonaProcess(
     const data = requireString(input.data, "data", "process", { allowEmpty: true });
     await runProcessOperation(
       `send input to ${commandId}`,
-      () => sandbox.process.sendSessionCommandInput(sessionId, commandId, data),
+      () => sandbox.runtime.process.sendSessionCommandInput(sessionId, commandId, data),
     );
     return {
       content: `Sent ${Buffer.byteLength(data, "utf8")} bytes to command ${commandId} in session ${sessionId}.`,
@@ -121,8 +121,8 @@ async function executeDaytonaProcess(
   }
 
   const [command, logs] = await runProcessOperation(`poll command ${commandId}`, () => Promise.all([
-    sandbox.process.getSessionCommand(sessionId, commandId),
-    sandbox.process.getSessionCommandLogs(sessionId, commandId),
+    sandbox.runtime.process.getSessionCommand(sessionId, commandId),
+    sandbox.runtime.process.getSessionCommandLogs(sessionId, commandId),
   ]));
   const redactedStdout = backgroundProcesses.redactOutput(sessionId, commandId, logs.stdout ?? "");
   const redactedStderr = backgroundProcesses.redactOutput(sessionId, commandId, logs.stderr ?? "");

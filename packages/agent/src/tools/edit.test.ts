@@ -52,7 +52,7 @@ function prepareFile(path: string, content: string | Buffer) {
   const uploadFile = vi.fn(async (next: Uint8Array, remotePath: string) => {
     files.set(remotePath, Buffer.from(next));
   });
-  const sandbox = { id: "sandbox-edit", fs: { uploadFile } } as unknown as DaytonaSandbox;
+  const sandbox = { id: "sandbox-edit", files: { write: (path: string, content: Uint8Array) => uploadFile(content, path) } } as unknown as DaytonaSandbox;
   mocks.getSandboxContext.mockResolvedValue({ sandbox, workDir: WORK_DIR });
   return { files, uploadFile };
 }

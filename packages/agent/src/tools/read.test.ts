@@ -97,8 +97,11 @@ function createSandboxFiles(initialFiles: Record<string, string> = {}) {
   return { files, sandbox };
 }
 
-async function executeRead(input: { path: string; offset?: number; limit?: number; byteOffset?: number }): Promise<ReadResult> {
-  const readTool = createDaytonaReadTool({ cacheKey: "read-test" });
+async function executeRead(
+  input: { path: string; offset?: number; limit?: number; byteOffset?: number },
+  options: { compactOutput?: boolean } = {},
+): Promise<ReadResult> {
+  const readTool = createDaytonaReadTool({ cacheKey: "read-test" }, options);
   if (!readTool.execute) {
     throw new Error("Read tool is not executable");
   }
@@ -125,6 +128,19 @@ describe("Daytona read tool", () => {
       truncated: false,
       isBinary: false,
     });
+  });
+
+  it("numbers only the first and every 10th line in compact output", async () => {
+    const text = Array.from({ length: 25 }, (_, index) => `line ${index + 1}`).join("\n");
+    createSandboxFiles({ [`${WORK_DIR}/a.txt`]: text });
+
+    const result = await executeRead({ path: "a.txt", offset: 7, limit: 15 }, { compactOutput: true });
+
+    expect(result.content).toContain("the first and every 10th line are numbered");
+    expect(result.content).toContain("7 | line 7\nline 8\nline 9\n10 | line 10\nline 11");
+    expect(result.content).toContain("20 | line 20\nline 21");
+    expect(result.content).not.toContain("8 | line 8");
+    expect(result.content).toContain("[Use offset=22 to continue.]");
   });
 
   it("reads a line window and points at the continuation offset", async () => {

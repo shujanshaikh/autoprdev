@@ -1,4 +1,4 @@
-import { agentToolSettings } from "#/lib/agent-tool-settings";
+import { agentHarnessExperiments, agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
   CodingHarness,
@@ -6,22 +6,24 @@ import {
   createAgentStepController,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
-  withSandboxAgentProjectContext,
+  withSandboxAgentSetupContext,
 } from "@autopr/agent";
 import { createGrantLifecycle } from "@autopr/agent/grant-lifecycle";
 import { api } from "@autopr/backend/convex/_generated/api";
-import { task } from "@trigger.dev/sdk";
+import { logger, task } from "@trigger.dev/sdk";
 import { fetchAction } from "convex/nextjs";
 import { smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
 
 import {
   createAgentContextCompactor,
   createContextOverflowRecoveryMiddleware,
+  SETUP_CONTEXT_MESSAGES,
 } from "#/lib/agent-context-compaction";
 import {
   createAssistantUsageMetadata,
   type AssistantUsageSource,
   type AssistantUsageMetadata,
+  usageLogAttributes,
 } from "#/lib/agent-usage";
 import { finalizeAgentUIMessageStream } from "#/lib/agent-ui-stream";
 import {
@@ -215,18 +217,23 @@ async function runAgentTask(
   const demoRecordingEnabled = Boolean(options.computerUseEnabled !== false && options.demoEnabled && options.projectId && options.threadId);
   const sandboxProviderName = options.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   const subAgentBinding = createSubAgentBinding();
+  const experiments = agentHarnessExperiments();
   const harness = new CodingHarness({
     ...sandboxOptions,
-    ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run),
+    ...agentToolSettings({ ...options, demoEnabled: demoRecordingEnabled }, subAgentBinding.run, experiments),
+    experiments,
     modelId: options.model.modelId,
     modelProviderName: options.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
-    appendSystemPrompt: [
-      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
+    runContext: [
       options.repoUrl ? `Repository: ${options.repoUrl}` : undefined,
       options.repoBranch ? `Repository branch: ${options.repoBranch}` : undefined,
-      options.sandboxWorkDir ? `Sandbox working directory: ${options.sandboxWorkDir}` : undefined,
       options.projectId ? `Project ID: ${options.projectId}` : undefined,
       options.threadId ? `Thread ID: ${options.threadId}` : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    appendSystemPrompt: [
+      `This chat is streamed through a durable Trigger.dev task. The ${sandboxProviderName} sandbox is created before you answer and all tools operate inside that sandbox.`,
       options.computerUseEnabled === false
         ? "Computer use is disabled for this thread. Do not control a browser or desktop, including through shell commands."
         : demoRecordingEnabled
@@ -253,15 +260,15 @@ async function runAgentTask(
   }
 
   try {
-    await harness.run(async ({ instructions, repositoryContext, sandbox, tools }) => {
+    await harness.run(async ({ instructions, setupContext, sandbox, tools }) => {
       const responseModels = await createAgentResponseModels(selectedModel);
       const model = wrapLanguageModel({
         model: responseModels.parent,
-        middleware: createContextOverflowRecoveryMiddleware(),
+        middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
       });
       const subAgentModel = wrapLanguageModel({
         model: responseModels.subAgent,
-        middleware: createContextOverflowRecoveryMiddleware(),
+        middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
       });
       subAgentBinding.bind(createAgentSubAgentRunner({
         sandboxOptions: {
@@ -271,6 +278,7 @@ async function runAgentTask(
         },
         model: subAgentModel,
         selectedModel: responseModels.subAgentOptions,
+        experiments,
         parentAbortSignal: signal,
         onUsageStep: (step) => {
           subAgentUsageSteps.push({
@@ -283,7 +291,7 @@ async function runAgentTask(
         model,
         system: agentSystemPrompt(selectedModel, instructions),
         messages: applyAgenticCache(
-          withSandboxAgentProjectContext(inputMessages, repositoryContext),
+          withSandboxAgentSetupContext(inputMessages, setupContext),
         ),
         tools,
         toolChoice: "auto",
@@ -296,6 +304,7 @@ async function runAgentTask(
         abortSignal: signal,
         prepareStep: createAgentStepController({
           prepareStep: createAgentContextCompactor({
+            pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES,
             contextWindow: getAgentContextLimit(selectedModel),
             systemPrompt: instructions,
             abortSignal: signal,
@@ -309,13 +318,20 @@ async function runAgentTask(
           sendFinish: false,
         }),
         async () => {
-          return createAssistantUsageMetadata(
+          const metadata = createAssistantUsageMetadata(
             await result.steps,
             selectedModel.modelId,
             runStartedAt,
             Date.now(),
             subAgentUsageSteps,
           );
+          logger.info("agent run usage", {
+            threadId: options.threadId,
+            modelId: selectedModel.modelId,
+            experiments: experiments.join(","),
+            ...usageLogAttributes(metadata),
+          });
+          return metadata;
         },
         async (metadata) => {
           if (!persistence) {

@@ -48,4 +48,39 @@ describe("createAssistantUsageMetadata", () => {
       durationSeconds: 5,
     });
   });
+
+  it("counts steps, reasoning tokens, and tool calls and errors across the run tree", () => {
+    const metadata = createAssistantUsageMetadata(
+      [
+        {
+          usage: { inputTokens: 10, outputTokens: 5, outputTokenDetails: { reasoningTokens: 3 } },
+          content: [
+            { type: "reasoning" },
+            { type: "tool-call", toolName: "read" },
+            { type: "tool-call", toolName: "bash" },
+            { type: "tool-result", toolName: "read" },
+            { type: "tool-error", toolName: "bash" },
+          ],
+        },
+        { usage: { inputTokens: 20, outputTokens: 4 }, content: [{ type: "text" }] },
+      ],
+      "gpt-5.5",
+      0,
+      0,
+      [{
+        modelId: "gpt-5.5",
+        step: {
+          usage: { inputTokens: 5, outputTokens: 1, outputTokenDetails: { reasoningTokens: 1 } },
+          content: [{ type: "tool-call", toolName: "read" }],
+        },
+      }],
+    );
+
+    expect(metadata.steps).toEqual({ parent: 2, subAgent: 1 });
+    expect(metadata.usage.reasoningTokens).toBe(4);
+    expect(metadata.tools).toEqual({
+      read: { calls: 2, errors: 0 },
+      bash: { calls: 1, errors: 1 },
+    });
+  });
 });

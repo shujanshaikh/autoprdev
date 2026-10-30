@@ -2,13 +2,17 @@ import {
   applyAgenticCache,
   CodingHarness,
   createAgentStepController,
+  type HarnessExperiment,
   type RunSubAgent,
   type SandboxSessionOptions,
-  withSandboxAgentProjectContext,
+  withSandboxAgentSetupContext,
 } from "@autopr/agent";
 import { stepCountIs, streamText, type LanguageModel } from "ai";
 
-import { createAgentContextCompactor } from "#/lib/agent-context-compaction";
+import {
+  createAgentContextCompactor,
+  SETUP_CONTEXT_MESSAGES,
+} from "#/lib/agent-context-compaction";
 import { agentProviderOptions, agentSystemPrompt } from "#/lib/agent-auth-runtime-server";
 import { getAgentContextLimit } from "#/lib/agent-models";
 import type { AssistantUsageStep } from "#/lib/agent-usage";
@@ -21,6 +25,7 @@ interface AgentSubAgentRunnerOptions {
   sandboxOptions: SandboxSessionOptions;
   model: LanguageModel;
   selectedModel: AgentModelOptions;
+  experiments?: readonly HarnessExperiment[];
   parentAbortSignal?: AbortSignal;
   onUsageStep?: (step: AssistantUsageStep) => void;
 }
@@ -50,29 +55,30 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
       ...options.sandboxOptions,
       computer: false,
       selectedTools: SUB_AGENT_TOOLS,
+      experiments: options.experiments,
       modelId: options.selectedModel.modelId,
       modelProviderName:
         options.selectedModel.provider === "xai"
           ? "SuperGrok subscription"
           : "ChatGPT / Codex subscription",
+      runContext: `Assigned task: ${description}`,
       appendSystemPrompt: [
         "You are a focused sub-agent working inside the parent agent's sandbox.",
-        `Assigned task: ${description}`,
         "Complete only the supplied task. Other agents may be working in the same repository, so preserve unrelated changes and stay within any stated file scope.",
         "Do not leave background processes running. Terminate any process you start before responding.",
         "You cannot delegate further. Return a concise result with changed files, validation, and any blocker the parent must handle.",
       ].join("\n"),
     });
 
-    return harness.run(async ({ instructions, repositoryContext, tools }) => {
+    return harness.run(async ({ instructions, setupContext, tools }) => {
       let stepCount = 0;
       const result = streamText({
         model: options.model,
         system: agentSystemPrompt(options.selectedModel, instructions),
         messages: applyAgenticCache(
-          withSandboxAgentProjectContext(
+          withSandboxAgentSetupContext(
             [{ role: "user", content: prompt }],
-            repositoryContext,
+            setupContext,
           ),
         ),
         tools,
@@ -82,6 +88,7 @@ export function createAgentSubAgentRunner(options: AgentSubAgentRunnerOptions): 
         abortSignal: signal,
         prepareStep: createAgentStepController({
           prepareStep: createAgentContextCompactor({
+            pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES,
             contextWindow: getAgentContextLimit(options.selectedModel),
             systemPrompt: instructions,
             abortSignal: signal,

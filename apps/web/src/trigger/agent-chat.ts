@@ -1,4 +1,4 @@
-import { agentToolSettings } from "#/lib/agent-tool-settings";
+import { agentHarnessExperiments, agentToolSettings } from "#/lib/agent-tool-settings";
 import {
   applyAgenticCache,
   CodingHarness,
@@ -7,9 +7,10 @@ import {
   createSandboxTools,
   DEMO_RECORDING_INSTRUCTIONS,
   type SandboxSessionOptions,
-  withSandboxAgentProjectContext,
+  withSandboxAgentSetupContext,
 } from "@autopr/agent";
 import { api } from "@autopr/backend/convex/_generated/api";
+import { logger } from "@trigger.dev/sdk";
 import { chat } from "@trigger.dev/sdk/ai";
 import { fetchAction } from "convex/nextjs";
 import {
@@ -24,6 +25,7 @@ import { z } from "zod";
 import {
   createAgentContextCompactor,
   createContextOverflowRecoveryMiddleware,
+  SETUP_CONTEXT_MESSAGES,
 } from "#/lib/agent-context-compaction";
 import { compactPromptMessagesForModel } from "#/lib/agent-message-compaction";
 import {
@@ -34,6 +36,7 @@ import {
   createAssistantUsageMetadata,
   type AssistantUsageSource,
   type AssistantUsageMetadata,
+  usageLogAttributes,
 } from "#/lib/agent-usage";
 import {
   createAgentSubAgentRunner,
@@ -166,14 +169,16 @@ function modelInstructions(clientData: AgentChatClientData) {
   const provider = clientData.sandboxProvider === "e2b" ? "E2B" : "Daytona";
   return [
     `This chat is streamed through a durable Trigger.dev Session. The ${provider} sandbox is prepared before you answer and all tools operate inside that sandbox.`,
+    demoInstructions(clientData),
+  ].join("\n");
+}
+
+function runContext(clientData: AgentChatClientData) {
+  return [
     clientData.repoUrl ? `Repository: ${clientData.repoUrl}` : undefined,
     clientData.repoBranch ? `Repository branch: ${clientData.repoBranch}` : undefined,
-    clientData.sandboxWorkDir
-      ? `Sandbox working directory: ${clientData.sandboxWorkDir}`
-      : undefined,
     `Project ID: ${clientData.projectId}`,
     `Thread ID: ${clientData.threadId}`,
-    demoInstructions(clientData),
   ]
     .filter(Boolean)
     .join("\n");
@@ -193,7 +198,10 @@ export const agentChatTask = chat.agent({
   tools: ({ chatId, clientData }) => {
     const trusted = requireClientData(clientData, chatId);
     const binding = createSubAgentBinding();
-    const tools = createSandboxTools(sandboxOptions(trusted), agentToolSettings(trusted, binding.run));
+    const tools = createSandboxTools(
+      sandboxOptions(trusted),
+      agentToolSettings(trusted, binding.run, agentHarnessExperiments()),
+    );
     subAgentBindings.set(tools, binding);
     return tools;
   },
@@ -290,12 +298,15 @@ export const agentChatTask = chat.agent({
     if (!subAgentBinding) {
       throw new Error("The sub-agent runtime is unavailable for this chat turn.");
     }
+    const experiments = agentHarnessExperiments();
     const harness = new CodingHarness({
       ...sandboxOptions(trusted),
-      ...agentToolSettings(trusted, subAgentBinding.run),
+      ...agentToolSettings(trusted, subAgentBinding.run, experiments),
+      experiments,
       modelId: trusted.model.modelId,
       modelProviderName: trusted.model.provider === "xai" ? "SuperGrok subscription" : "ChatGPT / Codex subscription",
       appendSystemPrompt: modelInstructions(trusted),
+      runContext: runContext(trusted),
     });
     const selectedModel = {
       ...trusted.model,
@@ -304,17 +315,17 @@ export const agentChatTask = chat.agent({
     };
     const startedAt = Date.now();
     const subAgentUsageSteps: AssistantUsageSource[] = [];
-    const [{ instructions, repositoryContext, sandbox }, responseModels] = await Promise.all([
+    const [{ instructions, setupContext, sandbox }, responseModels] = await Promise.all([
       harness.prepare(),
       createAgentResponseModels(selectedModel),
     ]);
     const model = wrapLanguageModel({
       model: responseModels.parent,
-      middleware: createContextOverflowRecoveryMiddleware(),
+      middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
     });
     const subAgentModel = wrapLanguageModel({
       model: responseModels.subAgent,
-      middleware: createContextOverflowRecoveryMiddleware(),
+      middleware: createContextOverflowRecoveryMiddleware({ pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES }),
     });
     subAgentBinding.bind(createAgentSubAgentRunner({
       sandboxOptions: {
@@ -324,6 +335,7 @@ export const agentChatTask = chat.agent({
       },
       model: subAgentModel,
       selectedModel: responseModels.subAgentOptions,
+      experiments,
       parentAbortSignal: signal,
       onUsageStep: (step) => {
         subAgentUsageSteps.push({
@@ -338,7 +350,7 @@ export const agentChatTask = chat.agent({
       model,
       system: agentSystemPrompt(selectedModel, instructions),
       messages: applyAgenticCache(
-        withSandboxAgentProjectContext(messages, repositoryContext),
+        withSandboxAgentSetupContext(messages, setupContext),
       ),
       tools,
       toolChoice: "auto",
@@ -351,6 +363,7 @@ export const agentChatTask = chat.agent({
       abortSignal: signal,
       prepareStep: createAgentStepController({
         prepareStep: createAgentContextCompactor({
+          pinnedLeadingMessages: SETUP_CONTEXT_MESSAGES,
           contextWindow: getAgentContextLimit(selectedModel),
           systemPrompt: instructions,
           abortSignal: signal,
@@ -364,6 +377,12 @@ export const agentChatTask = chat.agent({
           Date.now(),
           subAgentUsageSteps,
         );
+        logger.info("agent run usage", {
+          threadId: trusted.threadId,
+          modelId: selectedModel.modelId,
+          experiments: experiments.join(","),
+          ...usageLogAttributes(turnState.usageMetadata),
+        });
       },
       providerOptions: agentProviderOptions(selectedModel, instructions),
     });

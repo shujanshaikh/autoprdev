@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
   executeSandboxCommand: vi.fn(),
   getSandboxContext: vi.fn(),
-  uploadFile: vi.fn(),
+  write: vi.fn(),
 }));
 
 vi.mock("../sandbox", () => ({ getSandboxContext: mocks.getSandboxContext }));
@@ -18,7 +18,7 @@ describe("saveToolOutputFile", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.executeSandboxCommand.mockResolvedValue({ cwd: "/", sessionId: "s", exitCode: 0 });
-    mocks.getSandboxContext.mockResolvedValue({ sandbox: { fs: { uploadFile: mocks.uploadFile } }, workDir: "/w" });
+    mocks.getSandboxContext.mockResolvedValue({ sandbox: { files: { write: mocks.write } }, workDir: "/w" });
   });
 
   it("prunes old outputs to a fixed count before saving the new one", async () => {
@@ -28,8 +28,8 @@ describe("saveToolOutputFile", () => {
     expect(mocks.executeSandboxCommand.mock.calls[0]![0]).toBe(
       "mkdir -p '/tmp/autopr-tool-output' && cd '/tmp/autopr-tool-output' && ls -1t | tail -n +20 | xargs -r rm -f --",
     );
-    const [saved, path] = mocks.uploadFile.mock.calls[0]!;
-    expect(Buffer.from(saved).toString("utf8")).toBe("full output");
+    const [path, saved] = mocks.write.mock.calls[0]!;
+    expect(saved).toBe("full output");
     expect(path).toBe("/tmp/autopr-tool-output/autopr-session-1.log");
   });
 
@@ -38,6 +38,6 @@ describe("saveToolOutputFile", () => {
     mocks.executeSandboxCommand.mockResolvedValue({ cwd: "/", sessionId: "s", exitCode: 1, stderr: "disk full" });
 
     await expect(saveToolOutputFile("x", "s", { cacheKey: "t" })).resolves.toBeUndefined();
-    expect(mocks.uploadFile).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
   });
 });

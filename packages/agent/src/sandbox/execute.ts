@@ -314,9 +314,9 @@ export async function executeSandboxCommand(
     }
   }
 
-  const result = await sandbox.run(command, {
+  // The SDK applies its CI/TERM defaults after `env`; shell exports keep caller overrides.
+  const result = await sandbox.run(prependEnvExports(command, options.env), {
     cwd,
-    env: options.env,
     timeoutMs: requestedTimeout === undefined ? undefined : requestedTimeout * 1_000,
     // File reads and diffs bound their output at the source; preserve their byte budgets.
     maxOutputBytes: 16 * 1024 * 1024,

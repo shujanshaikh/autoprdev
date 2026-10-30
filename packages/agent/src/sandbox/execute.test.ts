@@ -148,10 +148,10 @@ describe("executeSandboxCommand lifecycle", () => {
   it("passes command, environment and millisecond timeout to the SDK", async () => {
     mocks.run.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "", output: "ok", timedOut: false });
     await expect(executeSandboxCommand("pnpm test", {
-      timeout: 30, env: { CI: "1" }, sandboxOptions: {},
+      timeout: 30, env: { CI: "false" }, sandboxOptions: {},
     })).resolves.toMatchObject({ exitCode: 0, output: "ok", timedOut: false });
-    expect(mocks.run).toHaveBeenCalledWith("pnpm test", {
-      cwd: WORK_DIR, env: { CI: "1" }, timeoutMs: 30_000, maxOutputBytes: 16 * 1024 * 1024,
+    expect(mocks.run).toHaveBeenCalledWith("export CI='false'; pnpm test", {
+      cwd: WORK_DIR, timeoutMs: 30_000, maxOutputBytes: 16 * 1024 * 1024,
     });
   });
 

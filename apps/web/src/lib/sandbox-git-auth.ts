@@ -1,11 +1,11 @@
-import type { DaytonaSandbox } from "@autopr/agent/sandbox";
+import type { DaytonaSandbox, SandboxRuntime } from "@autopr/agent/sandbox";
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 export async function withEphemeralGitAuth<T>(
-  sandbox: DaytonaSandbox,
+  sandbox: SandboxRuntime,
   githubToken: string | undefined,
   operation: (env: Record<string, string>) => Promise<T>,
 ): Promise<T> {
@@ -84,8 +84,8 @@ export function runAuthenticatedSandboxCommand(
   timeout = 120,
 ) {
   return withEphemeralGitAuth(
-    sandbox,
+    sandbox.runtime,
     githubToken,
-    (env) => sandbox.process.executeCommand(command, cwd, env, timeout),
+    (env) => sandbox.run(command, { cwd, env, timeoutMs: timeout * 1_000 }),
   );
 }

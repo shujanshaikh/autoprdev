@@ -12,6 +12,10 @@ vi.mock("@daytona/sdk", () => ({
   },
 }));
 
+vi.mock("@opencoredev/sandbox-sdk", () => ({
+  connectSandbox: vi.fn(async (_provider, id) => ({ id })),
+}));
+
 describe("sandbox lookup coalescing", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -111,7 +115,7 @@ describe("sandbox lookup coalescing", () => {
     mocks.get.mockResolvedValue(sandbox);
     const { createSandbox } = await import("./index");
 
-    await expect(createSandbox({ sandboxId: sandbox.id })).resolves.toBe(sandbox);
+    await expect(createSandbox({ sandboxId: sandbox.id })).resolves.toMatchObject({ runtime: sandbox });
     expect(sandbox.start).toHaveBeenCalledTimes(1);
     expect(sandbox.updateNetworkSettings).toHaveBeenCalledWith({ domainAllowList: "" });
   });

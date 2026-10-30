@@ -128,7 +128,7 @@ describe("CUA computer execution", () => {
         },
       },
     };
-    mocks.getSandboxContext.mockResolvedValue({ sandbox, workDir: "/workspace/repo" });
+    mocks.getSandboxContext.mockResolvedValue({ sandbox: { id: sandbox.id, runtime: sandbox }, workDir: "/workspace/repo" });
     mocks.ensureReady.mockResolvedValue({
       status: "ok",
       os_type: "linux",
@@ -178,8 +178,8 @@ describe("CUA computer execution", () => {
     const firstWrapper = sandbox;
     const secondWrapper = { ...sandbox };
     mocks.getSandboxContext
-      .mockResolvedValueOnce({ sandbox: firstWrapper, workDir: "/workspace/repo" })
-      .mockResolvedValueOnce({ sandbox: secondWrapper, workDir: "/workspace/repo" });
+      .mockResolvedValueOnce({ sandbox: { id: firstWrapper.id, runtime: firstWrapper }, workDir: "/workspace/repo" })
+      .mockResolvedValueOnce({ sandbox: { id: secondWrapper.id, runtime: secondWrapper }, workDir: "/workspace/repo" });
     const computer = createCuaComputerTool({ cacheKey: "refreshed-wrapper" });
     if (!computer.execute) throw new Error("computer tool is not executable");
 

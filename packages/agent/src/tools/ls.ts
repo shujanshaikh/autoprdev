@@ -41,11 +41,11 @@ async function executeDaytonaLs(input: LsInput, sandboxOptions: SandboxSessionOp
   const limit = clampLimit(input.limit, DEFAULT_LS_LIMIT, MAX_LS_LIMIT);
   const offset = input.offset ?? 1;
   const allEntries = (await raceWithTimeout(
-    () => context.sandbox.fs.listFiles(remotePath),
+    () => context.sandbox.files.list(remotePath),
     LS_TIMEOUT_MS,
     () => new Error(`Timed out listing ${remotePath} in the sandbox.`),
   ))
-    .map((entry) => entry as FileListEntry)
+    .map((entry) => ({ name: entry.path.split("/").at(-1) ?? entry.path, isDir: entry.type === "directory", size: entry.size }))
     .sort((left, right) => left.name.localeCompare(right.name));
 
   if (allEntries.length === 0) {

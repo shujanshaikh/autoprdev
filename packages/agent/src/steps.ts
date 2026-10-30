@@ -14,8 +14,8 @@ export async function prepareSandbox(options: SandboxSessionOptions): Promise<Pr
   return {
     provider: context.provider,
     sandboxId: context.sandbox.id,
-    sandboxName: context.sandbox.name,
-    snapshot: context.sandbox.snapshot,
+    sandboxName: context.sandbox.runtime.name,
+    snapshot: context.sandbox.runtime.snapshot,
     workDir: context.workDir,
   };
 }

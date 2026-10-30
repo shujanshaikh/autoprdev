@@ -77,7 +77,7 @@ function createSandboxFiles(initialFiles: Record<string, string> = {}) {
   });
   const sandbox = {
     id: "sandbox-1",
-    fs: { uploadFile },
+    files: { write: (path: string, content: Uint8Array) => uploadFile(content, path) },
   } as unknown as DaytonaSandbox;
 
   return { files, sandbox, uploadFile };

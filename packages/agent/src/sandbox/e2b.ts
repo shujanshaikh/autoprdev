@@ -7,7 +7,7 @@ import {
   type CommandHandle,
 } from "e2b";
 
-import type { SandboxAdapter, SandboxSessionOptions } from "./index";
+import type { SandboxSessionOptions } from "./index";
 import { SandboxRuntimeNotStartedError } from "./errors";
 import { E2B_SANDBOX_WORKDIR } from "./repo-path";
 
@@ -220,7 +220,7 @@ async function e2bPreviewSignature(secret: string, value: string): Promise<strin
   return createHmac("sha256", secret).update(value).digest("base64url");
 }
 
-export class E2BSandboxAdapter implements SandboxAdapter {
+export class E2BSandboxRuntime {
   readonly id: string;
   readonly snapshot?: string;
   readonly autoStopInterval = E2B_TIMEOUT_MS / 60_000;
@@ -268,8 +268,8 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     // their immutable template-era policy until they are recreated.
   }
 
-  async getWorkDir(): Promise<string> {
-    return E2B_SANDBOX_WORKDIR;
+  async makeDirectory(path: string): Promise<void> {
+    await this.sdk.files.makeDir(path);
   }
 
   async getSignedPreviewUrl(
@@ -445,76 +445,6 @@ export class E2BSandboxAdapter implements SandboxAdapter {
         await writeFile(localPath, bytes);
       },
     },
-  };
-
-  readonly git = {
-    status: async (path: string): Promise<unknown> => this.requiredGit(path, "status --porcelain"),
-    clone: async (
-      url: string,
-      path: string,
-      branch?: string,
-      commitId?: string,
-      username?: string,
-      password?: string,
-    ): Promise<unknown> => {
-      const envs = username && password
-        ? {
-            GIT_ASKPASS: "/opt/autopr/bin/autopr-git-askpass",
-            GIT_TERMINAL_PROMPT: "0",
-            AUTOPR_GIT_USERNAME: username,
-            AUTOPR_GIT_PASSWORD: password,
-          }
-        : undefined;
-      const branchArg = branch ? ` --branch '${branch.replace(/'/g, "'\\''")}' --single-branch` : "";
-      const result = await runCommand(
-        this.sdk,
-        `git clone${branchArg} -- '${url.replace(/'/g, "'\\''")}' '${path.replace(/'/g, "'\\''")}'`,
-        { cwd: E2B_SANDBOX_WORKDIR, envs },
-      );
-      if (result.exitCode !== 0) throw new Error(result.stderr || "E2B git clone failed.");
-      if (commitId) await this.requiredGit(path, `checkout '${commitId.replace(/'/g, "'\\''")}'`);
-      return result;
-    },
-    add: async (path: string, files: string[]): Promise<unknown> =>
-      this.requiredGit(path, `add -- ${files.map((file) => `'${file.replace(/'/g, "'\\''")}'`).join(" ")}`),
-    commit: async (
-      path: string,
-      message: string,
-      author: string,
-      email: string,
-      allowEmpty?: boolean,
-    ): Promise<{ sha: string }> => {
-      const envs = {
-        GIT_AUTHOR_NAME: author,
-        GIT_AUTHOR_EMAIL: email,
-        GIT_COMMITTER_NAME: author,
-        GIT_COMMITTER_EMAIL: email,
-      };
-      const empty = allowEmpty ? " --allow-empty" : "";
-      const commit = await runCommand(
-        this.sdk,
-        `git commit${empty} -m '${message.replace(/'/g, "'\\''")}'`,
-        { cwd: path, envs },
-      );
-      if (commit.exitCode !== 0) throw new Error(commit.stderr || "E2B git commit failed.");
-      const sha = await this.requiredGit(path, "rev-parse HEAD");
-      return { sha: sha.stdout.trim() };
-    },
-    push: async (
-      path: string,
-      username?: string,
-      password?: string,
-      branch?: string,
-      remote = "origin",
-      setUpstream?: boolean,
-    ): Promise<unknown> => this.authenticatedGit(path, "push", username, password, remote, branch, setUpstream),
-    pull: async (
-      path: string,
-      username?: string,
-      password?: string,
-      branch?: string,
-      remote = "origin",
-    ): Promise<unknown> => this.authenticatedGit(path, "pull", username, password, remote, branch, false),
   };
 
   readonly fs = {
@@ -717,7 +647,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     return command;
   }
 
-  private async commandEnvironment(overrides?: Record<string, string>): Promise<Record<string, string> | undefined> {
+  async commandEnvironment(overrides?: Record<string, string>): Promise<Record<string, string> | undefined> {
     const inherited = await this.sdk.files.read(E2B_ENV_MANIFEST).then((raw) => {
       const parsed: unknown = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -734,37 +664,6 @@ export class E2BSandboxAdapter implements SandboxAdapter {
     return Object.keys(merged).length > 0 ? merged : undefined;
   }
 
-  private async requiredGit(path: string, args: string, envs?: Record<string, string>) {
-    const result = await runCommand(this.sdk, `git ${args}`, { cwd: path, envs });
-    if (result.exitCode !== 0) throw new Error(result.stderr || `E2B git ${args.split(" ")[0]} failed.`);
-    return {
-      ...result,
-      result: commandOutput(result.stdout, result.stderr),
-    };
-  }
-
-  private async authenticatedGit(
-    path: string,
-    operation: "push" | "pull",
-    username?: string,
-    password?: string,
-    remote = "origin",
-    branch?: string,
-    setUpstream?: boolean,
-  ) {
-    const envs = username && password
-      ? {
-          GIT_ASKPASS: "/opt/autopr/bin/autopr-git-askpass",
-          GIT_TERMINAL_PROMPT: "0",
-          AUTOPR_GIT_USERNAME: username,
-          AUTOPR_GIT_PASSWORD: password,
-        }
-      : undefined;
-    const upstream = operation === "push" && setUpstream ? "--set-upstream " : "";
-    const target = [remote, branch].filter(Boolean).map((value) => `'${value!.replace(/'/g, "'\\''")}'`).join(" ");
-    return await this.requiredGit(path, `${operation} ${upstream}${target}`.trim(), envs);
-  }
-
   private async readRecording(id: string): Promise<E2BRecording> {
     const raw = await this.sdk.files.read(recordingMetadataPath(id));
     const parsed: unknown = JSON.parse(raw);
@@ -773,7 +672,7 @@ export class E2BSandboxAdapter implements SandboxAdapter {
   }
 }
 
-const adapters = new Map<string, { adapter: E2BSandboxAdapter; expiresAt: number }>();
+const adapters = new Map<string, { adapter: E2BSandboxRuntime; expiresAt: number }>();
 const ADAPTER_CACHE_MS = 5_000;
 
 function pruneAdapters(now = Date.now()): void {
@@ -787,7 +686,7 @@ function pruneAdapters(now = Date.now()): void {
   }
 }
 
-export async function createE2BSandbox(options: SandboxSessionOptions = {}): Promise<E2BSandboxAdapter> {
+export async function createE2BSandbox(options: SandboxSessionOptions = {}): Promise<E2BSandboxRuntime> {
   pruneAdapters();
   if (options.sandboxId) {
     const cached = adapters.get(options.sandboxId);
@@ -799,7 +698,7 @@ export async function createE2BSandbox(options: SandboxSessionOptions = {}): Pro
       }),
       E2BSdkSandbox.getInfo(options.sandboxId, { requestTimeoutMs: E2B_REQUEST_TIMEOUT_MS }),
     ]);
-    const adapter = new E2BSandboxAdapter(sdk, info);
+    const adapter = new E2BSandboxRuntime(sdk, info);
     adapters.set(options.sandboxId, { adapter, expiresAt: Date.now() + ADAPTER_CACHE_MS });
     pruneAdapters();
     return adapter;
@@ -816,7 +715,7 @@ export async function createE2BSandbox(options: SandboxSessionOptions = {}): Pro
     },
     network: e2bNetwork(),
   });
-  const adapter = new E2BSandboxAdapter(sdk, {
+  const adapter = new E2BSandboxRuntime(sdk, {
     name: options.name,
     templateId: template,
     state: "running",
@@ -827,7 +726,7 @@ export async function createE2BSandbox(options: SandboxSessionOptions = {}): Pro
   return adapter;
 }
 
-export async function getE2BSandboxWithoutStarting(sandboxId: string): Promise<E2BSandboxAdapter> {
+export async function getE2BSandboxWithoutStarting(sandboxId: string): Promise<E2BSandboxRuntime> {
   const info = await E2BSdkSandbox.getInfo(sandboxId, { requestTimeoutMs: E2B_REQUEST_TIMEOUT_MS });
   if (info.state !== "running") {
     throw new SandboxRuntimeNotStartedError(info.state);
@@ -837,7 +736,7 @@ export async function getE2BSandboxWithoutStarting(sandboxId: string): Promise<E
     timeoutMs: 0,
     requestTimeoutMs: E2B_REQUEST_TIMEOUT_MS,
   });
-  return new E2BSandboxAdapter(sdk, info);
+  return new E2BSandboxRuntime(sdk, info);
 }
 
 export async function deleteE2BSandbox(sandboxId: string): Promise<void> {

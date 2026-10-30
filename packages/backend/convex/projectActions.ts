@@ -7,7 +7,7 @@ import {
   deleteSandbox as deleteProviderSandbox,
   E2B_ENV_MANIFEST,
   E2B_SANDBOX_WORKDIR,
-  type DaytonaSandbox as ProviderSandbox,
+  type SandboxRuntime as ProviderSandbox,
 } from "@autopr/agent/sandbox";
 import {
   ensureComputerUseReady,
@@ -52,11 +52,7 @@ const sandboxStatusValidator = v.union(v.literal("creating"), v.literal("ready")
 
 type SandboxStatus = "creating" | "ready" | "failed";
 
-const DEFAULT_DAYTONA_SNAPSHOT = "autopr-cua";
 const DEFAULT_SANDBOX_WORKDIR = "/home";
-const DEFAULT_E2B_TEMPLATE = "autopr";
-const SANDBOX_AUTO_STOP_INTERVAL_MINUTES = 15;
-const SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES = 2 * 60;
 const DAYTONA_NOVNC_PORT = 6080;
 const DESKTOP_PREVIEW_EXPIRES_SECONDS = 60 * 60;
 const TERMINAL_PREVIEW_EXPIRES_SECONDS = 10 * 60;
@@ -515,7 +511,7 @@ async function ensureProviderSandboxStarted(
   sandboxId: string,
 ): Promise<ProviderSandbox> {
   return provider === "e2b"
-    ? await createProviderSandbox({ provider, sandboxId })
+    ? (await createProviderSandbox({ provider, sandboxId })).runtime
     : await ensureSandboxStarted(sandboxId);
 }
 
@@ -824,75 +820,39 @@ async function bootstrapRepositorySandbox(options: {
   snapshot?: string;
 }) {
   const provider = options.provider ?? "daytona";
-  if (provider === "e2b") {
-    const sandbox = await createProviderSandbox({
-      provider,
-      cacheKey: options.cacheKey,
-      name: autoprSandboxName(options.cacheKey),
-      labels: autoprSandboxLabels(options.cacheKey),
-      snapshot: options.snapshot ?? process.env.E2B_TEMPLATE ?? DEFAULT_E2B_TEMPLATE,
-    });
-    try {
-      const repoDir = sandboxRepositoryDirectoryName({ repoName: options.repoName, repoUrl: options.repoUrl });
-      const repoPath = sandboxRepositoryPath(E2B_SANDBOX_WORKDIR, repoDir);
-      try {
-        await sandbox.git.status(repoPath);
-      } catch {
-        await sandbox.git.clone(options.repoUrl, repoPath, options.repoBranch);
-      }
-      const info = await E2BSdkSandbox.getInfo(sandbox.id, { requestTimeoutMs: 120_000 });
-      return {
-        sandboxId: sandbox.id,
-        sandboxName: sandbox.name,
-        sandboxSnapshot: sandbox.snapshot,
-        sandboxWorkDir: repoPath,
-        sandboxProvider: provider,
-        e2bCpuCount: info.cpuCount,
-        e2bMemoryMB: info.memoryMB,
-      };
-    } catch (error) {
-      try {
-        await deleteProviderSandbox(sandbox.id, provider);
-      } catch (cleanupError) {
-        throw new AggregateError(
-          [error, cleanupError],
-          `E2B sandbox ${sandbox.id} initialization failed and cleanup did not complete.`,
-        );
-      }
-      throw error;
-    }
-  }
-
-  const daytona = createDaytonaClient();
-  const sandbox = await daytona.create({
+  const sandbox = await createProviderSandbox({
+    provider,
     name: autoprSandboxName(options.cacheKey),
     labels: autoprSandboxLabels(options.cacheKey),
-    snapshot: options.snapshot ?? process.env.DAYTONA_SNAPSHOT ?? DEFAULT_DAYTONA_SNAPSHOT,
-    autoStopInterval: SANDBOX_AUTO_STOP_INTERVAL_MINUTES,
-    autoArchiveInterval: SANDBOX_AUTO_ARCHIVE_INTERVAL_MINUTES,
-    domainAllowList: sandboxDomainAllowList(process.env.DAYTONA_DOMAIN_ALLOW_LIST),
+    snapshot: options.snapshot,
   });
-  const repoDir = sandboxRepositoryDirectoryName({
-    repoName: options.repoName,
-    repoUrl: options.repoUrl,
-  });
-  const repoPath = sandboxRepositoryPath(DEFAULT_SANDBOX_WORKDIR, repoDir);
-
   try {
-    await sandbox.git.status(repoPath);
-  } catch {
-    await sandbox.git.clone(options.repoUrl, repoPath, options.repoBranch);
+    const repoDir = sandboxRepositoryDirectoryName({ repoName: options.repoName, repoUrl: options.repoUrl });
+    const repoPath = sandboxRepositoryPath(providerWorkDir(provider), repoDir);
+    if (!(await sandbox.git.status(repoPath)).ok) {
+      const cloned = await sandbox.git.clone(options.repoUrl, { dir: repoPath, branch: options.repoBranch });
+      if (!cloned.ok) throw new Error(cloned.output || "Could not clone the repository.");
+    }
+    const info = provider === "e2b"
+      ? await E2BSdkSandbox.getInfo(sandbox.id, { requestTimeoutMs: 120_000 })
+      : undefined;
+    return {
+      sandboxId: sandbox.id,
+      sandboxName: sandbox.runtime.name,
+      sandboxSnapshot: sandbox.runtime.snapshot,
+      sandboxWorkDir: repoPath,
+      sandboxProvider: provider,
+      e2bCpuCount: info?.cpuCount,
+      e2bMemoryMB: info?.memoryMB,
+    };
+  } catch (error) {
+    try {
+      await deleteProviderSandbox(sandbox.id, provider);
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], `Sandbox ${sandbox.id} initialization failed and cleanup did not complete.`);
+    }
+    throw error;
   }
-
-  return {
-    sandboxId: sandbox.id,
-    sandboxName: sandbox.name,
-    sandboxSnapshot: sandbox.snapshot,
-    sandboxWorkDir: repoPath,
-    sandboxProvider: provider,
-    e2bCpuCount: undefined,
-    e2bMemoryMB: undefined,
-  };
 }
 
 async function readThreadWorktreeState(
@@ -1651,7 +1611,7 @@ export const importSandboxEnvironmentVariables = action({
           operationId,
         },
       );
-      const previousManifest = new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+      const previousManifest = Buffer.from(JSON.stringify(Object.fromEntries(
         lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
       )));
       type CreatedSecret = Awaited<ReturnType<typeof E2BSecret.create>>;
@@ -1686,7 +1646,7 @@ export const importSandboxEnvironmentVariables = action({
         const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
         await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
         await sandbox.fs.uploadFile(
-          new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+          Buffer.from(JSON.stringify(Object.fromEntries(
             allSecrets.map((secret) => [secret.envName, secret.secretName]),
           ))),
           E2B_ENV_MANIFEST,
@@ -1819,7 +1779,7 @@ export const removeSandboxEnvironmentVariable = action({
       const lockedSecret = lockedProject.sandboxSecrets.find((secret) => secret.envName === args.envName);
       const lockedVariable = lockedProject.sandboxEnvironmentVariables.find((variable) => variable.envName === args.envName);
       const remaining = lockedProject.sandboxSecrets.filter((secret) => secret.envName !== args.envName);
-      const previousManifest = new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+      const previousManifest = Buffer.from(JSON.stringify(Object.fromEntries(
         lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
       )));
       let manifestUpdated = false;
@@ -1829,7 +1789,7 @@ export const removeSandboxEnvironmentVariable = action({
         const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
         await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
         await sandbox.fs.uploadFile(
-          new TextEncoder().encode(JSON.stringify(Object.fromEntries(
+          Buffer.from(JSON.stringify(Object.fromEntries(
             remaining.map((secret) => [secret.envName, secret.secretName]),
           ))),
           E2B_ENV_MANIFEST,
@@ -2022,9 +1982,9 @@ export const bindProvisionedSandbox = action({
       ? await E2BSdkSandbox.getInfo(args.sandboxId, { requestTimeoutMs: 120_000 })
       : undefined;
     const identityMatches = project.sandboxProvider === "e2b"
-      ? sandbox.name === autoprSandboxName(project.projectId)
+      ? sandbox.runtime.name === autoprSandboxName(project.projectId)
         && e2bInfo?.metadata?.["autopr-project-id"] === project.projectId
-      : isExpectedAutoprSandbox(sandbox, project.projectId);
+      : isExpectedAutoprSandbox(sandbox.runtime, project.projectId);
     if (!identityMatches) {
       throw new ConvexError({
         code: "INVALID_SANDBOX_BINDING",
@@ -2037,15 +1997,16 @@ export const bindProvisionedSandbox = action({
       repoUrl: project.cloneUrl,
     });
     const sandboxWorkDir = sandboxRepositoryPath(providerWorkDir(project.sandboxProvider), repoDirectory);
-    await sandbox.git.status(sandboxWorkDir);
+    const status = await sandbox.git.status(sandboxWorkDir);
+    if (!status.ok) throw new Error(status.output || "The sandbox repository is unavailable.");
 
     await ctx.runMutation(internal.projects.markSandboxReadyInternal, {
       authorId: identity.subject,
       projectId: project.projectId,
       sandboxId: sandbox.id,
       sandboxProvider: project.sandboxProvider,
-      sandboxName: sandbox.name,
-      sandboxSnapshot: sandbox.snapshot,
+      sandboxName: sandbox.runtime.name,
+      sandboxSnapshot: sandbox.runtime.snapshot,
       sandboxWorkDir,
       e2bCpuCount: e2bInfo?.cpuCount,
       e2bMemoryMB: e2bInfo?.memoryMB,

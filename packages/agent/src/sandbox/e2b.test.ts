@@ -30,7 +30,7 @@ vi.mock("e2b", () => ({
 import {
   createE2BSandbox,
   E2B_ENV_MANIFEST,
-  E2BSandboxAdapter,
+  E2BSandboxRuntime,
   getE2BSandboxWithoutStarting,
 } from "./e2b";
 import { SandboxRuntimeNotStartedError } from "./errors";
@@ -88,7 +88,7 @@ describe("E2B sandbox adapter", () => {
 
   it("runs AutoPR's CUA gateway instead of an E2B computer-use API", async () => {
     const sdk = sdkSandbox();
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
 
     await sandbox.computerUse.start();
 
@@ -104,7 +104,7 @@ describe("E2B sandbox adapter", () => {
     const sdk = sdkSandbox();
     const secret = "a".repeat(64);
     sdk.files.read.mockResolvedValueOnce(`${secret}\n`);
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
 
     const preview = await sandbox.getSignedPreviewUrl(6_080, 600);
     const expiresAt = Math.floor(Date.now() / 1_000) + 600;
@@ -126,7 +126,7 @@ describe("E2B sandbox adapter", () => {
 
   it("refreshes activity with Daytona's 15-minute inactivity window", async () => {
     const sdk = sdkSandbox();
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
 
     await sandbox.refreshActivity();
 
@@ -139,7 +139,7 @@ describe("E2B sandbox adapter", () => {
     const sdk = sdkSandbox("paused-e2b");
     const resumed = sdkSandbox("paused-e2b");
     mocks.connect.mockResolvedValueOnce(resumed);
-    const sandbox = new E2BSandboxAdapter(sdk as never, { state: "paused" });
+    const sandbox = new E2BSandboxRuntime(sdk as never, { state: "paused" });
 
     await sandbox.start(45);
 
@@ -152,7 +152,7 @@ describe("E2B sandbox adapter", () => {
 
   it("groups recording startup before writing the ffmpeg pid", async () => {
     const sdk = sdkSandbox();
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
 
     await sandbox.computerUse.recording.start();
 
@@ -164,7 +164,7 @@ describe("E2B sandbox adapter", () => {
   it("injects E2B secret references into SDK command environments", async () => {
     const sdk = sdkSandbox();
     sdk.files.read.mockResolvedValueOnce(JSON.stringify({ API_TOKEN: "autopr-token" }));
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
 
     await sandbox.process.executeCommand("printenv", "/home/autopr/repo", { LOCAL_FLAG: "yes" });
 
@@ -191,14 +191,14 @@ describe("E2B sandbox adapter", () => {
       wait,
     };
     firstSdk.commands.run.mockResolvedValueOnce(handle as never);
-    const first = new E2BSandboxAdapter(firstSdk as never);
+    const first = new E2BSandboxRuntime(firstSdk as never);
     await first.process.createSession("session-1");
     await first.process.executeSessionCommand("session-1", {
       command: "pnpm dev",
       runAsync: true,
     });
 
-    const refreshed = new E2BSandboxAdapter(sdkSandbox("shared-e2b") as never);
+    const refreshed = new E2BSandboxRuntime(sdkSandbox("shared-e2b") as never);
 
     await expect(refreshed.process.getSessionCommandLogs("session-1", "42")).resolves.toEqual({
       stdout: "server ready",
@@ -220,7 +220,7 @@ describe("E2B sandbox adapter", () => {
       wait: vi.fn(() => new Promise<never>(() => undefined)),
     };
     sdk.commands.run.mockResolvedValueOnce(handle as never);
-    const first = new E2BSandboxAdapter(sdk as never);
+    const first = new E2BSandboxRuntime(sdk as never);
 
     try {
       await first.process.createSession("long-session");
@@ -230,7 +230,7 @@ describe("E2B sandbox adapter", () => {
       });
       vi.advanceTimersByTime(2 * 60 * 60_000 + 1);
 
-      const refreshed = new E2BSandboxAdapter(sdkSandbox("long-running-e2b") as never);
+      const refreshed = new E2BSandboxRuntime(sdkSandbox("long-running-e2b") as never);
 
       await expect(refreshed.process.getSessionCommandLogs("long-session", "45")).resolves.toMatchObject({
         stdout: "still running",
@@ -252,7 +252,7 @@ describe("E2B sandbox adapter", () => {
       wait: vi.fn(() => new Promise<never>(() => undefined)),
     };
     sdk.commands.run.mockResolvedValueOnce(handle as never);
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
     await sandbox.process.createSession("timed-session");
 
     await sandbox.process.executeSessionCommand(
@@ -287,7 +287,7 @@ describe("E2B sandbox adapter", () => {
       wait: vi.fn(() => new Promise<never>(() => undefined)),
     };
     sdk.commands.connect.mockResolvedValueOnce(reconnected);
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
     await sandbox.process.createSession("failed-session");
     await sandbox.process.executeSessionCommand("failed-session", {
       command: "pnpm dev",
@@ -307,7 +307,7 @@ describe("E2B sandbox adapter", () => {
 
   it("retains only recent terminal command state after releasing E2B handles", async () => {
     const sdk = sdkSandbox("bounded-background-e2b");
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
     await sandbox.process.createSession("bounded-session");
 
     for (let pid = 100; pid <= 108; pid += 1) {
@@ -368,7 +368,7 @@ describe("E2B sandbox adapter", () => {
       stderr: "",
       wait: () => new Promise<never>(() => undefined),
     } as never);
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
     await sandbox.process.executeSessionCommand("kill-retry", { command: "pnpm dev", runAsync: true });
     sdk.commands.kill.mockRejectedValueOnce(new Error("temporarily unavailable"));
 
@@ -382,7 +382,7 @@ describe("E2B sandbox adapter", () => {
   it("does not silently drop environment variables when the manifest cannot be read", async () => {
     const sdk = sdkSandbox("manifest-failure-e2b");
     sdk.files.read.mockRejectedValueOnce(new Error("connection lost"));
-    const sandbox = new E2BSandboxAdapter(sdk as never);
+    const sandbox = new E2BSandboxRuntime(sdk as never);
 
     await expect(sandbox.process.executeCommand("pnpm build")).rejects.toThrow("connection lost");
     expect(sdk.commands.run).not.toHaveBeenCalled();

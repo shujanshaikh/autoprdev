@@ -12,10 +12,12 @@ describe("Daytona sandboxInfo tool", () => {
     mocks.getSandboxContext.mockResolvedValue({
       sandbox: {
         id: "sandbox-1",
-        name: "autopr-thread",
-        snapshot: "autopr-cua",
-        state: "started",
-        autoArchiveInterval: 120,
+        runtime: {
+          name: "autopr-thread",
+          snapshot: "autopr-cua",
+          state: "started",
+          autoArchiveInterval: 120,
+        },
       },
       workDir: "/workspace/repo",
     });

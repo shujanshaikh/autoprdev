@@ -7,7 +7,7 @@ import {
   cuaBootstrapCommand,
   parseCuaCommandResponse,
 } from "./cua-client";
-import type { DaytonaSandbox } from "../sandbox";
+import type { SandboxRuntime } from "../sandbox";
 
 const executeMocks = vi.hoisted(() => ({
   executeSandboxCommand: vi.fn(),
@@ -149,7 +149,7 @@ describe("CUA gateway response parsing", () => {
 });
 
 describe("CUA client configuration", () => {
-  const sandbox = {} as DaytonaSandbox;
+  const sandbox = {} as SandboxRuntime;
   const requiredCommandNames = [
     "version", "open", "get_current_window_id", "get_application_windows", "get_window_name", "get_window_size",
     "get_window_position", "activate_window", "maximize_window", "move_cursor", "left_click", "middle_click", "right_click",
@@ -185,7 +185,7 @@ describe("CUA client configuration", () => {
       ));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
+      { getSignedPreviewUrl } as unknown as SandboxRuntime,
       {},
     );
 
@@ -208,7 +208,7 @@ describe("CUA client configuration", () => {
       ));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
+      { getSignedPreviewUrl } as unknown as SandboxRuntime,
       {},
     );
 
@@ -226,7 +226,7 @@ describe("CUA client configuration", () => {
     const fetchMock = vi.fn(async () => new Response("unavailable", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
+      { getSignedPreviewUrl } as unknown as SandboxRuntime,
       {},
     );
 
@@ -250,7 +250,7 @@ describe("CUA client configuration", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const client = new CuaComputerClient(
-      { getSignedPreviewUrl } as unknown as DaytonaSandbox,
+      { getSignedPreviewUrl } as unknown as SandboxRuntime,
       {},
       { requestTimeoutMs: 1_000 },
     );
@@ -295,7 +295,7 @@ describe("CUA client configuration", () => {
       });
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as SandboxRuntime, {});
     await expect(client.inspect()).resolves.toEqual({
       status: "ok",
       os_type: "linux",
@@ -356,7 +356,7 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true}\n\n');
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as SandboxRuntime, {});
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "cua-driver",
       cursor: {
@@ -421,7 +421,7 @@ describe("CUA client configuration", () => {
     const client = new CuaComputerClient({
       id: "embedded-cursorless-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    } as unknown as SandboxRuntime, {});
 
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "cua-driver",
@@ -492,7 +492,7 @@ describe("CUA client configuration", () => {
       return new Response('data: {"success":true}\n\n');
     }));
 
-    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as DaytonaSandbox, {});
+    const client = new CuaComputerClient({ getSignedPreviewUrl } as unknown as SandboxRuntime, {});
     await expect(client.ensureReady()).resolves.toMatchObject({
       cursor: {
         enabled: false,
@@ -557,7 +557,7 @@ describe("CUA client configuration", () => {
     const client = new CuaComputerClient({
       id: "legacy-cursor-disable-failure",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    } as unknown as SandboxRuntime, {});
     await expect(client.ensureReady()).rejects.toThrow(
       "Could not disable the labeled legacy cursor: CUA gateway command failed: overlay did not stop",
     );
@@ -604,7 +604,7 @@ describe("CUA client configuration", () => {
     const client = new CuaComputerClient({
       id: "capture-miss-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    } as unknown as SandboxRuntime, {});
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "cua-driver",
       cursor: {
@@ -647,7 +647,7 @@ describe("CUA client configuration", () => {
     const client = new CuaComputerClient({
       id: "native-fallback-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    } as unknown as SandboxRuntime, {});
     await expect(client.ensureReady()).resolves.toMatchObject({
       backend: "native",
       cursor: {
@@ -696,7 +696,7 @@ describe("CUA client configuration", () => {
     const client = new CuaComputerClient({
       id: "concurrent-recovery-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    } as unknown as SandboxRuntime, {});
     const first = client.ensureReady();
     const second = client.ensureReady();
     let secondSettled = false;
@@ -724,7 +724,7 @@ describe("CUA client configuration", () => {
     const client = new CuaComputerClient({
       id: "failed-recovery-retry-sandbox",
       getSignedPreviewUrl,
-    } as unknown as DaytonaSandbox, {});
+    } as unknown as SandboxRuntime, {});
 
     await expect(client.ensureReady()).rejects.toThrow("transient startup failure");
     await expect(client.ensureReady()).rejects.toThrow("transient startup failure");

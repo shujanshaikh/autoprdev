@@ -108,7 +108,7 @@ async function executeDaytonaWrite(input: WriteInput, sandboxOptions: SandboxSes
     }
 
     await ensureRemoteParentDirectory(remotePath, sandboxOptions);
-    await context.sandbox.fs.uploadFile(content, remotePath);
+    await context.sandbox.files.write(remotePath, content);
 
     const oversizedNote = diff.patchOmitted
       ? ` The change was too large for a safe stored diff, so the diff preview was omitted.`

@@ -89,7 +89,7 @@ describe("E2B environment updates", () => {
       return originalMutation(reference);
     });
     const uploadFile = vi.fn(async (_bytes: Uint8Array, _path: string) => undefined);
-    mocks.createSandbox.mockResolvedValue({ fs: { uploadFile } });
+    mocks.createSandbox.mockResolvedValue({ runtime: { fs: { uploadFile } } });
 
     await expect(removeSandboxEnvironmentVariable._handler(ctx, {
       projectId: "project-1", envName: "TOKEN",
@@ -104,7 +104,7 @@ describe("E2B environment updates", () => {
   it("keeps a failed provider deletion retryable by restoring the persisted secret reference", async () => {
     const ctx = environmentContext();
     const uploadFile = vi.fn(async (_bytes: Uint8Array, _path: string) => undefined);
-    mocks.createSandbox.mockResolvedValue({ fs: { uploadFile } });
+    mocks.createSandbox.mockResolvedValue({ runtime: { fs: { uploadFile } } });
     mocks.destroySecret.mockRejectedValueOnce(new Error("provider unavailable"));
 
     await expect(removeSandboxEnvironmentVariable._handler(ctx, {

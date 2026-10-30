@@ -48,7 +48,7 @@ describe("Daytona process tool", () => {
     vi.clearAllMocks();
     backgroundProcesses = createBackgroundProcessScope("process-test-owner");
     mocks.getSandboxContext.mockResolvedValue({
-      sandbox: { id: "sandbox-process-test", process } as unknown as DaytonaSandbox,
+      sandbox: { id: "sandbox-process-test", runtime: { process } } as unknown as DaytonaSandbox,
       workDir: "/workspace/repo",
     });
   });

@@ -36,29 +36,24 @@ describe("project sandbox commits", () => {
 
   it("stages linked-worktree changes with the same Git CLI used to commit them", async () => {
     const commands: string[] = [];
-    const executeSessionCommand = vi.fn(async (
-      _sessionId: string,
-      input: { command: string },
+    const run = vi.fn(async (
+      command: string,
     ) => {
-      commands.push(input.command);
-      if (input.command.includes("git status --porcelain")) {
-        return { exitCode: 0, result: " M apps/web/src/app.tsx\n" };
+      commands.push(command);
+      if (command.includes("git status --porcelain")) {
+        return { ok: true, exitCode: 0, stdout: " M apps/web/src/app.tsx\n" };
       }
-      if (input.command.includes("git branch --show-current")) {
-        return { exitCode: 0, result: "autopr/fix-git-actions\n" };
+      if (command.includes("git branch --show-current")) {
+        return { ok: true, exitCode: 0, stdout: "autopr/fix-git-actions\n" };
       }
-      if (input.command.includes("git diff --cached --stat")) {
-        return { exitCode: 0, result: "1 file changed, 1 insertion(+)\n" };
+      if (command.includes("git diff --cached --stat")) {
+        return { ok: true, exitCode: 0, stdout: "1 file changed, 1 insertion(+)\n" };
       }
-      return { exitCode: 0, result: "" };
+      return { ok: true, exitCode: 0, stdout: "" };
     });
     mocks.createSandbox.mockResolvedValue({
       git: { add: mocks.sdkGitAdd },
-      process: {
-        createSession: vi.fn(async () => undefined),
-        executeSessionCommand,
-        deleteSession: vi.fn(async () => undefined),
-      },
+      run,
     });
 
     await expect(prepareProjectSandboxCommit({
@@ -77,30 +72,24 @@ describe("project sandbox commits", () => {
 
   it("repairs an index from an older failed operation before retrying the commit", async () => {
     const commands: string[] = [];
-    const executeSessionCommand = vi.fn(async (
-      _sessionId: string,
-      input: { command: string },
+    const run = vi.fn(async (
+      command: string,
     ) => {
-      commands.push(input.command);
-      if (input.command.includes("git branch --show-current")) {
-        return { exitCode: 0, result: "autopr/fix-git-actions\n" };
+      commands.push(command);
+      if (command.includes("git branch --show-current")) {
+        return { ok: true, exitCode: 0, stdout: "autopr/fix-git-actions\n" };
       }
-      if (input.command.includes("git diff --cached --name-only")) {
-        return { exitCode: 0, result: "apps/web/src/app.tsx\n" };
+      if (command.includes("git diff --cached --name-only")) {
+        return { ok: true, exitCode: 0, stdout: "apps/web/src/app.tsx\n" };
       }
-      if (input.command.includes("git rev-parse HEAD")) {
-        return { exitCode: 0, result: `${"b".repeat(40)}\n` };
+      if (command.includes("git rev-parse HEAD")) {
+        return { ok: true, exitCode: 0, stdout: `${"b".repeat(40)}\n` };
       }
-      return { exitCode: 0, result: "" };
+      return { ok: true, exitCode: 0, stdout: "" };
     });
     mocks.createSandbox.mockResolvedValue({
       git: { add: mocks.sdkGitAdd },
-      process: {
-        createSession: vi.fn(async () => undefined),
-        executeSessionCommand,
-        deleteSession: vi.fn(async () => undefined),
-        executeCommand: vi.fn(async () => ({ exitCode: 0, result: "Committed" })),
-      },
+      run,
     });
 
     await expect(commitPreparedProjectSandboxChanges({
@@ -122,29 +111,24 @@ describe("project sandbox commits", () => {
 
   it("renames a temporary worktree branch without colliding with remote branches", async () => {
     const commands: string[] = [];
-    const executeSessionCommand = vi.fn(async (
-      _sessionId: string,
-      input: { command: string },
+    const run = vi.fn(async (
+      command: string,
     ) => {
-      commands.push(input.command);
-      if (input.command.includes("git branch --show-current")) {
-        return { exitCode: 0, result: "autopr/new-thread-8a581f31e2\n" };
+      commands.push(command);
+      if (command.includes("git branch --show-current")) {
+        return { ok: true, exitCode: 0, stdout: "autopr/new-thread-8a581f31e2\n" };
       }
-      if (input.command.includes("git for-each-ref")) {
-        return { exitCode: 0, result: "main\nautopr/new-thread-8a581f31e2\n" };
+      if (command.includes("git for-each-ref")) {
+        return { ok: true, exitCode: 0, stdout: "main\nautopr/new-thread-8a581f31e2\n" };
       }
-      return { exitCode: 0, result: "" };
+      return { ok: true, exitCode: 0, stdout: "" };
     });
     mocks.runAuthenticatedSandboxCommand.mockResolvedValue({
-      exitCode: 0,
-      result: `${"a".repeat(40)}\trefs/heads/autopr/fix-git-actions\n`,
+      ok: true, exitCode: 0,
+      stdout: `${"a".repeat(40)}\trefs/heads/autopr/fix-git-actions\n`,
     });
     mocks.createSandbox.mockResolvedValue({
-      process: {
-        createSession: vi.fn(async () => undefined),
-        executeSessionCommand,
-        deleteSession: vi.fn(async () => undefined),
-      },
+      run,
     });
 
     await expect(renameProjectSandboxBranch({

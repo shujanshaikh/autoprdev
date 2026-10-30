@@ -1611,9 +1611,9 @@ export const importSandboxEnvironmentVariables = action({
           operationId,
         },
       );
-      const previousManifest = Buffer.from(JSON.stringify(Object.fromEntries(
+      const previousManifest = JSON.stringify(Object.fromEntries(
         lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
-      )));
+      ));
       type CreatedSecret = Awaited<ReturnType<typeof E2BSecret.create>>;
       const createdSecrets: CreatedSecret[] = [];
       let manifestUpdated = false;
@@ -1643,13 +1643,13 @@ export const importSandboxEnvironmentVariables = action({
           ...lockedProject.sandboxSecrets.filter((secret) => !importedNames.has(secret.envName)),
           ...updatedSecrets,
         ];
-        const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+        const sandbox = await createProviderSandbox({ provider: "e2b", sandboxId: lockedProject.sandboxId });
         await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
-        await sandbox.fs.uploadFile(
-          Buffer.from(JSON.stringify(Object.fromEntries(
-            allSecrets.map((secret) => [secret.envName, secret.secretName]),
-          ))),
+        await sandbox.files.write(
           E2B_ENV_MANIFEST,
+          JSON.stringify(Object.fromEntries(
+            allSecrets.map((secret) => [secret.envName, secret.secretName]),
+          )),
         );
         manifestUpdated = true;
         await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
@@ -1671,9 +1671,9 @@ export const importSandboxEnvironmentVariables = action({
         if (!committed) {
           if (manifestUpdated) {
             try {
-              const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+              const sandbox = await createProviderSandbox({ provider: "e2b", sandboxId: lockedProject.sandboxId });
               if (await renewSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId)) {
-                await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
+                await sandbox.files.write(E2B_ENV_MANIFEST, previousManifest);
               }
             } catch (rollbackError) {
               rollbackErrors.push(rollbackError);
@@ -1779,20 +1779,20 @@ export const removeSandboxEnvironmentVariable = action({
       const lockedSecret = lockedProject.sandboxSecrets.find((secret) => secret.envName === args.envName);
       const lockedVariable = lockedProject.sandboxEnvironmentVariables.find((variable) => variable.envName === args.envName);
       const remaining = lockedProject.sandboxSecrets.filter((secret) => secret.envName !== args.envName);
-      const previousManifest = Buffer.from(JSON.stringify(Object.fromEntries(
+      const previousManifest = JSON.stringify(Object.fromEntries(
         lockedProject.sandboxSecrets.map((secret) => [secret.envName, secret.secretName]),
-      )));
+      ));
       let manifestUpdated = false;
       let committed = false;
       try {
         if (!lockedSecret && !lockedVariable) return null;
-        const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+        const sandbox = await createProviderSandbox({ provider: "e2b", sandboxId: lockedProject.sandboxId });
         await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
-        await sandbox.fs.uploadFile(
-          Buffer.from(JSON.stringify(Object.fromEntries(
-            remaining.map((secret) => [secret.envName, secret.secretName]),
-          ))),
+        await sandbox.files.write(
           E2B_ENV_MANIFEST,
+          JSON.stringify(Object.fromEntries(
+            remaining.map((secret) => [secret.envName, secret.secretName]),
+          )),
         );
         manifestUpdated = true;
         await requireSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId);
@@ -1809,7 +1809,7 @@ export const removeSandboxEnvironmentVariable = action({
         const rollbackErrors: unknown[] = [];
         if (manifestUpdated) {
           try {
-            const sandbox = await ensureProviderSandboxStarted("e2b", lockedProject.sandboxId);
+            const sandbox = await createProviderSandbox({ provider: "e2b", sandboxId: lockedProject.sandboxId });
             if (await renewSandboxEnvironmentUpdate(ctx, identity.subject, args.projectId, operationId)) {
               // Retain the secret reference for retry if provider deletion failed after the commit.
               if (committed && lockedSecret) {
@@ -1820,7 +1820,7 @@ export const removeSandboxEnvironmentVariable = action({
                   secrets: [lockedSecret],
                 });
               }
-              await sandbox.fs.uploadFile(previousManifest, E2B_ENV_MANIFEST);
+              await sandbox.files.write(E2B_ENV_MANIFEST, previousManifest);
             }
           } catch (rollbackError) {
             rollbackErrors.push(rollbackError);

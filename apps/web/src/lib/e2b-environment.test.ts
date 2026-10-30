@@ -88,23 +88,23 @@ describe("E2B environment updates", () => {
       }
       return originalMutation(reference);
     });
-    const uploadFile = vi.fn(async (_bytes: Uint8Array, _path: string) => undefined);
-    mocks.createSandbox.mockResolvedValue({ runtime: { fs: { uploadFile } } });
+    const write = vi.fn(async (_path: string, _data: string) => undefined);
+    mocks.createSandbox.mockResolvedValue({ files: { write } });
 
     await expect(removeSandboxEnvironmentVariable._handler(ctx, {
       projectId: "project-1", envName: "TOKEN",
     })).rejects.toThrow("database unavailable");
 
     expect(mocks.destroySecret).not.toHaveBeenCalled();
-    expect(uploadFile.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes))).toEqual([
+    expect(write.mock.calls.map(([, data]) => data)).toEqual([
       "{}", JSON.stringify({ TOKEN: "old-token" }),
     ]);
   });
 
   it("keeps a failed provider deletion retryable by restoring the persisted secret reference", async () => {
     const ctx = environmentContext();
-    const uploadFile = vi.fn(async (_bytes: Uint8Array, _path: string) => undefined);
-    mocks.createSandbox.mockResolvedValue({ runtime: { fs: { uploadFile } } });
+    const write = vi.fn(async (_path: string, _data: string) => undefined);
+    mocks.createSandbox.mockResolvedValue({ files: { write } });
     mocks.destroySecret.mockRejectedValueOnce(new Error("provider unavailable"));
 
     await expect(removeSandboxEnvironmentVariable._handler(ctx, {
@@ -114,7 +114,7 @@ describe("E2B environment updates", () => {
     const mutationNames = ctx.runMutation.mock.calls.map(([reference]) => getFunctionName(reference));
     expect(mutationNames).toContain("projects:removeSandboxEnvironmentVariableInternal");
     expect(mutationNames).toContain("projects:upsertSandboxSecretsInternal");
-    expect(uploadFile.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes))).toEqual([
+    expect(write.mock.calls.map(([, data]) => data)).toEqual([
       "{}", JSON.stringify({ TOKEN: "old-token" }),
     ]);
   });
